@@ -7,6 +7,7 @@ use std::io;
 pub trait FileStore {
     type Write: AsyncWrite;
     fn open_write(&self) -> Self::Write;
+    fn open_write_from(&self, offset: usize) -> Self::Write;
 }
 
 pub trait FileLoad {
@@ -20,13 +21,20 @@ pub trait FileLoad {
 }
 
 pub struct MemoryBackedStoreWriter {
-    vec: Arc<RwLock<Vec<u8>>>
+    vec: Arc<RwLock<Vec<u8>>>,
+    pos: usize
 }
 
 impl Write for MemoryBackedStoreWriter {
     fn write(&mut self, buf: &[u8]) -> Result<usize, io::Error> {
         let mut v = self.vec.write().unwrap();
-        v.extend_from_slice(buf);
+        if v.len() - self.pos < buf.len() {
+            v.resize(self.pos + buf.len(), 0);
+        }
+
+        v[self.pos..self.pos+buf.len()].copy_from_slice(buf);
+
+        self.pos += buf.len();
 
         Ok(buf.len())
     }
@@ -89,10 +97,11 @@ impl FileStore for MemoryBackedStore {
     type Write = MemoryBackedStoreWriter;
 
     fn open_write(&self) -> MemoryBackedStoreWriter {
-        let mut v = self.vec.write().unwrap();
-        v.truncate(0);
+        self.open_write_from(0)
+    }
 
-        MemoryBackedStoreWriter { vec: self.vec.clone() }
+    fn open_write_from(&self, pos: usize) -> MemoryBackedStoreWriter {
+        MemoryBackedStoreWriter { vec: self.vec.clone(), pos }
     }
 }
 
