@@ -1,12 +1,17 @@
 //! storage traits that the builders and loaders can rely on
 
 use tokio::prelude::*;
+use tokio::fs::*;
 use std::sync::{Arc,RwLock};
-use std::io;
+use std::io::{self,Seek, SeekFrom};
+use std::path::PathBuf;
+use memmap::*;
 
 pub trait FileStore {
     type Write: AsyncWrite;
-    fn open_write(&self) -> Self::Write;
+    fn open_write(&self) -> Self::Write {
+        self.open_write_from(0)
+    }
     fn open_write_from(&self, offset: usize) -> Self::Write;
 }
 
@@ -15,7 +20,9 @@ pub trait FileLoad {
     type Map: AsRef<[u8]>;
     
     fn size(&self) -> usize;
-    fn open_read(&self) -> Self::Read;
+    fn open_read(&self) -> Self::Read {
+        self.open_read_from(0)
+    }
     fn open_read_from(&self, offset: usize) -> Self::Read;
     fn map(&self) -> Self::Map;
 }
@@ -96,10 +103,6 @@ impl MemoryBackedStore {
 impl FileStore for MemoryBackedStore {
     type Write = MemoryBackedStoreWriter;
 
-    fn open_write(&self) -> MemoryBackedStoreWriter {
-        self.open_write_from(0)
-    }
-
     fn open_write_from(&self, pos: usize) -> MemoryBackedStoreWriter {
         MemoryBackedStoreWriter { vec: self.vec.clone(), pos }
     }
@@ -113,15 +116,141 @@ impl FileLoad for MemoryBackedStore {
         self.vec.read().unwrap().len()
     }
 
-    fn open_read(&self) -> MemoryBackedStoreReader {
-        MemoryBackedStoreReader { vec: self.vec.clone(), pos: 0 }
-    }
-
     fn open_read_from(&self, offset: usize) -> MemoryBackedStoreReader {
         MemoryBackedStoreReader { vec: self.vec.clone(), pos: offset }
     }
 
     fn map(&self) -> Vec<u8> {
         self.vec.read().unwrap().clone()
+    }
+}
+
+pub struct FileBackedStore {
+    path: PathBuf
+}
+
+impl FileBackedStore {
+    pub fn new<P:Into<PathBuf>>(path: P) -> FileBackedStore {
+        FileBackedStore { path: path.into() }
+    }
+
+    fn open_read_from_std(&self, offset: usize) -> std::fs::File {
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        let mut file = options.open(&self.path).unwrap();
+
+        file.seek(SeekFrom::Start(offset as u64)).unwrap();
+
+        file
+    }
+
+}
+
+impl FileLoad for FileBackedStore {
+    type Read = File;
+    type Map = Mmap;
+
+    fn size(&self) -> usize {
+        let m = std::fs::metadata(&self.path).unwrap();
+        m.len() as usize
+    }
+
+    fn open_read_from(&self, offset: usize) -> File {
+        let f = self.open_read_from_std(offset);
+
+        File::from_std(f)
+    }
+
+    fn map(&self) -> Mmap {
+        let f = self.open_read_from_std(0);
+
+        // unsafe justification: we opened this file specifically to do memory mapping, and will do nothing else with it.
+        unsafe { Mmap::map(&f) }.unwrap()
+
+    }
+}
+
+impl FileStore for FileBackedStore {
+    type Write = File;
+
+    fn open_write_from(&self, offset: usize) -> File {
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true).write(true).create(true);
+        let mut file = options.open(&self.path).unwrap();
+
+        file.seek(SeekFrom::Start(offset as u64)).unwrap();
+
+        File::from_std(file)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    use tokio::sync::oneshot::channel;
+
+    #[test]
+    fn write_and_read_memory_backed() {
+        let file = MemoryBackedStore::new();
+
+        let w = file.open_write();
+        let buf = tokio::io::write_all(w,[1,2,3])
+            .and_then(move |_| tokio::io::read_to_end(file.open_read(), Vec::new()))
+            .map(|(_,buf)| buf)
+            .wait()
+            .unwrap();
+
+        assert_eq!(vec![1,2,3], buf);
+    }
+
+    #[test]
+    fn write_and_map_memory_backed() {
+        let file = MemoryBackedStore::new();
+
+        let w = file.open_write();
+        tokio::io::write_all(w,[1,2,3])
+            .wait()
+            .unwrap();
+
+        assert_eq!(vec![1,2,3], file.map());
+    }
+
+    #[test]
+    fn write_and_read_file_backed() {
+        let (tx,rx) = channel::<Result<Vec<u8>, std::io::Error>>();
+
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("foo");
+        let file = FileBackedStore::new(file_path);
+
+        let w = file.open_write();
+        let task = tokio::io::write_all(w,[1,2,3])
+            .and_then(move |_| tokio::io::read_to_end(file.open_read(), Vec::new()))
+            .map(move |(_,buf)| buf)
+            .then(|x| tx.send(x))
+            .map(|_|())
+            .map_err(|_|());
+
+        tokio::run(task);
+        let buf = rx.wait().unwrap();
+
+        assert_eq!(vec![1,2,3], buf.unwrap());
+    }
+
+    #[test]
+    fn write_and_map_file_backed() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("foo");
+        let file = FileBackedStore::new(file_path);
+
+        let w = file.open_write();
+        let task = tokio::io::write_all(w,[1,2,3])
+            .map(|_|())
+            .map_err(|_|());
+
+        tokio::run(task);
+
+        assert_eq!(&vec![1,2,3][..], &file.map()[..]);
     }
 }
