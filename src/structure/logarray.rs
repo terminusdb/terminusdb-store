@@ -7,10 +7,11 @@ use super::util::*;
 use super::storage::*;
 
 #[derive(Clone)]
-pub struct LogArray<'a> {
+pub struct LogArray<M:AsRef<[u8]>+Clone> {
     len: u32,
     width: u8,
-    data: &'a [u8]
+    len_bytes: usize,
+    data: M
 }
 
 #[derive(Debug)]
@@ -18,17 +19,17 @@ pub enum LogArrayError {
     InvalidCoding
 }
 
-impl<'a> LogArray<'a> {
-    pub fn parse(data: &[u8]) -> Result<LogArray,LogArrayError> {
-        let len = BigEndian::read_u32(&data[data.len()-8..]);
-        let width = data[data.len()-4];
+impl<M:AsRef<[u8]>+Clone> LogArray<M> {
+    pub fn parse(data: M) -> Result<LogArray<M>,LogArrayError> {
+        let len = BigEndian::read_u32(&data.as_ref()[data.as_ref().len()-8..]);
+        let width = data.as_ref()[data.as_ref().len()-4];
         let len_bytes = (len as usize * width as usize + 7) / 8 as usize;
-        let slice = &data[0..len_bytes];
 
         Ok(LogArray {
-            len: len,
-            width: width,
-            data: slice
+            len,
+            width,
+            len_bytes,
+            data
         })
     }
 
@@ -37,7 +38,7 @@ impl<'a> LogArray<'a> {
     }
 
     pub fn len_bytes(&self) -> usize {
-        (self.len as usize * self.width as usize + 7) / 8 as usize
+        self.len_bytes
     }
 
     fn nums_for_index(&self, index: usize) -> (u64, u64) {
@@ -46,18 +47,18 @@ impl<'a> LogArray<'a> {
 
         let start_u64_offset = start_byte / 8 * 8;
 
-        if start_u64_offset + 16 > self.data.len() {
-            let fragment_size = self.data.len() - start_u64_offset;
+        if start_u64_offset + 16 > self.len_bytes {
+            let fragment_size = self.len_bytes - start_u64_offset;
             let mut x = vec![0;16];
-            x[..fragment_size].copy_from_slice(&self.data[start_u64_offset..]);
+            x[..fragment_size].copy_from_slice(&self.data.as_ref()[start_u64_offset..self.len_bytes]);
             
             let n1 = BigEndian::read_u64(&x);
             let n2 = BigEndian::read_u64(&x[8..]);
             (n1,n2)
         }
         else {
-            let n1 = BigEndian::read_u64(&self.data[start_u64_offset..]);
-            let n2 = BigEndian::read_u64(&self.data[start_u64_offset+8..]);
+            let n1 = BigEndian::read_u64(&self.data.as_ref()[start_u64_offset..self.len_bytes]);
+            let n2 = BigEndian::read_u64(&self.data.as_ref()[start_u64_offset+8..self.len_bytes]);
             (n1,n2)
         }
     }
@@ -114,8 +115,7 @@ impl<'a> LogArray<'a> {
         }
     }
 
-    pub fn slice(&self, offset: usize, length: usize) -> LogArraySlice {
-        println!("self length: {} offset {} length {}", self.len(), offset, length);
+    pub fn slice(&self, offset: usize, length: usize) -> LogArraySlice<M> {
         if self.len() < offset + length {
             panic!("slice out of bounds");
         }
@@ -127,13 +127,13 @@ impl<'a> LogArray<'a> {
     }
 }
 
-pub struct LogArraySlice<'a> {
-    original: LogArray<'a>,
+pub struct LogArraySlice<M:AsRef<[u8]>+Clone> {
+    original: LogArray<M>,
     offset: usize,
     length: usize
 }
 
-impl<'a> LogArraySlice<'a> {
+impl<M:AsRef<[u8]>+Clone> LogArraySlice<M> {
     pub fn len(&self) -> usize {
         self.length
     }
@@ -173,10 +173,11 @@ impl LogArrayBuilder {
         builder
     }
 
-    pub fn as_logarray(&self) -> LogArray {
+    pub fn as_logarray(&self) -> LogArray<&[u8]> {
         LogArray {
             len: self.len,
             width: self.width,
+            len_bytes: self.data.len(),
             data: &self.data
         }
     }
@@ -336,7 +337,6 @@ impl Decoder for LogArrayDecoder {
     type Error = std::io::Error;
 
     fn decode(&mut self, bytes: &mut BytesMut) -> Result<Option<u64>, std::io::Error> {
-        println!("logarraydecoder: {:?}", self);
         if self.remaining == 0 {
             // we're out of things to read. All that remains is the footer with the length and things.
             bytes.clear();

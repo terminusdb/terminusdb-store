@@ -66,7 +66,7 @@ impl<'a> PfcBlock<'a> {
 
 pub struct PfcDict<'a> {
     n_strings: u64,
-    block_offsets: LogArray<'a>,
+    block_offsets: LogArray<&'a [u8]>,
     blocks: &'a [u8]
 }
 

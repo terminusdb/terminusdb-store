@@ -7,12 +7,12 @@ use super::storage::*;
 
 #[derive(Clone)]
 pub struct AdjacencyList<'a> {
-    nums: LogArray<'a>,
+    nums: LogArray<&'a [u8]>,
     bits: BitIndex<'a>,
 }
 
 impl<'a> AdjacencyList<'a> {
-    pub fn from_parts(nums: LogArray<'a>, bits: BitIndex<'a>) -> AdjacencyList<'a> {
+    pub fn from_parts(nums: LogArray<&'a [u8]>, bits: BitIndex<'a>) -> AdjacencyList<'a> {
         AdjacencyList { nums, bits }
     }
 
@@ -26,7 +26,7 @@ impl<'a> AdjacencyList<'a> {
         AdjacencyList { nums, bits }
     }
 
-    pub fn get(&self, index: u64) -> LogArraySlice {
+    pub fn get(&self, index: u64) -> LogArraySlice<&'a [u8]> {
         if index < 1 {
             panic!("minimum index has to be 1");
         }

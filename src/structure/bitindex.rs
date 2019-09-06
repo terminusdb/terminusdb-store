@@ -14,12 +14,12 @@ const SBLOCK_SIZE: usize = 52;
 #[derive(Clone)]
 pub struct BitIndex<'a> {
     array: BitArray<'a>,
-    blocks: LogArray<'a>,
-    sblocks: LogArray<'a>
+    blocks: LogArray<&'a [u8]>,
+    sblocks: LogArray<&'a [u8]>
 }
 
 impl<'a> BitIndex<'a> {
-    pub fn from_parts(array: BitArray<'a>, blocks: LogArray<'a>, sblocks: LogArray<'a>) -> BitIndex<'a> {
+    pub fn from_parts(array: BitArray<'a>, blocks: LogArray<&'a [u8]>, sblocks: LogArray<&'a [u8]>) -> BitIndex<'a> {
         assert!(sblocks.len() == (blocks.len() + SBLOCK_SIZE - 1) / SBLOCK_SIZE);
         assert!(blocks.len() == (array.len() + 63) / 64);
 
@@ -188,8 +188,8 @@ mod tests {
             .unwrap();
 
         let ba = BitArray::from_bits(&ba_stored);
-        let blocks_logarray = LogArray::parse(&blocks).unwrap();
-        let sblocks_logarray = LogArray::parse(&sblocks).unwrap();
+        let blocks_logarray = LogArray::parse(&blocks[..]).unwrap();
+        let sblocks_logarray = LogArray::parse(&sblocks[..]).unwrap();
 
         let index = BitIndex::from_parts(ba, blocks_logarray, sblocks_logarray);
 
