@@ -51,7 +51,7 @@ impl<'a> VByte<'a> {
         dest.write_all(&buf[..trunc_len])
     }
 
-    pub fn write<A>(num: u64, dest: A) -> Box<Future<Item=(A,usize),Error=tokio::io::Error>>
+    pub fn write<A>(num: u64, dest: A) -> Box<dyn Future<Item=(A,usize),Error=tokio::io::Error>>
     where A: 'static+AsyncWrite {
         let mut buf = vec![0;10];
         let trunc_len = {
