@@ -6,28 +6,28 @@ use bytes::BytesMut;
 use super::util::*;
 
 #[derive(Clone)]
-pub struct BitArray<'a> {
-    bits: &'a [u8],
+pub struct BitArray<M:AsRef<[u8]>+Clone> {
+    bits: M,
     /// how many bits are being used in the last 8 bytes?
     count: u64
 }
 
-impl<'a> BitArray<'a> {
-    pub fn from_bits(bits: &[u8]) -> BitArray {
-        if bits.len() < 8 || bits.len() % 8 != 0 {
+impl<M:AsRef<[u8]>+Clone> BitArray<M> {
+    pub fn from_bits(bits: M) -> BitArray<M> {
+        if bits.as_ref().len() < 8 || bits.as_ref().len() % 8 != 0 {
             panic!("unexpected bitarray length");
         }
 
-        let count = BigEndian::read_u64(&bits[bits.len()-8..]);
+        let count = BigEndian::read_u64(&bits.as_ref()[bits.as_ref().len()-8..]);
 
         BitArray {
-            bits: &bits[..bits.len()-8],
-            count: count
+            bits,
+            count
         }
     }
 
     pub fn bits(&self) -> &[u8] {
-        self.bits
+        &self.bits.as_ref()[..self.bits.as_ref().len()-8]
     }
 
     pub fn len(&self) -> usize {
@@ -39,63 +39,10 @@ impl<'a> BitArray<'a> {
             panic!("index too high");
         }
 
-        let byte = self.bits[index/8];
+        let byte = self.bits.as_ref()[index/8];
         let mask: u8 = 128>>(index%8);
 
         byte & mask != 0
-    }
-}
-
-pub struct BitArrayBuilder {
-    bits: Vec<u8>,
-    count: u64,
-    last_use: u8
-}
-
-impl BitArrayBuilder {
-    pub fn new() -> BitArrayBuilder {
-        BitArrayBuilder {
-            bits: Vec::new(),
-            count: 0,
-            last_use: 0,
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        if self.bits.len() == 0 {
-            0
-        }
-        else {
-            (self.bits.len()-1) * 8 + self.last_use as usize
-        }
-    }
-
-    #[inline]
-    pub fn as_bitarray(&self) -> BitArray {
-        BitArray { bits: &self.bits, count: self.count }
-    }
-
-    pub fn push(&mut self, val: bool) {
-        if self.last_use % 8 == 0 {
-            self.bits.push(0);
-
-            self.last_use = 0;
-        }
-        let mut shifted = if val { 128 } else { 0 };
-        shifted >>= self.last_use % 8;
-        let bits_len = self.bits.len();
-        self.bits[bits_len-1] |= shifted;
-
-        self.last_use += 1;
-        self.count += 1;
-    }
-
-    pub fn set(&mut self, ix: usize, val: bool) {
-        let mask = !(128>>(ix%8));
-        let mut shifted = if val { 128 } else { 0 };
-        shifted >>= ix%8;
-        self.bits[ix/8] &= mask;
-        self.bits[ix/8] |= shifted;
     }
 }
 
@@ -196,7 +143,6 @@ impl Decoder for BitArrayBlockDecoder {
 pub fn bitarray_stream_blocks<R:'static+AsyncRead>(r: R) -> FramedRead<R, BitArrayBlockDecoder> {
     FramedRead::new(r, BitArrayBlockDecoder { readahead: None })
 }
-
 
 #[cfg(test)]
 mod tests {
