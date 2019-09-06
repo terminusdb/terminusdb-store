@@ -12,14 +12,14 @@ use tokio::prelude::*;
 const SBLOCK_SIZE: usize = 52;
 
 #[derive(Clone)]
-pub struct BitIndex<'a> {
-    array: BitArray<&'a [u8]>,
-    blocks: LogArray<&'a [u8]>,
-    sblocks: LogArray<&'a [u8]>
+pub struct BitIndex<M:AsRef<[u8]>+Clone> {
+    array: BitArray<M>,
+    blocks: LogArray<M>,
+    sblocks: LogArray<M>
 }
 
-impl<'a> BitIndex<'a> {
-    pub fn from_parts(array: BitArray<&'a [u8]>, blocks: LogArray<&'a [u8]>, sblocks: LogArray<&'a [u8]>) -> BitIndex<'a> {
+impl<M:AsRef<[u8]>+Clone> BitIndex<M> {
+    pub fn from_parts(array: BitArray<M>, blocks: LogArray<M>, sblocks: LogArray<M>) -> BitIndex<M> {
         assert!(sblocks.len() == (blocks.len() + SBLOCK_SIZE - 1) / SBLOCK_SIZE);
         assert!(blocks.len() == (array.len() + 63) / 64);
 

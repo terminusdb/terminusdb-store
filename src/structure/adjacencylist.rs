@@ -8,11 +8,11 @@ use super::storage::*;
 #[derive(Clone)]
 pub struct AdjacencyList<'a> {
     nums: LogArray<&'a [u8]>,
-    bits: BitIndex<'a>,
+    bits: BitIndex<&'a [u8]>,
 }
 
 impl<'a> AdjacencyList<'a> {
-    pub fn from_parts(nums: LogArray<&'a [u8]>, bits: BitIndex<'a>) -> AdjacencyList<'a> {
+    pub fn from_parts(nums: LogArray<&'a [u8]>, bits: BitIndex<&'a [u8]>) -> AdjacencyList<'a> {
         AdjacencyList { nums, bits }
     }
 
