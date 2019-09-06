@@ -147,90 +147,6 @@ impl<M:AsRef<[u8]>+Clone> LogArraySlice<M> {
     }
 }
 
-#[derive(Debug)]
-pub struct LogArrayBuilder {
-    len: u32,
-    width: u8,
-    data: Vec<u8>
-}
-
-impl LogArrayBuilder {
-    pub fn new(width: u8) -> LogArrayBuilder {
-        LogArrayBuilder {
-            len: 0,
-            width: width,
-            data: Vec::new()
-        }
-    }
-
-    pub fn from_iter<I>(width: u8, col: I) -> LogArrayBuilder
-    where I: IntoIterator<Item=u64> {
-        let mut builder = LogArrayBuilder::new(width);
-        for b in col.into_iter() {
-            builder.push(b);
-        }
-
-        builder
-    }
-
-    pub fn as_logarray(&self) -> LogArray<&[u8]> {
-        LogArray {
-            len: self.len,
-            width: self.width,
-            len_bytes: self.data.len(),
-            data: &self.data
-        }
-    }
-
-    pub fn push(&mut self, val: u64) {
-        if 64 - val.leading_zeros() as u8 > self.width {
-            panic!("val {} too large to fit in width {}", val, self.width);
-        }
-
-        let offset = self.width as usize * self.len as usize / 64 * 8;
-
-        self.data.resize(offset+16, 0);
-        let (mut n1, mut n2, shift) = {
-            let logarray = self.as_logarray();
-            let shift = logarray.shift_for_index(self.len as usize);
-            let (n1, n2) = logarray.nums_for_index(self.len as usize);
-            let (m1, m2) = logarray.mask_for_index(self.len as usize);
-            (n1&!m1, n2&!m2, shift)
-        };
-
-        if shift < 0 {
-            // crossing a boundary
-            n1 |= val >> -1 * shift;
-            n2 |= val << 64 + shift;
-        }
-        else {
-            n1 |= val << shift;
-        }
-
-        BigEndian::write_u64(&mut self.data[offset..], n1);
-        BigEndian::write_u64(&mut self.data[offset+8..], n2);
-
-        self.len += 1;
-        self.data.truncate((self.width as usize * self.len as usize + 7) / 8);
-    }
-
-    pub fn write<W:tokio::io::AsyncWrite>(self, w:W) -> impl Future<Item=(W, usize),Error=std::io::Error> {
-        // first, write the number of entries as an u32
-        // then, write the width as a single byte
-        // write 3 padding bytes
-        // with all that out of the way, actually write the logarray.
-        let mut header = vec![0u8;8];
-        BigEndian::write_u32(&mut header, self.len);
-        header[4] = self.width;
-        let data = self.data;
-        let final_len = (data.len() + 7) / 8 * 8 + 8;
-        tokio::io::write_all(w, data)
-            .and_then(move |(w, slice)| write_padding(w, slice.len(), 8))
-            .and_then(|(w, _)| tokio::io::write_all(w, header))
-            .map(move |(w, _)| (w, final_len))
-    }
-}
-
 /// write a logarray directly to an AsyncWrite
 pub struct LogArrayFileBuilder<W:'static+tokio::io::AsyncWrite> {
     file: W,
@@ -401,29 +317,6 @@ pub fn open_logarray_stream<F:'static+FileLoad>(f: F) -> impl Future<Item=Box<'s
 mod tests {
     use super::*;
     use futures::stream;
-
-    #[test]
-    fn logarray_can_be_built() {
-        let mut foo = LogArrayBuilder::new(3);
-        foo.push(3);
-        foo.push(4);
-        foo.push(2);
-        foo.push(1);
-        foo.push(7);
-
-        let x = foo.as_logarray();
-        assert_eq!(3, x.entry(0));
-        assert_eq!(4, x.entry(1));
-        assert_eq!(2, x.entry(2));
-        assert_eq!(1, x.entry(3));
-        assert_eq!(7, x.entry(4));
-    }
-
-    #[test]
-    fn build_from_vec_works() {
-        let l = LogArrayBuilder::from_iter(7, vec![1,3,2,5,12,42,38]);
-        assert_eq!(42, l.as_logarray().entry(5));
-    }
 
     #[test]
     fn generate_then_parse_works() {

@@ -24,32 +24,32 @@ impl From<LogArrayError> for PfcError {
     }
 }
 
-pub struct PfcBlock<'a> {
-    encoded_strings: &'a [u8]
+pub struct PfcBlock<M:AsRef<[u8]>+Clone> {
+    encoded_strings: M
 }
 
 const BLOCK_SIZE: usize = 8;
 
-impl<'a> PfcBlock<'a> {
-    pub fn parse(data: &[u8]) -> Result<PfcBlock,PfcError> {
-        Ok(PfcBlock { encoded_strings: data }) // todo maybe actually try to shorten the slice
+impl<M:AsRef<[u8]>+Clone> PfcBlock<M> {
+    pub fn parse(data: M) -> Result<PfcBlock<M>,PfcError> {
+        Ok(PfcBlock { encoded_strings: data })
     }
 
     pub fn get(&self, mut index: usize) -> String {
-        let first_end = self.encoded_strings.iter().position(|&b|b == 0).unwrap();
+        let first_end = self.encoded_strings.as_ref().iter().position(|&b|b == 0).unwrap();
         let mut x: Vec<u8> = Vec::new();
-        x.extend_from_slice(&self.encoded_strings[..first_end]);
+        x.extend_from_slice(&self.encoded_strings.as_ref()[..first_end]);
 
         let mut pos = first_end + 1;
 
         while index != 0 {
-            let v = VByte::parse(&self.encoded_strings[pos..]).expect("encoding error in self-managed data");
+            let v = VByte::parse(&self.encoded_strings.as_ref()[pos..]).expect("encoding error in self-managed data");
             x.truncate(v.unpack() as usize);
             pos += v.len();
 
-            let postfix_end = pos + self.encoded_strings[pos..].iter().position(|&b|b==0).unwrap();
+            let postfix_end = pos + self.encoded_strings.as_ref()[pos..].iter().position(|&b|b==0).unwrap();
 
-            x.extend_from_slice(&self.encoded_strings[pos..postfix_end]);
+            x.extend_from_slice(&self.encoded_strings.as_ref()[pos..postfix_end]);
             pos = postfix_end + 1;
             index -= 1;
         }
@@ -58,25 +58,23 @@ impl<'a> PfcBlock<'a> {
     }
 
     pub fn len(&self) -> usize {
-        let vbyte_len = VByte::required_len(self.encoded_strings.len() as u64);
+        let vbyte_len = VByte::required_len(self.encoded_strings.as_ref().len() as u64);
 
-        vbyte_len + self.encoded_strings.len()
+        vbyte_len + self.encoded_strings.as_ref().len()
     }
 }
 
-pub struct PfcDict<'a> {
+pub struct PfcDict<M:AsRef<[u8]>+Clone> {
     n_strings: u64,
-    block_offsets: LogArray<&'a [u8]>,
-    blocks: &'a [u8]
+    block_offsets: LogArray<M>,
+    blocks: M
 }
 
-impl<'a> PfcDict<'a> {
-    pub fn parse(data: &[u8]) -> Result<PfcDict,PfcError> {
-        let n_strings = BigEndian::read_u64(&data[data.len()-8..]);
-        let index_offset = BigEndian::read_u64(&data[data.len()-16..]);
-        let blocks = &data[..index_offset as usize];
+impl<M:AsRef<[u8]>+Clone> PfcDict<M> {
+    pub fn parse(blocks: M, offsets: M) -> Result<PfcDict<M>,PfcError> {
+        let n_strings = BigEndian::read_u64(&blocks.as_ref()[blocks.as_ref().len()-8..]);
 
-        let block_offsets = LogArray::parse(&data[index_offset as usize..data.len()-16])?;
+        let block_offsets = LogArray::parse(offsets)?;
 
         Ok(PfcDict {
             n_strings: n_strings,
@@ -92,7 +90,7 @@ impl<'a> PfcDict<'a> {
     pub fn get(&self, ix: usize) -> String {
         let block_index = ix / BLOCK_SIZE;
         let block_offset = if block_index == 0 { 0 } else { self.block_offsets.entry(block_index-1) };
-        let block = PfcBlock::parse(&self.blocks[block_offset as usize..]).unwrap();
+        let block = PfcBlock::parse(&self.blocks.as_ref()[block_offset as usize..]).unwrap();
 
         let index_in_block = ix % BLOCK_SIZE;
         block.get(index_in_block)
@@ -101,7 +99,9 @@ impl<'a> PfcDict<'a> {
 
 pub struct PfcDictFileBuilder<W:tokio::io::AsyncWrite> {
     /// the file that this builder writes the pfc blocks to
-    pfc_file: W,
+    pfc_blocks_file: W,
+    /// the file that this builder writes the block offsets to
+    pfc_block_offsets_file: W,
     /// the amount of strings in this dict so far
     count: usize,
     /// the size in bytes of the pfc data structure so far
@@ -111,9 +111,10 @@ pub struct PfcDictFileBuilder<W:tokio::io::AsyncWrite> {
 }
 
 impl<W:'static+tokio::io::AsyncWrite> PfcDictFileBuilder<W> {
-    pub fn new(pfc: W) -> PfcDictFileBuilder<W> {
+    pub fn new(pfc_blocks_file: W, pfc_block_offsets_file: W) -> PfcDictFileBuilder<W> {
         PfcDictFileBuilder {
-            pfc_file: pfc,
+            pfc_blocks_file,
+            pfc_block_offsets_file,
             count: 0,
             size: 0,
             last: None,
@@ -132,9 +133,11 @@ impl<W:'static+tokio::io::AsyncWrite> PfcDictFileBuilder<W> {
                 // we need to store an index
                 index.push(size as u64);
             }
-            Box::new(write_nul_terminated_bytes(self.pfc_file, bytes.clone())
+            let pfc_block_offsets_file = self.pfc_block_offsets_file;
+            Box::new(write_nul_terminated_bytes(self.pfc_blocks_file, bytes.clone())
                      .and_then(move |(f, len)| future::ok(PfcDictFileBuilder {
-                         pfc_file: f,
+                         pfc_blocks_file: f,
+                         pfc_block_offsets_file,
                          count: count + 1,
                          size: size + len,
                          last: Some(bytes),
@@ -145,10 +148,12 @@ impl<W:'static+tokio::io::AsyncWrite> PfcDictFileBuilder<W> {
             let s_bytes = s.as_bytes();
             let common = find_common_prefix(&self.last.unwrap(), s_bytes);
             let postfix = s_bytes[common..].to_vec();
-            Box::new(VByte::write(common as u64, self.pfc_file)
-                .and_then(move |(pfc_file,vbyte_len)| write_nul_terminated_bytes(pfc_file, postfix)
-                          .map(move |(pfc_file, slice_len)| PfcDictFileBuilder {
-                              pfc_file: pfc_file,
+            let pfc_block_offsets_file = self.pfc_block_offsets_file;
+            Box::new(VByte::write(common as u64, self.pfc_blocks_file)
+                .and_then(move |(pfc_blocks_file,vbyte_len)| write_nul_terminated_bytes(pfc_blocks_file, postfix)
+                          .map(move |(pfc_blocks_file, slice_len)| PfcDictFileBuilder {
+                              pfc_blocks_file,
+                              pfc_block_offsets_file,
                               count: count + 1,
                               size: size + vbyte_len + slice_len,
                               last: Some(bytes),
@@ -168,57 +173,53 @@ impl<W:'static+tokio::io::AsyncWrite> PfcDictFileBuilder<W> {
     }
 
     /// finish the data structure
-    pub fn finalize(self) -> impl Future<Item=W,Error=std::io::Error> {
-        // so what do we need to do?
-        // we're going to append to the pfc file (rather than separate file)
-        // we need to pad just to make sure we're at a 8 byte offset
-        // then we write the block indexes.
-        // pad again to 8 bytes
-        // write offset of block indexes as u64
-        // write total number of entries as u64
-
-
+    pub fn finalize(self) -> impl Future<Item=(),Error=std::io::Error> {
         let width = if self.index.len() == 0 { 1 } else {64-self.index[self.index.len()-1].leading_zeros()};
-        let builder = LogArrayBuilder::from_iter(width as u8, self.index.iter().map(|&i|i));
+        let builder = LogArrayFileBuilder::new(self.pfc_block_offsets_file, width as u8);
         let size = self.size;
         let count = self.count;
 
-        write_padding(self.pfc_file, self.size, 8)
+        println!("finalizing with index {:?}", self.index);
+        let write_offsets = builder.push_all(futures::stream::iter_ok(self.index))
+            .and_then(|b|b.finalize());
+
+        let finalize_blocks = write_padding(self.pfc_blocks_file, self.size, 8)
             .and_then(move |(w, n_pad)| {
-                let index_offset = size + n_pad;
-                builder.write(w)
-                    .and_then(move |(w, _)| {
-                        let mut bytes = vec![0;16];
-                        BigEndian::write_u64(&mut bytes, index_offset as u64);
-                        BigEndian::write_u64(&mut bytes[8..], count as u64);
-                        tokio::io::write_all(w, bytes)
-                    })
+                let mut bytes = vec![0;8];
+                BigEndian::write_u64(&mut bytes, count as u64);
+                tokio::io::write_all(w, bytes)
             })
-            .and_then(|(w,_)| tokio::io::flush(w))
+            .and_then(|(w,_)| tokio::io::flush(w));
+
+        write_offsets.join(finalize_blocks)
+            .map(|_|())
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use tokio_io::io::AllowStdIo;
+    use super::super::storage::*;
 
     #[test]
     fn can_create_pfc_dict_small() {
         let contents = vec!["aaaaa",
                             "aabbb",
                             "ccccc"];
-        let v = Vec::new();
-        let wrapper = AllowStdIo::new(v);
-        let builder = PfcDictFileBuilder::new(wrapper);
-        let result = builder.add_all(contents.into_iter().map(|s|s.to_string()))
+        let blocks = MemoryBackedStore::new();
+        let offsets = MemoryBackedStore::new();
+        let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
+        builder.add_all(contents.into_iter().map(|s|s.to_string()))
             .and_then(|b|b.finalize())
-            .map(|w|w.into_inner())
             .wait().unwrap();
 
-        let p = PfcDict::parse(&result).unwrap();
+        let blocks_map = blocks.map();
+        let offsets_map = offsets.map();
+
+        println!("blocks: {:?}, offsets: {:?}", blocks_map, offsets_map);
+
+        let p = PfcDict::parse(blocks.map(), offsets.map()).unwrap();
 
         assert_eq!("aaaaa", p.get(0));
         assert_eq!("aabbb", p.get(1));
@@ -238,15 +239,16 @@ mod tests {
                             "eeee",
                             "great scott"
         ];
-        let v = Vec::new();
-        let wrapper = AllowStdIo::new(v);
-        let builder = PfcDictFileBuilder::new(wrapper);
-        let result = builder.add_all(contents.into_iter().map(|s|s.to_string()))
+
+        let blocks = MemoryBackedStore::new();
+        let offsets = MemoryBackedStore::new();
+        let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
+
+        builder.add_all(contents.into_iter().map(|s|s.to_string()))
             .and_then(|b|b.finalize())
-            .map(|w|w.into_inner())
             .wait().unwrap();
 
-        let p = PfcDict::parse(&result).unwrap();
+        let p = PfcDict::parse(blocks.map(), offsets.map()).unwrap();
 
         assert_eq!("aaaaa", p.get(0));
         assert_eq!("aabbb", p.get(1));
