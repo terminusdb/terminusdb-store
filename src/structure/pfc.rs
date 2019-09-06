@@ -121,7 +121,7 @@ impl<W:'static+tokio::io::AsyncWrite> PfcDictFileBuilder<W> {
             index: Vec::new()
         }
     }
-    pub fn add(self, s: &str) -> Box<Future<Item=PfcDictFileBuilder<W>,Error=std::io::Error>> {
+    pub fn add(self, s: &str) -> Box<dyn Future<Item=PfcDictFileBuilder<W>,Error=std::io::Error>> {
         let count = self.count;
         let size = self.size;
         let mut index = self.index;
@@ -162,7 +162,7 @@ impl<W:'static+tokio::io::AsyncWrite> PfcDictFileBuilder<W> {
         }
     }
 
-    pub fn add_all<I:'static+Iterator<Item=String>>(self, mut it:I) -> Box<Future<Item=PfcDictFileBuilder<W>, Error=std::io::Error>> {
+    pub fn add_all<I:'static+Iterator<Item=String>>(self, mut it:I) -> Box<dyn Future<Item=PfcDictFileBuilder<W>, Error=std::io::Error>> {
         let next = it.next();
         match next {
             None => Box::new(future::ok(self)),

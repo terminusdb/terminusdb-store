@@ -82,7 +82,7 @@ where F: 'static+FileLoad+FileStore,
         // (which is otherwise an invalid right-hand side) and pushing a 1 onto the bitarray to immediately close the segment.
         let skip = left - self.last_left;
         
-        let f1: Box<Future<Item=(BitArrayFileBuilder<F::Write>, LogArrayFileBuilder<W3>), Error=std::io::Error>> = 
+        let f1: Box<dyn Future<Item=(BitArrayFileBuilder<F::Write>, LogArrayFileBuilder<W3>), Error=std::io::Error>> = 
             if last_left == 0 {
                 // this is the first entry. we can't push a bit yet
                 Box::new(future::ok((bitarray, nums)))

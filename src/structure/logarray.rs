@@ -167,7 +167,7 @@ impl<W:'static+tokio::io::AsyncWrite> LogArrayFileBuilder<W> {
         }
     }
 
-    pub fn push(mut self, val: u64) -> Box<Future<Item=LogArrayFileBuilder<W>,Error=std::io::Error>> {
+    pub fn push(mut self, val: u64) -> Box<dyn Future<Item=LogArrayFileBuilder<W>,Error=std::io::Error>> {
         if val.leading_zeros() < 64 - self.width as u32 {
             panic!("value too large for width");
         }
@@ -219,7 +219,7 @@ impl<W:'static+tokio::io::AsyncWrite> LogArrayFileBuilder<W> {
         } = self;
         
 
-        let write_last_bits: Box<Future<Item=W, Error=std::io::Error>> = if count % 8 == 0 {
+        let write_last_bits: Box<dyn Future<Item=W, Error=std::io::Error>> = if count % 8 == 0 {
             Box::new(future::ok(file))
         }
         else {
@@ -299,7 +299,7 @@ impl Decoder for LogArrayDecoder {
     }
 }
 
-pub fn open_logarray_stream<F:'static+FileLoad>(f: F) -> impl Future<Item=Box<'static+Stream<Item=u64,Error=std::io::Error>>,Error=std::io::Error> {
+pub fn open_logarray_stream<F:'static+FileLoad>(f: F) -> impl Future<Item=Box<dyn 'static+Stream<Item=u64,Error=std::io::Error>>,Error=std::io::Error> {
     let end_offset = f.size() - 8;
     // read the length and width
     tokio::io::read_exact(f.open_read_from(end_offset), vec![0;8])
@@ -307,7 +307,7 @@ pub fn open_logarray_stream<F:'static+FileLoad>(f: F) -> impl Future<Item=Box<'s
             let len = BigEndian::read_u32(&buf);
             let width = buf[4];
 
-            let b: Box<Stream<Item=u64, Error=std::io::Error>> = Box::new(FramedRead::new(f.open_read(), LogArrayDecoder { current: 0, width, offset: 64, remaining: len }));
+            let b: Box<dyn Stream<Item=u64, Error=std::io::Error>> = Box::new(FramedRead::new(f.open_read(), LogArrayDecoder { current: 0, width, offset: 64, remaining: len }));
 
             b
         })

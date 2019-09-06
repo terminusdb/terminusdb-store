@@ -139,7 +139,7 @@ impl<M:AsRef<[u8]>+Clone> BitIndex<M> {
     }
 }
 
-pub fn build_bitindex<R:'static+AsyncRead,W1:'static+AsyncWrite, W2:'static+AsyncWrite>(bitarray:R, blocks:W1, sblocks:W2) -> Box<Future<Item=(W1, W2),Error=std::io::Error>> {
+pub fn build_bitindex<R:'static+AsyncRead,W1:'static+AsyncWrite, W2:'static+AsyncWrite>(bitarray:R, blocks:W1, sblocks:W2) -> Box<dyn Future<Item=(W1, W2),Error=std::io::Error>> {
     let block_stream = bitarray_stream_blocks(bitarray);
     // the following widths are unoptimized, but should always be large enough
     let blocks_builder = LogArrayFileBuilder::new(blocks, 64-(SBLOCK_SIZE*64).leading_zeros() as u8);
