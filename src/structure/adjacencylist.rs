@@ -6,17 +6,17 @@ use super::logarray::*;
 use super::storage::*;
 
 #[derive(Clone)]
-pub struct AdjacencyList<'a> {
-    nums: LogArray<&'a [u8]>,
-    bits: BitIndex<&'a [u8]>,
+pub struct AdjacencyList<M:AsRef<[u8]>+Clone> {
+    nums: LogArray<M>,
+    bits: BitIndex<M>,
 }
 
-impl<'a> AdjacencyList<'a> {
-    pub fn from_parts(nums: LogArray<&'a [u8]>, bits: BitIndex<&'a [u8]>) -> AdjacencyList<'a> {
+impl<M:AsRef<[u8]>+Clone> AdjacencyList<M> {
+    pub fn from_parts(nums: LogArray<M>, bits: BitIndex<M>) -> AdjacencyList<M> {
         AdjacencyList { nums, bits }
     }
 
-    pub fn from_slices(nums_slice: &'a [u8], bits_slice: &'a [u8], bits_block_slice: &'a [u8], bits_sblock_slice: &'a [u8]) -> AdjacencyList<'a> {
+    pub fn from_slices(nums_slice: M, bits_slice: M, bits_block_slice: M, bits_sblock_slice: M) -> AdjacencyList<M> {
         let nums = LogArray::parse(nums_slice).unwrap();
         let bit_array = BitArray::from_bits(bits_slice);
         let bits_block_array = LogArray::parse(bits_block_slice).unwrap();
@@ -26,7 +26,7 @@ impl<'a> AdjacencyList<'a> {
         AdjacencyList { nums, bits }
     }
 
-    pub fn get(&self, index: u64) -> LogArraySlice<&'a [u8]> {
+    pub fn get(&self, index: u64) -> LogArraySlice<M> {
         if index < 1 {
             panic!("minimum index has to be 1");
         }
