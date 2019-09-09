@@ -1,6 +1,8 @@
 use byteorder::{ByteOrder,BigEndian};
 use futures::prelude::*;
 use futures::future;
+use std::error::Error;
+use std::fmt::Display;
 
 use super::vbyte::*;
 use super::logarray::*;
@@ -12,6 +14,12 @@ pub enum PfcError {
     NotEnoughData
 }
 
+impl Display for PfcError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(formatter, "{:?}", self)
+    }
+}
+
 impl From<VByteError> for PfcError {
     fn from(_err: VByteError) -> PfcError {
         PfcError::InvalidCoding
@@ -21,6 +29,15 @@ impl From<VByteError> for PfcError {
 impl From<LogArrayError> for PfcError {
     fn from(_err: LogArrayError) -> PfcError {
         PfcError::InvalidCoding
+    }
+}
+
+impl Error for PfcError {
+}
+
+impl Into<std::io::Error> for PfcError {
+    fn into(self) -> std::io::Error {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, self)
     }
 }
 
