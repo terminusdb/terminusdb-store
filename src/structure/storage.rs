@@ -17,7 +17,7 @@ pub trait FileStore {
 
 pub trait FileLoad {
     type Read: AsyncRead;
-    type Map: AsRef<[u8]>;
+    type Map: AsRef<[u8]>+Clone;
     
     fn size(&self) -> usize;
     fn open_read(&self) -> Self::Read {
@@ -146,9 +146,19 @@ impl FileBackedStore {
 
 }
 
+#[derive(Clone)]
+pub struct SharedMmap(Arc<Mmap>);
+
+impl AsRef<[u8]> for SharedMmap {
+    fn as_ref(&self) -> &[u8] {
+        &*self.0
+    }
+}
+
+
 impl FileLoad for FileBackedStore {
     type Read = File;
-    type Map = Mmap;
+    type Map = SharedMmap;
 
     fn size(&self) -> usize {
         let m = std::fs::metadata(&self.path).unwrap();
@@ -161,11 +171,11 @@ impl FileLoad for FileBackedStore {
         File::from_std(f)
     }
 
-    fn map(&self) -> Mmap {
+    fn map(&self) -> SharedMmap {
         let f = self.open_read_from_std(0);
 
         // unsafe justification: we opened this file specifically to do memory mapping, and will do nothing else with it.
-        unsafe { Mmap::map(&f) }.unwrap()
+        SharedMmap(Arc::new(unsafe { Mmap::map(&f) }.unwrap()))
 
     }
 }
