@@ -11,6 +11,43 @@ pub struct BaseLayer<M:AsRef<[u8]>+Clone> {
     sp_o_adjacency_list: AdjacencyList<M>
 }
 
+impl<M:AsRef<[u8]>+Clone> BaseLayer<M> {
+    pub fn load(node_dictionary_blocks_file: M,
+               node_dictionary_offsets_file: M,
+
+               predicate_dictionary_blocks_file: M,
+               predicate_dictionary_offsets_file: M,
+
+               value_dictionary_blocks_file: M,
+               value_dictionary_offsets_file: M,
+
+               s_p_adjacency_list_bits_file: M,
+               s_p_adjacency_list_blocks_file: M,
+               s_p_adjacency_list_sblocks_file: M,
+               s_p_adjacency_list_nums_file: M,
+
+               sp_o_adjacency_list_bits_file: M,
+               sp_o_adjacency_list_blocks_file: M,
+               sp_o_adjacency_list_sblocks_file: M,
+               sp_o_adjacency_list_nums_file: M) -> BaseLayer<M> {
+        let node_dictionary = PfcDict::parse(node_dictionary_blocks_file, node_dictionary_offsets_file).unwrap();
+        let predicate_dictionary = PfcDict::parse(predicate_dictionary_blocks_file, predicate_dictionary_offsets_file).unwrap();
+        let value_dictionary = PfcDict::parse(value_dictionary_blocks_file, value_dictionary_offsets_file).unwrap();
+
+        let s_p_adjacency_list = AdjacencyList::parse(s_p_adjacency_list_nums_file, s_p_adjacency_list_bits_file, s_p_adjacency_list_blocks_file, s_p_adjacency_list_sblocks_file);
+        let sp_o_adjacency_list = AdjacencyList::parse(sp_o_adjacency_list_nums_file, sp_o_adjacency_list_bits_file, sp_o_adjacency_list_blocks_file, sp_o_adjacency_list_sblocks_file);
+
+        BaseLayer {
+            node_dictionary,
+            predicate_dictionary,
+            value_dictionary,
+
+            s_p_adjacency_list,
+            sp_o_adjacency_list
+        }
+    }
+}
+
 struct DictionaryFiles<F:'static+FileLoad+FileStore> {
     blocks_file: F,
     offsets_file: F
@@ -382,6 +419,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
         } = self;
 
         if last_subject == subject && last_predicate == predicate {
+            // only the second adjacency list has to be pushed to
             let count = s_p_adjacency_list_builder.count();
             Box::new(sp_o_adjacency_list_builder.push(count, object)
                      .map(move |sp_o_adjacency_list_builder| {

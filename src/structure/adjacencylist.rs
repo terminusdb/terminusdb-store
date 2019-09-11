@@ -16,7 +16,7 @@ impl<M:AsRef<[u8]>+Clone> AdjacencyList<M> {
         AdjacencyList { nums, bits }
     }
 
-    pub fn from_slices(nums_slice: M, bits_slice: M, bits_block_slice: M, bits_sblock_slice: M) -> AdjacencyList<M> {
+    pub fn parse(nums_slice: M, bits_slice: M, bits_block_slice: M, bits_sblock_slice: M) -> AdjacencyList<M> {
         let nums = LogArray::parse(nums_slice).unwrap();
         let bit_array = BitArray::from_bits(bits_slice);
         let bits_block_array = LogArray::parse(bits_block_slice).unwrap();
@@ -150,7 +150,7 @@ mod tests {
         let bitindex_sblocks_contents = bitindex_sblocks_file.map();
         let nums_contents = nums_file.map();
 
-        let adjacencylist = AdjacencyList::from_slices(&nums_contents, &bitfile_contents, &bitindex_blocks_contents, &bitindex_sblocks_contents);
+        let adjacencylist = AdjacencyList::parse(&nums_contents, &bitfile_contents, &bitindex_blocks_contents, &bitindex_sblocks_contents);
 
         let slice = adjacencylist.get(1);
         assert_eq!(2, slice.len());
