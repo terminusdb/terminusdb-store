@@ -123,6 +123,10 @@ where F: 'static+FileLoad+FileStore,
             .and_then(move |_| build_bitindex(bitfile.open_read(), bitindex_blocks, bitindex_sblocks))
             .map(|_|())
     }
+
+    pub fn count(&self) -> u64 {
+        self.bitarray.count()
+    }
 }
 
 #[cfg(test)]

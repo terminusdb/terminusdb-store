@@ -138,7 +138,7 @@ impl<W:'static+tokio::io::AsyncWrite> PfcDictFileBuilder<W> {
             index: Vec::new()
         }
     }
-    pub fn add(self, s: &str) -> Box<dyn Future<Item=PfcDictFileBuilder<W>,Error=std::io::Error>> {
+    pub fn add(self, s: &str) -> Box<dyn Future<Item=(u64, PfcDictFileBuilder<W>),Error=std::io::Error>> {
         let count = self.count;
         let size = self.size;
         let mut index = self.index;
@@ -152,14 +152,14 @@ impl<W:'static+tokio::io::AsyncWrite> PfcDictFileBuilder<W> {
             }
             let pfc_block_offsets_file = self.pfc_block_offsets_file;
             Box::new(write_nul_terminated_bytes(self.pfc_blocks_file, bytes.clone())
-                     .and_then(move |(f, len)| future::ok(PfcDictFileBuilder {
+                     .and_then(move |(f, len)| future::ok(((count+1) as u64, PfcDictFileBuilder {
                          pfc_blocks_file: f,
                          pfc_block_offsets_file,
                          count: count + 1,
                          size: size + len,
                          last: Some(bytes),
                          index: index
-                     })))
+                     }))))
         }
         else {
             let s_bytes = s.as_bytes();
@@ -168,32 +168,37 @@ impl<W:'static+tokio::io::AsyncWrite> PfcDictFileBuilder<W> {
             let pfc_block_offsets_file = self.pfc_block_offsets_file;
             Box::new(VByte::write(common as u64, self.pfc_blocks_file)
                 .and_then(move |(pfc_blocks_file,vbyte_len)| write_nul_terminated_bytes(pfc_blocks_file, postfix)
-                          .map(move |(pfc_blocks_file, slice_len)| PfcDictFileBuilder {
+                          .map(move |(pfc_blocks_file, slice_len)| ((count+1) as u64, PfcDictFileBuilder {
                               pfc_blocks_file,
                               pfc_block_offsets_file,
                               count: count + 1,
                               size: size + vbyte_len + slice_len,
                               last: Some(bytes),
                               index: index
-                          })))
+                          }))))
         }
     }
 
-    pub fn add_all<I:'static+Iterator<Item=String>>(self, mut it:I) -> Box<dyn Future<Item=PfcDictFileBuilder<W>, Error=std::io::Error>> {
+    fn add_all_1<I:'static+Iterator<Item=String>>(self, mut it:I, mut result: Vec<u64>) -> Box<dyn Future<Item=(Vec<u64>, PfcDictFileBuilder<W>), Error=std::io::Error>> {
         let next = it.next();
         match next {
-            None => Box::new(future::ok(self)),
+            None => Box::new(future::ok((result, self))),
             Some(s) => Box::new(self.add(&s)
-                                .and_then(move |b| b.add_all(it)))
-            
+                                .and_then(move |(r,b)| {
+                                    result.push(r);
+                                    b.add_all_1(it, result)
+                                }))
         }
+    }
+
+    pub fn add_all<I:'static+Iterator<Item=String>>(self, it:I) -> Box<dyn Future<Item=(Vec<u64>, PfcDictFileBuilder<W>), Error=std::io::Error>> {
+        self.add_all_1(it, Vec::new())
     }
 
     /// finish the data structure
     pub fn finalize(self) -> impl Future<Item=(),Error=std::io::Error> {
         let width = if self.index.len() == 0 { 1 } else {64-self.index[self.index.len()-1].leading_zeros()};
         let builder = LogArrayFileBuilder::new(self.pfc_block_offsets_file, width as u8);
-        let size = self.size;
         let count = self.count;
 
         println!("finalizing with index {:?}", self.index);
@@ -201,7 +206,7 @@ impl<W:'static+tokio::io::AsyncWrite> PfcDictFileBuilder<W> {
             .and_then(|b|b.finalize());
 
         let finalize_blocks = write_padding(self.pfc_blocks_file, self.size, 8)
-            .and_then(move |(w, n_pad)| {
+            .and_then(move |(w, _n_pad)| {
                 let mut bytes = vec![0;8];
                 BigEndian::write_u64(&mut bytes, count as u64);
                 tokio::io::write_all(w, bytes)
@@ -228,7 +233,7 @@ mod tests {
         let offsets = MemoryBackedStore::new();
         let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
         builder.add_all(contents.into_iter().map(|s|s.to_string()))
-            .and_then(|b|b.finalize())
+            .and_then(|(_,b)|b.finalize())
             .wait().unwrap();
 
         let blocks_map = blocks.map();
@@ -262,7 +267,7 @@ mod tests {
         let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
 
         builder.add_all(contents.into_iter().map(|s|s.to_string()))
-            .and_then(|b|b.finalize())
+            .and_then(|(_,b)|b.finalize())
             .wait().unwrap();
 
         let p = PfcDict::parse(blocks.map(), offsets.map()).unwrap();

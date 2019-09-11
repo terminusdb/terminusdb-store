@@ -261,6 +261,6 @@ mod tests {
 
         tokio::run(task);
 
-        assert_eq!(&vec![1,2,3][..], &file.map()[..]);
+        assert_eq!(&vec![1,2,3][..], &file.map().as_ref()[..]);
     }
 }

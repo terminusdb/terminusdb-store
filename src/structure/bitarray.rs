@@ -114,6 +114,10 @@ where W: 'static+AsyncWrite {
             .and_then(move |w| write_u64(w, count))
             .and_then(|w| tokio::io::flush(w))
     }
+
+    pub fn count(&self) -> u64 {
+        self.count
+    }
 }
 
 pub struct BitArrayBlockDecoder {

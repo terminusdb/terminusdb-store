@@ -3,7 +3,6 @@ use byteorder::{ByteOrder,BigEndian};
 use bytes::BytesMut;
 use futures::prelude::*;
 use futures::future;
-use super::util::*;
 use super::storage::*;
 
 #[derive(Clone)]
