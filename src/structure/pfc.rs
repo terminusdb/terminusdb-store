@@ -42,6 +42,7 @@ impl Into<std::io::Error> for PfcError {
     }
 }
 
+#[derive(Clone)]
 pub struct PfcBlock<M:AsRef<[u8]>+Clone> {
     encoded_strings: M,
     n_strings: usize
@@ -180,6 +181,7 @@ impl<M:AsRef<[u8]>+Clone> PfcBlock<M> {
     }
 }
 
+#[derive(Clone)]
 pub struct PfcDict<M:AsRef<[u8]>+Clone> {
     n_strings: u64,
     block_offsets: LogArray<M>,

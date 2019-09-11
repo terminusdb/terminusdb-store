@@ -3,12 +3,19 @@ use futures::future;
 
 use crate::structure::*;
 
+#[derive(Clone)]
 pub struct BaseLayer<M:AsRef<[u8]>+Clone> {
     node_dictionary: PfcDict<M>,
     predicate_dictionary: PfcDict<M>,
     value_dictionary: PfcDict<M>,
     s_p_adjacency_list: AdjacencyList<M>,
     sp_o_adjacency_list: AdjacencyList<M>
+}
+
+#[derive(Debug, Clone)]
+pub enum ObjectType {
+    Node(String),
+    Value(String)
 }
 
 impl<M:AsRef<[u8]>+Clone> BaseLayer<M> {
@@ -44,6 +51,52 @@ impl<M:AsRef<[u8]>+Clone> BaseLayer<M> {
 
             s_p_adjacency_list,
             sp_o_adjacency_list
+        }
+    }
+
+    pub fn subject_id(&self, subject: &str) -> Option<u64> {
+        self.node_dictionary.id(subject)
+    }
+
+    pub fn predicate_id(&self, predicate: &str) -> Option<u64> {
+        self.predicate_dictionary.id(predicate)
+    }
+
+    pub fn object_node_id(&self, object: &str) -> Option<u64> {
+        self.node_dictionary.id(object)
+    }
+
+    pub fn object_value_id(&self, value: &str) -> Option<u64> {
+        self.value_dictionary.id(value)
+            .map(|id| id + self.node_dictionary.len() as u64)
+    }
+
+    pub fn id_subject(&self, id: u64) -> Option<String> {
+        match (self.node_dictionary.len() as u64) < id {
+            true => Some(self.node_dictionary.get(id as usize)),
+            false => None
+        }
+    }
+
+    pub fn id_predicate(&self, id: u64) -> Option<String> {
+        match (self.predicate_dictionary.len() as u64) < id {
+            true => Some(self.predicate_dictionary.get(id as usize)),
+            false => None
+        }
+    }
+
+    pub fn id_object(&self, id: u64) -> Option<ObjectType> {
+        if id >= (self.node_dictionary.len() as u64) {
+            let val_id = id - (self.node_dictionary.len() as u64);
+            if val_id >= (self.value_dictionary.len() as u64) {
+                None
+            }
+            else {
+                Some(ObjectType::Value(self.value_dictionary.get(val_id as usize)))
+            }
+        }
+        else {
+            Some(ObjectType::Node(self.node_dictionary.get(id as usize)))
         }
     }
 }
@@ -316,7 +369,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilder<F> {
 
     pub fn into_phase2(self) -> impl Future<Item=BaseLayerFileBuilderPhase2<F>,Error=std::io::Error> {
         let BaseLayerFileBuilder {
-            node_dictionary_files: _node_dictionary_files,
+            node_dictionary_files,
             predicate_dictionary_files,
             value_dictionary_files,
 
@@ -334,6 +387,13 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilder<F> {
 
         future::join_all(vec![finalize_nodedict, finalize_preddict, finalize_valdict])
             .and_then(move |_| {
+                let node_dict_r = PfcDict::parse(node_dictionary_files.blocks_file.map(),
+                                                 node_dictionary_files.offsets_file.map());
+                if node_dict_r.is_err() {
+                    return future::err(node_dict_r.err().unwrap().into());
+                }
+                let node_dict = node_dict_r.unwrap();
+
                 let pred_dict_r = PfcDict::parse(predicate_dictionary_files.blocks_file.map(),
                                                  predicate_dictionary_files.offsets_file.map());
                 if pred_dict_r.is_err() {
@@ -348,6 +408,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilder<F> {
                 }
                 let val_dict = val_dict_r.unwrap();
 
+                let num_nodes = node_dict.len();
                 let num_predicates = pred_dict.len();
                 let num_values = val_dict.len();
 
@@ -361,6 +422,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilder<F> {
                                                            sp_o_adjacency_list_files.sblocks_file,
                                                            sp_o_adjacency_list_files.nums_file,
 
+                                                           num_nodes,
                                                            num_predicates,
                                                            num_values))
             })
@@ -385,11 +447,12 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
            sp_o_adjacency_list_sblocks_file: F,
            sp_o_adjacency_list_nums_file: F,
 
+           num_nodes: usize,
            num_predicates: usize,
-           num_objects: usize
+           num_values: usize
     ) -> Self {
         let s_p_width = (num_predicates as f32).log2().ceil() as u8;
-        let sp_o_width = (num_objects as f32).log2().ceil() as u8;
+        let sp_o_width = ((num_nodes + num_values) as f32).log2().ceil() as u8;
         let s_p_adjacency_list_builder = AdjacencyListBuilder::new(s_p_adjacency_list_bits_file,
                                                                    s_p_adjacency_list_blocks_file.open_write(),
                                                                    s_p_adjacency_list_sblocks_file.open_write(),
