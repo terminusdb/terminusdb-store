@@ -254,10 +254,6 @@ impl<M:AsRef<[u8]>+Clone> PfcDict<M> {
     }
 
     pub fn id(&self, s: &str) -> Option<u64> {
-        if self.block_offsets.len() == 0 {
-            return None;
-        }
-
         // let's binary search
         let mut min = 0;
         let mut max = self.block_offsets.len();

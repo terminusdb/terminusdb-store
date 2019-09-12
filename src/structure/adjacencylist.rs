@@ -13,6 +13,7 @@ pub struct AdjacencyList<M:AsRef<[u8]>+Clone> {
 
 impl<M:AsRef<[u8]>+Clone> AdjacencyList<M> {
     pub fn from_parts(nums: LogArray<M>, bits: BitIndex<M>) -> AdjacencyList<M> {
+        debug_assert_eq!(nums.len(),bits.len());
         AdjacencyList { nums, bits }
     }
 
@@ -23,7 +24,24 @@ impl<M:AsRef<[u8]>+Clone> AdjacencyList<M> {
         let bits_sblock_array = LogArray::parse(bits_sblock_slice).unwrap();
         let bits = BitIndex::from_parts(bit_array, bits_block_array, bits_sblock_array);
 
-        AdjacencyList { nums, bits }
+        Self::from_parts(nums, bits)
+    }
+
+    pub fn left_count(&self) -> usize {
+        self.bits.rank((self.bits.len() as u64)-1) as usize
+    }
+
+    pub fn right_count(&self) -> usize {
+        self.bits.len()
+    }
+
+    pub fn offset_for(&self, index: u64) -> u64 {
+        if index == 1 {
+            0
+        }
+        else {
+            self.bits.select(index-1)+1
+        }
     }
 
     pub fn get(&self, index: u64) -> LogArraySlice<M> {
@@ -31,7 +49,7 @@ impl<M:AsRef<[u8]>+Clone> AdjacencyList<M> {
             panic!("minimum index has to be 1");
         }
 
-        let start = if index == 1 { 0 } else { self.bits.select(index-1)+1 };
+        let start = self.offset_for(index);
         let end = self.bits.select(index);
         let length = end - start + 1;
 

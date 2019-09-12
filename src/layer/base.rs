@@ -55,39 +55,54 @@ impl<M:AsRef<[u8]>+Clone> BaseLayer<M> {
     }
 
     pub fn subject_id(&self, subject: &str) -> Option<u64> {
-        self.node_dictionary.id(subject)
+        self.node_dictionary.id(subject).map(|id| id + 1)
     }
 
     pub fn predicate_id(&self, predicate: &str) -> Option<u64> {
-        self.predicate_dictionary.id(predicate)
+        self.predicate_dictionary.id(predicate).map(|id| id + 1)
     }
 
     pub fn object_node_id(&self, object: &str) -> Option<u64> {
-        self.node_dictionary.id(object)
+        self.node_dictionary.id(object).map(|id| id + 1)
     }
 
     pub fn object_value_id(&self, value: &str) -> Option<u64> {
         self.value_dictionary.id(value)
-            .map(|id| id + self.node_dictionary.len() as u64)
+            .map(|id| id + self.node_dictionary.len() as u64 + 1)
     }
 
     pub fn id_subject(&self, id: u64) -> Option<String> {
-        match (self.node_dictionary.len() as u64) < id {
-            true => Some(self.node_dictionary.get(id as usize)),
+        if id == 0 {
+            return None;
+        }
+        let corrected_id = id - 1;
+
+        match (self.node_dictionary.len() as u64) < corrected_id {
+            true => Some(self.node_dictionary.get(corrected_id as usize)),
             false => None
         }
     }
 
     pub fn id_predicate(&self, id: u64) -> Option<String> {
-        match (self.predicate_dictionary.len() as u64) < id {
-            true => Some(self.predicate_dictionary.get(id as usize)),
+        if id == 0 {
+            return None;
+        }
+        let corrected_id = id - 1;
+
+        match (self.predicate_dictionary.len() as u64) < corrected_id {
+            true => Some(self.predicate_dictionary.get(corrected_id as usize)),
             false => None
         }
     }
 
     pub fn id_object(&self, id: u64) -> Option<ObjectType> {
-        if id >= (self.node_dictionary.len() as u64) {
-            let val_id = id - (self.node_dictionary.len() as u64);
+        if id == 0 {
+            return None;
+        }
+        let corrected_id = id - 1;
+
+        if corrected_id >= (self.node_dictionary.len() as u64) {
+            let val_id = corrected_id - (self.node_dictionary.len() as u64);
             if val_id >= (self.value_dictionary.len() as u64) {
                 None
             }
@@ -96,9 +111,81 @@ impl<M:AsRef<[u8]>+Clone> BaseLayer<M> {
             }
         }
         else {
-            Some(ObjectType::Node(self.node_dictionary.get(id as usize)))
+            Some(ObjectType::Node(self.node_dictionary.get(corrected_id as usize)))
         }
     }
+
+    pub fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<PredicateObjectPairsForSubject<M>> {
+        if subject == 0 || subject >= (self.s_p_adjacency_list.left_count() + 1) as u64 {
+            None
+        }
+        else {
+            Some(PredicateObjectPairsForSubject {
+                subject: subject,
+                predicates: self.s_p_adjacency_list.get(subject),
+                sp_offset: self.s_p_adjacency_list.offset_for(subject),
+                sp_o_adjacency_list: self.sp_o_adjacency_list.clone()
+            })
+        }
+    }
+
+    pub fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
+        self.predicate_object_pairs_for_subject(subject)
+            .and_then(|pairs| pairs.objects_for_predicate(predicate))
+            .and_then(|objects| objects.triple(object))
+            .is_some()
+    }
+}
+
+#[derive(Clone)]
+pub struct PredicateObjectPairsForSubject<M:AsRef<[u8]>+Clone> {
+    pub subject: u64,
+    predicates: LogArraySlice<M>,
+    sp_offset: u64,
+    sp_o_adjacency_list: AdjacencyList<M>
+}
+
+impl<M:AsRef<[u8]>+Clone> PredicateObjectPairsForSubject<M> {
+    pub fn objects_for_predicate(&self, predicate: u64) -> Option<ObjectsForSubjectPredicatePair<M>> {
+        let pos = self.predicates.iter().position(|p| p == predicate);
+        match pos {
+            None => None,
+            Some(pos) => Some(ObjectsForSubjectPredicatePair {
+                subject: self.subject,
+                predicate: predicate,
+                objects: self.sp_o_adjacency_list.get(self.sp_offset+(pos as u64)+1)
+            })
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ObjectsForSubjectPredicatePair<M:AsRef<[u8]>+Clone> {
+    pub subject: u64,
+    pub predicate: u64,
+    objects: LogArraySlice<M>
+}
+
+impl<M:AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair<M> {
+    pub fn triple(&self, object: u64) -> Option<IdTriple> {
+        if self.objects.iter().find(|&o|o==object).is_some() {
+            Some(IdTriple {
+                subject: self.subject,
+                predicate: self.predicate,
+                object: object
+            })
+        }
+        else {
+            None
+        }
+    }
+}
+
+#[derive(Clone,Copy)]
+pub struct IdTriple {
+    pub subject: u64,
+    pub predicate: u64,
+    pub object: u64
 }
 
 struct DictionaryFiles<F:'static+FileLoad+FileStore> {
@@ -451,8 +538,8 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
            num_predicates: usize,
            num_values: usize
     ) -> Self {
-        let s_p_width = (num_predicates as f32).log2().ceil() as u8;
-        let sp_o_width = ((num_nodes + num_values) as f32).log2().ceil() as u8;
+        let s_p_width = ((num_predicates + 1) as f32).log2().ceil() as u8;
+        let sp_o_width = ((num_nodes + num_values + 1) as f32).log2().ceil() as u8;
         let s_p_adjacency_list_builder = AdjacencyListBuilder::new(s_p_adjacency_list_bits_file,
                                                                    s_p_adjacency_list_blocks_file.open_write(),
                                                                    s_p_adjacency_list_sblocks_file.open_write(),
@@ -483,7 +570,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
 
         if last_subject == subject && last_predicate == predicate {
             // only the second adjacency list has to be pushed to
-            let count = s_p_adjacency_list_builder.count();
+            let count = s_p_adjacency_list_builder.count() + 1;
             Box::new(sp_o_adjacency_list_builder.push(count, object)
                      .map(move |sp_o_adjacency_list_builder| {
                          BaseLayerFileBuilderPhase2 {
@@ -499,7 +586,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
             Box::new(
                 s_p_adjacency_list_builder.push(subject, predicate)
                     .and_then(move |s_p_adjacency_list_builder| {
-                        let count = s_p_adjacency_list_builder.count();
+                        let count = s_p_adjacency_list_builder.count() + 1;
                         sp_o_adjacency_list_builder.push(count, object)
                             .map(move |sp_o_adjacency_list_builder| {
                                 BaseLayerFileBuilderPhase2 {
@@ -516,5 +603,50 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
     pub fn finalize(self) -> impl Future<Item=(), Error=std::io::Error> {
         future::join_all(vec![self.s_p_adjacency_list_builder.finalize(), self.sp_o_adjacency_list_builder.finalize()])
             .map(|_|())
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::structure::storage::*;
+    use super::*;
+    use tokio;
+    
+    #[test]
+    fn build_and_query_base_layer() {
+        let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
+        let predicates = vec!["abcde", "fghij", "klmno", "lll"];
+        let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
+
+        let files: Vec<_> = (0..14).map(|_| MemoryBackedStore::new()).collect();
+        let builder = BaseLayerFileBuilder::new(files[0].clone(), files[1].clone(), files[2].clone(), files[3].clone(), files[4].clone(), files[5].clone(), files[6].clone(), files[7].clone(), files[8].clone(), files[9].clone(), files[10].clone(), files[11].clone(), files[12].clone(), files[13].clone());
+
+        let future = builder.add_nodes(nodes.into_iter().map(|s|s.to_string()))
+            .and_then(move |(_,b)| b.add_predicates(predicates.into_iter().map(|s|s.to_string())))
+            .and_then(move |(_,b)| b.add_values(values.into_iter().map(|s|s.to_string())))
+            .and_then(|(_,b)| b.into_phase2())
+
+            .and_then(|b| b.add_triple(1,1,1))
+            .and_then(|b| b.add_triple(2,1,1))
+            .and_then(|b| b.add_triple(2,1,3))
+            .and_then(|b| b.add_triple(2,3,6))
+            .and_then(|b| b.add_triple(3,2,5))
+            .and_then(|b| b.add_triple(3,3,6))
+            .and_then(|b| b.add_triple(4,3,6))
+            .and_then(|b| b.finalize());
+
+
+        let result = future.wait().unwrap();
+
+        let layer = BaseLayer::load(files[0].clone().map(), files[1].clone().map(), files[2].clone().map(), files[3].clone().map(), files[4].clone().map(), files[5].clone().map(), files[6].clone().map(), files[7].clone().map(), files[8].clone().map(), files[9].clone().map(), files[10].clone().map(), files[11].clone().map(), files[12].clone().map(), files[13].clone().map());
+
+        assert!(layer.triple_exists(1,1,1));
+        assert!(layer.triple_exists(2,1,1));
+        assert!(layer.triple_exists(2,1,3));
+        assert!(layer.triple_exists(2,3,6));
+        assert!(layer.triple_exists(3,2,5));
+        assert!(layer.triple_exists(3,3,6));
+        assert!(layer.triple_exists(4,3,6));
     }
 }
