@@ -2,6 +2,7 @@ use futures::prelude::*;
 use futures::future;
 
 use crate::structure::*;
+use super::layer::*;
 
 #[derive(Clone)]
 pub struct BaseLayer<M:AsRef<[u8]>+Clone> {
@@ -52,23 +53,6 @@ impl<M:AsRef<[u8]>+Clone> BaseLayer<M> {
             s_p_adjacency_list,
             sp_o_adjacency_list
         }
-    }
-
-    pub fn subject_id(&self, subject: &str) -> Option<u64> {
-        self.node_dictionary.id(subject).map(|id| id + 1)
-    }
-
-    pub fn predicate_id(&self, predicate: &str) -> Option<u64> {
-        self.predicate_dictionary.id(predicate).map(|id| id + 1)
-    }
-
-    pub fn object_node_id(&self, object: &str) -> Option<u64> {
-        self.node_dictionary.id(object).map(|id| id + 1)
-    }
-
-    pub fn object_value_id(&self, value: &str) -> Option<u64> {
-        self.value_dictionary.id(value)
-            .map(|id| id + self.node_dictionary.len() as u64 + 1)
     }
 
     pub fn id_subject(&self, id: u64) -> Option<String> {
@@ -135,6 +119,38 @@ impl<M:AsRef<[u8]>+Clone> BaseLayer<M> {
             .and_then(|objects| objects.triple(object))
             .is_some()
     }
+}
+
+impl<M:AsRef<[u8]>+Clone> Layer for BaseLayer<M> {
+    fn node_count(&self) -> usize {
+        self.node_dictionary.len()
+    }
+
+    fn predicate_count(&self) -> usize {
+        self.predicate_dictionary.len()
+    }
+
+    fn value_count(&self) -> usize {
+        self.value_dictionary.len()
+    }
+
+    fn subject_id(&self, subject: &str) -> Option<u64> {
+        self.node_dictionary.id(subject).map(|id| id + 1)
+    }
+
+    fn predicate_id(&self, predicate: &str) -> Option<u64> {
+        self.predicate_dictionary.id(predicate).map(|id| id + 1)
+    }
+
+    fn object_node_id(&self, object: &str) -> Option<u64> {
+        self.node_dictionary.id(object).map(|id| id + 1)
+    }
+
+    fn object_value_id(&self, value: &str) -> Option<u64> {
+        self.value_dictionary.id(value)
+            .map(|id| id + self.node_dictionary.len() as u64 + 1)
+    }
+
 }
 
 #[derive(Clone)]
