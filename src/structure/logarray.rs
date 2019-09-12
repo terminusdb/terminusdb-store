@@ -18,6 +18,48 @@ pub enum LogArrayError {
     InvalidCoding
 }
 
+pub struct LogArrayIterator<'a, M:AsRef<[u8]>+Clone> {
+    logarray: &'a LogArray<M>,
+    pos: usize,
+    end: usize
+}
+
+impl<'a, M:AsRef<[u8]>+Clone> Iterator for LogArrayIterator<'a, M> {
+    type Item = u64;
+    fn next(&mut self) -> Option<u64> {
+        if self.pos == self.end {
+            None
+        }
+        else {
+            let result = self.logarray.entry(self.pos);
+            self.pos += 1;
+
+            Some(result)
+        }
+    }
+}
+
+pub struct OwnedLogArrayIterator<M:AsRef<[u8]>+Clone> {
+    logarray: LogArray<M>,
+    pos: usize,
+    end: usize
+}
+
+impl<M:AsRef<[u8]>+Clone> Iterator for OwnedLogArrayIterator<M> {
+    type Item = u64;
+    fn next(&mut self) -> Option<u64> {
+        if self.pos == self.end {
+            None
+        }
+        else {
+            let result = self.logarray.entry(self.pos);
+            self.pos += 1;
+
+            Some(result)
+        }
+    }
+}
+
 impl<M:AsRef<[u8]>+Clone> LogArray<M> {
     pub fn parse(data: M) -> Result<LogArray<M>,LogArrayError> {
         let len = BigEndian::read_u32(&data.as_ref()[data.as_ref().len()-8..]);
@@ -114,6 +156,22 @@ impl<M:AsRef<[u8]>+Clone> LogArray<M> {
         }
     }
 
+    pub fn iter(&self) -> LogArrayIterator<M> {
+        LogArrayIterator {
+            logarray: self,
+            pos: 0,
+            end: self.len()
+        }
+    }
+
+    pub fn into_iter(self) -> OwnedLogArrayIterator<M> {
+        OwnedLogArrayIterator {
+            end: self.len(),
+            logarray: self,
+            pos: 0,
+        }
+    }
+
     pub fn slice(&self, offset: usize, length: usize) -> LogArraySlice<M> {
         if self.len() < offset + length {
             panic!("slice out of bounds");
@@ -126,6 +184,7 @@ impl<M:AsRef<[u8]>+Clone> LogArray<M> {
     }
 }
 
+#[derive(Clone)]
 pub struct LogArraySlice<M:AsRef<[u8]>+Clone> {
     original: LogArray<M>,
     offset: usize,
@@ -143,6 +202,22 @@ impl<M:AsRef<[u8]>+Clone> LogArraySlice<M> {
         }
 
         self.original.entry(index+self.offset)
+    }
+
+    pub fn iter(&self) -> LogArrayIterator<M> {
+        LogArrayIterator {
+            logarray: &self.original,
+            pos: self.offset,
+            end: self.offset + self.length
+        }
+    }
+
+    pub fn into_iter(self) -> OwnedLogArrayIterator<M> {
+        OwnedLogArrayIterator {
+            pos: self.offset,
+            end: self.offset + self.length,
+            logarray: self.original,
+        }
     }
 }
 
@@ -356,5 +431,83 @@ mod tests {
         let expected: Vec<u64> = (0..31).collect();
 
         assert_eq!(expected, entries);
+    }
+
+    #[test]
+    fn iterate_over_logarray() {
+        let store = MemoryBackedStore::new();
+        let builder = LogArrayFileBuilder::new(store.open_write(), 5);
+        let original = vec![1,3,2,5,12,31,18];
+        builder.push_all(stream::iter_ok(original.clone()))
+            .and_then(|b| b.finalize())
+            .wait()
+            .unwrap();
+
+        let content = store.map();
+
+        let logarray = LogArray::parse(&content).unwrap();
+
+        let result: Vec<u64> = logarray.iter().collect();
+
+        assert_eq!(original, result);
+    }
+
+    #[test]
+    fn owned_iterate_over_logarray() {
+        let store = MemoryBackedStore::new();
+        let builder = LogArrayFileBuilder::new(store.open_write(), 5);
+        let original = vec![1,3,2,5,12,31,18];
+        builder.push_all(stream::iter_ok(original.clone()))
+            .and_then(|b| b.finalize())
+            .wait()
+            .unwrap();
+
+        let content = store.map();
+
+        let logarray = LogArray::parse(&content).unwrap();
+
+        let result: Vec<u64> = logarray.into_iter().collect();
+
+        assert_eq!(original, result);
+    }
+
+    #[test]
+    fn iterate_over_logarray_slice() {
+        let store = MemoryBackedStore::new();
+        let builder = LogArrayFileBuilder::new(store.open_write(), 5);
+        let original = vec![1,3,2,5,12,31,18];
+        builder.push_all(stream::iter_ok(original.clone()))
+            .and_then(|b| b.finalize())
+            .wait()
+            .unwrap();
+
+        let content = store.map();
+
+        let logarray = LogArray::parse(&content).unwrap();
+        let slice = logarray.slice(2,3);
+
+        let result: Vec<u64> = slice.iter().collect();
+
+        assert_eq!(vec![2,5,12], result);
+    }
+
+    #[test]
+    fn owned_iterate_over_logarray_slice() {
+        let store = MemoryBackedStore::new();
+        let builder = LogArrayFileBuilder::new(store.open_write(), 5);
+        let original = vec![1,3,2,5,12,31,18];
+        builder.push_all(stream::iter_ok(original.clone()))
+            .and_then(|b| b.finalize())
+            .wait()
+            .unwrap();
+
+        let content = store.map();
+
+        let logarray = LogArray::parse(&content).unwrap();
+        let slice = logarray.slice(2,3);
+
+        let result: Vec<u64> = slice.into_iter().collect();
+
+        assert_eq!(vec![2,5,12], result);
     }
 }
