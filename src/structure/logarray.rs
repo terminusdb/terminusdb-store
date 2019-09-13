@@ -388,6 +388,7 @@ pub fn open_logarray_stream<F:'static+FileLoad>(f: F) -> impl Future<Item=Box<dy
         })
 }
 
+#[derive(Clone)]
 pub struct MonotonicLogArray<M:AsRef<[u8]>+Clone>(LogArray<M>);
 
 impl<M:AsRef<[u8]>+Clone> MonotonicLogArray<M> {

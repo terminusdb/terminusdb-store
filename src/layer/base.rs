@@ -99,20 +99,6 @@ impl<M:AsRef<[u8]>+Clone> BaseLayer<M> {
         }
     }
 
-    pub fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<PredicateObjectPairsForSubject<M>> {
-        if subject == 0 || subject >= (self.s_p_adjacency_list.left_count() + 1) as u64 {
-            None
-        }
-        else {
-            Some(PredicateObjectPairsForSubject {
-                subject: subject,
-                predicates: self.s_p_adjacency_list.get(subject),
-                sp_offset: self.s_p_adjacency_list.offset_for(subject),
-                sp_o_adjacency_list: self.sp_o_adjacency_list.clone()
-            })
-        }
-    }
-
     pub fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
         self.predicate_object_pairs_for_subject(subject)
             .and_then(|pairs| pairs.objects_for_predicate(predicate))
@@ -122,16 +108,13 @@ impl<M:AsRef<[u8]>+Clone> BaseLayer<M> {
 }
 
 impl<M:AsRef<[u8]>+Clone> Layer for BaseLayer<M> {
-    fn node_count(&self) -> usize {
-        self.node_dictionary.len()
+    type PredicateObjectPairsForSubject = BasePredicateObjectPairsForSubject<M>;
+    fn node_and_value_count(&self) -> usize {
+        self.node_dictionary.len() + self.value_dictionary.len()
     }
 
     fn predicate_count(&self) -> usize {
         self.predicate_dictionary.len()
-    }
-
-    fn value_count(&self) -> usize {
-        self.value_dictionary.len()
     }
 
     fn subject_id(&self, subject: &str) -> Option<u64> {
@@ -151,22 +134,37 @@ impl<M:AsRef<[u8]>+Clone> Layer for BaseLayer<M> {
             .map(|id| id + self.node_dictionary.len() as u64 + 1)
     }
 
+    fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<BasePredicateObjectPairsForSubject<M>> {
+        if subject == 0 || subject >= (self.s_p_adjacency_list.left_count() + 1) as u64 {
+            None
+        }
+        else {
+            Some(BasePredicateObjectPairsForSubject {
+                subject: subject,
+                predicates: self.s_p_adjacency_list.get(subject),
+                sp_offset: self.s_p_adjacency_list.offset_for(subject),
+                sp_o_adjacency_list: self.sp_o_adjacency_list.clone()
+            })
+        }
+    }
+
 }
 
 #[derive(Clone)]
-pub struct PredicateObjectPairsForSubject<M:AsRef<[u8]>+Clone> {
+pub struct BasePredicateObjectPairsForSubject<M:AsRef<[u8]>+Clone> {
     pub subject: u64,
     predicates: LogArraySlice<M>,
     sp_offset: u64,
     sp_o_adjacency_list: AdjacencyList<M>
 }
 
-impl<M:AsRef<[u8]>+Clone> PredicateObjectPairsForSubject<M> {
-    pub fn objects_for_predicate(&self, predicate: u64) -> Option<ObjectsForSubjectPredicatePair<M>> {
+impl<M:AsRef<[u8]>+Clone> PredicateObjectPairsForSubject for BasePredicateObjectPairsForSubject<M> {
+    type Objects = BaseObjectsForSubjectPredicatePair<M>;
+    fn objects_for_predicate(&self, predicate: u64) -> Option<BaseObjectsForSubjectPredicatePair<M>> {
         let pos = self.predicates.iter().position(|p| p == predicate);
         match pos {
             None => None,
-            Some(pos) => Some(ObjectsForSubjectPredicatePair {
+            Some(pos) => Some(BaseObjectsForSubjectPredicatePair {
                 subject: self.subject,
                 predicate: predicate,
                 objects: self.sp_o_adjacency_list.get(self.sp_offset+(pos as u64)+1)
@@ -176,14 +174,14 @@ impl<M:AsRef<[u8]>+Clone> PredicateObjectPairsForSubject<M> {
 }
 
 #[derive(Clone)]
-pub struct ObjectsForSubjectPredicatePair<M:AsRef<[u8]>+Clone> {
+pub struct BaseObjectsForSubjectPredicatePair<M:AsRef<[u8]>+Clone> {
     pub subject: u64,
     pub predicate: u64,
     objects: LogArraySlice<M>
 }
 
-impl<M:AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair<M> {
-    pub fn triple(&self, object: u64) -> Option<IdTriple> {
+impl<M:AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for BaseObjectsForSubjectPredicatePair<M> {
+    fn triple(&self, object: u64) -> Option<IdTriple> {
         if self.objects.iter().find(|&o|o==object).is_some() {
             Some(IdTriple {
                 subject: self.subject,
@@ -195,13 +193,6 @@ impl<M:AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair<M> {
             None
         }
     }
-}
-
-#[derive(Clone,Copy)]
-pub struct IdTriple {
-    pub subject: u64,
-    pub predicate: u64,
-    pub object: u64
 }
 
 struct DictionaryFiles<F:'static+FileLoad+FileStore> {
@@ -664,5 +655,7 @@ mod tests {
         assert!(layer.triple_exists(3,2,5));
         assert!(layer.triple_exists(3,3,6));
         assert!(layer.triple_exists(4,3,6));
+
+        assert!(!layer.triple_exists(2,2,0));
     }
 }
