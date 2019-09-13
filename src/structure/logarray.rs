@@ -4,6 +4,7 @@ use bytes::BytesMut;
 use futures::prelude::*;
 use futures::future;
 use super::storage::*;
+use std::cmp::Ordering;
 
 #[derive(Clone)]
 pub struct LogArray<M:AsRef<[u8]>+Clone> {
@@ -387,6 +388,67 @@ pub fn open_logarray_stream<F:'static+FileLoad>(f: F) -> impl Future<Item=Box<dy
         })
 }
 
+pub struct MonotonicLogArray<M:AsRef<[u8]>+Clone>(LogArray<M>);
+
+impl<M:AsRef<[u8]>+Clone> MonotonicLogArray<M> {
+    pub fn from_logarray(logarray: LogArray<M>) -> MonotonicLogArray<M> {
+        let mut iter = logarray.iter();
+        let first = iter.next();
+        if first.is_some() {
+            // check if this is actually monotonic
+            let mut prev = first.unwrap();
+            for cur in iter {
+                if cur <= prev {
+                    panic!("logarray not monotonic ({} is smaller than or equal to its predecessor {})", cur, prev);
+                }
+            }
+        }
+
+        MonotonicLogArray(logarray)
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn entry(&self, index:usize) -> u64 {
+        self.0.entry(index)
+    }
+
+    pub fn iter(&self) -> LogArrayIterator<M> {
+        self.0.iter()
+    }
+
+    pub fn into_iter(self) -> OwnedLogArrayIterator<M> {
+        self.0.into_iter()
+    }
+
+    pub fn index_of(&self, element: u64) -> Option<usize> {
+        if self.len() == 0 {
+            return None;
+        }
+
+        let mut min = 0;
+        let mut max = self.len() - 1;
+        while min <= max {
+            let mid = (min + max) / 2;
+            match element.cmp(&self.entry(mid)) {
+                Ordering::Equal => return Some(mid),
+                Ordering::Greater => min = mid+1,
+                Ordering::Less => {
+                    if mid == 0 {
+                        return None;
+                    }
+                    max = mid - 1
+                }
+            }
+        }
+
+        None
+    }
+
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -509,5 +571,27 @@ mod tests {
         let result: Vec<u64> = slice.into_iter().collect();
 
         assert_eq!(vec![2,5,12], result);
+    }
+
+    #[test]
+    fn monotonic_logarray_index_lookup() {
+        let store = MemoryBackedStore::new();
+        let builder = LogArrayFileBuilder::new(store.open_write(), 5);
+        let original = vec![1,3,5,6,7,10,11,15,16,18,20,25,31];
+        builder.push_all(stream::iter_ok(original.clone()))
+            .and_then(|b| b.finalize())
+            .wait()
+            .unwrap();
+
+        let content = store.map();
+
+        let logarray = LogArray::parse(&content).unwrap();
+        let monotonic = MonotonicLogArray::from_logarray(logarray);
+
+        for i in 0..original.len() {
+            assert_eq!(i, monotonic.index_of(original[i]).unwrap());
+        }
+
+        assert_eq!(None, monotonic.index_of(12));
     }
 }
