@@ -98,13 +98,6 @@ impl<M:AsRef<[u8]>+Clone> BaseLayer<M> {
             Some(ObjectType::Node(self.node_dictionary.get(corrected_id as usize)))
         }
     }
-
-    pub fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
-        self.predicate_object_pairs_for_subject(subject)
-            .and_then(|pairs| pairs.objects_for_predicate(predicate))
-            .and_then(|objects| objects.triple(object))
-            .is_some()
-    }
 }
 
 impl<M:AsRef<[u8]>+Clone> Layer for BaseLayer<M> {
@@ -193,18 +186,6 @@ impl<M:AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for BaseObjectsForSubje
             None
         }
     }
-}
-
-struct DictionaryFiles<F:'static+FileLoad+FileStore> {
-    blocks_file: F,
-    offsets_file: F
-}
-
-struct AdjacencyListFiles<F:'static+FileLoad+FileStore> {
-    bits_file: F,
-    blocks_file: F,
-    sblocks_file: F,
-    nums_file: F,
 }
 
 pub struct BaseLayerFileBuilder<F:'static+FileLoad+FileStore> {

@@ -7,8 +7,8 @@ use super::storage::*;
 
 #[derive(Clone)]
 pub struct AdjacencyList<M:AsRef<[u8]>+Clone> {
-    nums: LogArray<M>,
-    bits: BitIndex<M>,
+    pub nums: LogArray<M>,
+    pub bits: BitIndex<M>,
 }
 
 impl<M:AsRef<[u8]>+Clone> AdjacencyList<M> {
@@ -28,7 +28,12 @@ impl<M:AsRef<[u8]>+Clone> AdjacencyList<M> {
     }
 
     pub fn left_count(&self) -> usize {
-        self.bits.rank((self.bits.len() as u64)-1) as usize
+        if self.bits.len() == 0 {
+            0
+        }
+        else {
+            self.bits.rank((self.bits.len() as u64)-1) as usize
+        }
     }
 
     pub fn right_count(&self) -> usize {
@@ -98,10 +103,10 @@ where F: 'static+FileLoad+FileStore,
         // the left hand side of the adjacencylist is expected to be a continuous range from 1 up to the max
         // but when adding entries, there may be holes. We handle holes by writing a '0' to the logarray
         // (which is otherwise an invalid right-hand side) and pushing a 1 onto the bitarray to immediately close the segment.
-        let skip = left - self.last_left;
+        let mut skip = left - self.last_left;
         
         let f1: Box<dyn Future<Item=(BitArrayFileBuilder<F::Write>, LogArrayFileBuilder<W3>), Error=std::io::Error>> = 
-            if last_left == 0 {
+            if last_left == 0 && skip == 1 {
                 // this is the first entry. we can't push a bit yet
                 Box::new(future::ok((bitarray, nums)))
             }
@@ -110,8 +115,10 @@ where F: 'static+FileLoad+FileStore,
                 Box::new(bitarray.push(false)
                          .map(move |bitarray| (bitarray, nums)))
             } else {
+                // if this is the first element, but we do need to skip, make sure we write one less bit than we'd usually do
+                let bitskip = if last_left == 0 { skip - 1 } else { skip };
                 // there's a different `left`. we push a bunch of 1s to the bitarray, and 0s to the num array.
-                Box::new(bitarray.push_all(stream::iter_ok((0..skip).map(|_|true)))
+                Box::new(bitarray.push_all(stream::iter_ok((0..bitskip).map(|_|true)))
                          .and_then(move |bitarray| nums.push_all(stream::iter_ok(0..skip-1).map(|_|0))
                                    .map(move |nums| (bitarray, nums))))
             };
@@ -134,8 +141,14 @@ where F: 'static+FileLoad+FileStore,
     }
 
     pub fn finalize(self) -> impl Future<Item=(), Error=std::io::Error> {
-        let AdjacencyListBuilder { bitfile, bitarray, bitindex_blocks, bitindex_sblocks, nums, last_left: _, last_right: _ } = self;
-        bitarray.push(true)
+        let AdjacencyListBuilder { bitfile, bitarray, bitindex_blocks, bitindex_sblocks, nums, last_left, last_right: _ } = self;
+        let fut: Box<dyn Future<Item=BitArrayFileBuilder<_>, Error=std::io::Error>> =
+            if nums.count == 0 {
+                Box::new(future::ok(bitarray))
+            } else {
+                Box::new(bitarray.push(true))
+            };
+        fut
             .and_then(|b|b.finalize())
             .and_then(|_|nums.finalize())
             .and_then(move |_| build_bitindex(bitfile.open_read(), bitindex_blocks, bitindex_sblocks))
@@ -182,6 +195,80 @@ mod tests {
         let slice = adjacencylist.get(3);
         assert_eq!(1, slice.len());
         assert_eq!(0, slice.entry(0));
+
+        let slice = adjacencylist.get(4);
+        assert_eq!(1, slice.len());
+        assert_eq!(0, slice.entry(0));
+
+        let slice = adjacencylist.get(5);
+        assert_eq!(1, slice.len());
+        assert_eq!(0, slice.entry(0));
+
+        let slice = adjacencylist.get(6);
+        assert_eq!(1, slice.len());
+        assert_eq!(0, slice.entry(0));
+
+        let slice = adjacencylist.get(7);
+        assert_eq!(1, slice.len());
+        assert_eq!(4, slice.entry(0));
+    }
+
+    #[test]
+    fn empty_adjacencylist() {
+        let bitfile = MemoryBackedStore::new();
+        let bitindex_blocks_file = MemoryBackedStore::new();
+        let bitindex_sblocks_file = MemoryBackedStore::new();
+        let nums_file = MemoryBackedStore::new();
+
+        let builder = AdjacencyListBuilder::new(bitfile.clone(), bitindex_blocks_file.open_write(), bitindex_sblocks_file.open_write(), nums_file.open_write(), 8);
+        builder.push_all(stream::iter_ok(Vec::new()))
+            .and_then(|b|b.finalize())
+            .wait()
+            .unwrap();
+
+        let bitfile_contents = bitfile.map();
+        let bitindex_blocks_contents = bitindex_blocks_file.map();
+        let bitindex_sblocks_contents = bitindex_sblocks_file.map();
+        let nums_contents = nums_file.map();
+
+        let adjacencylist = AdjacencyList::parse(&nums_contents, &bitfile_contents, &bitindex_blocks_contents, &bitindex_sblocks_contents);
+
+        assert_eq!(0, adjacencylist.left_count());
+    }
+
+    #[test]
+    fn adjacencylist_with_skip_at_start() {
+        let bitfile = MemoryBackedStore::new();
+        let bitindex_blocks_file = MemoryBackedStore::new();
+        let bitindex_sblocks_file = MemoryBackedStore::new();
+        let nums_file = MemoryBackedStore::new();
+
+        let builder = AdjacencyListBuilder::new(bitfile.clone(), bitindex_blocks_file.open_write(), bitindex_sblocks_file.open_write(), nums_file.open_write(), 8);
+        builder.push_all(stream::iter_ok(vec![(3,2), (7,4)]))
+            .and_then(|b|b.finalize())
+            .wait()
+            .unwrap();
+
+        let bitfile_contents = bitfile.map();
+        let bitindex_blocks_contents = bitindex_blocks_file.map();
+        let bitindex_sblocks_contents = bitindex_sblocks_file.map();
+        let nums_contents = nums_file.map();
+
+        let adjacencylist = AdjacencyList::parse(&nums_contents, &bitfile_contents, &bitindex_blocks_contents, &bitindex_sblocks_contents);
+
+        let slice = adjacencylist.get(1);
+        assert_eq!(1, slice.len());
+        assert_eq!(0, slice.entry(0));
+
+        let slice = adjacencylist.get(2);
+        assert_eq!(1, slice.len());
+        assert_eq!(0, slice.entry(0));
+
+        /*
+        let slice = adjacencylist.get(3);
+        assert_eq!(1, slice.len());
+        assert_eq!(2, slice.entry(0));
+        */
 
         let slice = adjacencylist.get(4);
         assert_eq!(1, slice.len());

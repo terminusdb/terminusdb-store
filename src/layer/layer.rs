@@ -1,5 +1,6 @@
 use super::base::*;
 use super::child::*;
+use crate::structure::storage::*;
 
 pub trait Layer {
     type PredicateObjectPairsForSubject: PredicateObjectPairsForSubject;
@@ -12,6 +13,12 @@ pub trait Layer {
     fn object_node_id(&self, object: &str) -> Option<u64>;
     fn object_value_id(&self, object: &str) -> Option<u64>;
     fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<Self::PredicateObjectPairsForSubject>;
+    fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
+        self.predicate_object_pairs_for_subject(subject)
+            .and_then(|pairs| pairs.objects_for_predicate(predicate))
+            .and_then(|objects| objects.triple(object))
+            .is_some()
+    }
 }
 
 #[derive(Clone)]
@@ -119,4 +126,16 @@ impl<M:AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for ParentObjectsForSub
             Self::Child(c) => c.triple(object)
         }
     }
+}
+
+pub struct DictionaryFiles<F:'static+FileLoad+FileStore> {
+    pub blocks_file: F,
+    pub offsets_file: F
+}
+
+pub struct AdjacencyListFiles<F:'static+FileLoad+FileStore> {
+    pub bits_file: F,
+    pub blocks_file: F,
+    pub sblocks_file: F,
+    pub nums_file: F,
 }

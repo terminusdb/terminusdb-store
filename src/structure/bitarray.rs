@@ -51,7 +51,7 @@ where W: 'static+AsyncWrite {
     current_byte: u8,
     current_bit_pos: u8,
     bit_output: W,
-    count: u64
+    pub count: u64
 }
 
 impl<W> BitArrayFileBuilder<W>
