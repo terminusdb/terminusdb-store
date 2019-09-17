@@ -48,6 +48,14 @@ impl<M:AsRef<[u8]>+Clone> BaseLayer<M> {
             sp_o_adjacency_list
         }
     }
+
+    pub fn subjects(&self) -> BaseSubjectIterator<M> {
+        BaseSubjectIterator {
+            pos: 0,
+            s_p_adjacency_list: self.s_p_adjacency_list.clone(),
+            sp_o_adjacency_list: self.sp_o_adjacency_list.clone()
+        }
+    }
 }
 
 impl<M:AsRef<[u8]>+Clone> Layer for BaseLayer<M> {
@@ -134,7 +142,40 @@ impl<M:AsRef<[u8]>+Clone> Layer for BaseLayer<M> {
             })
         }
     }
+}
 
+#[derive(Clone)]
+pub struct BaseSubjectIterator<M:AsRef<[u8]>+Clone> {
+    s_p_adjacency_list: AdjacencyList<M>,
+    sp_o_adjacency_list: AdjacencyList<M>,
+    pos: u64,
+}
+
+impl<M:AsRef<[u8]>+Clone> Iterator for BaseSubjectIterator<M> {
+    type Item = BasePredicateObjectPairsForSubject<M>;
+
+    fn next(&mut self) -> Option<BasePredicateObjectPairsForSubject<M>> {
+        if self.pos >= self.s_p_adjacency_list.left_count() as u64 {
+            None
+        }
+        else {
+            let subject = self.pos + 1;
+            self.pos += 1;
+            let predicates = self.s_p_adjacency_list.get(subject);
+            if predicates.entry(0) == 0 {
+                // stub slice, skip
+                self.next()
+            }
+            else {
+                Some(BasePredicateObjectPairsForSubject {
+                    subject,
+                    predicates: self.s_p_adjacency_list.get(subject),
+                    sp_offset: self.s_p_adjacency_list.offset_for(subject),
+                    sp_o_adjacency_list: self.sp_o_adjacency_list.clone()
+                })
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -143,6 +184,18 @@ pub struct BasePredicateObjectPairsForSubject<M:AsRef<[u8]>+Clone> {
     predicates: LogArraySlice<M>,
     sp_offset: u64,
     sp_o_adjacency_list: AdjacencyList<M>
+}
+
+impl<M:AsRef<[u8]>+Clone> BasePredicateObjectPairsForSubject<M> {
+    pub fn predicates(&self) -> BasePredicateIterator<M> {
+        BasePredicateIterator {
+            subject: self.subject,
+            pos: 0,
+            predicates: self.predicates.clone(),
+            sp_offset: self.sp_offset,
+            sp_o_adjacency_list: self.sp_o_adjacency_list.clone()
+        }
+    }
 }
 
 impl<M:AsRef<[u8]>+Clone> PredicateObjectPairsForSubject for BasePredicateObjectPairsForSubject<M> {
@@ -161,10 +214,57 @@ impl<M:AsRef<[u8]>+Clone> PredicateObjectPairsForSubject for BasePredicateObject
 }
 
 #[derive(Clone)]
+pub struct BasePredicateIterator<M:AsRef<[u8]>+Clone> {
+    pub subject: u64,
+    pos: usize,
+    predicates: LogArraySlice<M>,
+    sp_offset: u64,
+    sp_o_adjacency_list: AdjacencyList<M>
+}
+
+impl<M:AsRef<[u8]>+Clone> Iterator for BasePredicateIterator<M> {
+    type Item = BaseObjectsForSubjectPredicatePair<M>;
+
+    fn next(&mut self) -> Option<BaseObjectsForSubjectPredicatePair<M>> {
+        if self.pos >= self.predicates.len() {
+            None
+        }
+        else {
+            let predicate = self.predicates.entry(self.pos);
+            let objects = self.sp_o_adjacency_list.get(self.sp_offset+(self.pos as u64) + 1);
+            self.pos += 1;
+
+            if objects.entry(0) == 0 {
+                // stub slice, ignore
+                self.next()
+            }
+            else {
+                Some(BaseObjectsForSubjectPredicatePair {
+                    subject: self.subject,
+                    predicate,
+                    objects
+                })
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct BaseObjectsForSubjectPredicatePair<M:AsRef<[u8]>+Clone> {
     pub subject: u64,
     pub predicate: u64,
     objects: LogArraySlice<M>
+}
+
+impl<M:AsRef<[u8]>+Clone> BaseObjectsForSubjectPredicatePair<M> {
+    fn triples(&self) -> BaseObjectIterator<M> {
+        BaseObjectIterator {
+            subject: self.subject,
+            predicate: self.predicate,
+            objects: self.objects.clone(),
+            pos: 0
+        }
+    }
 }
 
 impl<M:AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for BaseObjectsForSubjectPredicatePair<M> {
@@ -178,6 +278,38 @@ impl<M:AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for BaseObjectsForSubje
         }
         else {
             None
+        }
+    }
+}
+
+pub struct BaseObjectIterator<M:AsRef<[u8]>+Clone> {
+    pub subject: u64,
+    pub predicate: u64,
+    objects: LogArraySlice<M>,
+    pos: usize
+}
+
+impl<M:AsRef<[u8]>+Clone> Iterator for BaseObjectIterator<M> {
+    type Item = IdTriple;
+
+    fn next(&mut self) -> Option<IdTriple> {
+        if self.pos >= self.objects.len() {
+            None
+        }
+        else {
+            let object = self.objects.entry(self.pos);
+            self.pos += 1;
+
+            if object == 0 {
+                None
+            }
+            else {
+                Some(IdTriple {
+                    subject: self.subject,
+                    predicate: self.predicate,
+                    object
+                })
+            }
         }
     }
 }
@@ -594,9 +726,8 @@ mod tests {
     use crate::structure::storage::*;
     use super::*;
     use tokio;
-    
-    #[test]
-    fn build_and_query_base_layer() {
+
+    fn example_base_layer() -> BaseLayer<Vec<u8>> {
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
@@ -623,6 +754,13 @@ mod tests {
 
         let layer = BaseLayer::load(files[0].clone().map(), files[1].clone().map(), files[2].clone().map(), files[3].clone().map(), files[4].clone().map(), files[5].clone().map(), files[6].clone().map(), files[7].clone().map(), files[8].clone().map(), files[9].clone().map(), files[10].clone().map(), files[11].clone().map(), files[12].clone().map(), files[13].clone().map());
 
+        layer
+    }
+    
+    #[test]
+    fn build_and_query_base_layer() {
+        let layer = example_base_layer();
+
         assert!(layer.triple_exists(1,1,1));
         assert!(layer.triple_exists(2,1,1));
         assert!(layer.triple_exists(2,1,3));
@@ -636,30 +774,7 @@ mod tests {
 
     #[test]
     fn dictionary_entries_in_base() {
-        let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
-        let predicates = vec!["abcde", "fghij", "klmno", "lll"];
-        let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
-
-        let base_files: Vec<_> = (0..14).map(|_| MemoryBackedStore::new()).collect();
-        let base_builder = BaseLayerFileBuilder::new(base_files[0].clone(), base_files[1].clone(), base_files[2].clone(), base_files[3].clone(), base_files[4].clone(), base_files[5].clone(), base_files[6].clone(), base_files[7].clone(), base_files[8].clone(), base_files[9].clone(), base_files[10].clone(), base_files[11].clone(), base_files[12].clone(), base_files[13].clone());
-
-        let future = base_builder.add_nodes(nodes.into_iter().map(|s|s.to_string()))
-            .and_then(move |(_,b)| b.add_predicates(predicates.into_iter().map(|s|s.to_string())))
-            .and_then(move |(_,b)| b.add_values(values.into_iter().map(|s|s.to_string())))
-            .and_then(|(_,b)| b.into_phase2())
-
-            .and_then(|b| b.add_triple(1,1,1))
-            .and_then(|b| b.add_triple(2,1,1))
-            .and_then(|b| b.add_triple(2,1,3))
-            .and_then(|b| b.add_triple(2,3,6))
-            .and_then(|b| b.add_triple(3,2,5))
-            .and_then(|b| b.add_triple(3,3,6))
-            .and_then(|b| b.add_triple(4,3,6))
-            .and_then(|b| b.finalize());
-
-        let result = future.wait().unwrap();
-
-        let base_layer = BaseLayer::load(base_files[0].clone().map(), base_files[1].clone().map(), base_files[2].clone().map(), base_files[3].clone().map(), base_files[4].clone().map(), base_files[5].clone().map(), base_files[6].clone().map(), base_files[7].clone().map(), base_files[8].clone().map(), base_files[9].clone().map(), base_files[10].clone().map(), base_files[11].clone().map(), base_files[12].clone().map(), base_files[13].clone().map());
+        let base_layer = example_base_layer();
 
         assert_eq!(3, base_layer.subject_id("bbbbb").unwrap());
         assert_eq!(2, base_layer.predicate_id("fghij").unwrap());
@@ -670,5 +785,51 @@ mod tests {
         assert_eq!("fghij", base_layer.id_predicate(2).unwrap());
         assert_eq!(ObjectType::Node("aaaaa".to_string()), base_layer.id_object(1).unwrap());
         assert_eq!(ObjectType::Value("chicken".to_string()), base_layer.id_object(6).unwrap());
+    }
+
+    #[test]
+    fn subject_iteration() {
+        let layer = example_base_layer();
+        let subjects: Vec<_> = layer.subjects().map(|s|s.subject).collect();
+
+        assert_eq!(vec![1,2,3,4], subjects);
+    }
+
+    #[test]
+    fn predicates_iterator() {
+        let layer = example_base_layer();
+        let predicates: Vec<_> = layer.predicate_object_pairs_for_subject(3).unwrap().predicates().map(|p|p.predicate).collect();
+
+        assert_eq!(vec![2,3], predicates);
+    }
+
+    #[test]
+    fn objects_iterator() {
+        let layer = example_base_layer();
+        let objects: Vec<_> = layer
+            .predicate_object_pairs_for_subject(2).unwrap()
+            .objects_for_predicate(1).unwrap()
+            .triples().map(|o|o.object).collect();
+
+        assert_eq!(vec![1,3], objects);
+    }
+
+    #[test]
+    fn everything_iterator() {
+        let layer = example_base_layer();
+        let triples: Vec<_> = layer
+            .subjects().map(|s|s.predicates()).flatten()
+            .map(|p|p.triples()).flatten()
+            .map(|t|(t.subject, t.predicate, t.object))
+            .collect();
+
+        assert_eq!(vec![(1,1,1),
+                        (2,1,1),
+                        (2,1,3),
+                        (2,3,6),
+                        (3,2,5),
+                        (3,3,6),
+                        (4,3,6)],
+                   triples);
     }
 }

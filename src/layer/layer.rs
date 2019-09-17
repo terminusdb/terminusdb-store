@@ -113,7 +113,7 @@ pub trait ObjectsForSubjectPredicatePair {
     fn triple(&self, object: u64) -> Option<IdTriple>;
 }
 
-#[derive(Clone,Copy)]
+#[derive(Clone,Copy,PartialEq)]
 pub struct IdTriple {
     pub subject: u64,
     pub predicate: u64,
