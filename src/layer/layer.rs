@@ -12,6 +12,9 @@ pub trait Layer {
     fn predicate_id(&self, predicate: &str) -> Option<u64>;
     fn object_node_id(&self, object: &str) -> Option<u64>;
     fn object_value_id(&self, object: &str) -> Option<u64>;
+    fn id_subject(&self, id: u64) -> Option<String>;
+    fn id_predicate(&self, id: u64) -> Option<String>;
+    fn id_object(&self, id: u64) -> Option<ObjectType>;
     fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<Self::PredicateObjectPairsForSubject>;
     fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
         self.predicate_object_pairs_for_subject(subject)
@@ -69,6 +72,27 @@ impl<M:AsRef<[u8]>+Clone> Layer for ParentLayer<M> {
         match self {
             Self::Base(b) => b.object_value_id(value),
             Self::Child(c) => c.object_value_id(value)
+        }
+    }
+
+    fn id_subject(&self, id: u64) -> Option<String> {
+        match self {
+            Self::Base(b) => b.id_subject(id),
+            Self::Child(c) => c.id_subject(id)
+        }
+    }
+
+    fn id_predicate(&self, id: u64) -> Option<String> {
+        match self {
+            Self::Base(b) => b.id_predicate(id),
+            Self::Child(c) => c.id_predicate(id)
+        }
+    }
+
+    fn id_object(&self, id: u64) -> Option<ObjectType> {
+        match self {
+            Self::Base(b) => b.id_object(id),
+            Self::Child(c) => c.id_object(id)
         }
     }
 
@@ -138,4 +162,10 @@ pub struct AdjacencyListFiles<F:'static+FileLoad+FileStore> {
     pub blocks_file: F,
     pub sblocks_file: F,
     pub nums_file: F,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ObjectType {
+    Node(String),
+    Value(String)
 }

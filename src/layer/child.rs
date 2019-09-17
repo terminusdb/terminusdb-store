@@ -8,9 +8,9 @@ use futures::stream;
 pub struct ChildLayer<M:AsRef<[u8]>+Clone> {
     parent: Box<ParentLayer<M>>,
 
-    node_dictionary: Option<PfcDict<M>>,
-    predicate_dictionary: Option<PfcDict<M>>,
-    value_dictionary: Option<PfcDict<M>>,
+    node_dictionary: PfcDict<M>,
+    predicate_dictionary: PfcDict<M>,
+    value_dictionary: PfcDict<M>,
 
     subjects: MonotonicLogArray<M>,
     pos_s_p_adjacency_list: AdjacencyList<M>,
@@ -68,9 +68,9 @@ impl<M:AsRef<[u8]>+Clone> ChildLayer<M> {
         ChildLayer {
             parent: Box::new(parent),
             
-            node_dictionary: Some(node_dictionary),
-            predicate_dictionary: Some(predicate_dictionary),
-            value_dictionary: Some(value_dictionary),
+            node_dictionary: node_dictionary,
+            predicate_dictionary: predicate_dictionary,
+            value_dictionary: value_dictionary,
 
             subjects,
 
@@ -87,38 +87,112 @@ impl<M:AsRef<[u8]>+Clone> Layer for ChildLayer<M> {
     type PredicateObjectPairsForSubject = ChildPredicateObjectPairsForSubject<M>;
 
     fn node_and_value_count(&self) -> usize {
-        self.node_dictionary.as_ref().map(|d|d.len()).unwrap_or(0) + self.value_dictionary.as_ref().map(|d|d.len()).unwrap_or(0) + self.parent.node_and_value_count()
+        self.node_dictionary.len() + self.value_dictionary.len() + self.parent.node_and_value_count()
     }
 
     fn predicate_count(&self) -> usize {
-        self.predicate_dictionary.as_ref().map(|d|d.len()).unwrap_or(0) + self.parent.predicate_count()
+        self.predicate_dictionary.len() + self.parent.predicate_count()
     }
 
     fn subject_id(&self, subject: &str) -> Option<u64> {
-        match self.node_dictionary.as_ref().and_then(|dict| dict.id(subject)) {
+        match self.node_dictionary.id(subject) {
             Some(id) => Some(self.parent.node_and_value_count() as u64 + id + 1),
             None => self.parent.subject_id(subject)
         }
     }
 
     fn predicate_id(&self, predicate: &str) -> Option<u64> {
-        match self.predicate_dictionary.as_ref().and_then(|dict| dict.id(predicate)) {
+        match self.predicate_dictionary.id(predicate) {
             Some(id) => Some(self.parent.predicate_count() as u64 + id + 1),
             None => self.parent.predicate_id(predicate)
         }
     }
 
     fn object_node_id(&self, node: &str) -> Option<u64> {
-        match self.node_dictionary.as_ref().and_then(|dict| dict.id(node)) {
+        match self.node_dictionary.id(node) {
             Some(id) => Some(self.parent.node_and_value_count() as u64 + id + 1),
             None => self.parent.object_node_id(node)
         }
     }
 
     fn object_value_id(&self, value: &str) -> Option<u64> {
-        match self.value_dictionary.as_ref().and_then(|dict| dict.id(value)) {
-            Some(id) => Some(self.parent.node_and_value_count() as u64 + id + 1),
+        match self.value_dictionary.id(value) {
+            Some(id) => Some(self.parent.node_and_value_count() as u64 + self.node_dictionary.len() as u64 + id + 1),
             None => self.parent.object_value_id(value)
+        }
+    }
+
+    fn id_subject(&self, id: u64) -> Option<String> {
+        if id == 0 {
+            return None;
+        }
+        let mut corrected_id = id - 1;
+        let parent_count = self.parent.node_and_value_count() as u64;
+
+        if corrected_id >= parent_count as u64 {
+            // subject, if it exists, is in this layer
+            corrected_id -= parent_count;
+            if corrected_id >= self.node_dictionary.len() as u64 {
+                None
+            }
+            else {
+                Some(self.node_dictionary.get(corrected_id as usize))
+            }
+        }
+        else {
+            // subject, if it exists, is in a parent layer
+            self.parent.id_subject(id)
+        }
+    }
+
+    fn id_predicate(&self, id: u64) -> Option<String> {
+        if id == 0 {
+            return None;
+        }
+        let mut corrected_id = id - 1;
+        let parent_count = self.parent.predicate_count() as u64;
+
+        if corrected_id >= parent_count {
+            // predicate, if it exists, is in this layer
+            corrected_id -= parent_count;
+            if corrected_id >= self.predicate_dictionary.len() as u64 {
+                None
+            }
+            else {
+                Some(self.predicate_dictionary.get(corrected_id as usize))
+            }
+        }
+        else {
+            self.parent.id_predicate(id)
+        }
+    }
+
+    fn id_object(&self, id: u64) -> Option<ObjectType> {
+        if id == 0 {
+            return None;
+        }
+        let mut corrected_id = id - 1;
+        let parent_count = self.parent.node_and_value_count() as u64;
+
+        if corrected_id >= parent_count {
+            // object, if it exists, is in this layer
+            corrected_id -= parent_count;
+            if corrected_id >= self.node_dictionary.len() as u64 {
+                // object, if it exists, must be a value
+                corrected_id -= self.node_dictionary.len() as u64;
+                if corrected_id >= self.value_dictionary.len() as u64 {
+                    None
+                }
+                else {
+                    Some(ObjectType::Value(self.value_dictionary.get(corrected_id as usize)))
+                }
+            }
+            else {
+                Some(ObjectType::Node(self.node_dictionary.get(corrected_id as usize)))
+            }
+        }
+        else {
+            self.parent.id_object(id)
         }
     }
 
@@ -1140,5 +1214,109 @@ mod tests {
 
         assert!(child_layer.triple_exists(11,2,3));
         assert!(child_layer.triple_exists(12,3,4));
+    }
+
+    #[test]
+    fn old_dictionary_entries_in_child() {
+        let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
+        let predicates = vec!["abcde", "fghij", "klmno", "lll"];
+        let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
+
+        let base_files: Vec<_> = (0..14).map(|_| MemoryBackedStore::new()).collect();
+        let base_builder = BaseLayerFileBuilder::new(base_files[0].clone(), base_files[1].clone(), base_files[2].clone(), base_files[3].clone(), base_files[4].clone(), base_files[5].clone(), base_files[6].clone(), base_files[7].clone(), base_files[8].clone(), base_files[9].clone(), base_files[10].clone(), base_files[11].clone(), base_files[12].clone(), base_files[13].clone());
+
+        let future = base_builder.add_nodes(nodes.into_iter().map(|s|s.to_string()))
+            .and_then(move |(_,b)| b.add_predicates(predicates.into_iter().map(|s|s.to_string())))
+            .and_then(move |(_,b)| b.add_values(values.into_iter().map(|s|s.to_string())))
+            .and_then(|(_,b)| b.into_phase2())
+
+            .and_then(|b| b.add_triple(1,1,1))
+            .and_then(|b| b.add_triple(2,1,1))
+            .and_then(|b| b.add_triple(2,1,3))
+            .and_then(|b| b.add_triple(2,3,6))
+            .and_then(|b| b.add_triple(3,2,5))
+            .and_then(|b| b.add_triple(3,3,6))
+            .and_then(|b| b.add_triple(4,3,6))
+            .and_then(|b| b.finalize());
+
+        let result = future.wait().unwrap();
+
+        let base_layer = BaseLayer::load(base_files[0].clone().map(), base_files[1].clone().map(), base_files[2].clone().map(), base_files[3].clone().map(), base_files[4].clone().map(), base_files[5].clone().map(), base_files[6].clone().map(), base_files[7].clone().map(), base_files[8].clone().map(), base_files[9].clone().map(), base_files[10].clone().map(), base_files[11].clone().map(), base_files[12].clone().map(), base_files[13].clone().map());
+
+        let parent = ParentLayer::Base(base_layer);
+
+        let child_files: Vec<_> = (0..23).map(|_| MemoryBackedStore::new()).collect();
+
+        let child_builder = ChildLayerFileBuilder::new(parent.clone(), child_files[0].clone(), child_files[1].clone(), child_files[2].clone(), child_files[3].clone(), child_files[4].clone(), child_files[5].clone(), child_files[6].clone(), child_files[7].clone(), child_files[8].clone(), child_files[9].clone(), child_files[10].clone(), child_files[11].clone(), child_files[12].clone(), child_files[13].clone(), child_files[14].clone(), child_files[15].clone(), child_files[16].clone(), child_files[17].clone(), child_files[18].clone(), child_files[19].clone(), child_files[20].clone(), child_files[21].clone(), child_files[22].clone());
+        child_builder
+            .add_node("foo")
+            .and_then(|(_,b)|b.add_predicate("bar"))
+            .and_then(|(_,b)|b.add_value("baz"))
+            .and_then(|(_,b)|b.into_phase2())
+            .and_then(|b|b.finalize()).wait().unwrap();
+
+        let child_layer = ChildLayer::load(parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map());
+
+        assert_eq!(3, child_layer.subject_id("bbbbb").unwrap());
+        assert_eq!(2, child_layer.predicate_id("fghij").unwrap());
+        assert_eq!(1, child_layer.object_node_id("aaaaa").unwrap());
+        assert_eq!(6, child_layer.object_value_id("chicken").unwrap());
+
+        assert_eq!("bbbbb", child_layer.id_subject(3).unwrap());
+        assert_eq!("fghij", child_layer.id_predicate(2).unwrap());
+        assert_eq!(ObjectType::Node("aaaaa".to_string()), child_layer.id_object(1).unwrap());
+        assert_eq!(ObjectType::Value("chicken".to_string()), child_layer.id_object(6).unwrap());
+    }
+
+    #[test]
+    fn new_dictionary_entries_in_child() {
+        let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
+        let predicates = vec!["abcde", "fghij", "klmno", "lll"];
+        let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
+
+        let base_files: Vec<_> = (0..14).map(|_| MemoryBackedStore::new()).collect();
+        let base_builder = BaseLayerFileBuilder::new(base_files[0].clone(), base_files[1].clone(), base_files[2].clone(), base_files[3].clone(), base_files[4].clone(), base_files[5].clone(), base_files[6].clone(), base_files[7].clone(), base_files[8].clone(), base_files[9].clone(), base_files[10].clone(), base_files[11].clone(), base_files[12].clone(), base_files[13].clone());
+
+        let future = base_builder.add_nodes(nodes.into_iter().map(|s|s.to_string()))
+            .and_then(move |(_,b)| b.add_predicates(predicates.into_iter().map(|s|s.to_string())))
+            .and_then(move |(_,b)| b.add_values(values.into_iter().map(|s|s.to_string())))
+            .and_then(|(_,b)| b.into_phase2())
+
+            .and_then(|b| b.add_triple(1,1,1))
+            .and_then(|b| b.add_triple(2,1,1))
+            .and_then(|b| b.add_triple(2,1,3))
+            .and_then(|b| b.add_triple(2,3,6))
+            .and_then(|b| b.add_triple(3,2,5))
+            .and_then(|b| b.add_triple(3,3,6))
+            .and_then(|b| b.add_triple(4,3,6))
+            .and_then(|b| b.finalize());
+
+        let result = future.wait().unwrap();
+
+        let base_layer = BaseLayer::load(base_files[0].clone().map(), base_files[1].clone().map(), base_files[2].clone().map(), base_files[3].clone().map(), base_files[4].clone().map(), base_files[5].clone().map(), base_files[6].clone().map(), base_files[7].clone().map(), base_files[8].clone().map(), base_files[9].clone().map(), base_files[10].clone().map(), base_files[11].clone().map(), base_files[12].clone().map(), base_files[13].clone().map());
+
+        let parent = ParentLayer::Base(base_layer);
+
+        let child_files: Vec<_> = (0..23).map(|_| MemoryBackedStore::new()).collect();
+
+        let child_builder = ChildLayerFileBuilder::new(parent.clone(), child_files[0].clone(), child_files[1].clone(), child_files[2].clone(), child_files[3].clone(), child_files[4].clone(), child_files[5].clone(), child_files[6].clone(), child_files[7].clone(), child_files[8].clone(), child_files[9].clone(), child_files[10].clone(), child_files[11].clone(), child_files[12].clone(), child_files[13].clone(), child_files[14].clone(), child_files[15].clone(), child_files[16].clone(), child_files[17].clone(), child_files[18].clone(), child_files[19].clone(), child_files[20].clone(), child_files[21].clone(), child_files[22].clone());
+        child_builder
+            .add_node("foo")
+            .and_then(|(_,b)|b.add_predicate("bar"))
+            .and_then(|(_,b)|b.add_value("baz"))
+            .and_then(|(_,b)|b.into_phase2())
+            .and_then(|b|b.finalize()).wait().unwrap();
+
+        let child_layer = ChildLayer::load(parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map());
+
+        assert_eq!(11, child_layer.subject_id("foo").unwrap());
+        assert_eq!(5, child_layer.predicate_id("bar").unwrap());
+        assert_eq!(11, child_layer.object_node_id("foo").unwrap());
+        assert_eq!(12, child_layer.object_value_id("baz").unwrap());
+
+        assert_eq!("foo", child_layer.id_subject(11).unwrap());
+        assert_eq!("bar", child_layer.id_predicate(5).unwrap());
+        assert_eq!(ObjectType::Node("foo".to_string()), child_layer.id_object(11).unwrap());
+        assert_eq!(ObjectType::Value("baz".to_string()), child_layer.id_object(12).unwrap());
     }
 }

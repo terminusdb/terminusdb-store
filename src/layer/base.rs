@@ -13,12 +13,6 @@ pub struct BaseLayer<M:AsRef<[u8]>+Clone> {
     sp_o_adjacency_list: AdjacencyList<M>
 }
 
-#[derive(Debug, Clone)]
-pub enum ObjectType {
-    Node(String),
-    Value(String)
-}
-
 impl<M:AsRef<[u8]>+Clone> BaseLayer<M> {
     pub fn load(node_dictionary_blocks_file: M,
                node_dictionary_offsets_file: M,
@@ -54,50 +48,6 @@ impl<M:AsRef<[u8]>+Clone> BaseLayer<M> {
             sp_o_adjacency_list
         }
     }
-
-    pub fn id_subject(&self, id: u64) -> Option<String> {
-        if id == 0 {
-            return None;
-        }
-        let corrected_id = id - 1;
-
-        match (self.node_dictionary.len() as u64) < corrected_id {
-            true => Some(self.node_dictionary.get(corrected_id as usize)),
-            false => None
-        }
-    }
-
-    pub fn id_predicate(&self, id: u64) -> Option<String> {
-        if id == 0 {
-            return None;
-        }
-        let corrected_id = id - 1;
-
-        match (self.predicate_dictionary.len() as u64) < corrected_id {
-            true => Some(self.predicate_dictionary.get(corrected_id as usize)),
-            false => None
-        }
-    }
-
-    pub fn id_object(&self, id: u64) -> Option<ObjectType> {
-        if id == 0 {
-            return None;
-        }
-        let corrected_id = id - 1;
-
-        if corrected_id >= (self.node_dictionary.len() as u64) {
-            let val_id = corrected_id - (self.node_dictionary.len() as u64);
-            if val_id >= (self.value_dictionary.len() as u64) {
-                None
-            }
-            else {
-                Some(ObjectType::Value(self.value_dictionary.get(val_id as usize)))
-            }
-        }
-        else {
-            Some(ObjectType::Node(self.node_dictionary.get(corrected_id as usize)))
-        }
-    }
 }
 
 impl<M:AsRef<[u8]>+Clone> Layer for BaseLayer<M> {
@@ -125,6 +75,50 @@ impl<M:AsRef<[u8]>+Clone> Layer for BaseLayer<M> {
     fn object_value_id(&self, value: &str) -> Option<u64> {
         self.value_dictionary.id(value)
             .map(|id| id + self.node_dictionary.len() as u64 + 1)
+    }
+
+    fn id_subject(&self, id: u64) -> Option<String> {
+        if id == 0 {
+            return None;
+        }
+        let corrected_id = id - 1;
+
+        match corrected_id < (self.node_dictionary.len() as u64) {
+            true => Some(self.node_dictionary.get(corrected_id as usize)),
+            false => None
+        }
+    }
+
+    fn id_predicate(&self, id: u64) -> Option<String> {
+        if id == 0 {
+            return None;
+        }
+        let corrected_id = id - 1;
+
+        match corrected_id < (self.predicate_dictionary.len() as u64) {
+            true => Some(self.predicate_dictionary.get(corrected_id as usize)),
+            false => None
+        }
+    }
+
+    fn id_object(&self, id: u64) -> Option<ObjectType> {
+        if id == 0 {
+            return None;
+        }
+        let corrected_id = id - 1;
+
+        if corrected_id >= (self.node_dictionary.len() as u64) {
+            let val_id = corrected_id - (self.node_dictionary.len() as u64);
+            if val_id >= (self.value_dictionary.len() as u64) {
+                None
+            }
+            else {
+                Some(ObjectType::Value(self.value_dictionary.get(val_id as usize)))
+            }
+        }
+        else {
+            Some(ObjectType::Node(self.node_dictionary.get(corrected_id as usize)))
+        }
     }
 
     fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<BasePredicateObjectPairsForSubject<M>> {
@@ -638,5 +632,43 @@ mod tests {
         assert!(layer.triple_exists(4,3,6));
 
         assert!(!layer.triple_exists(2,2,0));
+    }
+
+    #[test]
+    fn dictionary_entries_in_base() {
+        let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
+        let predicates = vec!["abcde", "fghij", "klmno", "lll"];
+        let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
+
+        let base_files: Vec<_> = (0..14).map(|_| MemoryBackedStore::new()).collect();
+        let base_builder = BaseLayerFileBuilder::new(base_files[0].clone(), base_files[1].clone(), base_files[2].clone(), base_files[3].clone(), base_files[4].clone(), base_files[5].clone(), base_files[6].clone(), base_files[7].clone(), base_files[8].clone(), base_files[9].clone(), base_files[10].clone(), base_files[11].clone(), base_files[12].clone(), base_files[13].clone());
+
+        let future = base_builder.add_nodes(nodes.into_iter().map(|s|s.to_string()))
+            .and_then(move |(_,b)| b.add_predicates(predicates.into_iter().map(|s|s.to_string())))
+            .and_then(move |(_,b)| b.add_values(values.into_iter().map(|s|s.to_string())))
+            .and_then(|(_,b)| b.into_phase2())
+
+            .and_then(|b| b.add_triple(1,1,1))
+            .and_then(|b| b.add_triple(2,1,1))
+            .and_then(|b| b.add_triple(2,1,3))
+            .and_then(|b| b.add_triple(2,3,6))
+            .and_then(|b| b.add_triple(3,2,5))
+            .and_then(|b| b.add_triple(3,3,6))
+            .and_then(|b| b.add_triple(4,3,6))
+            .and_then(|b| b.finalize());
+
+        let result = future.wait().unwrap();
+
+        let base_layer = BaseLayer::load(base_files[0].clone().map(), base_files[1].clone().map(), base_files[2].clone().map(), base_files[3].clone().map(), base_files[4].clone().map(), base_files[5].clone().map(), base_files[6].clone().map(), base_files[7].clone().map(), base_files[8].clone().map(), base_files[9].clone().map(), base_files[10].clone().map(), base_files[11].clone().map(), base_files[12].clone().map(), base_files[13].clone().map());
+
+        assert_eq!(3, base_layer.subject_id("bbbbb").unwrap());
+        assert_eq!(2, base_layer.predicate_id("fghij").unwrap());
+        assert_eq!(1, base_layer.object_node_id("aaaaa").unwrap());
+        assert_eq!(6, base_layer.object_value_id("chicken").unwrap());
+
+        assert_eq!("bbbbb", base_layer.id_subject(3).unwrap());
+        assert_eq!("fghij", base_layer.id_predicate(2).unwrap());
+        assert_eq!(ObjectType::Node("aaaaa".to_string()), base_layer.id_object(1).unwrap());
+        assert_eq!(ObjectType::Value("chicken".to_string()), base_layer.id_object(6).unwrap());
     }
 }
