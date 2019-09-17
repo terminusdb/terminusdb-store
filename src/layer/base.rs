@@ -5,7 +5,7 @@ use crate::structure::*;
 use super::layer::*;
 
 #[derive(Clone)]
-pub struct BaseLayer<M:AsRef<[u8]>+Clone> {
+pub struct BaseLayer<M:'static+AsRef<[u8]>+Clone> {
     node_dictionary: PfcDict<M>,
     predicate_dictionary: PfcDict<M>,
     value_dictionary: PfcDict<M>,
@@ -13,7 +13,7 @@ pub struct BaseLayer<M:AsRef<[u8]>+Clone> {
     sp_o_adjacency_list: AdjacencyList<M>
 }
 
-impl<M:AsRef<[u8]>+Clone> BaseLayer<M> {
+impl<M:'static+AsRef<[u8]>+Clone> BaseLayer<M> {
     pub fn load(node_dictionary_blocks_file: M,
                node_dictionary_offsets_file: M,
 
@@ -48,18 +48,20 @@ impl<M:AsRef<[u8]>+Clone> BaseLayer<M> {
             sp_o_adjacency_list
         }
     }
+}
 
-    pub fn subjects(&self) -> BaseSubjectIterator<M> {
+impl<M:'static+AsRef<[u8]>+Clone> Layer for BaseLayer<M> {
+    type PredicateObjectPairsForSubject = BasePredicateObjectPairsForSubject<M>;
+    type SubjectIterator = BaseSubjectIterator<M>;
+
+    fn subjects(&self) -> BaseSubjectIterator<M> {
         BaseSubjectIterator {
             pos: 0,
             s_p_adjacency_list: self.s_p_adjacency_list.clone(),
             sp_o_adjacency_list: self.sp_o_adjacency_list.clone()
         }
     }
-}
 
-impl<M:AsRef<[u8]>+Clone> Layer for BaseLayer<M> {
-    type PredicateObjectPairsForSubject = BasePredicateObjectPairsForSubject<M>;
     fn node_and_value_count(&self) -> usize {
         self.node_dictionary.len() + self.value_dictionary.len()
     }
@@ -145,13 +147,13 @@ impl<M:AsRef<[u8]>+Clone> Layer for BaseLayer<M> {
 }
 
 #[derive(Clone)]
-pub struct BaseSubjectIterator<M:AsRef<[u8]>+Clone> {
+pub struct BaseSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
     s_p_adjacency_list: AdjacencyList<M>,
     sp_o_adjacency_list: AdjacencyList<M>,
     pos: u64,
 }
 
-impl<M:AsRef<[u8]>+Clone> Iterator for BaseSubjectIterator<M> {
+impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseSubjectIterator<M> {
     type Item = BasePredicateObjectPairsForSubject<M>;
 
     fn next(&mut self) -> Option<BasePredicateObjectPairsForSubject<M>> {
@@ -179,15 +181,22 @@ impl<M:AsRef<[u8]>+Clone> Iterator for BaseSubjectIterator<M> {
 }
 
 #[derive(Clone)]
-pub struct BasePredicateObjectPairsForSubject<M:AsRef<[u8]>+Clone> {
-    pub subject: u64,
+pub struct BasePredicateObjectPairsForSubject<M:'static+AsRef<[u8]>+Clone> {
+    subject: u64,
     predicates: LogArraySlice<M>,
     sp_offset: u64,
     sp_o_adjacency_list: AdjacencyList<M>
 }
 
-impl<M:AsRef<[u8]>+Clone> BasePredicateObjectPairsForSubject<M> {
-    pub fn predicates(&self) -> BasePredicateIterator<M> {
+impl<M:'static+AsRef<[u8]>+Clone> PredicateObjectPairsForSubject for BasePredicateObjectPairsForSubject<M> {
+    type Objects = BaseObjectsForSubjectPredicatePair<M>;
+    type PredicateIterator = BasePredicateIterator<M>;
+
+    fn subject(&self) -> u64 {
+        self.subject
+    }
+
+    fn predicates(&self) -> BasePredicateIterator<M> {
         BasePredicateIterator {
             subject: self.subject,
             pos: 0,
@@ -196,10 +205,7 @@ impl<M:AsRef<[u8]>+Clone> BasePredicateObjectPairsForSubject<M> {
             sp_o_adjacency_list: self.sp_o_adjacency_list.clone()
         }
     }
-}
 
-impl<M:AsRef<[u8]>+Clone> PredicateObjectPairsForSubject for BasePredicateObjectPairsForSubject<M> {
-    type Objects = BaseObjectsForSubjectPredicatePair<M>;
     fn objects_for_predicate(&self, predicate: u64) -> Option<BaseObjectsForSubjectPredicatePair<M>> {
         let pos = self.predicates.iter().position(|p| p == predicate);
         match pos {
@@ -214,15 +220,15 @@ impl<M:AsRef<[u8]>+Clone> PredicateObjectPairsForSubject for BasePredicateObject
 }
 
 #[derive(Clone)]
-pub struct BasePredicateIterator<M:AsRef<[u8]>+Clone> {
-    pub subject: u64,
+pub struct BasePredicateIterator<M:'static+AsRef<[u8]>+Clone> {
+    subject: u64,
     pos: usize,
     predicates: LogArraySlice<M>,
     sp_offset: u64,
     sp_o_adjacency_list: AdjacencyList<M>
 }
 
-impl<M:AsRef<[u8]>+Clone> Iterator for BasePredicateIterator<M> {
+impl<M:'static+AsRef<[u8]>+Clone> Iterator for BasePredicateIterator<M> {
     type Item = BaseObjectsForSubjectPredicatePair<M>;
 
     fn next(&mut self) -> Option<BaseObjectsForSubjectPredicatePair<M>> {
@@ -250,13 +256,23 @@ impl<M:AsRef<[u8]>+Clone> Iterator for BasePredicateIterator<M> {
 }
 
 #[derive(Clone)]
-pub struct BaseObjectsForSubjectPredicatePair<M:AsRef<[u8]>+Clone> {
-    pub subject: u64,
-    pub predicate: u64,
+pub struct BaseObjectsForSubjectPredicatePair<M:'static+AsRef<[u8]>+Clone> {
+    subject: u64,
+    predicate: u64,
     objects: LogArraySlice<M>
 }
 
-impl<M:AsRef<[u8]>+Clone> BaseObjectsForSubjectPredicatePair<M> {
+impl<M:'static+AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for BaseObjectsForSubjectPredicatePair<M> {
+    type ObjectIterator = BaseObjectIterator<M>;
+
+    fn subject(&self) -> u64 {
+        self.subject
+    }
+
+    fn predicate(&self) -> u64 {
+        self.predicate
+    }
+
     fn triples(&self) -> BaseObjectIterator<M> {
         BaseObjectIterator {
             subject: self.subject,
@@ -265,9 +281,7 @@ impl<M:AsRef<[u8]>+Clone> BaseObjectsForSubjectPredicatePair<M> {
             pos: 0
         }
     }
-}
 
-impl<M:AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for BaseObjectsForSubjectPredicatePair<M> {
     fn triple(&self, object: u64) -> Option<IdTriple> {
         if self.objects.iter().find(|&o|o==object).is_some() {
             Some(IdTriple {
@@ -282,14 +296,15 @@ impl<M:AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for BaseObjectsForSubje
     }
 }
 
-pub struct BaseObjectIterator<M:AsRef<[u8]>+Clone> {
+#[derive(Clone)]
+pub struct BaseObjectIterator<M:'static+AsRef<[u8]>+Clone> {
     pub subject: u64,
     pub predicate: u64,
     objects: LogArraySlice<M>,
     pos: usize
 }
 
-impl<M:AsRef<[u8]>+Clone> Iterator for BaseObjectIterator<M> {
+impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseObjectIterator<M> {
     type Item = IdTriple;
 
     fn next(&mut self) -> Option<IdTriple> {
@@ -817,9 +832,7 @@ mod tests {
     #[test]
     fn everything_iterator() {
         let layer = example_base_layer();
-        let triples: Vec<_> = layer
-            .subjects().map(|s|s.predicates()).flatten()
-            .map(|p|p.triples()).flatten()
+        let triples: Vec<_> = layer.triples()
             .map(|t|(t.subject, t.predicate, t.object))
             .collect();
 
