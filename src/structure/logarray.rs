@@ -393,14 +393,16 @@ pub struct MonotonicLogArray<M:AsRef<[u8]>+Clone>(LogArray<M>);
 
 impl<M:AsRef<[u8]>+Clone> MonotonicLogArray<M> {
     pub fn from_logarray(logarray: LogArray<M>) -> MonotonicLogArray<M> {
-        let mut iter = logarray.iter();
-        let first = iter.next();
-        if first.is_some() {
-            // check if this is actually monotonic
-            let mut prev = first.unwrap();
-            for cur in iter {
-                if cur <= prev {
-                    panic!("logarray not monotonic ({} is smaller than or equal to its predecessor {})", cur, prev);
+        if cfg!(debug_assertions) {
+            let mut iter = logarray.iter();
+            let first = iter.next();
+            if first.is_some() {
+                // check if this is actually monotonic
+                let mut prev = first.unwrap();
+                for cur in iter {
+                    if cur <= prev {
+                        panic!("logarray not monotonic ({} is smaller than or equal to its predecessor {})", cur, prev);
+                    }
                 }
             }
         }
