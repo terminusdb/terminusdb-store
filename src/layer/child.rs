@@ -7,6 +7,41 @@ use futures::stream;
 use std::cmp::Ordering;
 
 #[derive(Clone)]
+pub struct ChildLayerFiles<F:FileLoad+FileStore> {
+    pub node_dictionary_blocks_file: F,
+    pub node_dictionary_offsets_file: F,
+
+    pub predicate_dictionary_blocks_file: F,
+    pub predicate_dictionary_offsets_file: F,
+
+    pub value_dictionary_blocks_file: F,
+    pub value_dictionary_offsets_file: F,
+
+    pub pos_subjects_file: F,
+    pub neg_subjects_file: F,
+
+    pub pos_s_p_adjacency_list_bits_file: F,
+    pub pos_s_p_adjacency_list_blocks_file: F,
+    pub pos_s_p_adjacency_list_sblocks_file: F,
+    pub pos_s_p_adjacency_list_nums_file: F,
+
+    pub pos_sp_o_adjacency_list_bits_file: F,
+    pub pos_sp_o_adjacency_list_blocks_file: F,
+    pub pos_sp_o_adjacency_list_sblocks_file: F,
+    pub pos_sp_o_adjacency_list_nums_file: F,
+
+    pub neg_s_p_adjacency_list_bits_file: F,
+    pub neg_s_p_adjacency_list_blocks_file: F,
+    pub neg_s_p_adjacency_list_sblocks_file: F,
+    pub neg_s_p_adjacency_list_nums_file: F,
+
+    pub neg_sp_o_adjacency_list_bits_file: F,
+    pub neg_sp_o_adjacency_list_blocks_file: F,
+    pub neg_sp_o_adjacency_list_sblocks_file: F,
+    pub neg_sp_o_adjacency_list_nums_file: F,
+}
+
+#[derive(Clone)]
 pub struct ChildLayer<M:'static+AsRef<[u8]>+Clone> {
     parent: Box<ParentLayer<M>>,
 
@@ -645,7 +680,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildObjectIterator<M> {
     }
 }
 
-struct ChildLayerFileBuilder<F:'static+FileLoad+FileStore> {
+pub struct ChildLayerFileBuilder<F:'static+FileLoad+FileStore> {
     parent: ParentLayer<F::Map>,
     node_dictionary_files: DictionaryFiles<F>,
     predicate_dictionary_files: DictionaryFiles<F>,

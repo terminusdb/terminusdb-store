@@ -5,6 +5,28 @@ use crate::structure::*;
 use super::layer::*;
 
 #[derive(Clone)]
+pub struct BaseLayerFiles<F:FileLoad+FileStore> {
+    pub node_dictionary_blocks_file: F,
+    pub node_dictionary_offsets_file: F,
+
+    pub predicate_dictionary_blocks_file: F,
+    pub predicate_dictionary_offsets_file: F,
+
+    pub value_dictionary_blocks_file: F,
+    pub value_dictionary_offsets_file: F,
+
+    pub s_p_adjacency_list_bits_file: F,
+    pub s_p_adjacency_list_blocks_file: F,
+    pub s_p_adjacency_list_sblocks_file: F,
+    pub s_p_adjacency_list_nums_file: F,
+
+    pub sp_o_adjacency_list_bits_file: F,
+    pub sp_o_adjacency_list_blocks_file: F,
+    pub sp_o_adjacency_list_sblocks_file: F,
+    pub sp_o_adjacency_list_nums_file: F
+}
+
+#[derive(Clone)]
 pub struct BaseLayer<M:'static+AsRef<[u8]>+Clone> {
     node_dictionary: PfcDict<M>,
     predicate_dictionary: PfcDict<M>,
@@ -735,7 +757,6 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
             .map(|_|())
     }
 }
-
 
 #[cfg(test)]
 mod tests {

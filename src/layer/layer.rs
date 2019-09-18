@@ -27,9 +27,43 @@ pub trait Layer {
             .is_some()
     }
 
+    fn id_triple_exists(&self, triple: IdTriple) -> bool {
+        self.triple_exists(triple.subject, triple.predicate, triple.object)
+    }
+
+    fn string_triple_exists(&self, triple: &StringTriple) -> bool {
+        self.string_triple_to_id(triple)
+            .map(|t| self.id_triple_exists(t))
+            .unwrap_or(false)
+    }
+
     fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
         Box::new(self.subjects().map(|s|s.predicates()).flatten()
                  .map(|p|p.triples()).flatten())
+    }
+
+    fn string_triple_to_id(&self, triple: &StringTriple) -> Option<IdTriple> {
+        self.subject_id(&triple.subject)
+            .and_then(|subject| self.predicate_id(&triple.predicate)
+                      .and_then(|predicate| match &triple.object {
+                          ObjectType::Node(node) => self.object_node_id(&node),
+                          ObjectType::Value(value) => self.object_value_id(&value)
+                      }.map(|object| IdTriple {
+                          subject,
+                          predicate,
+                          object
+                      })))
+    }
+
+    fn id_triple_to_string(&self, triple: &IdTriple) -> Option<StringTriple> {
+        self.id_subject(triple.subject)
+            .and_then(|subject| self.id_predicate(triple.predicate)
+                      .and_then(|predicate| self.id_object(triple.object)
+                                .map(|object| StringTriple {
+                                    subject,
+                                    predicate,
+                                    object
+                                })))
     }
 }
 
@@ -162,11 +196,18 @@ pub trait ObjectsForSubjectPredicatePair {
     fn triple(&self, object: u64) -> Option<IdTriple>;
 }
 
-#[derive(Clone,Copy,PartialEq,PartialOrd)]
+#[derive(Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash)]
 pub struct IdTriple {
     pub subject: u64,
     pub predicate: u64,
     pub object: u64
+}
+
+#[derive(Clone,PartialEq,Eq,PartialOrd,Ord,Hash)]
+pub struct StringTriple {
+    pub subject: String,
+    pub predicate: String,
+    pub object: ObjectType
 }
 
 #[derive(Clone)]
@@ -285,7 +326,7 @@ pub struct AdjacencyListFiles<F:'static+FileLoad+FileStore> {
     pub nums_file: F,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Ord, Hash)]
 pub enum ObjectType {
     Node(String),
     Value(String)
