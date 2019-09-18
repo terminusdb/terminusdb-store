@@ -38,7 +38,8 @@ pub struct Filenames {
     pub neg_sv_o_adjacency_list_bit_index_blocks: &'static str,
     pub neg_sv_o_adjacency_list_bit_index_sblocks: &'static str,
 
-    pub child_subjects: &'static str,
+    pub child_pos_subjects: &'static str,
+    pub child_neg_subjects: &'static str,
 
     pub metadata: &'static str
 }
@@ -83,7 +84,8 @@ pub const FILENAMES: Filenames = Filenames {
     neg_sv_o_adjacency_list_bit_index_blocks: "neg_sv_o_adjacency_list_bit_index_blocks.logarray",
     neg_sv_o_adjacency_list_bit_index_sblocks: "neg_sv_o_adjacency_list_bit_index_sblocks.logarray",
 
-    child_subjects: "child_subjects.logarray",
+    child_pos_subjects: "child_pos_subjects.logarray",
+    child_neg_subjects: "child_neg_subjects.logarray",
 
     metadata: "metadata.json"
 };

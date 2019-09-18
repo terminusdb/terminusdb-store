@@ -236,8 +236,8 @@ impl<M:'static+AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for ParentObjec
 
     fn predicate(&self) -> u64 {
         match self {
-            Self::Base(b) => b.subject(),
-            Self::Child(c) => c.subject()
+            Self::Base(b) => b.predicate(),
+            Self::Child(c) => c.predicate()
         }
     }
 

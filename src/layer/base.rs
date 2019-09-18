@@ -232,6 +232,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for BasePredicateIterator<M> {
     type Item = BaseObjectsForSubjectPredicatePair<M>;
 
     fn next(&mut self) -> Option<BaseObjectsForSubjectPredicatePair<M>> {
+        println!("base predicate iterator for subject {}", self.subject);
         if self.pos >= self.predicates.len() {
             None
         }
@@ -813,9 +814,14 @@ mod tests {
     #[test]
     fn predicates_iterator() {
         let layer = example_base_layer();
-        let predicates: Vec<_> = layer.predicate_object_pairs_for_subject(3).unwrap().predicates().map(|p|p.predicate).collect();
-
-        assert_eq!(vec![2,3], predicates);
+        let p1: Vec<_> = layer.predicate_object_pairs_for_subject(1).unwrap().predicates().map(|p|p.predicate).collect();
+        assert_eq!(vec![1], p1);
+        let p2: Vec<_> = layer.predicate_object_pairs_for_subject(2).unwrap().predicates().map(|p|p.predicate).collect();
+        assert_eq!(vec![1,3], p2);
+        let p3: Vec<_> = layer.predicate_object_pairs_for_subject(3).unwrap().predicates().map(|p|p.predicate).collect();
+        assert_eq!(vec![2,3], p3);
+        let p4: Vec<_> = layer.predicate_object_pairs_for_subject(4).unwrap().predicates().map(|p|p.predicate).collect();
+        assert_eq!(vec![3], p4);
     }
 
     #[test]

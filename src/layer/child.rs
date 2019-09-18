@@ -204,7 +204,21 @@ impl<M:'static+AsRef<[u8]>+Clone> Layer for ChildLayer<M> {
     }
 
     fn subjects(&self) -> ChildSubjectIterator<M> {
-        panic!("oh no");
+        ChildSubjectIterator {
+            parent: Some(Box::new(self.parent.subjects())),
+
+            pos_subjects: self.pos_subjects.clone(),
+            pos_s_p_adjacency_list: self.pos_s_p_adjacency_list.clone(),
+            pos_sp_o_adjacency_list: self.pos_sp_o_adjacency_list.clone(),
+
+            neg_subjects: self.neg_subjects.clone(),
+            neg_s_p_adjacency_list: self.neg_s_p_adjacency_list.clone(),
+            neg_sp_o_adjacency_list: self.neg_sp_o_adjacency_list.clone(),
+
+            next_parent_subject: None,
+            pos_pos: 0,
+            neg_pos: 0
+        }
     }
 
     fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<ChildPredicateObjectPairsForSubject<M>> {
@@ -261,14 +275,78 @@ impl<M:'static+AsRef<[u8]>+Clone> Layer for ChildLayer<M> {
 
 #[derive(Clone)]
 pub struct ChildSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
-    _marker: std::marker::PhantomData<M>
+    parent: Option<Box<ParentSubjectIterator<M>>>,
+    pos_subjects: MonotonicLogArray<M>,
+    pos_s_p_adjacency_list: AdjacencyList<M>,
+    pos_sp_o_adjacency_list: AdjacencyList<M>,
+
+    neg_subjects: MonotonicLogArray<M>,
+    neg_s_p_adjacency_list: AdjacencyList<M>,
+    neg_sp_o_adjacency_list: AdjacencyList<M>,
+
+    next_parent_subject: Option<ParentPredicateObjectPairsForSubject<M>>,
+    pos_pos: usize,
+    neg_pos: usize
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildSubjectIterator<M> {
     type Item = ChildPredicateObjectPairsForSubject<M>;
 
     fn next(&mut self) -> Option<ChildPredicateObjectPairsForSubject<M>> {
-        panic!("oh no");
+        if self.parent.is_some() && self.next_parent_subject.is_none() {
+            self.next_parent_subject = self.parent.as_mut().unwrap().next();
+            if self.next_parent_subject.is_none() {
+                self.parent = None;
+            }
+        }
+
+        let next_parent = self.next_parent_subject.clone().map(|parent|Box::new(parent));
+        let next_parent_subject = next_parent.as_ref().map(|p|p.subject()).unwrap_or(0);
+
+        let next_pos_subject = if self.pos_pos < self.pos_subjects.len() { self.pos_subjects.entry(self.pos_pos) } else { 0 };
+        let next_neg_subject = if self.neg_pos < self.neg_subjects.len() { self.neg_subjects.entry(self.neg_pos) } else { 0 };
+
+        let mut pos: Option<AdjacencyStuff<M>> = None;
+        let mut neg: Option<AdjacencyStuff<M>> = None;
+
+        let mut subject = next_parent_subject;
+
+        if next_pos_subject != 0 && next_pos_subject <= next_parent_subject {
+            subject = next_pos_subject;
+            pos = Some(AdjacencyStuff {
+                predicates: self.pos_s_p_adjacency_list.get(1+self.pos_pos as u64),
+                sp_offset: self.pos_s_p_adjacency_list.offset_for(1+self.pos_pos as u64),
+                sp_o_adjacency_list: self.pos_sp_o_adjacency_list.clone()
+            });
+
+            self.pos_pos += 1;
+        }
+
+        if next_neg_subject != 0 && (next_pos_subject == 0 || next_parent_subject <= next_pos_subject) && next_parent_subject == next_neg_subject {
+            neg = Some(AdjacencyStuff {
+                predicates: self.neg_s_p_adjacency_list.get(1+self.neg_pos as u64),
+                sp_offset: self.neg_s_p_adjacency_list.offset_for(1+self.neg_pos as u64),
+                sp_o_adjacency_list: self.neg_sp_o_adjacency_list.clone()
+            });
+
+            self.neg_pos +=1;
+        }
+
+        if next_pos_subject == 0 || next_parent_subject == next_pos_subject {
+            self.next_parent_subject = None;
+        }
+
+        if next_parent_subject != 0 || next_pos_subject != 0 {
+            Some(ChildPredicateObjectPairsForSubject {
+                parent: next_parent,
+                subject: subject,
+                pos,
+                neg
+            })
+        }
+        else {
+            None
+        }
     }
 }
 
@@ -386,7 +464,8 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateIterator<M> {
                     None
                 };
 
-                let predicate = if parent.predicate() <= pos { parent.predicate() } else { pos };
+                let parent_predicate = parent.predicate();
+                let predicate = if parent_predicate <= pos { parent_predicate } else { pos };
 
                 let parent_option = if parent.predicate() <= pos {
                     self.next_parent_predicate = None;
@@ -553,7 +632,10 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildObjectIterator<M> {
                     Some(parent_object)
                 }
             },
-            (None, Some(own_object), _) => Some(own_object),
+            (None, Some(own_object), _) => {
+                self.pos_pos += 1;
+                Some(own_object)
+            },
             (None, None, _) => None
         }.map(|object| IdTriple {
             subject: self.subject,
@@ -1394,6 +1476,36 @@ mod tests {
         assert!(child_layer.triple_exists(4,3,6));
 
         assert!(!child_layer.triple_exists(2,2,0));
+    }
+
+    #[test]
+    fn iterate_child_layer_triples() {
+        let base_layer = example_base_layer();
+        let parent = ParentLayer::Base(base_layer);
+
+        let child_files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
+
+        let child_builder = ChildLayerFileBuilder::new(parent.clone(), child_files[0].clone(), child_files[1].clone(), child_files[2].clone(), child_files[3].clone(), child_files[4].clone(), child_files[5].clone(), child_files[6].clone(), child_files[7].clone(), child_files[8].clone(), child_files[9].clone(), child_files[10].clone(), child_files[11].clone(), child_files[12].clone(), child_files[13].clone(), child_files[14].clone(), child_files[15].clone(), child_files[16].clone(), child_files[17].clone(), child_files[18].clone(), child_files[19].clone(), child_files[20].clone(), child_files[21].clone(), child_files[22].clone(), child_files[23].clone());
+        child_builder.into_phase2()
+            .and_then(|b| b.add_triple(1,2,3))
+            .and_then(|b| b.add_triple(2,3,4))
+            .and_then(|b| b.remove_triple(3,2,5))
+            .and_then(|b|b.finalize()).wait().unwrap();
+
+        let child_layer = ChildLayer::load(parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
+
+        let subjects: Vec<_> = child_layer.triples()
+            .map(|t|(t.subject, t.predicate, t.object))
+            .collect();
+
+        assert_eq!(vec![(1,1,1),
+                        (1,2,3),
+                        (2,1,1),
+                        (2,1,3),
+                        (2,3,4),
+                        (2,3,6),
+                        (3,3,6),
+                        (4,3,6)], subjects);
     }
 
     #[test]
