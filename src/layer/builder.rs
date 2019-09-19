@@ -109,7 +109,7 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
 
     }
 
-    pub fn finalize(self) -> Box<dyn Future<Item=(), Error=std::io::Error>> {
+    pub fn finalize(self) -> Box<dyn Future<Item=GenericLayer<F::Map>, Error=std::io::Error>> {
         let (unresolved_nodes, unresolved_predicates, unresolved_values) = self.unresolved_strings();
         let additions = self.additions;
         let removals = self.removals;
@@ -121,7 +121,7 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
         match self.parent {
             Some(parent) => {
                 let files = self.files.into_child();
-                let builder = ChildLayerFileBuilder::from_files(parent, &files);
+                let builder = ChildLayerFileBuilder::from_files(parent.clone(), &files);
                 
                 Box::new(builder.add_nodes(unresolved_nodes)
                          .and_then(|(nodes,b)|b.add_predicates(unresolved_predicates)
@@ -146,6 +146,7 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
 
                              builder.add_id_triples(triples)
                                  .and_then(|b| b.finalize())
+                                 .map(move |_| GenericLayer::Child(ChildLayer::load_from_files(parent, &files)))
                          }))
             },
             None => {
@@ -176,6 +177,7 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
 
                              builder.add_id_triples(triples)
                                  .and_then(|b| b.finalize())
+                                 .map(move |_| GenericLayer::Base(BaseLayer::load_from_files(&files)))
                          }))
             }
         }
