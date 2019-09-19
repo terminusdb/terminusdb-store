@@ -8,6 +8,8 @@ pub trait Layer {
     type PredicateObjectPairsForSubject: PredicateObjectPairsForSubject;
     type SubjectIterator: 'static+Iterator<Item=Self::PredicateObjectPairsForSubject>;
 
+    fn name(&self) -> [u32;5];
+
     fn node_and_value_count(&self) -> usize;
     fn predicate_count(&self) -> usize;
 
@@ -97,6 +99,13 @@ pub enum GenericLayer<M:'static+AsRef<[u8]>+Clone> {
 impl<M:'static+AsRef<[u8]>+Clone> Layer for GenericLayer<M> {
     type PredicateObjectPairsForSubject = GenericPredicateObjectPairsForSubject<M>;
     type SubjectIterator = GenericSubjectIterator<M>;
+
+    fn name(&self) -> [u32;5] {
+        match self {
+            Self::Base(b) => b.name(),
+            Self::Child(c) => c.name()
+        }
+    }
 
     fn node_and_value_count(&self) -> usize {
         match self {

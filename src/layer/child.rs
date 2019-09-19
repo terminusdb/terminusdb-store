@@ -45,6 +45,7 @@ pub struct ChildLayerFiles<F:FileLoad+FileStore+Clone> {
 
 #[derive(Clone)]
 pub struct ChildLayer<M:'static+AsRef<[u8]>+Clone> {
+    name: [u32;5],
     parent: Arc<GenericLayer<M>>,
 
     node_dictionary: PfcDict<M>,
@@ -61,8 +62,9 @@ pub struct ChildLayer<M:'static+AsRef<[u8]>+Clone> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> ChildLayer<M> {
-    pub fn load_from_files<F:FileLoad<Map=M>+FileStore+Clone>(parent: GenericLayer<M>, files: &ChildLayerFiles<F>) -> Self {
-        Self::load(parent,
+    pub fn load_from_files<F:FileLoad<Map=M>+FileStore+Clone>(name: [u32;5], parent: GenericLayer<M>, files: &ChildLayerFiles<F>) -> Self {
+        Self::load(name,
+                   parent,
                    files.node_dictionary_blocks_file.map(),
                    files.node_dictionary_offsets_file.map(),
 
@@ -96,7 +98,8 @@ impl<M:'static+AsRef<[u8]>+Clone> ChildLayer<M> {
                    files.neg_sp_o_adjacency_list_nums_file.map())
     }
 
-    pub fn load(parent: GenericLayer<M>,
+    pub fn load(name: [u32;5],
+                parent: GenericLayer<M>,
                 node_dictionary_blocks_file: M,
                 node_dictionary_offsets_file: M,
 
@@ -143,6 +146,7 @@ impl<M:'static+AsRef<[u8]>+Clone> ChildLayer<M> {
         let neg_sp_o_adjacency_list = AdjacencyList::parse(neg_sp_o_adjacency_list_nums_file, neg_sp_o_adjacency_list_bits_file, neg_sp_o_adjacency_list_blocks_file, neg_sp_o_adjacency_list_sblocks_file);
 
         ChildLayer {
+            name,
             parent: Arc::new(parent),
             
             node_dictionary: node_dictionary,
@@ -164,6 +168,10 @@ impl<M:'static+AsRef<[u8]>+Clone> ChildLayer<M> {
 impl<M:'static+AsRef<[u8]>+Clone> Layer for ChildLayer<M> {
     type PredicateObjectPairsForSubject = ChildPredicateObjectPairsForSubject<M>;
     type SubjectIterator = ChildSubjectIterator<M>;
+
+    fn name(&self) -> [u32;5] {
+        self.name
+    }
 
     fn node_and_value_count(&self) -> usize {
         self.node_dictionary.len() + self.value_dictionary.len() + self.parent.node_and_value_count()
@@ -1474,7 +1482,7 @@ mod tests {
 
         future.wait().unwrap();
 
-        let base_layer = BaseLayer::load(base_files[0].clone().map(), base_files[1].clone().map(), base_files[2].clone().map(), base_files[3].clone().map(), base_files[4].clone().map(), base_files[5].clone().map(), base_files[6].clone().map(), base_files[7].clone().map(), base_files[8].clone().map(), base_files[9].clone().map(), base_files[10].clone().map(), base_files[11].clone().map(), base_files[12].clone().map(), base_files[13].clone().map());
+        let base_layer = BaseLayer::load([1,2,3,4,5], base_files[0].clone().map(), base_files[1].clone().map(), base_files[2].clone().map(), base_files[3].clone().map(), base_files[4].clone().map(), base_files[5].clone().map(), base_files[6].clone().map(), base_files[7].clone().map(), base_files[8].clone().map(), base_files[9].clone().map(), base_files[10].clone().map(), base_files[11].clone().map(), base_files[12].clone().map(), base_files[13].clone().map());
 
         base_layer
     }
@@ -1491,7 +1499,7 @@ mod tests {
         child_builder.into_phase2()
             .and_then(|b|b.finalize()).wait().unwrap();
 
-        let child_layer = ChildLayer::load(parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
+        let child_layer = ChildLayer::load([5,4,3,2,1], parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
 
         assert!(child_layer.triple_exists(1,1,1));
         assert!(child_layer.triple_exists(2,1,1));
@@ -1518,7 +1526,7 @@ mod tests {
             .and_then(|b| b.add_triple(3,3,3))
             .and_then(|b|b.finalize()).wait().unwrap();
 
-        let child_layer = ChildLayer::load(parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
+        let child_layer = ChildLayer::load([5,4,3,2,1], parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
 
         assert!(child_layer.triple_exists(1,1,1));
         assert!(child_layer.triple_exists(2,1,1));
@@ -1547,7 +1555,7 @@ mod tests {
             .and_then(|b| b.remove_triple(3,2,5))
             .and_then(|b|b.finalize()).wait().unwrap();
 
-        let child_layer = ChildLayer::load(parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
+        let child_layer = ChildLayer::load([5,4,3,2,1], parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
 
         assert!(child_layer.triple_exists(1,1,1));
         assert!(!child_layer.triple_exists(2,1,1));
@@ -1574,7 +1582,7 @@ mod tests {
             .and_then(|b| b.remove_triple(3,2,5))
             .and_then(|b|b.finalize()).wait().unwrap();
 
-        let child_layer = ChildLayer::load(parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
+        let child_layer = ChildLayer::load([5,4,3,2,1], parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
 
         assert!(child_layer.triple_exists(1,1,1));
         assert!(child_layer.triple_exists(1,2,3));
@@ -1603,7 +1611,7 @@ mod tests {
             .and_then(|b| b.remove_triple(3,2,5))
             .and_then(|b|b.finalize()).wait().unwrap();
 
-        let child_layer = ChildLayer::load(parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
+        let child_layer = ChildLayer::load([5,4,3,2,1], parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
 
         let subjects: Vec<_> = child_layer.triples()
             .map(|t|(t.subject, t.predicate, t.object))
@@ -1632,7 +1640,7 @@ mod tests {
             .and_then(|b| b.add_triple(12,3,4))
             .and_then(|b|b.finalize()).wait().unwrap();
 
-        let child_layer = ChildLayer::load(parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
+        let child_layer = ChildLayer::load([5,4,3,2,1], parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
 
         assert!(child_layer.triple_exists(11,2,3));
         assert!(child_layer.triple_exists(12,3,4));
@@ -1653,7 +1661,7 @@ mod tests {
             .and_then(|(_,b)|b.into_phase2())
             .and_then(|b|b.finalize()).wait().unwrap();
 
-        let child_layer = ChildLayer::load(parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
+        let child_layer = ChildLayer::load([5,4,3,2,1], parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
 
         assert_eq!(3, child_layer.subject_id("bbbbb").unwrap());
         assert_eq!(2, child_layer.predicate_id("fghij").unwrap());
@@ -1681,7 +1689,7 @@ mod tests {
             .and_then(|(_,b)|b.into_phase2())
             .and_then(|b|b.finalize()).wait().unwrap();
 
-        let child_layer = ChildLayer::load(parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
+        let child_layer = ChildLayer::load([5,4,3,2,1], parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
 
         assert_eq!(11, child_layer.subject_id("foo").unwrap());
         assert_eq!(5, child_layer.predicate_id("bar").unwrap());

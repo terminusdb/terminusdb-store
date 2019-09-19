@@ -11,6 +11,7 @@ tokio = "0.1.21"
 tokio-io = "0.1.12"
 bytes = "0.4.12"
 memmap = "0.7"
+rand = "0.7"
 
 [dev-dependencies]
 tempfile = "3.1"

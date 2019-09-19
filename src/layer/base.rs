@@ -25,11 +25,12 @@ pub struct BaseLayerFiles<F:FileLoad+FileStore> {
     pub sp_o_adjacency_list_bits_file: F,
     pub sp_o_adjacency_list_blocks_file: F,
     pub sp_o_adjacency_list_sblocks_file: F,
-    pub sp_o_adjacency_list_nums_file: F
+    pub sp_o_adjacency_list_nums_file: F,
 }
 
 #[derive(Clone)]
 pub struct BaseLayer<M:'static+AsRef<[u8]>+Clone> {
+    name: [u32;5],
     node_dictionary: PfcDict<M>,
     predicate_dictionary: PfcDict<M>,
     value_dictionary: PfcDict<M>,
@@ -38,8 +39,9 @@ pub struct BaseLayer<M:'static+AsRef<[u8]>+Clone> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> BaseLayer<M> {
-    pub fn load_from_files<F:FileLoad<Map=M>+FileStore>(files: &BaseLayerFiles<F>) -> Self {
-        Self::load(files.node_dictionary_blocks_file.map(),
+    pub fn load_from_files<F:FileLoad<Map=M>+FileStore>(name: [u32;5], files: &BaseLayerFiles<F>) -> Self {
+        Self::load(name,
+                   files.node_dictionary_blocks_file.map(),
                    files.node_dictionary_offsets_file.map(),
 
                    files.predicate_dictionary_blocks_file.map(),
@@ -59,24 +61,25 @@ impl<M:'static+AsRef<[u8]>+Clone> BaseLayer<M> {
                    files.sp_o_adjacency_list_nums_file.map())
     }
 
-    pub fn load(node_dictionary_blocks_file: M,
-               node_dictionary_offsets_file: M,
+    pub fn load(name: [u32;5],
+                node_dictionary_blocks_file: M,
+                node_dictionary_offsets_file: M,
 
-               predicate_dictionary_blocks_file: M,
-               predicate_dictionary_offsets_file: M,
+                predicate_dictionary_blocks_file: M,
+                predicate_dictionary_offsets_file: M,
 
-               value_dictionary_blocks_file: M,
-               value_dictionary_offsets_file: M,
+                value_dictionary_blocks_file: M,
+                value_dictionary_offsets_file: M,
 
-               s_p_adjacency_list_bits_file: M,
-               s_p_adjacency_list_blocks_file: M,
-               s_p_adjacency_list_sblocks_file: M,
-               s_p_adjacency_list_nums_file: M,
+                s_p_adjacency_list_bits_file: M,
+                s_p_adjacency_list_blocks_file: M,
+                s_p_adjacency_list_sblocks_file: M,
+                s_p_adjacency_list_nums_file: M,
 
-               sp_o_adjacency_list_bits_file: M,
-               sp_o_adjacency_list_blocks_file: M,
-               sp_o_adjacency_list_sblocks_file: M,
-               sp_o_adjacency_list_nums_file: M) -> BaseLayer<M> {
+                sp_o_adjacency_list_bits_file: M,
+                sp_o_adjacency_list_blocks_file: M,
+                sp_o_adjacency_list_sblocks_file: M,
+                sp_o_adjacency_list_nums_file: M) -> BaseLayer<M> {
         let node_dictionary = PfcDict::parse(node_dictionary_blocks_file, node_dictionary_offsets_file).unwrap();
         let predicate_dictionary = PfcDict::parse(predicate_dictionary_blocks_file, predicate_dictionary_offsets_file).unwrap();
         let value_dictionary = PfcDict::parse(value_dictionary_blocks_file, value_dictionary_offsets_file).unwrap();
@@ -85,6 +88,7 @@ impl<M:'static+AsRef<[u8]>+Clone> BaseLayer<M> {
         let sp_o_adjacency_list = AdjacencyList::parse(sp_o_adjacency_list_nums_file, sp_o_adjacency_list_bits_file, sp_o_adjacency_list_blocks_file, sp_o_adjacency_list_sblocks_file);
 
         BaseLayer {
+            name,
             node_dictionary,
             predicate_dictionary,
             value_dictionary,
@@ -98,6 +102,10 @@ impl<M:'static+AsRef<[u8]>+Clone> BaseLayer<M> {
 impl<M:'static+AsRef<[u8]>+Clone> Layer for BaseLayer<M> {
     type PredicateObjectPairsForSubject = BasePredicateObjectPairsForSubject<M>;
     type SubjectIterator = BaseSubjectIterator<M>;
+
+    fn name(&self) -> [u32;5] {
+        self.name
+    }
 
     fn subjects(&self) -> BaseSubjectIterator<M> {
         BaseSubjectIterator {
@@ -836,7 +844,7 @@ mod tests {
 
         future.wait().unwrap();
 
-        let layer = BaseLayer::load(files[0].clone().map(), files[1].clone().map(), files[2].clone().map(), files[3].clone().map(), files[4].clone().map(), files[5].clone().map(), files[6].clone().map(), files[7].clone().map(), files[8].clone().map(), files[9].clone().map(), files[10].clone().map(), files[11].clone().map(), files[12].clone().map(), files[13].clone().map());
+        let layer = BaseLayer::load([1,2,3,4,5], files[0].clone().map(), files[1].clone().map(), files[2].clone().map(), files[3].clone().map(), files[4].clone().map(), files[5].clone().map(), files[6].clone().map(), files[7].clone().map(), files[8].clone().map(), files[9].clone().map(), files[10].clone().map(), files[11].clone().map(), files[12].clone().map(), files[13].clone().map());
 
         layer
     }

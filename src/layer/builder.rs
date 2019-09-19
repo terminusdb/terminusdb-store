@@ -6,7 +6,8 @@ use futures::prelude::*;
 use std::collections::{HashMap,BTreeSet};
 
 #[derive(Clone)]
-struct SimpleLayerBuilder<F:'static+FileLoad+FileStore+Clone> {
+pub struct SimpleLayerBuilder<F:'static+FileLoad+FileStore+Clone> {
+    name: [u32;5],
     parent: Option<GenericLayer<F::Map>>,
     files: LayerFiles<F>,
     additions: BTreeSet<PartiallyResolvedTriple>,
@@ -14,8 +15,9 @@ struct SimpleLayerBuilder<F:'static+FileLoad+FileStore+Clone> {
 }
 
 impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
-    pub fn new(files: BaseLayerFiles<F>) -> Self {
+    pub fn new(name: [u32;5], files: BaseLayerFiles<F>) -> Self {
         Self {
+            name,
             parent: None,
             files: LayerFiles::Base(files),
             additions: BTreeSet::new(),
@@ -23,13 +25,18 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
         }
     }
 
-    pub fn from_parent(parent: GenericLayer<F::Map>, files: ChildLayerFiles<F>) -> Self {
+    pub fn from_parent(name: [u32;5], parent: GenericLayer<F::Map>, files: ChildLayerFiles<F>) -> Self {
         Self {
+            name,
             parent: Some(parent),
             files: LayerFiles::Child(files),
             additions: BTreeSet::new(),
             removals: BTreeSet::new()
         }
+    }
+
+    pub fn name(&self) -> [u32;5] {
+        self.name
     }
 
     pub fn add_string_triple(&mut self, triple: &StringTriple) {
@@ -110,6 +117,7 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
 
     pub fn finalize(self) -> Box<dyn Future<Item=GenericLayer<F::Map>, Error=std::io::Error>> {
         let (unresolved_nodes, unresolved_predicates, unresolved_values) = self.unresolved_strings();
+        let name = self.name;
         let additions = self.additions;
         let removals = self.removals;
         // store a copy. The original will be used to build the dictionaries.
@@ -150,7 +158,7 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
                              builder.add_id_triples(add_triples)
                                  .and_then(move |b| b.remove_id_triples(remove_triples))
                                  .and_then(|b| b.finalize())
-                                 .map(move |_| GenericLayer::Child(ChildLayer::load_from_files(parent, &files)))
+                                 .map(move |_| GenericLayer::Child(ChildLayer::load_from_files(name, parent, &files)))
                          }))
             },
             None => {
@@ -182,7 +190,7 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
 
                              builder.add_id_triples(triples)
                                  .and_then(|b| b.finalize())
-                                 .map(move |_| GenericLayer::Base(BaseLayer::load_from_files(&files)))
+                                 .map(move |_| GenericLayer::Base(BaseLayer::load_from_files(name, &files)))
                          }))
             }
         }
@@ -196,14 +204,14 @@ pub enum LayerFiles<F:FileLoad+FileStore+Clone> {
 }
 
 impl<F:FileLoad+FileStore+Clone> LayerFiles<F> {
-    fn into_base(self) -> BaseLayerFiles<F> {
+    pub fn into_base(self) -> BaseLayerFiles<F> {
         match self {
             Self::Base(b) => b,
             _ => panic!("layer files are not for base")
         }
     }
 
-    fn into_child(self) -> ChildLayerFiles<F> {
+    pub fn into_child(self) -> ChildLayerFiles<F> {
         match self {
             Self::Child(c) => c,
             _ => panic!("layer files are not for child")
@@ -277,7 +285,7 @@ mod tests {
 
     fn example_base_layer() -> GenericLayer<<MemoryBackedStore as FileLoad>::Map> {
         let files = new_base_files();
-        let mut builder = SimpleLayerBuilder::new(files.clone());
+        let mut builder = SimpleLayerBuilder::new([1,2,3,4,5],files.clone());
 
         builder.add_string_triple(&StringTriple::new_value("cow","says","moo"));
         builder.add_string_triple(&StringTriple::new_value("pig","says","oink"));
@@ -299,7 +307,7 @@ mod tests {
     fn simple_child_layer_construction() {
         let base_layer = example_base_layer();
         let files = new_child_files();
-        let mut builder = SimpleLayerBuilder::from_parent(base_layer, files);
+        let mut builder = SimpleLayerBuilder::from_parent([0,0,0,0,0],base_layer, files);
 
         builder.add_string_triple(&StringTriple::new_value("horse", "says", "neigh"));
         builder.add_string_triple(&StringTriple::new_node("horse", "likes", "cow"));
@@ -316,7 +324,7 @@ mod tests {
     #[test]
     fn multi_level_layers() {
         let base_layer = example_base_layer();
-        let mut builder = SimpleLayerBuilder::from_parent(base_layer, new_child_files());
+        let mut builder = SimpleLayerBuilder::from_parent([0,0,0,0,0],base_layer, new_child_files());
 
         builder.add_string_triple(&StringTriple::new_value("horse", "says", "neigh"));
         builder.add_string_triple(&StringTriple::new_node("horse", "likes", "cow"));
@@ -324,14 +332,14 @@ mod tests {
 
         let layer2 = builder.finalize().wait().unwrap();
 
-        builder = SimpleLayerBuilder::from_parent(layer2, new_child_files());
+        builder = SimpleLayerBuilder::from_parent([0,0,0,0,1], layer2, new_child_files());
         builder.remove_string_triple(&StringTriple::new_node("horse", "likes", "cow"));
         builder.add_string_triple(&StringTriple::new_node("horse", "likes", "pig"));
         builder.add_string_triple(&StringTriple::new_value("duck", "says", "quack"));
 
         let layer3 = builder.finalize().wait().unwrap();
 
-        builder = SimpleLayerBuilder::from_parent(layer3, new_child_files());
+        builder = SimpleLayerBuilder::from_parent([0,0,0,0,2], layer3, new_child_files());
         builder.remove_string_triple(&StringTriple::new_value("pig", "says", "oink"));
         builder.add_string_triple(&StringTriple::new_node("cow", "likes", "horse"));
         let layer4 = builder.finalize().wait().unwrap();
