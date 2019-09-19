@@ -24,7 +24,7 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
         }
     }
 
-    pub fn from_parent(files: ChildLayerFiles<F>, parent: GenericLayer<F::Map>) -> Self {
+    pub fn from_parent(parent: GenericLayer<F::Map>, files: ChildLayerFiles<F>) -> Self {
         Self {
             parent: Some(parent),
             files: LayerFiles::Child(files),
@@ -75,7 +75,7 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
         }
     }
 
-    pub fn remove_string_triple(&mut self, triple: StringTriple) -> Option<()> {
+    pub fn remove_string_triple(&mut self, triple: &StringTriple) -> Option<()> {
         self.parent.as_ref().and_then(|p|p.string_triple_to_id(&triple))
             .and_then(|t| self.remove_id_triple(t))
     }
@@ -129,22 +129,27 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
                                              .and_then(|(values, b)| b.into_phase2()
                                                        .map(move |b| (b, nodes, predicates, values)))))
                          .and_then(move |(builder, node_ids, predicate_ids, value_ids)| {
+                             let parent_node_offset = parent.node_and_value_count() as u64;
+                             let parent_predicate_offset = parent.predicate_count() as u64;
                              let mut node_map = HashMap::new();
                              for (node,id) in unresolved_nodes2.into_iter().zip(node_ids) {
-                                 node_map.insert(node,id);
+                                 node_map.insert(node,id+parent_node_offset);
                              }
                              let mut predicate_map = HashMap::new();
                              for (predicate,id) in unresolved_predicates2.into_iter().zip(predicate_ids) {
-                                 predicate_map.insert(predicate,id);
+                                 predicate_map.insert(predicate,id+parent_predicate_offset);
                              }
                              let mut value_map = HashMap::new();
                              for (value,id) in unresolved_values2.into_iter().zip(value_ids) {
-                                 value_map.insert(value,id);
+                                 value_map.insert(value,id+parent_node_offset+node_map.len() as u64);
                              }
 
-                             let triples: Vec<_> = additions.into_iter().map(|t|t.resolve_with(&node_map, &predicate_map, &value_map).expect("triple should have been resolvable")).collect();
+                             let mut add_triples: Vec<_> = additions.into_iter().map(|t|t.resolve_with(&node_map, &predicate_map, &value_map).expect("triple should have been resolvable")).collect();
+                             add_triples.sort();
+                             let mut remove_triples: Vec<_> = removals.into_iter().collect(); // comes out of a btreeset, so sorted
 
-                             builder.add_id_triples(triples)
+                             builder.add_id_triples(add_triples)
+                                 .and_then(move |b| b.remove_id_triples(remove_triples))
                                  .and_then(|b| b.finalize())
                                  .map(move |_| GenericLayer::Child(ChildLayer::load_from_files(parent, &files)))
                          }))
@@ -170,10 +175,11 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
                              }
                              let mut value_map = HashMap::new();
                              for (value,id) in unresolved_values2.into_iter().zip(value_ids) {
-                                 value_map.insert(value,id);
+                                 value_map.insert(value,id + node_map.len() as u64);
                              }
 
-                             let triples: Vec<_> = additions.into_iter().map(|t|t.resolve_with(&node_map, &predicate_map, &value_map).expect("triple should have been resolvable")).collect();
+                             let mut triples: Vec<_> = additions.into_iter().map(|t|t.resolve_with(&node_map, &predicate_map, &value_map).expect("triple should have been resolvable")).collect();
+                             triples.sort();
 
                              builder.add_id_triples(triples)
                                  .and_then(|b| b.finalize())
@@ -203,5 +209,109 @@ impl<F:FileLoad+FileStore+Clone> LayerFiles<F> {
             Self::Child(c) => c,
             _ => panic!("layer files are not for child")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::structure::storage::*;
+    fn new_base_files() -> BaseLayerFiles<MemoryBackedStore> {
+        let files: Vec<_> = (0..14).map(|_| MemoryBackedStore::new()).collect();
+        BaseLayerFiles {
+            node_dictionary_blocks_file: files[0].clone(),
+            node_dictionary_offsets_file: files[1].clone(),
+
+            predicate_dictionary_blocks_file: files[2].clone(),
+            predicate_dictionary_offsets_file: files[3].clone(),
+
+            value_dictionary_blocks_file: files[4].clone(),
+            value_dictionary_offsets_file: files[5].clone(),
+
+            s_p_adjacency_list_bits_file: files[6].clone(),
+            s_p_adjacency_list_blocks_file: files[7].clone(),
+            s_p_adjacency_list_sblocks_file: files[8].clone(),
+            s_p_adjacency_list_nums_file: files[9].clone(),
+
+            sp_o_adjacency_list_bits_file: files[10].clone(),
+            sp_o_adjacency_list_blocks_file: files[11].clone(),
+            sp_o_adjacency_list_sblocks_file: files[12].clone(),
+            sp_o_adjacency_list_nums_file: files[13].clone()
+        }
+    }
+
+    fn new_child_files() -> ChildLayerFiles<MemoryBackedStore> {
+        let files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
+        ChildLayerFiles {
+            node_dictionary_blocks_file: files[0].clone(),
+            node_dictionary_offsets_file: files[1].clone(),
+
+            predicate_dictionary_blocks_file: files[2].clone(),
+            predicate_dictionary_offsets_file: files[3].clone(),
+
+            value_dictionary_blocks_file: files[4].clone(),
+            value_dictionary_offsets_file: files[5].clone(),
+
+            pos_subjects_file: files[6].clone(),
+            neg_subjects_file: files[7].clone(),
+
+            pos_s_p_adjacency_list_bits_file: files[8].clone(),
+            pos_s_p_adjacency_list_blocks_file: files[9].clone(),
+            pos_s_p_adjacency_list_sblocks_file: files[10].clone(),
+            pos_s_p_adjacency_list_nums_file: files[11].clone(),
+
+            pos_sp_o_adjacency_list_bits_file: files[12].clone(),
+            pos_sp_o_adjacency_list_blocks_file: files[13].clone(),
+            pos_sp_o_adjacency_list_sblocks_file: files[14].clone(),
+            pos_sp_o_adjacency_list_nums_file: files[15].clone(),
+
+            neg_s_p_adjacency_list_bits_file: files[16].clone(),
+            neg_s_p_adjacency_list_blocks_file: files[17].clone(),
+            neg_s_p_adjacency_list_sblocks_file: files[18].clone(),
+            neg_s_p_adjacency_list_nums_file: files[19].clone(),
+
+            neg_sp_o_adjacency_list_bits_file: files[20].clone(),
+            neg_sp_o_adjacency_list_blocks_file: files[21].clone(),
+            neg_sp_o_adjacency_list_sblocks_file: files[22].clone(),
+            neg_sp_o_adjacency_list_nums_file: files[23].clone(),
+        }
+    }
+
+    fn example_base_layer() -> GenericLayer<<MemoryBackedStore as FileLoad>::Map> {
+        let files = new_base_files();
+        let mut builder = SimpleLayerBuilder::new(files.clone());
+
+        builder.add_string_triple(&StringTriple::new_value("cow","says","moo"));
+        builder.add_string_triple(&StringTriple::new_value("pig","says","oink"));
+        builder.add_string_triple(&StringTriple::new_value("duck","says","quack"));
+
+        builder.finalize().wait().unwrap()
+    }
+
+    #[test]
+    fn simple_base_layer_construction() {
+        let layer = example_base_layer();
+
+        assert!(layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+        assert!(layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
+        assert!(layer.string_triple_exists(&StringTriple::new_value("duck", "says", "quack")));
+    }
+
+    #[test]
+    fn simple_child_layer_construction() {
+        let base_layer = example_base_layer();
+        let files = new_child_files();
+        let mut builder = SimpleLayerBuilder::from_parent(base_layer, files);
+
+        builder.add_string_triple(&StringTriple::new_value("horse", "says", "neigh"));
+        builder.add_string_triple(&StringTriple::new_node("horse", "likes", "cow"));
+        builder.remove_string_triple(&StringTriple::new_value("duck", "says", "quack"));
+
+        let child_layer = builder.finalize().wait().unwrap();
+        assert!(child_layer.string_triple_exists(&StringTriple::new_value("horse", "says", "neigh")));
+        assert!(child_layer.string_triple_exists(&StringTriple::new_node("horse", "likes", "cow")));
+        assert!(child_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+        assert!(child_layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
+        assert!(!child_layer.string_triple_exists(&StringTriple::new_value("duck", "says", "quack")));
     }
 }

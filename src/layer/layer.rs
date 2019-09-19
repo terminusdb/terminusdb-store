@@ -23,6 +23,7 @@ pub trait Layer {
     fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<Self::PredicateObjectPairsForSubject>;
     
     fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
+        println!("check if triple exists: {} {} {}", subject, predicate, object);
         self.predicate_object_pairs_for_subject(subject)
             .and_then(|pairs| pairs.objects_for_predicate(predicate))
             .and_then(|objects| objects.triple(object))
@@ -217,7 +218,7 @@ pub trait ObjectsForSubjectPredicatePair {
     fn triple(&self, object: u64) -> Option<IdTriple>;
 }
 
-#[derive(Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash)]
+#[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash)]
 pub struct IdTriple {
     pub subject: u64,
     pub predicate: u64,
@@ -234,7 +235,7 @@ impl IdTriple {
     }
 }
 
-#[derive(Clone,PartialEq,Eq,PartialOrd,Ord,Hash)]
+#[derive(Debug,Clone,PartialEq,Eq,PartialOrd,Ord,Hash)]
 pub struct StringTriple {
     pub subject: String,
     pub predicate: String,
@@ -242,6 +243,22 @@ pub struct StringTriple {
 }
 
 impl StringTriple {
+    pub fn new_node(subject: &str, predicate: &str, object: &str) -> StringTriple {
+        StringTriple {
+            subject: subject.to_owned(),
+            predicate: predicate.to_owned(),
+            object: ObjectType::Node(object.to_owned())
+        }
+    }
+
+    pub fn new_value(subject: &str, predicate: &str, object: &str) -> StringTriple {
+        StringTriple {
+            subject: subject.to_owned(),
+            predicate: predicate.to_owned(),
+            object: ObjectType::Value(object.to_owned())
+        }
+    }
+
     pub fn to_unresolved(&self) -> PartiallyResolvedTriple {
         PartiallyResolvedTriple {
             subject: PossiblyResolved::Unresolved(self.subject.clone()),
@@ -251,7 +268,7 @@ impl StringTriple {
     }
 }
 
-#[derive(Clone,PartialEq,Eq,PartialOrd,Ord,Hash)]
+#[derive(Debug,Clone,PartialEq,Eq,PartialOrd,Ord,Hash)]
 pub enum PossiblyResolved<T:Clone+PartialEq+Eq+PartialOrd+Ord+Hash> {
     Unresolved(T),
     Resolved(u64)
@@ -287,7 +304,7 @@ impl<T:Clone+PartialEq+Eq+PartialOrd+Ord+Hash> PossiblyResolved<T> {
     }
 }
 
-#[derive(Clone,PartialEq,Eq,PartialOrd,Ord,Hash)]
+#[derive(Debug,Clone,PartialEq,Eq,PartialOrd,Ord,Hash)]
 pub struct PartiallyResolvedTriple {
     pub subject: PossiblyResolved<String>,
     pub predicate: PossiblyResolved<String>,

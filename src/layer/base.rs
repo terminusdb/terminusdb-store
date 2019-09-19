@@ -276,7 +276,6 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for BasePredicateIterator<M> {
     type Item = BaseObjectsForSubjectPredicatePair<M>;
 
     fn next(&mut self) -> Option<BaseObjectsForSubjectPredicatePair<M>> {
-        println!("base predicate iterator for subject {}", self.subject);
         if self.pos >= self.predicates.len() {
             None
         }

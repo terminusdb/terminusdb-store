@@ -382,7 +382,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildSubjectIterator<M> {
 
         let mut subject = next_parent_subject;
 
-        if next_pos_subject != 0 && next_pos_subject <= next_parent_subject {
+        if next_pos_subject != 0 && (next_parent_subject == 0 || next_pos_subject <= next_parent_subject) {
             subject = next_pos_subject;
             pos = Some(AdjacencyStuff {
                 predicates: self.pos_s_p_adjacency_list.get(1+self.pos_pos as u64),
@@ -403,7 +403,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildSubjectIterator<M> {
             self.neg_pos +=1;
         }
 
-        if next_pos_subject == 0 || next_parent_subject == next_pos_subject {
+        if next_pos_subject == 0 || next_parent_subject <= next_pos_subject {
             self.next_parent_subject = None;
         }
 
@@ -874,8 +874,6 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
     }
 
     pub fn add_node(self, node: &str) -> Box<dyn Future<Item=(u64, Self), Error=std::io::Error>> {
-        let offset = self.parent.node_and_value_count() as u64;
-
         match self.parent.subject_id(node) {
             None => {
                 let ChildLayerFileBuilder {
@@ -898,7 +896,7 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
                     value_dictionary_builder
                 } = self;
                 Box::new(node_dictionary_builder.add(node)
-                         .map(move|(result, node_dictionary_builder)| (offset+result, ChildLayerFileBuilder {
+                         .map(move|(result, node_dictionary_builder)| (result, ChildLayerFileBuilder {
                              parent,
 
                              node_dictionary_files,
@@ -923,8 +921,6 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
     }
     
     pub fn add_predicate(self, predicate: &str) -> Box<dyn Future<Item=(u64, Self), Error=std::io::Error>> {
-        let offset = self.parent.predicate_count() as u64;
-
         match self.parent.predicate_id(predicate) {
             None => {
                 let ChildLayerFileBuilder {
@@ -948,7 +944,7 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
                 } = self;
 
                 Box::new(predicate_dictionary_builder.add(predicate)
-                         .map(move|(result, predicate_dictionary_builder)| (offset+result, ChildLayerFileBuilder {
+                         .map(move|(result, predicate_dictionary_builder)| (result, ChildLayerFileBuilder {
                              parent,
 
                              node_dictionary_files,
@@ -973,8 +969,6 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
     }
 
     pub fn add_value(self, value: &str) -> Box<dyn Future<Item=(u64, Self), Error=std::io::Error>> {
-        let offset = self.parent.node_and_value_count() as u64;
-
         match self.parent.object_value_id(value) {
             None => {
                 let ChildLayerFileBuilder {
@@ -997,7 +991,7 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
                     value_dictionary_builder
                 } = self;
                 Box::new(value_dictionary_builder.add(value)
-                         .map(move|(result, value_dictionary_builder)| (offset+result, ChildLayerFileBuilder {
+                         .map(move|(result, value_dictionary_builder)| (result, ChildLayerFileBuilder {
                              parent,
 
                              node_dictionary_files,
@@ -1411,6 +1405,11 @@ impl<F:'static+FileLoad+FileStore> ChildLayerFileBuilderPhase2<F> {
     pub fn add_id_triples<I:'static+IntoIterator<Item=IdTriple>>(self, triples: I) -> impl Future<Item=Self, Error=std::io::Error> {
         stream::iter_ok(triples)
                  .fold(self, |b, triple| b.add_triple(triple.subject, triple.predicate, triple.object))
+    }
+
+    pub fn remove_id_triples<I:'static+IntoIterator<Item=IdTriple>>(self, triples: I) -> impl Future<Item=Self, Error=std::io::Error> {
+        stream::iter_ok(triples)
+                 .fold(self, |b, triple| b.remove_triple(triple.subject, triple.predicate, triple.object))
     }
 
 
