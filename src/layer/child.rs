@@ -1337,6 +1337,12 @@ impl<F:'static+FileLoad+FileStore> ChildLayerFileBuilderPhase2<F> {
         }
     }
 
+    pub fn add_id_triples<I:'static+IntoIterator<Item=IdTriple>>(self, triples: I) -> impl Future<Item=Self, Error=std::io::Error> {
+        stream::iter_ok(triples)
+                 .fold(self, |b, triple| b.add_triple(triple.subject, triple.predicate, triple.object))
+    }
+
+
     pub fn finalize(self) -> impl Future<Item=(), Error=std::io::Error> {
         let max_pos_subject = if self.pos_subjects.len() == 0 { 0 } else { self.pos_subjects[self.pos_subjects.len() - 1] };
         let max_neg_subject = if self.neg_subjects.len() == 0 { 0 } else { self.neg_subjects[self.neg_subjects.len() - 1] };

@@ -1,6 +1,8 @@
 use super::base::*;
 use super::child::*;
 use crate::structure::storage::*;
+use std::hash::Hash;
+use std::collections::HashMap;
 
 pub trait Layer {
     type PredicateObjectPairsForSubject: PredicateObjectPairsForSubject;
@@ -53,6 +55,25 @@ pub trait Layer {
                           predicate,
                           object
                       })))
+    }
+
+    fn string_triple_to_partially_resolved(&self, triple: &StringTriple) -> PartiallyResolvedTriple {
+        PartiallyResolvedTriple {
+            subject: self.subject_id(&triple.subject)
+                .map(|id| PossiblyResolved::Resolved(id))
+                .unwrap_or(PossiblyResolved::Unresolved(triple.subject.clone())),
+            predicate: self.predicate_id(&triple.predicate)
+                .map(|id| PossiblyResolved::Resolved(id))
+                .unwrap_or(PossiblyResolved::Unresolved(triple.predicate.clone())),
+            object: match &triple.object {
+                ObjectType::Node(node) => self.object_node_id(&node)
+                    .map(|id| PossiblyResolved::Resolved(id))
+                    .unwrap_or(PossiblyResolved::Unresolved(triple.object.clone())),
+                ObjectType::Value(value) => self.object_value_id(&value)
+                    .map(|id| PossiblyResolved::Resolved(id))
+                    .unwrap_or(PossiblyResolved::Unresolved(triple.object.clone())),
+            }
+        }
     }
 
     fn id_triple_to_string(&self, triple: &IdTriple) -> Option<StringTriple> {
@@ -203,11 +224,94 @@ pub struct IdTriple {
     pub object: u64
 }
 
+impl IdTriple {
+    pub fn to_resolved(&self) -> PartiallyResolvedTriple {
+        PartiallyResolvedTriple {
+            subject: PossiblyResolved::Resolved(self.subject),
+            predicate: PossiblyResolved::Resolved(self.predicate),
+            object: PossiblyResolved::Resolved(self.object),
+        }
+    }
+}
+
 #[derive(Clone,PartialEq,Eq,PartialOrd,Ord,Hash)]
 pub struct StringTriple {
     pub subject: String,
     pub predicate: String,
     pub object: ObjectType
+}
+
+impl StringTriple {
+    pub fn to_unresolved(&self) -> PartiallyResolvedTriple {
+        PartiallyResolvedTriple {
+            subject: PossiblyResolved::Unresolved(self.subject.clone()),
+            predicate: PossiblyResolved::Unresolved(self.predicate.clone()),
+            object: PossiblyResolved::Unresolved(self.object.clone()),
+        }
+    }
+}
+
+#[derive(Clone,PartialEq,Eq,PartialOrd,Ord,Hash)]
+pub enum PossiblyResolved<T:Clone+PartialEq+Eq+PartialOrd+Ord+Hash> {
+    Unresolved(T),
+    Resolved(u64)
+}
+
+impl<T:Clone+PartialEq+Eq+PartialOrd+Ord+Hash> PossiblyResolved<T> {
+    pub fn is_resolved(&self) -> bool {
+        match self {
+            Self::Unresolved(_) => false,
+            Self::Resolved(_) => true
+        }
+    }
+
+    pub fn as_ref(&self) -> PossiblyResolved<&T> {
+        match self {
+            Self::Unresolved(u) => PossiblyResolved::Unresolved(&u),
+            Self::Resolved(id) => PossiblyResolved::Resolved(*id)
+        }
+    }
+
+    pub fn unwrap_unresolved(self) -> T {
+        match self {
+            Self::Unresolved(u) => u,
+            Self::Resolved(_) => panic!("tried to unwrap unresolved, but got a resolved"),
+        }
+    }
+
+    pub fn unwrap_resolved(self) -> u64 {
+        match self {
+            Self::Unresolved(_) => panic!("tried to unwrap resolved, but got an unresolved"),
+            Self::Resolved(id) => id
+        }
+    }
+}
+
+#[derive(Clone,PartialEq,Eq,PartialOrd,Ord,Hash)]
+pub struct PartiallyResolvedTriple {
+    pub subject: PossiblyResolved<String>,
+    pub predicate: PossiblyResolved<String>,
+    pub object: PossiblyResolved<ObjectType>,
+}
+
+impl PartiallyResolvedTriple {
+    pub fn resolve_with(&self, node_map: &HashMap<String, u64>, predicate_map: &HashMap<String, u64>, value_map: &HashMap<String, u64>) -> Option<IdTriple> {
+        let subject = match self.subject.as_ref() {
+            PossiblyResolved::Unresolved(s) => *node_map.get(s)?,
+            PossiblyResolved::Resolved(id) => id
+        };
+        let predicate = match self.predicate.as_ref() {
+            PossiblyResolved::Unresolved(p) => *predicate_map.get(p)?,
+            PossiblyResolved::Resolved(id) => id
+        };
+        let object = match self.object.as_ref() {
+            PossiblyResolved::Unresolved(ObjectType::Node(n)) => *node_map.get(n)?,
+            PossiblyResolved::Unresolved(ObjectType::Value(v)) => *value_map.get(v)?,
+            PossiblyResolved::Resolved(id) => id
+        };
+
+        Some(IdTriple { subject, predicate, object })
+    }
 }
 
 #[derive(Clone)]

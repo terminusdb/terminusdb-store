@@ -2,14 +2,15 @@ use super::layer::*;
 use super::base::*;
 use super::child::*;
 use crate::structure::storage::*;
-use std::collections::BTreeSet;
+use futures::stream;
+use futures::prelude::*;
+use std::collections::{HashMap,BTreeSet};
 
 #[derive(Clone)]
 struct SimpleLayerBuilder<F:'static+FileLoad+FileStore> {
     parent: Option<ParentLayer<F::Map>>,
     files: LayerFiles<F>,
-    resolved_additions: BTreeSet<IdTriple>,
-    unresolved_additions: BTreeSet<StringTriple>,
+    additions: BTreeSet<PartiallyResolvedTriple>,
     removals: BTreeSet<IdTriple>, // always resolved!
 }
 
@@ -18,8 +19,7 @@ impl<F:'static+FileLoad+FileStore> SimpleLayerBuilder<F> {
         Self {
             parent: None,
             files: LayerFiles::Base(files),
-            resolved_additions: BTreeSet::new(),
-            unresolved_additions: BTreeSet::new(),
+            additions: BTreeSet::new(),
             removals: BTreeSet::new()
         }
     }
@@ -28,18 +28,18 @@ impl<F:'static+FileLoad+FileStore> SimpleLayerBuilder<F> {
         Self {
             parent: Some(parent),
             files: LayerFiles::Child(files),
-            resolved_additions: BTreeSet::new(),
-            unresolved_additions: BTreeSet::new(),
+            additions: BTreeSet::new(),
             removals: BTreeSet::new()
         }
     }
 
     pub fn add_string_triple(&mut self, triple: &StringTriple) {
-        match self.parent.as_ref()
-            .and_then(|parent| parent.string_triple_to_id(triple)) {
-                None => self.unresolved_additions.insert(triple.clone()),
-                Some(resolved) => self.resolved_additions.insert(resolved)
-            };
+        if self.parent.is_some() {
+            self.additions.insert(self.parent.as_ref().unwrap().string_triple_to_partially_resolved(triple));
+        }
+        else {
+            self.additions.insert(triple.to_unresolved());
+        }
     }
 
     pub fn add_id_triple(&mut self, triple: IdTriple) -> Option<()> {
@@ -50,7 +50,7 @@ impl<F:'static+FileLoad+FileStore> SimpleLayerBuilder<F> {
                  && parent.id_predicate(triple.predicate).is_some()
                  && parent.id_object(triple.object).is_some())
             .unwrap_or(false) {
-                self.resolved_additions.insert(triple);
+                self.additions.insert(triple.to_resolved());
                 Some(())
             }
         else {
@@ -84,14 +84,23 @@ impl<F:'static+FileLoad+FileStore> SimpleLayerBuilder<F> {
         let mut node_builder:BTreeSet<String> = BTreeSet::new();
         let mut predicate_builder:BTreeSet<String> = BTreeSet::new();
         let mut value_builder:BTreeSet<String> = BTreeSet::new();
-        for StringTriple {subject, predicate, object} in self.unresolved_additions.iter() {
+        for PartiallyResolvedTriple {subject, predicate, object} in self.additions.iter() {
             // todo - should only copy the string if we actually need to insert it
-            node_builder.insert(subject.to_owned());
-            predicate_builder.insert(predicate.to_owned());
-            match object {
-                ObjectType::Node(node) => node_builder.insert(node.to_owned()),
-                ObjectType::Value(value) => value_builder.insert(value.to_owned())
-            };
+            if !subject.is_resolved() {
+                let unresolved = subject.as_ref().unwrap_unresolved();
+                node_builder.insert(unresolved.to_owned());
+            }
+            if !predicate.is_resolved() {
+                let unresolved = predicate.as_ref().unwrap_unresolved();
+                predicate_builder.insert(unresolved.to_owned());
+            }
+            if !object.is_resolved() {
+                let unresolved = object.as_ref().unwrap_unresolved();
+                match unresolved {
+                    ObjectType::Node(node) => node_builder.insert(node.to_owned()),
+                    ObjectType::Value(value) => value_builder.insert(value.to_owned())
+                };
+            }
         }
 
         (node_builder.into_iter().collect(),
@@ -100,7 +109,15 @@ impl<F:'static+FileLoad+FileStore> SimpleLayerBuilder<F> {
 
     }
 
-    pub fn finalize(self) {
+    pub fn finalize(self) -> Box<dyn Future<Item=(), Error=std::io::Error>> {
+        let (unresolved_nodes, unresolved_predicates, unresolved_values) = self.unresolved_strings();
+        let additions = self.additions;
+        let removals = self.removals;
+        // store a copy. The original will be used to build the dictionaries.
+        // The copy will be used later on to map unresolved strings to their id's before inserting
+        let unresolved_nodes2 = unresolved_nodes.clone();
+        let unresolved_predicates2 = unresolved_predicates.clone();
+        let unresolved_values2 = unresolved_values.clone();
         match self.parent {
             Some(parent) => {
                 let files = self.files.into_child();
@@ -138,6 +155,30 @@ impl<F:'static+FileLoad+FileStore> SimpleLayerBuilder<F> {
                     files.neg_sp_o_adjacency_list_sblocks_file,
                     files.neg_sp_o_adjacency_list_nums_file,
                 );
+                Box::new(builder.add_nodes(unresolved_nodes)
+                         .and_then(|(nodes,b)|b.add_predicates(unresolved_predicates)
+                                   .and_then(|(predicates,b)|b.add_values(unresolved_values)
+                                             .and_then(|(values, b)| b.into_phase2()
+                                                       .map(move |b| (b, nodes, predicates, values)))))
+                         .and_then(move |(builder, node_ids, predicate_ids, value_ids)| {
+                             let mut node_map = HashMap::new();
+                             for (node,id) in unresolved_nodes2.into_iter().zip(node_ids) {
+                                 node_map.insert(node,id);
+                             }
+                             let mut predicate_map = HashMap::new();
+                             for (predicate,id) in unresolved_predicates2.into_iter().zip(predicate_ids) {
+                                 predicate_map.insert(predicate,id);
+                             }
+                             let mut value_map = HashMap::new();
+                             for (value,id) in unresolved_values2.into_iter().zip(value_ids) {
+                                 value_map.insert(value,id);
+                             }
+
+                             let triples: Vec<_> = additions.into_iter().map(|t|t.resolve_with(&node_map, &predicate_map, &value_map).expect("triple should have been resolvable")).collect();
+
+                             builder.add_id_triples(triples)
+                                 .and_then(|b| b.finalize())
+                         }))
             },
             None => {
                 let files = self.files.into_base();
@@ -160,6 +201,31 @@ impl<F:'static+FileLoad+FileStore> SimpleLayerBuilder<F> {
                     files.sp_o_adjacency_list_blocks_file,
                     files.sp_o_adjacency_list_sblocks_file,
                     files.sp_o_adjacency_list_nums_file);
+                // TODO - this is exactly the same as above. We should generalize builder and run it once on the generalized instead.
+                Box::new(builder.add_nodes(unresolved_nodes)
+                         .and_then(|(nodes,b)|b.add_predicates(unresolved_predicates)
+                                   .and_then(|(predicates,b)|b.add_values(unresolved_values)
+                                             .and_then(|(values, b)| b.into_phase2()
+                                                       .map(move |b| (b, nodes, predicates, values)))))
+                         .and_then(move |(builder, node_ids, predicate_ids, value_ids)| {
+                             let mut node_map = HashMap::new();
+                             for (node,id) in unresolved_nodes2.into_iter().zip(node_ids) {
+                                 node_map.insert(node,id);
+                             }
+                             let mut predicate_map = HashMap::new();
+                             for (predicate,id) in unresolved_predicates2.into_iter().zip(predicate_ids) {
+                                 predicate_map.insert(predicate,id);
+                             }
+                             let mut value_map = HashMap::new();
+                             for (value,id) in unresolved_values2.into_iter().zip(value_ids) {
+                                 value_map.insert(value,id);
+                             }
+
+                             let triples: Vec<_> = additions.into_iter().map(|t|t.resolve_with(&node_map, &predicate_map, &value_map).expect("triple should have been resolvable")).collect();
+
+                             builder.add_id_triples(triples)
+                                 .and_then(|b| b.finalize())
+                         }))
             }
         }
     }

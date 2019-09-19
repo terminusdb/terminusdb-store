@@ -1,5 +1,6 @@
 use futures::prelude::*;
 use futures::future;
+use futures::stream;
 
 use crate::structure::*;
 use super::layer::*;
@@ -750,6 +751,11 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
                             })
                     }))
         }
+    }
+
+    pub fn add_id_triples<I:'static+IntoIterator<Item=IdTriple>>(self, triples: I) -> impl Future<Item=Self, Error=std::io::Error> {
+        stream::iter_ok(triples)
+                 .fold(self, |b, triple| b.add_triple(triple.subject, triple.predicate, triple.object))
     }
 
     pub fn finalize(self) -> impl Future<Item=(), Error=std::io::Error> {
