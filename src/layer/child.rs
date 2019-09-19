@@ -5,6 +5,7 @@ use futures::future;
 use futures::stream;
 
 use std::cmp::Ordering;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct ChildLayerFiles<F:FileLoad+FileStore+Clone> {
@@ -43,7 +44,7 @@ pub struct ChildLayerFiles<F:FileLoad+FileStore+Clone> {
 
 #[derive(Clone)]
 pub struct ChildLayer<M:'static+AsRef<[u8]>+Clone> {
-    parent: Box<GenericLayer<M>>,
+    parent: Arc<GenericLayer<M>>,
 
     node_dictionary: PfcDict<M>,
     predicate_dictionary: PfcDict<M>,
@@ -141,7 +142,7 @@ impl<M:'static+AsRef<[u8]>+Clone> ChildLayer<M> {
         let neg_sp_o_adjacency_list = AdjacencyList::parse(neg_sp_o_adjacency_list_nums_file, neg_sp_o_adjacency_list_bits_file, neg_sp_o_adjacency_list_blocks_file, neg_sp_o_adjacency_list_sblocks_file);
 
         ChildLayer {
-            parent: Box::new(parent),
+            parent: Arc::new(parent),
             
             node_dictionary: node_dictionary,
             predicate_dictionary: predicate_dictionary,
