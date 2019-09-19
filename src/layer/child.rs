@@ -7,7 +7,7 @@ use futures::stream;
 use std::cmp::Ordering;
 
 #[derive(Clone)]
-pub struct ChildLayerFiles<F:FileLoad+FileStore> {
+pub struct ChildLayerFiles<F:FileLoad+FileStore+Clone> {
     pub node_dictionary_blocks_file: F,
     pub node_dictionary_offsets_file: F,
 
@@ -59,6 +59,41 @@ pub struct ChildLayer<M:'static+AsRef<[u8]>+Clone> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> ChildLayer<M> {
+    pub fn load_from_files<F:FileLoad<Map=M>+FileStore+Clone>(parent: ParentLayer<M>, files: &ChildLayerFiles<F>) -> Self {
+        Self::load(parent,
+                   files.node_dictionary_blocks_file.map(),
+                   files.node_dictionary_offsets_file.map(),
+
+                   files.predicate_dictionary_blocks_file.map(),
+                   files.predicate_dictionary_offsets_file.map(),
+
+                   files.value_dictionary_blocks_file.map(),
+                   files.value_dictionary_offsets_file.map(),
+
+                   files.pos_subjects_file.map(),
+                   files.neg_subjects_file.map(),
+
+                   files.pos_s_p_adjacency_list_bits_file.map(),
+                   files.pos_s_p_adjacency_list_blocks_file.map(),
+                   files.pos_s_p_adjacency_list_sblocks_file.map(),
+                   files.pos_s_p_adjacency_list_nums_file.map(),
+
+                   files.pos_sp_o_adjacency_list_bits_file.map(),
+                   files.pos_sp_o_adjacency_list_blocks_file.map(),
+                   files.pos_sp_o_adjacency_list_sblocks_file.map(),
+                   files.pos_sp_o_adjacency_list_nums_file.map(),
+
+                   files.neg_s_p_adjacency_list_bits_file.map(),
+                   files.neg_s_p_adjacency_list_blocks_file.map(),
+                   files.neg_s_p_adjacency_list_sblocks_file.map(),
+                   files.neg_s_p_adjacency_list_nums_file.map(),
+
+                   files.neg_sp_o_adjacency_list_bits_file.map(),
+                   files.neg_sp_o_adjacency_list_blocks_file.map(),
+                   files.neg_sp_o_adjacency_list_sblocks_file.map(),
+                   files.neg_sp_o_adjacency_list_nums_file.map())
+    }
+
     pub fn load(parent: ParentLayer<M>,
                 node_dictionary_blocks_file: M,
                 node_dictionary_offsets_file: M,
@@ -700,7 +735,42 @@ pub struct ChildLayerFileBuilder<F:'static+FileLoad+FileStore> {
     value_dictionary_builder: PfcDictFileBuilder<F::Write>,
 }
 
-impl<F:'static+FileLoad+FileStore> ChildLayerFileBuilder<F> {
+impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
+    pub fn from_files(parent: ParentLayer<F::Map>, files: &ChildLayerFiles<F>) -> Self {
+        Self::new(parent,
+                  files.node_dictionary_blocks_file.clone(),
+                  files.node_dictionary_offsets_file.clone(),
+
+                  files.predicate_dictionary_blocks_file.clone(),
+                  files.predicate_dictionary_offsets_file.clone(),
+
+                  files.value_dictionary_blocks_file.clone(),
+                  files.value_dictionary_offsets_file.clone(),
+
+                  files.pos_subjects_file.clone(),
+                  files.neg_subjects_file.clone(),
+
+                  files.pos_s_p_adjacency_list_bits_file.clone(),
+                  files.pos_s_p_adjacency_list_blocks_file.clone(),
+                  files.pos_s_p_adjacency_list_sblocks_file.clone(),
+                  files.pos_s_p_adjacency_list_nums_file.clone(),
+
+                  files.pos_sp_o_adjacency_list_bits_file.clone(),
+                  files.pos_sp_o_adjacency_list_blocks_file.clone(),
+                  files.pos_sp_o_adjacency_list_sblocks_file.clone(),
+                  files.pos_sp_o_adjacency_list_nums_file.clone(),
+
+                  files.neg_s_p_adjacency_list_bits_file.clone(),
+                  files.neg_s_p_adjacency_list_blocks_file.clone(),
+                  files.neg_s_p_adjacency_list_sblocks_file.clone(),
+                  files.neg_s_p_adjacency_list_nums_file.clone(),
+
+                  files.neg_sp_o_adjacency_list_bits_file.clone(),
+                  files.neg_sp_o_adjacency_list_blocks_file.clone(),
+                  files.neg_sp_o_adjacency_list_sblocks_file.clone(),
+                  files.neg_sp_o_adjacency_list_nums_file.clone())
+    }
+
     pub fn new(parent: ParentLayer<F::Map>,
                node_dictionary_blocks_file: F,
                node_dictionary_offsets_file: F,

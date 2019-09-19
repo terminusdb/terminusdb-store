@@ -7,14 +7,14 @@ use futures::prelude::*;
 use std::collections::{HashMap,BTreeSet};
 
 #[derive(Clone)]
-struct SimpleLayerBuilder<F:'static+FileLoad+FileStore> {
+struct SimpleLayerBuilder<F:'static+FileLoad+FileStore+Clone> {
     parent: Option<ParentLayer<F::Map>>,
     files: LayerFiles<F>,
     additions: BTreeSet<PartiallyResolvedTriple>,
     removals: BTreeSet<IdTriple>, // always resolved!
 }
 
-impl<F:'static+FileLoad+FileStore> SimpleLayerBuilder<F> {
+impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
     pub fn new(files: BaseLayerFiles<F>) -> Self {
         Self {
             parent: None,
@@ -121,40 +121,8 @@ impl<F:'static+FileLoad+FileStore> SimpleLayerBuilder<F> {
         match self.parent {
             Some(parent) => {
                 let files = self.files.into_child();
-                let builder = ChildLayerFileBuilder::new(
-                    parent,
-                    files.node_dictionary_blocks_file,
-                    files.node_dictionary_offsets_file,
-
-                    files.predicate_dictionary_blocks_file,
-                    files.predicate_dictionary_offsets_file,
-
-                    files.value_dictionary_blocks_file,
-                    files.value_dictionary_offsets_file,
-
-                    files.pos_subjects_file,
-                    files.neg_subjects_file,
-
-                    files.pos_s_p_adjacency_list_bits_file,
-                    files.pos_s_p_adjacency_list_blocks_file,
-                    files.pos_s_p_adjacency_list_sblocks_file,
-                    files.pos_s_p_adjacency_list_nums_file,
-
-                    files.pos_sp_o_adjacency_list_bits_file,
-                    files.pos_sp_o_adjacency_list_blocks_file,
-                    files.pos_sp_o_adjacency_list_sblocks_file,
-                    files.pos_sp_o_adjacency_list_nums_file,
-
-                    files.neg_s_p_adjacency_list_bits_file,
-                    files.neg_s_p_adjacency_list_blocks_file,
-                    files.neg_s_p_adjacency_list_sblocks_file,
-                    files.neg_s_p_adjacency_list_nums_file,
-
-                    files.neg_sp_o_adjacency_list_bits_file,
-                    files.neg_sp_o_adjacency_list_blocks_file,
-                    files.neg_sp_o_adjacency_list_sblocks_file,
-                    files.neg_sp_o_adjacency_list_nums_file,
-                );
+                let builder = ChildLayerFileBuilder::from_files(parent, &files);
+                
                 Box::new(builder.add_nodes(unresolved_nodes)
                          .and_then(|(nodes,b)|b.add_predicates(unresolved_predicates)
                                    .and_then(|(predicates,b)|b.add_values(unresolved_values)
@@ -182,25 +150,8 @@ impl<F:'static+FileLoad+FileStore> SimpleLayerBuilder<F> {
             },
             None => {
                 let files = self.files.into_base();
-                let builder = BaseLayerFileBuilder::new(
-                    files.node_dictionary_blocks_file,
-                    files.node_dictionary_offsets_file,
+                let builder = BaseLayerFileBuilder::from_files(&files);
 
-                    files.predicate_dictionary_blocks_file,
-                    files.predicate_dictionary_offsets_file,
-
-                    files.value_dictionary_blocks_file,
-                    files.value_dictionary_offsets_file,
-
-                    files.s_p_adjacency_list_bits_file,
-                    files.s_p_adjacency_list_blocks_file,
-                    files.s_p_adjacency_list_sblocks_file,
-                    files.s_p_adjacency_list_nums_file,
-
-                    files.sp_o_adjacency_list_bits_file,
-                    files.sp_o_adjacency_list_blocks_file,
-                    files.sp_o_adjacency_list_sblocks_file,
-                    files.sp_o_adjacency_list_nums_file);
                 // TODO - this is exactly the same as above. We should generalize builder and run it once on the generalized instead.
                 Box::new(builder.add_nodes(unresolved_nodes)
                          .and_then(|(nodes,b)|b.add_predicates(unresolved_predicates)
@@ -232,12 +183,12 @@ impl<F:'static+FileLoad+FileStore> SimpleLayerBuilder<F> {
 }
 
 #[derive(Clone)]
-pub enum LayerFiles<F:FileLoad+FileStore> {
+pub enum LayerFiles<F:FileLoad+FileStore+Clone> {
     Base(BaseLayerFiles<F>),
     Child(ChildLayerFiles<F>)
 }
 
-impl<F:FileLoad+FileStore> LayerFiles<F> {
+impl<F:FileLoad+FileStore+Clone> LayerFiles<F> {
     fn into_base(self) -> BaseLayerFiles<F> {
         match self {
             Self::Base(b) => b,

@@ -37,6 +37,27 @@ pub struct BaseLayer<M:'static+AsRef<[u8]>+Clone> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> BaseLayer<M> {
+    pub fn load_from_files<F:FileLoad<Map=M>+FileStore>(files: &BaseLayerFiles<F>) -> Self {
+        Self::load(files.node_dictionary_blocks_file.map(),
+                   files.node_dictionary_offsets_file.map(),
+
+                   files.predicate_dictionary_blocks_file.map(),
+                   files.predicate_dictionary_offsets_file.map(),
+
+                   files.value_dictionary_blocks_file.map(),
+                   files.value_dictionary_offsets_file.map(),
+
+                   files.s_p_adjacency_list_bits_file.map(),
+                   files.s_p_adjacency_list_blocks_file.map(),
+                   files.s_p_adjacency_list_sblocks_file.map(),
+                   files.s_p_adjacency_list_nums_file.map(),
+
+                   files.sp_o_adjacency_list_bits_file.map(),
+                   files.sp_o_adjacency_list_blocks_file.map(),
+                   files.sp_o_adjacency_list_sblocks_file.map(),
+                   files.sp_o_adjacency_list_nums_file.map())
+    }
+
     pub fn load(node_dictionary_blocks_file: M,
                node_dictionary_offsets_file: M,
 
@@ -366,7 +387,28 @@ pub struct BaseLayerFileBuilder<F:'static+FileLoad+FileStore> {
     value_dictionary_builder: PfcDictFileBuilder<F::Write>,
 }
 
-impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilder<F> {
+impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
+    pub fn from_files(files: &BaseLayerFiles<F>) -> Self {
+        Self::new(files.node_dictionary_blocks_file.clone(),
+                  files.node_dictionary_offsets_file.clone(),
+
+                  files.predicate_dictionary_blocks_file.clone(),
+                  files.predicate_dictionary_offsets_file.clone(),
+
+                  files.value_dictionary_blocks_file.clone(),
+                  files.value_dictionary_offsets_file.clone(),
+
+                  files.s_p_adjacency_list_bits_file.clone(),
+                  files.s_p_adjacency_list_blocks_file.clone(),
+                  files.s_p_adjacency_list_sblocks_file.clone(),
+                  files.s_p_adjacency_list_nums_file.clone(),
+
+                  files.sp_o_adjacency_list_bits_file.clone(),
+                  files.sp_o_adjacency_list_blocks_file.clone(),
+                  files.sp_o_adjacency_list_sblocks_file.clone(),
+                  files.sp_o_adjacency_list_nums_file.clone())
+    }
+
     pub fn new(node_dictionary_blocks_file: F,
                node_dictionary_offsets_file: F,
 
