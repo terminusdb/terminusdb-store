@@ -103,7 +103,7 @@ where F: 'static+FileLoad+FileStore,
         // the left hand side of the adjacencylist is expected to be a continuous range from 1 up to the max
         // but when adding entries, there may be holes. We handle holes by writing a '0' to the logarray
         // (which is otherwise an invalid right-hand side) and pushing a 1 onto the bitarray to immediately close the segment.
-        let mut skip = left - self.last_left;
+        let skip = left - self.last_left;
         
         let f1: Box<dyn Future<Item=(BitArrayFileBuilder<F::Write>, LogArrayFileBuilder<W3>), Error=std::io::Error>> = 
             if last_left == 0 && skip == 1 {
@@ -141,7 +141,7 @@ where F: 'static+FileLoad+FileStore,
     }
 
     pub fn finalize(self) -> impl Future<Item=(), Error=std::io::Error> {
-        let AdjacencyListBuilder { bitfile, bitarray, bitindex_blocks, bitindex_sblocks, nums, last_left, last_right: _ } = self;
+        let AdjacencyListBuilder { bitfile, bitarray, bitindex_blocks, bitindex_sblocks, nums, last_left: _, last_right: _ } = self;
         let fut: Box<dyn Future<Item=BitArrayFileBuilder<_>, Error=std::io::Error>> =
             if nums.count == 0 {
                 Box::new(future::ok(bitarray))

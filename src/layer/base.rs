@@ -810,7 +810,6 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
 mod tests {
     use crate::storage::file::*;
     use super::*;
-    use tokio;
 
     fn example_base_layer() -> BaseLayer<Vec<u8>> {
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
@@ -835,7 +834,7 @@ mod tests {
             .and_then(|b| b.finalize());
 
 
-        let result = future.wait().unwrap();
+        future.wait().unwrap();
 
         let layer = BaseLayer::load(files[0].clone().map(), files[1].clone().map(), files[2].clone().map(), files[3].clone().map(), files[4].clone().map(), files[5].clone().map(), files[6].clone().map(), files[7].clone().map(), files[8].clone().map(), files[9].clone().map(), files[10].clone().map(), files[11].clone().map(), files[12].clone().map(), files[13].clone().map());
 

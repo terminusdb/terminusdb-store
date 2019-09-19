@@ -1449,7 +1449,6 @@ mod tests {
     use crate::storage::file::*;
     use crate::layer::base::*;
     use super::*;
-    use tokio;
 
     fn example_base_layer() -> BaseLayer<Vec<u8>> {
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
@@ -1473,7 +1472,7 @@ mod tests {
             .and_then(|b| b.add_triple(4,3,6))
             .and_then(|b| b.finalize());
 
-        let result = future.wait().unwrap();
+        future.wait().unwrap();
 
         let base_layer = BaseLayer::load(base_files[0].clone().map(), base_files[1].clone().map(), base_files[2].clone().map(), base_files[3].clone().map(), base_files[4].clone().map(), base_files[5].clone().map(), base_files[6].clone().map(), base_files[7].clone().map(), base_files[8].clone().map(), base_files[9].clone().map(), base_files[10].clone().map(), base_files[11].clone().map(), base_files[12].clone().map(), base_files[13].clone().map());
 

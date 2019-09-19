@@ -257,7 +257,7 @@ impl<M:AsRef<[u8]>+Clone> PfcDict<M> {
         // let's binary search
         let mut min = 0;
         let mut max = self.block_offsets.len();
-        let mut mid = 0; // it's going to get overwritten below, but rust seems to think it may not be
+        let mut mid: usize;
 
         while min <= max {
             mid = (min + max) / 2;
@@ -420,7 +420,6 @@ impl<W:'static+tokio::io::AsyncWrite> PfcDictFileBuilder<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio_io::io::AllowStdIo;
     use crate::storage::file::*;
 
     #[test]
@@ -434,9 +433,6 @@ mod tests {
         builder.add_all(contents.into_iter().map(|s|s.to_string()))
             .and_then(|(_,b)|b.finalize())
             .wait().unwrap();
-
-        let blocks_map = blocks.map();
-        let offsets_map = offsets.map();
 
         let p = PfcDict::parse(blocks.map(), offsets.map()).unwrap();
 

@@ -398,7 +398,7 @@ impl<M:AsRef<[u8]>+Clone> MonotonicLogArray<M> {
             let first = iter.next();
             if first.is_some() {
                 // check if this is actually monotonic
-                let mut prev = first.unwrap();
+                let prev = first.unwrap();
                 for cur in iter {
                     if cur <= prev {
                         panic!("logarray not monotonic ({} is smaller than or equal to its predecessor {})", cur, prev);

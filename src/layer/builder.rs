@@ -2,7 +2,6 @@ use super::layer::*;
 use super::base::*;
 use super::child::*;
 use crate::storage::file::*;
-use futures::stream;
 use futures::prelude::*;
 use std::collections::{HashMap,BTreeSet};
 
@@ -146,7 +145,7 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
 
                              let mut add_triples: Vec<_> = additions.into_iter().map(|t|t.resolve_with(&node_map, &predicate_map, &value_map).expect("triple should have been resolvable")).collect();
                              add_triples.sort();
-                             let mut remove_triples: Vec<_> = removals.into_iter().collect(); // comes out of a btreeset, so sorted
+                             let remove_triples: Vec<_> = removals.into_iter().collect(); // comes out of a btreeset, so sorted
 
                              builder.add_id_triples(add_triples)
                                  .and_then(move |b| b.remove_id_triples(remove_triples))
@@ -215,7 +214,6 @@ impl<F:FileLoad+FileStore+Clone> LayerFiles<F> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::file::*;
     fn new_base_files() -> BaseLayerFiles<MemoryBackedStore> {
         let files: Vec<_> = (0..14).map(|_| MemoryBackedStore::new()).collect();
         BaseLayerFiles {
@@ -318,7 +316,6 @@ mod tests {
     #[test]
     fn multi_level_layers() {
         let base_layer = example_base_layer();
-        let files = new_child_files();
         let mut builder = SimpleLayerBuilder::from_parent(base_layer, new_child_files());
 
         builder.add_string_triple(&StringTriple::new_value("horse", "says", "neigh"));
