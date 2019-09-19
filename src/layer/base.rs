@@ -3,6 +3,7 @@ use futures::future;
 use futures::stream;
 
 use crate::structure::*;
+use crate::storage::file::*;
 use super::layer::*;
 
 #[derive(Clone)]
@@ -807,7 +808,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
 
 #[cfg(test)]
 mod tests {
-    use crate::structure::storage::*;
+    use crate::storage::file::*;
     use super::*;
     use tokio;
 

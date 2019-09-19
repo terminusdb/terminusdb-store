@@ -1,5 +1,6 @@
 use super::layer::*;
 use crate::structure::*;
+use crate::storage::file::*;
 use futures::prelude::*;
 use futures::future;
 use futures::stream;
@@ -1445,7 +1446,7 @@ impl<F:'static+FileLoad+FileStore> ChildLayerFileBuilderPhase2<F> {
 
 #[cfg(test)]
 mod tests {
-    use crate::structure::storage::*;
+    use crate::storage::file::*;
     use crate::layer::base::*;
     use super::*;
     use tokio;

@@ -1,6 +1,6 @@
 use super::base::*;
 use super::child::*;
-use crate::structure::storage::*;
+use crate::storage::file::*;
 use std::hash::Hash;
 use std::collections::HashMap;
 

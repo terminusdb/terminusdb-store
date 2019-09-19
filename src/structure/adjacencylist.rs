@@ -3,7 +3,7 @@ use tokio::prelude::*;
 use super::bitarray::*;
 use super::bitindex::*;
 use super::logarray::*;
-use super::storage::*;
+use crate::storage::file::*;
 
 #[derive(Clone)]
 pub struct AdjacencyList<M:AsRef<[u8]>+Clone> {

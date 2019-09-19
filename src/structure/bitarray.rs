@@ -151,7 +151,7 @@ pub fn bitarray_stream_blocks<R:'static+AsyncRead>(r: R) -> FramedRead<R, BitArr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::storage::*;
+    use crate::storage::file::*;
     
     #[test]
     pub fn construct_and_parse_small_bitarray() {

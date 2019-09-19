@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::collections::HashMap;
-use crate::structure::storage::*;
+use crate::storage::file::*;
 
 pub trait MultiFileStore {
     type FileBackend: FileLoad+FileStore;

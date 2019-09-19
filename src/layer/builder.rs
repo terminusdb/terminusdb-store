@@ -1,7 +1,7 @@
 use super::layer::*;
 use super::base::*;
 use super::child::*;
-use crate::structure::storage::*;
+use crate::storage::file::*;
 use futures::stream;
 use futures::prelude::*;
 use std::collections::{HashMap,BTreeSet};
@@ -215,7 +215,7 @@ impl<F:FileLoad+FileStore+Clone> LayerFiles<F> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::structure::storage::*;
+    use crate::storage::file::*;
     fn new_base_files() -> BaseLayerFiles<MemoryBackedStore> {
         let files: Vec<_> = (0..14).map(|_| MemoryBackedStore::new()).collect();
         BaseLayerFiles {

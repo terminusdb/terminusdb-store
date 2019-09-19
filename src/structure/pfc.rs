@@ -421,7 +421,7 @@ impl<W:'static+tokio::io::AsyncWrite> PfcDictFileBuilder<W> {
 mod tests {
     use super::*;
     use tokio_io::io::AllowStdIo;
-    use super::super::storage::*;
+    use crate::storage::file::*;
 
     #[test]
     fn can_create_pfc_dict_small() {
