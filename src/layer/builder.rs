@@ -314,4 +314,38 @@ mod tests {
         assert!(child_layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
         assert!(!child_layer.string_triple_exists(&StringTriple::new_value("duck", "says", "quack")));
     }
+
+    #[test]
+    fn multi_level_layers() {
+        let base_layer = example_base_layer();
+        let files = new_child_files();
+        let mut builder = SimpleLayerBuilder::from_parent(base_layer, new_child_files());
+
+        builder.add_string_triple(&StringTriple::new_value("horse", "says", "neigh"));
+        builder.add_string_triple(&StringTriple::new_node("horse", "likes", "cow"));
+        builder.remove_string_triple(&StringTriple::new_value("duck", "says", "quack"));
+
+        let layer2 = builder.finalize().wait().unwrap();
+
+        builder = SimpleLayerBuilder::from_parent(layer2, new_child_files());
+        builder.remove_string_triple(&StringTriple::new_node("horse", "likes", "cow"));
+        builder.add_string_triple(&StringTriple::new_node("horse", "likes", "pig"));
+        builder.add_string_triple(&StringTriple::new_value("duck", "says", "quack"));
+
+        let layer3 = builder.finalize().wait().unwrap();
+
+        builder = SimpleLayerBuilder::from_parent(layer3, new_child_files());
+        builder.remove_string_triple(&StringTriple::new_value("pig", "says", "oink"));
+        builder.add_string_triple(&StringTriple::new_node("cow", "likes", "horse"));
+        let layer4 = builder.finalize().wait().unwrap();
+
+        assert!(layer4.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+        assert!(layer4.string_triple_exists(&StringTriple::new_value("duck", "says", "quack")));
+        assert!(layer4.string_triple_exists(&StringTriple::new_value("horse", "says", "neigh")));
+        assert!(layer4.string_triple_exists(&StringTriple::new_node("horse", "likes", "pig")));
+        assert!(layer4.string_triple_exists(&StringTriple::new_node("cow", "likes", "horse")));
+
+        assert!(!layer4.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
+        assert!(!layer4.string_triple_exists(&StringTriple::new_node("horse", "likes", "cow")));
+    }
 }
