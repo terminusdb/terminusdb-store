@@ -43,7 +43,7 @@ pub struct ChildLayerFiles<F:FileLoad+FileStore+Clone> {
 
 #[derive(Clone)]
 pub struct ChildLayer<M:'static+AsRef<[u8]>+Clone> {
-    parent: Box<ParentLayer<M>>,
+    parent: Box<GenericLayer<M>>,
 
     node_dictionary: PfcDict<M>,
     predicate_dictionary: PfcDict<M>,
@@ -59,7 +59,7 @@ pub struct ChildLayer<M:'static+AsRef<[u8]>+Clone> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> ChildLayer<M> {
-    pub fn load_from_files<F:FileLoad<Map=M>+FileStore+Clone>(parent: ParentLayer<M>, files: &ChildLayerFiles<F>) -> Self {
+    pub fn load_from_files<F:FileLoad<Map=M>+FileStore+Clone>(parent: GenericLayer<M>, files: &ChildLayerFiles<F>) -> Self {
         Self::load(parent,
                    files.node_dictionary_blocks_file.map(),
                    files.node_dictionary_offsets_file.map(),
@@ -94,7 +94,7 @@ impl<M:'static+AsRef<[u8]>+Clone> ChildLayer<M> {
                    files.neg_sp_o_adjacency_list_nums_file.map())
     }
 
-    pub fn load(parent: ParentLayer<M>,
+    pub fn load(parent: GenericLayer<M>,
                 node_dictionary_blocks_file: M,
                 node_dictionary_offsets_file: M,
 
@@ -345,7 +345,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Layer for ChildLayer<M> {
 
 #[derive(Clone)]
 pub struct ChildSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
-    parent: Option<Box<ParentSubjectIterator<M>>>,
+    parent: Option<Box<GenericSubjectIterator<M>>>,
     pos_subjects: MonotonicLogArray<M>,
     pos_s_p_adjacency_list: AdjacencyList<M>,
     pos_sp_o_adjacency_list: AdjacencyList<M>,
@@ -354,7 +354,7 @@ pub struct ChildSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
     neg_s_p_adjacency_list: AdjacencyList<M>,
     neg_sp_o_adjacency_list: AdjacencyList<M>,
 
-    next_parent_subject: Option<ParentPredicateObjectPairsForSubject<M>>,
+    next_parent_subject: Option<GenericPredicateObjectPairsForSubject<M>>,
     pos_pos: usize,
     neg_pos: usize
 }
@@ -430,7 +430,7 @@ struct AdjacencyStuff<M:'static+AsRef<[u8]>+Clone> {
 
 #[derive(Clone)]
 pub struct ChildPredicateObjectPairsForSubject<M:'static+AsRef<[u8]>+Clone> {
-    parent: Option<Box<ParentPredicateObjectPairsForSubject<M>>>,
+    parent: Option<Box<GenericPredicateObjectPairsForSubject<M>>>,
     subject: u64,
 
     pos: Option<AdjacencyStuff<M>>,
@@ -490,11 +490,11 @@ impl<M:'static+AsRef<[u8]>+Clone> PredicateObjectPairsForSubject for ChildPredic
 
 #[derive(Clone)]
 pub struct ChildPredicateIterator<M:'static+AsRef<[u8]>+Clone> {
-    parent: Option<Box<ParentPredicateIterator<M>>>,
+    parent: Option<Box<GenericPredicateIterator<M>>>,
     subject: u64,
     pos_adjacencies: Option<AdjacencyStuff<M>>,
     neg_adjacencies: Option<AdjacencyStuff<M>>,
-    next_parent_predicate: Option<ParentObjectsForSubjectPredicatePair<M>>,
+    next_parent_predicate: Option<GenericObjectsForSubjectPredicatePair<M>>,
     pos_pos: usize,
     neg_pos: usize
 }
@@ -593,7 +593,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateIterator<M> {
 
 #[derive(Clone)]
 pub struct ChildObjectsForSubjectPredicatePair<M:'static+AsRef<[u8]>+Clone> {
-    parent: Option<Box<ParentObjectsForSubjectPredicatePair<M>>>,
+    parent: Option<Box<GenericObjectsForSubjectPredicatePair<M>>>,
     subject: u64,
     predicate: u64,
     pos_objects: Option<LogArraySlice<M>>,
@@ -647,7 +647,7 @@ impl<M:'static+AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for ChildObject
 
 #[derive(Clone)]
 pub struct ChildObjectIterator<M:'static+AsRef<[u8]>+Clone> {
-    parent: Option<Box<ParentObjectIterator<M>>>,
+    parent: Option<Box<GenericObjectIterator<M>>>,
     next_parent_object: Option<u64>,
     subject: u64,
     predicate: u64,
@@ -716,7 +716,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildObjectIterator<M> {
 }
 
 pub struct ChildLayerFileBuilder<F:'static+FileLoad+FileStore> {
-    parent: ParentLayer<F::Map>,
+    parent: GenericLayer<F::Map>,
     node_dictionary_files: DictionaryFiles<F>,
     predicate_dictionary_files: DictionaryFiles<F>,
     value_dictionary_files: DictionaryFiles<F>,
@@ -736,7 +736,7 @@ pub struct ChildLayerFileBuilder<F:'static+FileLoad+FileStore> {
 }
 
 impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
-    pub fn from_files(parent: ParentLayer<F::Map>, files: &ChildLayerFiles<F>) -> Self {
+    pub fn from_files(parent: GenericLayer<F::Map>, files: &ChildLayerFiles<F>) -> Self {
         Self::new(parent,
                   files.node_dictionary_blocks_file.clone(),
                   files.node_dictionary_offsets_file.clone(),
@@ -771,7 +771,7 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
                   files.neg_sp_o_adjacency_list_nums_file.clone())
     }
 
-    pub fn new(parent: ParentLayer<F::Map>,
+    pub fn new(parent: GenericLayer<F::Map>,
                node_dictionary_blocks_file: F,
                node_dictionary_offsets_file: F,
 
@@ -1137,7 +1137,7 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
 }
 
 pub struct ChildLayerFileBuilderPhase2<F:'static+FileLoad+FileStore> {
-    parent: ParentLayer<F::Map>,
+    parent: GenericLayer<F::Map>,
 
     pos_subjects_file: F,
     neg_subjects_file: F,
@@ -1156,7 +1156,7 @@ pub struct ChildLayerFileBuilderPhase2<F:'static+FileLoad+FileStore> {
 }
 
 impl<F:'static+FileLoad+FileStore> ChildLayerFileBuilderPhase2<F> {
-    fn new(parent: ParentLayer<F::Map>,
+    fn new(parent: GenericLayer<F::Map>,
            pos_subjects_file: F,
            neg_subjects_file: F,
 
@@ -1483,7 +1483,7 @@ mod tests {
     fn empty_child_layer_equivalent_to_parent() {
         let base_layer = example_base_layer();
 
-        let parent = ParentLayer::Base(base_layer);
+        let parent = GenericLayer::Base(base_layer);
 
         let child_files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
 
@@ -1508,7 +1508,7 @@ mod tests {
     fn child_layer_can_have_inserts() {
         let base_layer = example_base_layer();
 
-        let parent = ParentLayer::Base(base_layer);
+        let parent = GenericLayer::Base(base_layer);
 
         let child_files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
 
@@ -1537,7 +1537,7 @@ mod tests {
     fn child_layer_can_have_deletes() {
         let base_layer = example_base_layer();
 
-        let parent = ParentLayer::Base(base_layer);
+        let parent = GenericLayer::Base(base_layer);
 
         let child_files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
 
@@ -1563,7 +1563,7 @@ mod tests {
     #[test]
     fn child_layer_can_have_inserts_and_deletes() {
         let base_layer = example_base_layer();
-        let parent = ParentLayer::Base(base_layer);
+        let parent = GenericLayer::Base(base_layer);
 
         let child_files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
 
@@ -1592,7 +1592,7 @@ mod tests {
     #[test]
     fn iterate_child_layer_triples() {
         let base_layer = example_base_layer();
-        let parent = ParentLayer::Base(base_layer);
+        let parent = GenericLayer::Base(base_layer);
 
         let child_files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
 
@@ -1622,7 +1622,7 @@ mod tests {
     #[test]
     fn adding_new_nodes_predicates_and_values_in_child() {
         let base_layer = example_base_layer();
-        let parent = ParentLayer::Base(base_layer);
+        let parent = GenericLayer::Base(base_layer);
 
         let child_files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
 
@@ -1641,7 +1641,7 @@ mod tests {
     #[test]
     fn old_dictionary_entries_in_child() {
         let base_layer = example_base_layer();
-        let parent = ParentLayer::Base(base_layer);
+        let parent = GenericLayer::Base(base_layer);
 
         let child_files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
 
@@ -1669,7 +1669,7 @@ mod tests {
     #[test]
     fn new_dictionary_entries_in_child() {
         let base_layer = example_base_layer();
-        let parent = ParentLayer::Base(base_layer);
+        let parent = GenericLayer::Base(base_layer);
 
         let child_files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
 

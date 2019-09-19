@@ -89,14 +89,14 @@ pub trait Layer {
 }
 
 #[derive(Clone)]
-pub enum ParentLayer<M:'static+AsRef<[u8]>+Clone> {
+pub enum GenericLayer<M:'static+AsRef<[u8]>+Clone> {
     Base(BaseLayer<M>),
     Child(ChildLayer<M>)
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> Layer for ParentLayer<M> {
-    type PredicateObjectPairsForSubject = ParentPredicateObjectPairsForSubject<M>;
-    type SubjectIterator = ParentSubjectIterator<M>;
+impl<M:'static+AsRef<[u8]>+Clone> Layer for GenericLayer<M> {
+    type PredicateObjectPairsForSubject = GenericPredicateObjectPairsForSubject<M>;
+    type SubjectIterator = GenericSubjectIterator<M>;
 
     fn node_and_value_count(&self) -> usize {
         match self {
@@ -161,34 +161,34 @@ impl<M:'static+AsRef<[u8]>+Clone> Layer for ParentLayer<M> {
         }
     }
 
-    fn subjects(&self) -> ParentSubjectIterator<M> {
+    fn subjects(&self) -> GenericSubjectIterator<M> {
         match self {
-            Self::Base(b) => ParentSubjectIterator::Base(b.subjects()),
-            Self::Child(c) => ParentSubjectIterator::Child(c.subjects())
+            Self::Base(b) => GenericSubjectIterator::Base(b.subjects()),
+            Self::Child(c) => GenericSubjectIterator::Child(c.subjects())
         }
     }
 
-    fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<ParentPredicateObjectPairsForSubject<M>> {
+    fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<GenericPredicateObjectPairsForSubject<M>> {
         match self {
-            Self::Base(b) => b.predicate_object_pairs_for_subject(subject).map(|b| ParentPredicateObjectPairsForSubject::Base(b)),
-            Self::Child(c) => c.predicate_object_pairs_for_subject(subject).map(|c| ParentPredicateObjectPairsForSubject::Child(c)),
+            Self::Base(b) => b.predicate_object_pairs_for_subject(subject).map(|b| GenericPredicateObjectPairsForSubject::Base(b)),
+            Self::Child(c) => c.predicate_object_pairs_for_subject(subject).map(|c| GenericPredicateObjectPairsForSubject::Child(c)),
         }
     }
 }
 
 #[derive(Clone)]
-pub enum ParentSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
+pub enum GenericSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
     Base(BaseSubjectIterator<M>),
     Child(ChildSubjectIterator<M>)
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> Iterator for ParentSubjectIterator<M> {
-    type Item = ParentPredicateObjectPairsForSubject<M>;
+impl<M:'static+AsRef<[u8]>+Clone> Iterator for GenericSubjectIterator<M> {
+    type Item = GenericPredicateObjectPairsForSubject<M>;
     
-    fn next(&mut self) -> Option<ParentPredicateObjectPairsForSubject<M>> {
+    fn next(&mut self) -> Option<GenericPredicateObjectPairsForSubject<M>> {
         match self {
-            Self::Base(b) => b.next().map(|b|ParentPredicateObjectPairsForSubject::Base(b)),
-            Self::Child(c) => c.next().map(|c|ParentPredicateObjectPairsForSubject::Child(c))
+            Self::Base(b) => b.next().map(|b|GenericPredicateObjectPairsForSubject::Base(b)),
+            Self::Child(c) => c.next().map(|c|GenericPredicateObjectPairsForSubject::Child(c))
         }
     }
 }
@@ -315,14 +315,14 @@ impl PartiallyResolvedTriple {
 }
 
 #[derive(Clone)]
-pub enum ParentPredicateObjectPairsForSubject<M:'static+AsRef<[u8]>+Clone> {
+pub enum GenericPredicateObjectPairsForSubject<M:'static+AsRef<[u8]>+Clone> {
     Base(BasePredicateObjectPairsForSubject<M>),
     Child(ChildPredicateObjectPairsForSubject<M>)
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> PredicateObjectPairsForSubject for ParentPredicateObjectPairsForSubject<M> {
-    type Objects = ParentObjectsForSubjectPredicatePair<M>;
-    type PredicateIterator = ParentPredicateIterator<M>;
+impl<M:'static+AsRef<[u8]>+Clone> PredicateObjectPairsForSubject for GenericPredicateObjectPairsForSubject<M> {
+    type Objects = GenericObjectsForSubjectPredicatePair<M>;
+    type PredicateIterator = GenericPredicateIterator<M>;
 
     fn subject(&self) -> u64 {
         match self {
@@ -331,46 +331,46 @@ impl<M:'static+AsRef<[u8]>+Clone> PredicateObjectPairsForSubject for ParentPredi
         }
     }
 
-    fn predicates(&self) -> ParentPredicateIterator<M> {
+    fn predicates(&self) -> GenericPredicateIterator<M> {
         match self {
-            Self::Base(b) => ParentPredicateIterator::Base(b.predicates()),
-            Self::Child(c) => ParentPredicateIterator::Child(c.predicates())
+            Self::Base(b) => GenericPredicateIterator::Base(b.predicates()),
+            Self::Child(c) => GenericPredicateIterator::Child(c.predicates())
         }
     }
 
-    fn objects_for_predicate(&self, predicate: u64) -> Option<ParentObjectsForSubjectPredicatePair<M>> {
+    fn objects_for_predicate(&self, predicate: u64) -> Option<GenericObjectsForSubjectPredicatePair<M>> {
         match self {
-            Self::Base(b) => b.objects_for_predicate(predicate).map(|b| ParentObjectsForSubjectPredicatePair::Base(b)),
-            Self::Child(c) => c.objects_for_predicate(predicate).map(|c| ParentObjectsForSubjectPredicatePair::Child(c)),
+            Self::Base(b) => b.objects_for_predicate(predicate).map(|b| GenericObjectsForSubjectPredicatePair::Base(b)),
+            Self::Child(c) => c.objects_for_predicate(predicate).map(|c| GenericObjectsForSubjectPredicatePair::Child(c)),
         }
     }
 }
 
 #[derive(Clone)]
-pub enum ParentPredicateIterator<M:'static+AsRef<[u8]>+Clone> {
+pub enum GenericPredicateIterator<M:'static+AsRef<[u8]>+Clone> {
     Base(BasePredicateIterator<M>),
     Child(ChildPredicateIterator<M>)
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> Iterator for ParentPredicateIterator<M> {
-    type Item = ParentObjectsForSubjectPredicatePair<M>;
+impl<M:'static+AsRef<[u8]>+Clone> Iterator for GenericPredicateIterator<M> {
+    type Item = GenericObjectsForSubjectPredicatePair<M>;
 
-    fn next(&mut self) -> Option<ParentObjectsForSubjectPredicatePair<M>> {
+    fn next(&mut self) -> Option<GenericObjectsForSubjectPredicatePair<M>> {
         match self {
-            Self::Base(b) => b.next().map(|b|ParentObjectsForSubjectPredicatePair::Base(b)),
-            Self::Child(c) => c.next().map(|c|ParentObjectsForSubjectPredicatePair::Child(c)),
+            Self::Base(b) => b.next().map(|b|GenericObjectsForSubjectPredicatePair::Base(b)),
+            Self::Child(c) => c.next().map(|c|GenericObjectsForSubjectPredicatePair::Child(c)),
         }
     }
 }
 
 #[derive(Clone)]
-pub enum ParentObjectsForSubjectPredicatePair<M:'static+AsRef<[u8]>+Clone> {
+pub enum GenericObjectsForSubjectPredicatePair<M:'static+AsRef<[u8]>+Clone> {
     Base(BaseObjectsForSubjectPredicatePair<M>),
     Child(ChildObjectsForSubjectPredicatePair<M>)
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for ParentObjectsForSubjectPredicatePair<M> {
-    type ObjectIterator = ParentObjectIterator<M>;
+impl<M:'static+AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for GenericObjectsForSubjectPredicatePair<M> {
+    type ObjectIterator = GenericObjectIterator<M>;
 
     fn subject(&self) -> u64 {
         match self {
@@ -386,10 +386,10 @@ impl<M:'static+AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for ParentObjec
         }
     }
 
-    fn triples(&self) -> ParentObjectIterator<M> {
+    fn triples(&self) -> GenericObjectIterator<M> {
         match self {
-            Self::Base(b) => ParentObjectIterator::Base(b.triples()),
-            Self::Child(c) => ParentObjectIterator::Child(c.triples())
+            Self::Base(b) => GenericObjectIterator::Base(b.triples()),
+            Self::Child(c) => GenericObjectIterator::Child(c.triples())
         }
     }
 
@@ -402,12 +402,12 @@ impl<M:'static+AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for ParentObjec
 }
 
 #[derive(Clone)]
-pub enum ParentObjectIterator<M:'static+AsRef<[u8]>+Clone> {
+pub enum GenericObjectIterator<M:'static+AsRef<[u8]>+Clone> {
     Base(BaseObjectIterator<M>),
     Child(ChildObjectIterator<M>)
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> Iterator for ParentObjectIterator<M> {
+impl<M:'static+AsRef<[u8]>+Clone> Iterator for GenericObjectIterator<M> {
     type Item = IdTriple;
 
     fn next(&mut self) -> Option<IdTriple> {

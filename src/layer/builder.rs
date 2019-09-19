@@ -8,7 +8,7 @@ use std::collections::{HashMap,BTreeSet};
 
 #[derive(Clone)]
 struct SimpleLayerBuilder<F:'static+FileLoad+FileStore+Clone> {
-    parent: Option<ParentLayer<F::Map>>,
+    parent: Option<GenericLayer<F::Map>>,
     files: LayerFiles<F>,
     additions: BTreeSet<PartiallyResolvedTriple>,
     removals: BTreeSet<IdTriple>, // always resolved!
@@ -24,7 +24,7 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
         }
     }
 
-    pub fn from_parent(files: ChildLayerFiles<F>, parent: ParentLayer<F::Map>) -> Self {
+    pub fn from_parent(files: ChildLayerFiles<F>, parent: GenericLayer<F::Map>) -> Self {
         Self {
             parent: Some(parent),
             files: LayerFiles::Child(files),
