@@ -158,7 +158,8 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
                              builder.add_id_triples(add_triples)
                                  .and_then(move |b| b.remove_id_triples(remove_triples))
                                  .and_then(|b| b.finalize())
-                                 .map(move |_| GenericLayer::Child(ChildLayer::load_from_files(name, parent, &files)))
+                                 .and_then(move |_| ChildLayer::load_from_files(name, parent, &files))
+                                 .map(|layer| GenericLayer::Child(layer))
                          }))
             },
             None => {
@@ -190,7 +191,8 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
 
                              builder.add_id_triples(triples)
                                  .and_then(|b| b.finalize())
-                                 .map(move |_| GenericLayer::Base(BaseLayer::load_from_files(name, &files)))
+                                 .and_then(move |_| BaseLayer::load_from_files(name, &files))
+                                 .map(|layer| GenericLayer::Base(layer))
                          }))
             }
         }

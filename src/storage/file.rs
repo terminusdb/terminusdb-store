@@ -1,5 +1,6 @@
 //! storage traits that the builders and loaders can rely on
 
+use futures::prelude::*;
 use tokio::prelude::*;
 use tokio::fs::*;
 use std::sync::{Arc,RwLock};
@@ -24,7 +25,7 @@ pub trait FileLoad {
         self.open_read_from(0)
     }
     fn open_read_from(&self, offset: usize) -> Self::Read;
-    fn map(&self) -> Self::Map;
+    fn map(&self) -> Box<dyn Future<Item=Self::Map, Error=std::io::Error>+Send+Sync>;
 }
 
 pub struct MemoryBackedStoreWriter {
@@ -120,11 +121,13 @@ impl FileLoad for MemoryBackedStore {
         MemoryBackedStoreReader { vec: self.vec.clone(), pos: offset }
     }
 
-    fn map(&self) -> Vec<u8> {
-        self.vec.read().unwrap().clone()
+    fn map(&self) -> Box<dyn Future<Item=Vec<u8>,Error=std::io::Error>+Send+Sync> {
+        let vec = self.vec.clone();
+        Box::new(future::lazy(move ||future::ok(vec.read().unwrap().clone())))
     }
 }
 
+#[derive(Clone)]
 pub struct FileBackedStore {
     path: PathBuf
 }
@@ -171,11 +174,11 @@ impl FileLoad for FileBackedStore {
         File::from_std(f)
     }
 
-    fn map(&self) -> SharedMmap {
+    fn map(&self) -> Box<dyn Future<Item=SharedMmap,Error=std::io::Error>+Send+Sync> {
         let f = self.open_read_from_std(0);
 
         // unsafe justification: we opened this file specifically to do memory mapping, and will do nothing else with it.
-        SharedMmap(Arc::new(unsafe { Mmap::map(&f) }.unwrap()))
+        Box::new(future::ok(SharedMmap(Arc::new(unsafe { Mmap::map(&f) }.unwrap()))))
 
     }
 }
@@ -223,7 +226,7 @@ mod tests {
             .wait()
             .unwrap();
 
-        assert_eq!(vec![1,2,3], file.map());
+        assert_eq!(vec![1,2,3], file.map().wait().unwrap());
     }
 
     #[test]
@@ -253,14 +256,19 @@ mod tests {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("foo");
         let file = FileBackedStore::new(file_path);
+        let (tx,rx) = channel::<Result<SharedMmap,std::io::Error>>();
 
         let w = file.open_write();
         let task = tokio::io::write_all(w,[1,2,3])
+            .and_then(move |_| file.map())
+            .then(|map:Result<SharedMmap, std::io::Error>| tx.send(map))
             .map(|_|())
             .map_err(|_|());
 
         tokio::run(task);
 
-        assert_eq!(&vec![1,2,3][..], &file.map().as_ref()[..]);
+        let map = rx.wait().unwrap().unwrap();
+
+        assert_eq!(&vec![1,2,3][..], &map.as_ref()[..]);
     }
 }

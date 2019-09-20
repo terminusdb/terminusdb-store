@@ -90,6 +90,12 @@ pub trait Layer {
     }
 }
 
+#[derive(Clone,Copy)]
+pub enum LayerType {
+    Base,
+    Child
+}
+
 #[derive(Clone)]
 pub enum GenericLayer<M:'static+AsRef<[u8]>+Clone> {
     Base(BaseLayer<M>),

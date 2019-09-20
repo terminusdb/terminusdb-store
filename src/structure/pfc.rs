@@ -434,7 +434,7 @@ mod tests {
             .and_then(|(_,b)|b.finalize())
             .wait().unwrap();
 
-        let p = PfcDict::parse(blocks.map(), offsets.map()).unwrap();
+        let p = PfcDict::parse(blocks.map().wait().unwrap(), offsets.map().wait().unwrap()).unwrap();
 
         assert_eq!("aaaaa", p.get(0));
         assert_eq!("aabbb", p.get(1));
@@ -463,7 +463,7 @@ mod tests {
             .and_then(|(_,b)|b.finalize())
             .wait().unwrap();
 
-        let p = PfcDict::parse(blocks.map(), offsets.map()).unwrap();
+        let p = PfcDict::parse(blocks.map().wait().unwrap(), offsets.map().wait().unwrap()).unwrap();
 
         assert_eq!("aaaaa", p.get(0));
         assert_eq!("aabbb", p.get(1));
@@ -503,7 +503,7 @@ mod tests {
             .and_then(|(_,b)|b.finalize())
             .wait().unwrap();
 
-        let dict = PfcDict::parse(blocks.map(), offsets.map()).unwrap();
+        let dict = PfcDict::parse(blocks.map().wait().unwrap(), offsets.map().wait().unwrap()).unwrap();
 
         assert_eq!(Some(0), dict.id("aaaaa"));
         assert_eq!(Some(2), dict.id("arf"));
@@ -548,7 +548,7 @@ mod tests {
             .and_then(|(_,b)|b.finalize())
             .wait().unwrap();
 
-        let dict = PfcDict::parse(blocks.map(), offsets.map()).unwrap();
+        let dict = PfcDict::parse(blocks.map().wait().unwrap(), offsets.map().wait().unwrap()).unwrap();
 
         let result: Vec<String> = dict.strings().collect();
         assert_eq!(contents, result);

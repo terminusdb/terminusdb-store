@@ -44,6 +44,113 @@ pub struct ChildLayerFiles<F:FileLoad+FileStore+Clone> {
 }
 
 #[derive(Clone)]
+pub struct ChildLayerMaps<M:AsRef<[u8]>+Clone> {
+    pub node_dictionary_blocks_map: M,
+    pub node_dictionary_offsets_map: M,
+
+    pub predicate_dictionary_blocks_map: M,
+    pub predicate_dictionary_offsets_map: M,
+
+    pub value_dictionary_blocks_map: M,
+    pub value_dictionary_offsets_map: M,
+
+    pub pos_subjects_map: M,
+    pub neg_subjects_map: M,
+
+    pub pos_s_p_adjacency_list_bits_map: M,
+    pub pos_s_p_adjacency_list_blocks_map: M,
+    pub pos_s_p_adjacency_list_sblocks_map: M,
+    pub pos_s_p_adjacency_list_nums_map: M,
+
+    pub pos_sp_o_adjacency_list_bits_map: M,
+    pub pos_sp_o_adjacency_list_blocks_map: M,
+    pub pos_sp_o_adjacency_list_sblocks_map: M,
+    pub pos_sp_o_adjacency_list_nums_map: M,
+
+    pub neg_s_p_adjacency_list_bits_map: M,
+    pub neg_s_p_adjacency_list_blocks_map: M,
+    pub neg_s_p_adjacency_list_sblocks_map: M,
+    pub neg_s_p_adjacency_list_nums_map: M,
+
+    pub neg_sp_o_adjacency_list_bits_map: M,
+    pub neg_sp_o_adjacency_list_blocks_map: M,
+    pub neg_sp_o_adjacency_list_sblocks_map: M,
+    pub neg_sp_o_adjacency_list_nums_map: M,
+}
+
+impl<F:FileLoad+FileStore+Clone> ChildLayerFiles<F> {
+    pub fn map_all(&self) -> impl Future<Item=ChildLayerMaps<F::Map>,Error=std::io::Error> {
+        let futs = vec![self.node_dictionary_blocks_file.map(),
+                        self.node_dictionary_offsets_file.map(),
+
+                        self.predicate_dictionary_blocks_file.map(),
+                        self.predicate_dictionary_offsets_file.map(),
+
+                        self.value_dictionary_blocks_file.map(),
+                        self.value_dictionary_offsets_file.map(),
+
+                        self.pos_subjects_file.map(),
+                        self.neg_subjects_file.map(),
+
+                        self.pos_s_p_adjacency_list_bits_file.map(),
+                        self.pos_s_p_adjacency_list_blocks_file.map(),
+                        self.pos_s_p_adjacency_list_sblocks_file.map(),
+                        self.pos_s_p_adjacency_list_nums_file.map(),
+
+                        self.pos_sp_o_adjacency_list_bits_file.map(),
+                        self.pos_sp_o_adjacency_list_blocks_file.map(),
+                        self.pos_sp_o_adjacency_list_sblocks_file.map(),
+                        self.pos_sp_o_adjacency_list_nums_file.map(),
+
+                        self.neg_s_p_adjacency_list_bits_file.map(),
+                        self.neg_s_p_adjacency_list_blocks_file.map(),
+                        self.neg_s_p_adjacency_list_sblocks_file.map(),
+                        self.neg_s_p_adjacency_list_nums_file.map(),
+
+                        self.neg_sp_o_adjacency_list_bits_file.map(),
+                        self.neg_sp_o_adjacency_list_blocks_file.map(),
+                        self.neg_sp_o_adjacency_list_sblocks_file.map(),
+                        self.neg_sp_o_adjacency_list_nums_file.map()];
+
+        
+        future::join_all(futs)
+            .map(|results| ChildLayerMaps {
+                node_dictionary_blocks_map: results[0].clone(),
+                node_dictionary_offsets_map: results[1].clone(),
+
+                predicate_dictionary_blocks_map: results[2].clone(),
+                predicate_dictionary_offsets_map: results[3].clone(),
+
+                value_dictionary_blocks_map: results[4].clone(),
+                value_dictionary_offsets_map: results[5].clone(),
+
+                pos_subjects_map: results[6].clone(),
+                neg_subjects_map: results[7].clone(),
+
+                pos_s_p_adjacency_list_bits_map: results[8].clone(),
+                pos_s_p_adjacency_list_blocks_map: results[9].clone(),
+                pos_s_p_adjacency_list_sblocks_map: results[10].clone(),
+                pos_s_p_adjacency_list_nums_map: results[11].clone(),
+
+                pos_sp_o_adjacency_list_bits_map: results[12].clone(),
+                pos_sp_o_adjacency_list_blocks_map: results[13].clone(),
+                pos_sp_o_adjacency_list_sblocks_map: results[14].clone(),
+                pos_sp_o_adjacency_list_nums_map: results[15].clone(),
+
+                neg_s_p_adjacency_list_bits_map: results[16].clone(),
+                neg_s_p_adjacency_list_blocks_map: results[17].clone(),
+                neg_s_p_adjacency_list_sblocks_map: results[18].clone(),
+                neg_s_p_adjacency_list_nums_map: results[19].clone(),
+
+                neg_sp_o_adjacency_list_bits_map: results[20].clone(),
+                neg_sp_o_adjacency_list_blocks_map: results[21].clone(),
+                neg_sp_o_adjacency_list_sblocks_map: results[22].clone(),
+                neg_sp_o_adjacency_list_nums_map: results[23].clone(),
+            })
+    }
+}
+
+#[derive(Clone)]
 pub struct ChildLayer<M:'static+AsRef<[u8]>+Clone> {
     name: [u32;5],
     parent: Arc<GenericLayer<M>>,
@@ -62,88 +169,26 @@ pub struct ChildLayer<M:'static+AsRef<[u8]>+Clone> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> ChildLayer<M> {
-    pub fn load_from_files<F:FileLoad<Map=M>+FileStore+Clone>(name: [u32;5], parent: GenericLayer<M>, files: &ChildLayerFiles<F>) -> Self {
-        Self::load(name,
-                   parent,
-                   files.node_dictionary_blocks_file.map(),
-                   files.node_dictionary_offsets_file.map(),
-
-                   files.predicate_dictionary_blocks_file.map(),
-                   files.predicate_dictionary_offsets_file.map(),
-
-                   files.value_dictionary_blocks_file.map(),
-                   files.value_dictionary_offsets_file.map(),
-
-                   files.pos_subjects_file.map(),
-                   files.neg_subjects_file.map(),
-
-                   files.pos_s_p_adjacency_list_bits_file.map(),
-                   files.pos_s_p_adjacency_list_blocks_file.map(),
-                   files.pos_s_p_adjacency_list_sblocks_file.map(),
-                   files.pos_s_p_adjacency_list_nums_file.map(),
-
-                   files.pos_sp_o_adjacency_list_bits_file.map(),
-                   files.pos_sp_o_adjacency_list_blocks_file.map(),
-                   files.pos_sp_o_adjacency_list_sblocks_file.map(),
-                   files.pos_sp_o_adjacency_list_nums_file.map(),
-
-                   files.neg_s_p_adjacency_list_bits_file.map(),
-                   files.neg_s_p_adjacency_list_blocks_file.map(),
-                   files.neg_s_p_adjacency_list_sblocks_file.map(),
-                   files.neg_s_p_adjacency_list_nums_file.map(),
-
-                   files.neg_sp_o_adjacency_list_bits_file.map(),
-                   files.neg_sp_o_adjacency_list_blocks_file.map(),
-                   files.neg_sp_o_adjacency_list_sblocks_file.map(),
-                   files.neg_sp_o_adjacency_list_nums_file.map())
+    pub fn load_from_files<F:FileLoad<Map=M>+FileStore+Clone>(name: [u32;5], parent: GenericLayer<M>, files: &ChildLayerFiles<F>) -> impl Future<Item=Self,Error=std::io::Error> {
+        files.map_all()
+            .map(move |maps| Self::load(name, parent, maps))
     }
 
     pub fn load(name: [u32;5],
                 parent: GenericLayer<M>,
-                node_dictionary_blocks_file: M,
-                node_dictionary_offsets_file: M,
+                maps: ChildLayerMaps<M>) -> ChildLayer<M> {
+        let node_dictionary = PfcDict::parse(maps.node_dictionary_blocks_map, maps.node_dictionary_offsets_map).unwrap();
+        let predicate_dictionary = PfcDict::parse(maps.predicate_dictionary_blocks_map, maps.predicate_dictionary_offsets_map).unwrap();
+        let value_dictionary = PfcDict::parse(maps.value_dictionary_blocks_map, maps.value_dictionary_offsets_map).unwrap();
 
-                predicate_dictionary_blocks_file: M,
-                predicate_dictionary_offsets_file: M,
+        let pos_subjects = MonotonicLogArray::from_logarray(LogArray::parse(maps.pos_subjects_map).unwrap());
+        let neg_subjects = MonotonicLogArray::from_logarray(LogArray::parse(maps.neg_subjects_map).unwrap());
 
-                value_dictionary_blocks_file: M,
-                value_dictionary_offsets_file: M,
+        let pos_s_p_adjacency_list = AdjacencyList::parse(maps.pos_s_p_adjacency_list_nums_map, maps.pos_s_p_adjacency_list_bits_map, maps.pos_s_p_adjacency_list_blocks_map, maps.pos_s_p_adjacency_list_sblocks_map);
+        let pos_sp_o_adjacency_list = AdjacencyList::parse(maps.pos_sp_o_adjacency_list_nums_map, maps.pos_sp_o_adjacency_list_bits_map, maps.pos_sp_o_adjacency_list_blocks_map, maps.pos_sp_o_adjacency_list_sblocks_map);
 
-                pos_subjects_file: M,
-                neg_subjects_file: M,
-
-                pos_s_p_adjacency_list_bits_file: M,
-                pos_s_p_adjacency_list_blocks_file: M,
-                pos_s_p_adjacency_list_sblocks_file: M,
-                pos_s_p_adjacency_list_nums_file: M,
-
-                pos_sp_o_adjacency_list_bits_file: M,
-                pos_sp_o_adjacency_list_blocks_file: M,
-                pos_sp_o_adjacency_list_sblocks_file: M,
-                pos_sp_o_adjacency_list_nums_file: M,
-
-                neg_s_p_adjacency_list_bits_file: M,
-                neg_s_p_adjacency_list_blocks_file: M,
-                neg_s_p_adjacency_list_sblocks_file: M,
-                neg_s_p_adjacency_list_nums_file: M,
-
-                neg_sp_o_adjacency_list_bits_file: M,
-                neg_sp_o_adjacency_list_blocks_file: M,
-                neg_sp_o_adjacency_list_sblocks_file: M,
-                neg_sp_o_adjacency_list_nums_file: M,
-    ) -> ChildLayer<M> {
-        let node_dictionary = PfcDict::parse(node_dictionary_blocks_file, node_dictionary_offsets_file).unwrap();
-        let predicate_dictionary = PfcDict::parse(predicate_dictionary_blocks_file, predicate_dictionary_offsets_file).unwrap();
-        let value_dictionary = PfcDict::parse(value_dictionary_blocks_file, value_dictionary_offsets_file).unwrap();
-
-        let pos_subjects = MonotonicLogArray::from_logarray(LogArray::parse(pos_subjects_file).unwrap());
-        let neg_subjects = MonotonicLogArray::from_logarray(LogArray::parse(neg_subjects_file).unwrap());
-
-        let pos_s_p_adjacency_list = AdjacencyList::parse(pos_s_p_adjacency_list_nums_file, pos_s_p_adjacency_list_bits_file, pos_s_p_adjacency_list_blocks_file, pos_s_p_adjacency_list_sblocks_file);
-        let pos_sp_o_adjacency_list = AdjacencyList::parse(pos_sp_o_adjacency_list_nums_file, pos_sp_o_adjacency_list_bits_file, pos_sp_o_adjacency_list_blocks_file, pos_sp_o_adjacency_list_sblocks_file);
-
-        let neg_s_p_adjacency_list = AdjacencyList::parse(neg_s_p_adjacency_list_nums_file, neg_s_p_adjacency_list_bits_file, neg_s_p_adjacency_list_blocks_file, neg_s_p_adjacency_list_sblocks_file);
-        let neg_sp_o_adjacency_list = AdjacencyList::parse(neg_sp_o_adjacency_list_nums_file, neg_sp_o_adjacency_list_bits_file, neg_sp_o_adjacency_list_blocks_file, neg_sp_o_adjacency_list_sblocks_file);
+        let neg_s_p_adjacency_list = AdjacencyList::parse(maps.neg_s_p_adjacency_list_nums_map, maps.neg_s_p_adjacency_list_bits_map, maps.neg_s_p_adjacency_list_blocks_map, maps.neg_s_p_adjacency_list_sblocks_map);
+        let neg_sp_o_adjacency_list = AdjacencyList::parse(maps.neg_sp_o_adjacency_list_nums_map, maps.neg_sp_o_adjacency_list_bits_map, maps.neg_sp_o_adjacency_list_blocks_map, maps.neg_sp_o_adjacency_list_sblocks_map);
 
         ChildLayer {
             name,
@@ -1082,24 +1127,32 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
         let finalize_preddict: Box<dyn Future<Item=(),Error=std::io::Error>> = Box::new(predicate_dictionary_builder.finalize());
         let finalize_valdict: Box<dyn Future<Item=(),Error=std::io::Error>> = Box::new(value_dictionary_builder.finalize());
 
+        let dict_maps_fut = vec![node_dictionary_files.blocks_file.map(),
+                                 node_dictionary_files.offsets_file.map(),
+                                 predicate_dictionary_files.blocks_file.map(),
+                                 predicate_dictionary_files.offsets_file.map(),
+                                 value_dictionary_files.blocks_file.map(),
+                                 value_dictionary_files.offsets_file.map()];
+
         future::join_all(vec![finalize_nodedict, finalize_preddict, finalize_valdict])
-            .and_then(move |_| {
-                let node_dict_r = PfcDict::parse(node_dictionary_files.blocks_file.map(),
-                                                 node_dictionary_files.offsets_file.map());
+            .and_then(move |_| future::join_all(dict_maps_fut))
+            .and_then(move |dict_maps| {
+                let node_dict_r = PfcDict::parse(dict_maps[0].clone(),
+                                                 dict_maps[1].clone());
                 if node_dict_r.is_err() {
                     return future::err(node_dict_r.err().unwrap().into());
                 }
                 let node_dict = node_dict_r.unwrap();
 
-                let pred_dict_r = PfcDict::parse(predicate_dictionary_files.blocks_file.map(),
-                                                 predicate_dictionary_files.offsets_file.map());
+                let pred_dict_r = PfcDict::parse(dict_maps[2].clone(),
+                                                 dict_maps[3].clone());
                 if pred_dict_r.is_err() {
                     return future::err(pred_dict_r.err().unwrap().into());
                 }
                 let pred_dict = pred_dict_r.unwrap();
 
-                let val_dict_r = PfcDict::parse(value_dictionary_files.blocks_file.map(),
-                                                value_dictionary_files.offsets_file.map());
+                let val_dict_r = PfcDict::parse(dict_maps[4].clone(),
+                                                dict_maps[5].clone());
                 if val_dict_r.is_err() {
                     return future::err(val_dict_r.err().unwrap().into());
                 }
@@ -1464,7 +1517,28 @@ mod tests {
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
 
         let base_files: Vec<_> = (0..14).map(|_| MemoryBackedStore::new()).collect();
-        let base_builder = BaseLayerFileBuilder::new(base_files[0].clone(), base_files[1].clone(), base_files[2].clone(), base_files[3].clone(), base_files[4].clone(), base_files[5].clone(), base_files[6].clone(), base_files[7].clone(), base_files[8].clone(), base_files[9].clone(), base_files[10].clone(), base_files[11].clone(), base_files[12].clone(), base_files[13].clone());
+        let base_layer_files = BaseLayerFiles {
+            node_dictionary_blocks_file: base_files[0].clone(),
+            node_dictionary_offsets_file: base_files[1].clone(),
+
+            predicate_dictionary_blocks_file: base_files[2].clone(),
+            predicate_dictionary_offsets_file: base_files[3].clone(),
+
+            value_dictionary_blocks_file: base_files[4].clone(),
+            value_dictionary_offsets_file: base_files[5].clone(),
+
+            s_p_adjacency_list_bits_file: base_files[6].clone(),
+            s_p_adjacency_list_blocks_file: base_files[7].clone(),
+            s_p_adjacency_list_sblocks_file: base_files[8].clone(),
+            s_p_adjacency_list_nums_file: base_files[9].clone(),
+
+            sp_o_adjacency_list_bits_file: base_files[10].clone(),
+            sp_o_adjacency_list_blocks_file: base_files[11].clone(),
+            sp_o_adjacency_list_sblocks_file: base_files[12].clone(),
+            sp_o_adjacency_list_nums_file: base_files[13].clone(),
+        };
+
+        let base_builder = BaseLayerFileBuilder::from_files(&base_layer_files);
 
         let future = base_builder.add_nodes(nodes.into_iter().map(|s|s.to_string()))
             .and_then(move |(_,b)| b.add_predicates(predicates.into_iter().map(|s|s.to_string())))
@@ -1482,9 +1556,47 @@ mod tests {
 
         future.wait().unwrap();
 
-        let base_layer = BaseLayer::load([1,2,3,4,5], base_files[0].clone().map(), base_files[1].clone().map(), base_files[2].clone().map(), base_files[3].clone().map(), base_files[4].clone().map(), base_files[5].clone().map(), base_files[6].clone().map(), base_files[7].clone().map(), base_files[8].clone().map(), base_files[9].clone().map(), base_files[10].clone().map(), base_files[11].clone().map(), base_files[12].clone().map(), base_files[13].clone().map());
+        let base_layer = BaseLayer::load_from_files([1,2,3,4,5], &base_layer_files).wait().unwrap();
 
         base_layer
+    }
+
+    fn example_child_files() -> ChildLayerFiles<MemoryBackedStore> {
+        let files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
+
+        ChildLayerFiles {
+            node_dictionary_blocks_file: files[0].clone(),
+            node_dictionary_offsets_file: files[1].clone(),
+
+            predicate_dictionary_blocks_file: files[2].clone(),
+            predicate_dictionary_offsets_file: files[3].clone(),
+
+            value_dictionary_blocks_file: files[4].clone(),
+            value_dictionary_offsets_file: files[5].clone(),
+
+            pos_subjects_file: files[6].clone(),
+            neg_subjects_file: files[7].clone(),
+
+            pos_s_p_adjacency_list_bits_file: files[8].clone(),
+            pos_s_p_adjacency_list_blocks_file: files[9].clone(),
+            pos_s_p_adjacency_list_sblocks_file: files[10].clone(),
+            pos_s_p_adjacency_list_nums_file: files[11].clone(),
+
+            pos_sp_o_adjacency_list_bits_file: files[12].clone(),
+            pos_sp_o_adjacency_list_blocks_file: files[13].clone(),
+            pos_sp_o_adjacency_list_sblocks_file: files[14].clone(),
+            pos_sp_o_adjacency_list_nums_file: files[15].clone(),
+
+            neg_s_p_adjacency_list_bits_file: files[16].clone(),
+            neg_s_p_adjacency_list_blocks_file: files[17].clone(),
+            neg_s_p_adjacency_list_sblocks_file: files[18].clone(),
+            neg_s_p_adjacency_list_nums_file: files[19].clone(),
+
+            neg_sp_o_adjacency_list_bits_file: files[20].clone(),
+            neg_sp_o_adjacency_list_blocks_file: files[21].clone(),
+            neg_sp_o_adjacency_list_sblocks_file: files[22].clone(),
+            neg_sp_o_adjacency_list_nums_file: files[23].clone(),
+        }
     }
     
     #[test]
@@ -1493,13 +1605,13 @@ mod tests {
 
         let parent = GenericLayer::Base(base_layer);
 
-        let child_files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
+        let child_files = example_child_files();
 
-        let child_builder = ChildLayerFileBuilder::new(parent.clone(), child_files[0].clone(), child_files[1].clone(), child_files[2].clone(), child_files[3].clone(), child_files[4].clone(), child_files[5].clone(), child_files[6].clone(), child_files[7].clone(), child_files[8].clone(), child_files[9].clone(), child_files[10].clone(), child_files[11].clone(), child_files[12].clone(), child_files[13].clone(), child_files[14].clone(), child_files[15].clone(), child_files[16].clone(), child_files[17].clone(), child_files[18].clone(), child_files[19].clone(), child_files[20].clone(), child_files[21].clone(), child_files[22].clone(), child_files[23].clone());
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
             .and_then(|b|b.finalize()).wait().unwrap();
 
-        let child_layer = ChildLayer::load([5,4,3,2,1], parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
+        let child_layer = ChildLayer::load_from_files([5,4,3,2,1], parent, &child_files).wait().unwrap();
 
         assert!(child_layer.triple_exists(1,1,1));
         assert!(child_layer.triple_exists(2,1,1));
@@ -1518,15 +1630,15 @@ mod tests {
 
         let parent = GenericLayer::Base(base_layer);
 
-        let child_files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
+        let child_files = example_child_files();
 
-        let child_builder = ChildLayerFileBuilder::new(parent.clone(), child_files[0].clone(), child_files[1].clone(), child_files[2].clone(), child_files[3].clone(), child_files[4].clone(), child_files[5].clone(), child_files[6].clone(), child_files[7].clone(), child_files[8].clone(), child_files[9].clone(), child_files[10].clone(), child_files[11].clone(), child_files[12].clone(), child_files[13].clone(), child_files[14].clone(), child_files[15].clone(), child_files[16].clone(), child_files[17].clone(), child_files[18].clone(), child_files[19].clone(), child_files[20].clone(), child_files[21].clone(), child_files[22].clone(), child_files[23].clone());
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
             .and_then(|b| b.add_triple(2,1,2))
             .and_then(|b| b.add_triple(3,3,3))
             .and_then(|b|b.finalize()).wait().unwrap();
 
-        let child_layer = ChildLayer::load([5,4,3,2,1], parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
+        let child_layer = ChildLayer::load_from_files([5,4,3,2,1], parent, &child_files).wait().unwrap();
 
         assert!(child_layer.triple_exists(1,1,1));
         assert!(child_layer.triple_exists(2,1,1));
@@ -1547,15 +1659,15 @@ mod tests {
 
         let parent = GenericLayer::Base(base_layer);
 
-        let child_files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
+        let child_files = example_child_files();
 
-        let child_builder = ChildLayerFileBuilder::new(parent.clone(), child_files[0].clone(), child_files[1].clone(), child_files[2].clone(), child_files[3].clone(), child_files[4].clone(), child_files[5].clone(), child_files[6].clone(), child_files[7].clone(), child_files[8].clone(), child_files[9].clone(), child_files[10].clone(), child_files[11].clone(), child_files[12].clone(), child_files[13].clone(), child_files[14].clone(), child_files[15].clone(), child_files[16].clone(), child_files[17].clone(), child_files[18].clone(), child_files[19].clone(), child_files[20].clone(), child_files[21].clone(), child_files[22].clone(), child_files[23].clone());
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
             .and_then(|b| b.remove_triple(2,1,1))
             .and_then(|b| b.remove_triple(3,2,5))
             .and_then(|b|b.finalize()).wait().unwrap();
 
-        let child_layer = ChildLayer::load([5,4,3,2,1], parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
+        let child_layer = ChildLayer::load_from_files([5,4,3,2,1], parent, &child_files).wait().unwrap();
 
         assert!(child_layer.triple_exists(1,1,1));
         assert!(!child_layer.triple_exists(2,1,1));
@@ -1573,16 +1685,16 @@ mod tests {
         let base_layer = example_base_layer();
         let parent = GenericLayer::Base(base_layer);
 
-        let child_files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
+        let child_files = example_child_files();
 
-        let child_builder = ChildLayerFileBuilder::new(parent.clone(), child_files[0].clone(), child_files[1].clone(), child_files[2].clone(), child_files[3].clone(), child_files[4].clone(), child_files[5].clone(), child_files[6].clone(), child_files[7].clone(), child_files[8].clone(), child_files[9].clone(), child_files[10].clone(), child_files[11].clone(), child_files[12].clone(), child_files[13].clone(), child_files[14].clone(), child_files[15].clone(), child_files[16].clone(), child_files[17].clone(), child_files[18].clone(), child_files[19].clone(), child_files[20].clone(), child_files[21].clone(), child_files[22].clone(), child_files[23].clone());
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
             .and_then(|b| b.add_triple(1,2,3))
             .and_then(|b| b.add_triple(2,3,4))
             .and_then(|b| b.remove_triple(3,2,5))
             .and_then(|b|b.finalize()).wait().unwrap();
 
-        let child_layer = ChildLayer::load([5,4,3,2,1], parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
+        let child_layer = ChildLayer::load_from_files([5,4,3,2,1], parent, &child_files).wait().unwrap();
 
         assert!(child_layer.triple_exists(1,1,1));
         assert!(child_layer.triple_exists(1,2,3));
@@ -1602,16 +1714,16 @@ mod tests {
         let base_layer = example_base_layer();
         let parent = GenericLayer::Base(base_layer);
 
-        let child_files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
+        let child_files = example_child_files();
 
-        let child_builder = ChildLayerFileBuilder::new(parent.clone(), child_files[0].clone(), child_files[1].clone(), child_files[2].clone(), child_files[3].clone(), child_files[4].clone(), child_files[5].clone(), child_files[6].clone(), child_files[7].clone(), child_files[8].clone(), child_files[9].clone(), child_files[10].clone(), child_files[11].clone(), child_files[12].clone(), child_files[13].clone(), child_files[14].clone(), child_files[15].clone(), child_files[16].clone(), child_files[17].clone(), child_files[18].clone(), child_files[19].clone(), child_files[20].clone(), child_files[21].clone(), child_files[22].clone(), child_files[23].clone());
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
             .and_then(|b| b.add_triple(1,2,3))
             .and_then(|b| b.add_triple(2,3,4))
             .and_then(|b| b.remove_triple(3,2,5))
             .and_then(|b|b.finalize()).wait().unwrap();
 
-        let child_layer = ChildLayer::load([5,4,3,2,1], parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
+        let child_layer = ChildLayer::load_from_files([5,4,3,2,1], parent, &child_files).wait().unwrap();
 
         let subjects: Vec<_> = child_layer.triples()
             .map(|t|(t.subject, t.predicate, t.object))
@@ -1632,15 +1744,15 @@ mod tests {
         let base_layer = example_base_layer();
         let parent = GenericLayer::Base(base_layer);
 
-        let child_files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
+        let child_files = example_child_files();
 
-        let child_builder = ChildLayerFileBuilder::new(parent.clone(), child_files[0].clone(), child_files[1].clone(), child_files[2].clone(), child_files[3].clone(), child_files[4].clone(), child_files[5].clone(), child_files[6].clone(), child_files[7].clone(), child_files[8].clone(), child_files[9].clone(), child_files[10].clone(), child_files[11].clone(), child_files[12].clone(), child_files[13].clone(), child_files[14].clone(), child_files[15].clone(), child_files[16].clone(), child_files[17].clone(), child_files[18].clone(), child_files[19].clone(), child_files[20].clone(), child_files[21].clone(), child_files[22].clone(), child_files[23].clone());
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
             .and_then(|b| b.add_triple(11,2,3))
             .and_then(|b| b.add_triple(12,3,4))
             .and_then(|b|b.finalize()).wait().unwrap();
 
-        let child_layer = ChildLayer::load([5,4,3,2,1], parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
+        let child_layer = ChildLayer::load_from_files([5,4,3,2,1], parent, &child_files).wait().unwrap();
 
         assert!(child_layer.triple_exists(11,2,3));
         assert!(child_layer.triple_exists(12,3,4));
@@ -1651,9 +1763,9 @@ mod tests {
         let base_layer = example_base_layer();
         let parent = GenericLayer::Base(base_layer);
 
-        let child_files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
+        let child_files = example_child_files();
 
-        let child_builder = ChildLayerFileBuilder::new(parent.clone(), child_files[0].clone(), child_files[1].clone(), child_files[2].clone(), child_files[3].clone(), child_files[4].clone(), child_files[5].clone(), child_files[6].clone(), child_files[7].clone(), child_files[8].clone(), child_files[9].clone(), child_files[10].clone(), child_files[11].clone(), child_files[12].clone(), child_files[13].clone(), child_files[14].clone(), child_files[15].clone(), child_files[16].clone(), child_files[17].clone(), child_files[18].clone(), child_files[19].clone(), child_files[20].clone(), child_files[21].clone(), child_files[22].clone(), child_files[23].clone());
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder
             .add_node("foo")
             .and_then(|(_,b)|b.add_predicate("bar"))
@@ -1661,7 +1773,7 @@ mod tests {
             .and_then(|(_,b)|b.into_phase2())
             .and_then(|b|b.finalize()).wait().unwrap();
 
-        let child_layer = ChildLayer::load([5,4,3,2,1], parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
+        let child_layer = ChildLayer::load_from_files([5,4,3,2,1], parent, &child_files).wait().unwrap();
 
         assert_eq!(3, child_layer.subject_id("bbbbb").unwrap());
         assert_eq!(2, child_layer.predicate_id("fghij").unwrap());
@@ -1679,9 +1791,9 @@ mod tests {
         let base_layer = example_base_layer();
         let parent = GenericLayer::Base(base_layer);
 
-        let child_files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
+        let child_files = example_child_files();
 
-        let child_builder = ChildLayerFileBuilder::new(parent.clone(), child_files[0].clone(), child_files[1].clone(), child_files[2].clone(), child_files[3].clone(), child_files[4].clone(), child_files[5].clone(), child_files[6].clone(), child_files[7].clone(), child_files[8].clone(), child_files[9].clone(), child_files[10].clone(), child_files[11].clone(), child_files[12].clone(), child_files[13].clone(), child_files[14].clone(), child_files[15].clone(), child_files[16].clone(), child_files[17].clone(), child_files[18].clone(), child_files[19].clone(), child_files[20].clone(), child_files[21].clone(), child_files[22].clone(), child_files[23].clone());
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder
             .add_node("foo")
             .and_then(|(_,b)|b.add_predicate("bar"))
@@ -1689,7 +1801,7 @@ mod tests {
             .and_then(|(_,b)|b.into_phase2())
             .and_then(|b|b.finalize()).wait().unwrap();
 
-        let child_layer = ChildLayer::load([5,4,3,2,1], parent, child_files[0].clone().map(), child_files[1].clone().map(), child_files[2].clone().map(), child_files[3].clone().map(), child_files[4].clone().map(), child_files[5].clone().map(), child_files[6].clone().map(), child_files[7].clone().map(), child_files[8].clone().map(), child_files[9].clone().map(), child_files[10].clone().map(), child_files[11].clone().map(), child_files[12].clone().map(), child_files[13].clone().map(), child_files[14].clone().map(), child_files[15].clone().map(), child_files[16].clone().map(), child_files[17].clone().map(), child_files[18].clone().map(), child_files[19].clone().map(), child_files[20].clone().map(), child_files[21].clone().map(), child_files[22].clone().map(), child_files[23].clone().map());
+        let child_layer = ChildLayer::load_from_files([5,4,3,2,1], parent, &child_files).wait().unwrap();
 
         assert_eq!(11, child_layer.subject_id("foo").unwrap());
         assert_eq!(5, child_layer.predicate_id("bar").unwrap());

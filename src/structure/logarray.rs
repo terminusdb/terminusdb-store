@@ -466,7 +466,7 @@ mod tests {
             .wait()
             .unwrap();
 
-        let content = store.map();
+        let content = store.map().wait().unwrap();
 
         let logarray = LogArray::parse(&content).unwrap();
 
@@ -508,7 +508,7 @@ mod tests {
             .wait()
             .unwrap();
 
-        let content = store.map();
+        let content = store.map().wait().unwrap();
 
         let logarray = LogArray::parse(&content).unwrap();
 
@@ -527,7 +527,7 @@ mod tests {
             .wait()
             .unwrap();
 
-        let content = store.map();
+        let content = store.map().wait().unwrap();
 
         let logarray = LogArray::parse(&content).unwrap();
 
@@ -546,7 +546,7 @@ mod tests {
             .wait()
             .unwrap();
 
-        let content = store.map();
+        let content = store.map().wait().unwrap();
 
         let logarray = LogArray::parse(&content).unwrap();
         let slice = logarray.slice(2,3);
@@ -566,7 +566,7 @@ mod tests {
             .wait()
             .unwrap();
 
-        let content = store.map();
+        let content = store.map().wait().unwrap();
 
         let logarray = LogArray::parse(&content).unwrap();
         let slice = logarray.slice(2,3);
@@ -586,7 +586,7 @@ mod tests {
             .wait()
             .unwrap();
 
-        let content = store.map();
+        let content = store.map().wait().unwrap();
 
         let logarray = LogArray::parse(&content).unwrap();
         let monotonic = MonotonicLogArray::from_logarray(logarray);

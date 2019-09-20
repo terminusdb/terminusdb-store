@@ -164,7 +164,7 @@ mod tests {
             .wait()
             .unwrap();
 
-        let loaded = x.map();
+        let loaded = x.map().wait().unwrap();
 
         let bitarray = BitArray::from_bits(&loaded);
 
@@ -186,7 +186,7 @@ mod tests {
             .wait()
             .unwrap();
 
-        let loaded = x.map();
+        let loaded = x.map().wait().unwrap();
 
         let bitarray = BitArray::from_bits(&loaded);
 

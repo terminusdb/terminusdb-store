@@ -176,10 +176,10 @@ mod tests {
             .wait()
             .unwrap();
 
-        let bitfile_contents = bitfile.map();
-        let bitindex_blocks_contents = bitindex_blocks_file.map();
-        let bitindex_sblocks_contents = bitindex_sblocks_file.map();
-        let nums_contents = nums_file.map();
+        let bitfile_contents = bitfile.map().wait().unwrap();
+        let bitindex_blocks_contents = bitindex_blocks_file.map().wait().unwrap();
+        let bitindex_sblocks_contents = bitindex_sblocks_file.map().wait().unwrap();
+        let nums_contents = nums_file.map().wait().unwrap();
 
         let adjacencylist = AdjacencyList::parse(&nums_contents, &bitfile_contents, &bitindex_blocks_contents, &bitindex_sblocks_contents);
 
@@ -226,10 +226,10 @@ mod tests {
             .wait()
             .unwrap();
 
-        let bitfile_contents = bitfile.map();
-        let bitindex_blocks_contents = bitindex_blocks_file.map();
-        let bitindex_sblocks_contents = bitindex_sblocks_file.map();
-        let nums_contents = nums_file.map();
+        let bitfile_contents = bitfile.map().wait().unwrap();
+        let bitindex_blocks_contents = bitindex_blocks_file.map().wait().unwrap();
+        let bitindex_sblocks_contents = bitindex_sblocks_file.map().wait().unwrap();
+        let nums_contents = nums_file.map().wait().unwrap();
 
         let adjacencylist = AdjacencyList::parse(&nums_contents, &bitfile_contents, &bitindex_blocks_contents, &bitindex_sblocks_contents);
 
@@ -249,10 +249,10 @@ mod tests {
             .wait()
             .unwrap();
 
-        let bitfile_contents = bitfile.map();
-        let bitindex_blocks_contents = bitindex_blocks_file.map();
-        let bitindex_sblocks_contents = bitindex_sblocks_file.map();
-        let nums_contents = nums_file.map();
+        let bitfile_contents = bitfile.map().wait().unwrap();
+        let bitindex_blocks_contents = bitindex_blocks_file.map().wait().unwrap();
+        let bitindex_sblocks_contents = bitindex_sblocks_file.map().wait().unwrap();
+        let nums_contents = nums_file.map().wait().unwrap();
 
         let adjacencylist = AdjacencyList::parse(&nums_contents, &bitfile_contents, &bitindex_blocks_contents, &bitindex_sblocks_contents);
 
