@@ -4,7 +4,7 @@ use crate::layer::base::{BaseLayer,BaseLayerFiles};
 use crate::layer::child::{ChildLayer,ChildLayerFiles};
 use super::file::*;
 use super::consts::FILENAMES;
-use std::fs;
+use tokio::fs;
 use std::io;
 
 use futures::prelude::*;
@@ -291,6 +291,20 @@ pub trait PersistentLayerStore : 'static+Clone {
     }
 }
 
+fn string_to_name(string: &str) -> Result<[u32;5], std::io::Error> {
+    let n1 = u32::from_str_radix(&string[..4], 16)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let n2 = u32::from_str_radix(&string[4..8], 16)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let n3 = u32::from_str_radix(&string[8..12], 16)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let n4 = u32::from_str_radix(&string[12..16], 16)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let n5 = u32::from_str_radix(&string[16..20], 16)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+    Ok([n1,n2,n3,n4,n5])
+}
 
 fn bytes_to_name(bytes: &Vec<u8>) -> Result<[u32;5],std::io::Error> {
     if bytes.len() != 20 {
@@ -298,18 +312,8 @@ fn bytes_to_name(bytes: &Vec<u8>) -> Result<[u32;5],std::io::Error> {
     }
     else {
         let string = String::from_utf8_lossy(&bytes);
-        let n1 = u32::from_str_radix(&string[..4], 16)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-        let n2 = u32::from_str_radix(&string[4..8], 16)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-        let n3 = u32::from_str_radix(&string[8..12], 16)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-        let n4 = u32::from_str_radix(&string[12..16], 16)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-        let n5 = u32::from_str_radix(&string[16..20], 16)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
-        Ok([n1,n2,n3,n4,n5])
+        string_to_name(&string)
     }
 }
 
@@ -375,8 +379,7 @@ impl<F:'static+FileLoad+FileStore+Clone,T: 'static+PersistentLayerStore<File=F>>
     }
 }
 
-/*
-
+#[derive(Clone)]
 struct DirectoryLayerStore {
     path: PathBuf
 }
@@ -387,100 +390,41 @@ impl DirectoryLayerStore {
             path: path.into()
         }
     }
-
-    fn dir_paths(&self) -> Result<Vec<PathBuf>,io::Error> {
-        Ok(fs::read_dir(self.path.clone())?
-           .filter(|entry| entry.as_ref().map(|e|e.path().is_dir()).unwrap_or(false))
-           .map(|entry| entry.unwrap().path())
-           .collect())
-    }
-
-    fn layer_dir_path(&self, name: &[u32;5]) -> PathBuf {
-        let mut buf = self.path.clone();
-        let name_string = format!("{:x}{:x}{:x}{:x}{:x}", name[0], name[1], name[2], name[3], name[4]);
-        buf.push(name_string);
-
-        buf
-    }
-
-    fn layer_file_path(&self, layer_name: &[u32;5], file_name: &str) -> PathBuf {
-        let mut path = self.layer_dir_path(layer_name);
-        path.push(file_name);
-
-        path
-    }
-
-    fn layer_file(&self, layer_name: &[u32;5], file_name: &str) -> FileBackedStore {
-        FileBackedStore::new(self.layer_file_path(layer_name, file_name))
-    }
-
-    fn base_layer_files(&self, name: &[u32;5]) -> BaseLayerFiles<FileBackedStore> {
-        BaseLayerFiles {
-            node_dictionary_blocks_file: self.layer_file(name, FILENAMES.node_dictionary_blocks),
-            node_dictionary_offsets_file: self.layer_file(name, FILENAMES.node_dictionary_offsets),
-
-            predicate_dictionary_blocks_file: self.layer_file(name, FILENAMES.predicate_dictionary_blocks),
-            predicate_dictionary_offsets_file: self.layer_file(name, FILENAMES.predicate_dictionary_offsets),
-
-            value_dictionary_blocks_file: self.layer_file(name, FILENAMES.value_dictionary_blocks),
-            value_dictionary_offsets_file: self.layer_file(name, FILENAMES.value_dictionary_offsets),
-
-            s_p_adjacency_list_bits_file: self.layer_file(name, FILENAMES.base_s_p_adjacency_list_bits),
-            s_p_adjacency_list_blocks_file: self.layer_file(name, FILENAMES.base_s_p_adjacency_list_bit_index_blocks),
-            s_p_adjacency_list_sblocks_file: self.layer_file(name, FILENAMES.base_s_p_adjacency_list_bit_index_sblocks),
-            s_p_adjacency_list_nums_file: self.layer_file(name, FILENAMES.base_s_p_adjacency_list_nums),
-
-            sp_o_adjacency_list_bits_file: self.layer_file(name, FILENAMES.base_sp_o_adjacency_list_bits),
-            sp_o_adjacency_list_blocks_file: self.layer_file(name, FILENAMES.base_sp_o_adjacency_list_bit_index_blocks),
-            sp_o_adjacency_list_sblocks_file: self.layer_file(name, FILENAMES.base_sp_o_adjacency_list_bit_index_sblocks),
-            sp_o_adjacency_list_nums_file: self.layer_file(name, FILENAMES.base_sp_o_adjacency_list_nums)
-        }
-    }
 }
 
-impl LayerStore for DirectoryLayerStore {
+impl PersistentLayerStore for DirectoryLayerStore {
     type File = FileBackedStore;
 
-    fn layers(&self) -> Vec<[u32;5]> {
-        self.dir_paths().unwrap_or(vec![]).iter()
-            .filter_map(|p|Some(p.file_name()?.to_str()?.to_owned()))
-            .filter(|p| p.len() == 40)
-            .filter_map(|p| {
-                let s1 = &p[0..4];
-                let s2 = &p[4..8];
-                let s3 = &p[8..12];
-                let s4 = &p[12..16];
-                let s5 = &p[16..20];
-
-                let n1 = u32::from_str_radix(s1, 16).ok()?;
-                let n2 = u32::from_str_radix(s2, 16).ok()?;
-                let n3 = u32::from_str_radix(s3, 16).ok()?;
-                let n4 = u32::from_str_radix(s4, 16).ok()?;
-                let n5 = u32::from_str_radix(s5, 16).ok()?;
-
-                Some([n1,n2,n3,n4,n5])
-            })
-            .collect()
+    fn directories(&self) -> Box<dyn Future<Item=Vec<[u32; 5]>, Error=std::io::Error>> {
+        Box::new(fs::read_dir(self.path.clone()).flatten_stream()
+                 .map(|direntry| (direntry.file_name(), direntry))
+                 .and_then(|(dir_name, direntry)| future::poll_fn(move || direntry.poll_file_type())
+                           .map(move |ft| (dir_name, ft.is_dir())))
+                 .filter_map(|(dir_name, is_dir)| match is_dir {
+                     true => Some(dir_name),
+                     false => None
+                 })
+                 .and_then(|dir_name| dir_name.to_str().ok_or(io::Error::new(io::ErrorKind::InvalidData, "unexpected non-utf8 directory name")).map(|s|s.to_owned()))
+                 .and_then(|s| string_to_name(&s))
+                 .collect())
     }
 
-    fn create_base_layer(&mut self) -> SimpleLayerBuilder<FileBackedStore> {
-        let name: [u32;5] = rand::random();
-        fs::create_dir(self.layer_dir_path(&name)).expect("dir creation failure");
-        // todo gotta write metadata so it is clear that this is a base layer
-
-        let blf = self.base_layer_files(&name);
-        SimpleLayerBuilder::new(name, blf)
+    fn create_directory(&self) -> Box<dyn Future<Item=[u32;5], Error=io::Error>> {
+        panic!("not implemented");
     }
 
-    fn create_child_layer(&mut self, parent: [u32;5]) -> Option<SimpleLayerBuilder<FileBackedStore>> {
-        panic!("oh no");
+    fn directory_exists(&self, name: [u32; 5]) -> Box<dyn Future<Item=bool,Error=io::Error>> {
+        panic!("not implemented");
     }
 
-    fn get_layer(&self, name: [u32;5]) -> Option<GenericLayer<<FileBackedStore as FileLoad>::Map>> {
-        panic!("oh no");
+    fn get_file(&self, directory: [u32;5], name: &str) -> Box<dyn Future<Item=Self::File, Error=io::Error>> {
+        panic!("not implemented");
+    }
+    
+    fn file_exists(&self, directory: [u32;5], file: &str) -> Box<dyn Future<Item=bool,Error=io::Error>> {
+        panic!("not implemented");
     }
 }
-*/
 
 #[cfg(test)]
 pub mod tests {
