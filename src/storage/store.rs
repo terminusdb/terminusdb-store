@@ -275,7 +275,7 @@ pub trait PersistentLayerStore : 'static+Clone {
     }
 
     fn write_parent_file(&self, dir_name: [u32;5], parent_name: [u32;5]) -> Box<dyn Future<Item=(), Error=std::io::Error>> {
-        let parent_string = format!("{:x}{:x}{:x}{:x}{:x}", parent_name[0], parent_name[1], parent_name[2], parent_name[3], parent_name[4]);
+        let parent_string = name_to_string(parent_name);
 
         Box::new(self.get_file(dir_name, FILENAMES.parent)
                  .map(|f|f.open_write())
@@ -289,6 +289,10 @@ pub trait PersistentLayerStore : 'static+Clone {
                  .and_then(|reader| tokio::io::read_exact(reader, vec![0;20]))
                  .and_then(|(_, buf)| bytes_to_name(&buf)))
     }
+}
+
+fn name_to_string(name: [u32;5]) -> String {
+    format!("{:x}{:x}{:x}{:x}{:x}", name[0], name[1], name[2], name[3], name[4])
 }
 
 fn string_to_name(string: &str) -> Result<[u32;5], std::io::Error> {
@@ -410,7 +414,12 @@ impl PersistentLayerStore for DirectoryLayerStore {
     }
 
     fn create_directory(&self) -> Box<dyn Future<Item=[u32;5], Error=io::Error>> {
-        panic!("not implemented");
+        let name = rand::random();
+        let mut p = self.path.clone();
+        p.push(name_to_string(name));
+
+        Box::new(fs::create_dir(p)
+                 .map(move |_| name))
     }
 
     fn directory_exists(&self, name: [u32; 5]) -> Box<dyn Future<Item=bool,Error=io::Error>> {
