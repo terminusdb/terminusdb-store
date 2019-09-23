@@ -423,7 +423,14 @@ impl PersistentLayerStore for DirectoryLayerStore {
     }
 
     fn directory_exists(&self, name: [u32; 5]) -> Box<dyn Future<Item=bool,Error=io::Error>> {
-        panic!("not implemented");
+        let mut p = self.path.clone();
+        p.push(name_to_string(name));
+
+        Box::new(fs::metadata(p)
+                 .then(|result| match result {
+                     Ok(f) => Ok(f.is_dir()),
+                     Err(_) => Ok(false)
+                 }))
     }
 
     fn get_file(&self, directory: [u32;5], name: &str) -> Box<dyn Future<Item=Self::File, Error=io::Error>> {
