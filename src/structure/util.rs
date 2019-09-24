@@ -28,7 +28,7 @@ pub fn find_common_prefix(b1: &[u8], b2: &[u8]) -> usize {
     common
 }
 
-pub fn write_nul_terminated_bytes<W:tokio::io::AsyncWrite>(w:W, bytes: Vec<u8>) -> impl Future<Item=(W, usize), Error=std::io::Error> {
+pub fn write_nul_terminated_bytes<W:tokio::io::AsyncWrite+Send+Sync>(w:W, bytes: Vec<u8>) -> impl Future<Item=(W, usize), Error=std::io::Error> {
     tokio::io::write_all(w, bytes)
         .and_then(|(w, slice)| {
             let count = slice.len() + 1;
@@ -37,13 +37,13 @@ pub fn write_nul_terminated_bytes<W:tokio::io::AsyncWrite>(w:W, bytes: Vec<u8>) 
         })
 }
 
-pub fn write_padding<W:tokio::io::AsyncWrite>(w:W, current_pos: usize, width: u8) -> impl Future<Item=(W, usize), Error=std::io::Error> {
+pub fn write_padding<W:tokio::io::AsyncWrite+Send+Sync>(w:W, current_pos: usize, width: u8) -> impl Future<Item=(W, usize), Error=std::io::Error> {
     let required_padding = (width as usize - current_pos % width as usize) % width as usize;
     tokio::io::write_all(w, vec![0;required_padding]) // there has to be a better way
         .map(|(w, slice)| (w, slice.len()))
 }
 
-pub fn write_u64<W:tokio::io::AsyncWrite>(w: W, num: u64) -> impl Future<Item=W, Error=std::io::Error> {
+pub fn write_u64<W:tokio::io::AsyncWrite+Send+Sync>(w: W, num: u64) -> impl Future<Item=W, Error=std::io::Error> {
     let mut v = vec![0u8;8];
     BigEndian::write_u64(&mut v, num);
 

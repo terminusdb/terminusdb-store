@@ -96,7 +96,7 @@ impl<F:FileLoad+FileStore> BaseLayerFiles<F> {
 }
 
 #[derive(Clone)]
-pub struct BaseLayer<M:'static+AsRef<[u8]>+Clone> {
+pub struct BaseLayer<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
     name: [u32;5],
     node_dictionary: PfcDict<M>,
     predicate_dictionary: PfcDict<M>,
@@ -105,7 +105,7 @@ pub struct BaseLayer<M:'static+AsRef<[u8]>+Clone> {
     sp_o_adjacency_list: AdjacencyList<M>
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> BaseLayer<M> {
+impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> BaseLayer<M> {
     pub fn load_from_files<F:FileLoad<Map=M>+FileStore>(name: [u32;5], files: &BaseLayerFiles<F>) -> impl Future<Item=Self,Error=std::io::Error> {
         files.map_all()
             .map(move |maps| Self::load(name, maps))
@@ -132,7 +132,7 @@ impl<M:'static+AsRef<[u8]>+Clone> BaseLayer<M> {
     }
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> Layer for BaseLayer<M> {
+impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
     type PredicateObjectPairsForSubject = BasePredicateObjectPairsForSubject<M>;
     type SubjectIterator = BaseSubjectIterator<M>;
 
@@ -603,7 +603,8 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
             }))
     }
 
-    pub fn add_nodes<I:'static+IntoIterator<Item=String>>(self, nodes: I) -> impl Future<Item=(Vec<u64>, Self), Error=std::io::Error> {
+    pub fn add_nodes<I:'static+IntoIterator<Item=String>+Send+Sync>(self, nodes: I) -> impl Future<Item=(Vec<u64>, Self), Error=std::io::Error>
+    where <I as std::iter::IntoIterator>::IntoIter: Send+Sync {
         let BaseLayerFileBuilder {
             node_dictionary_files,
             predicate_dictionary_files,
@@ -632,7 +633,8 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
             }))
     }
 
-    pub fn add_predicates<I:'static+IntoIterator<Item=String>>(self, predicates: I) -> impl Future<Item=(Vec<u64>, Self), Error=std::io::Error> {
+    pub fn add_predicates<I:'static+IntoIterator<Item=String>+Send+Sync>(self, predicates: I) -> impl Future<Item=(Vec<u64>, Self), Error=std::io::Error>
+    where <I as std::iter::IntoIterator>::IntoIter: Send+Sync {
         let BaseLayerFileBuilder {
             node_dictionary_files,
             predicate_dictionary_files,
@@ -661,7 +663,8 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
             }))
     }
 
-    pub fn add_values<I:'static+IntoIterator<Item=String>>(self, values: I) -> impl Future<Item=(Vec<u64>, Self), Error=std::io::Error> {
+    pub fn add_values<I:'static+IntoIterator<Item=String>+Send+Sync>(self, values: I) -> impl Future<Item=(Vec<u64>, Self), Error=std::io::Error>
+    where <I as std::iter::IntoIterator>::IntoIter: Send+Sync {
         let BaseLayerFileBuilder {
             node_dictionary_files,
             predicate_dictionary_files,
@@ -804,7 +807,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
         }
     }
 
-    pub fn add_triple(self, subject: u64, predicate: u64, object: u64) -> Box<dyn Future<Item=Self, Error=std::io::Error>> {
+    pub fn add_triple(self, subject: u64, predicate: u64, object: u64) -> Box<dyn Future<Item=Self, Error=std::io::Error>+Send+Sync> {
         let BaseLayerFileBuilderPhase2 {
             s_p_adjacency_list_builder,
             sp_o_adjacency_list_builder,
@@ -857,7 +860,6 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
 
 #[cfg(test)]
 mod tests {
-    use crate::storage::file::*;
     use super::*;
 
     fn example_base_layer() -> BaseLayer<Vec<u8>> {

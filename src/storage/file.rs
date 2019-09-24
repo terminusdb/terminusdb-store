@@ -8,17 +8,17 @@ use std::io::{self,Seek, SeekFrom};
 use std::path::PathBuf;
 use memmap::*;
 
-pub trait FileStore {
-    type Write: AsyncWrite;
+pub trait FileStore: Send+Sync {
+    type Write: AsyncWrite+Send+Sync;
     fn open_write(&self) -> Self::Write {
         self.open_write_from(0)
     }
     fn open_write_from(&self, offset: usize) -> Self::Write;
 }
 
-pub trait FileLoad {
-    type Read: AsyncRead;
-    type Map: AsRef<[u8]>+Clone;
+pub trait FileLoad: Send+Sync {
+    type Read: AsyncRead+Send+Sync;
+    type Map: AsRef<[u8]>+Clone+Send+Sync;
     
     fn size(&self) -> usize;
     fn open_read(&self) -> Self::Read {
@@ -150,11 +150,14 @@ impl FileBackedStore {
 }
 
 #[derive(Clone)]
-pub struct SharedMmap(Arc<Mmap>);
+pub struct SharedMmap(Option<Arc<Mmap>>);
 
 impl AsRef<[u8]> for SharedMmap {
     fn as_ref(&self) -> &[u8] {
-        &*self.0
+        match &self.0 {
+            None => &[],
+            Some(map) => &*map
+        }
     }
 }
 
@@ -175,11 +178,17 @@ impl FileLoad for FileBackedStore {
     }
 
     fn map(&self) -> Box<dyn Future<Item=SharedMmap,Error=std::io::Error>+Send+Sync> {
-        let f = self.open_read_from_std(0);
-
-        // unsafe justification: we opened this file specifically to do memory mapping, and will do nothing else with it.
-        Box::new(future::ok(SharedMmap(Arc::new(unsafe { Mmap::map(&f) }.unwrap()))))
-
+        let file = self.clone();
+        Box::new(future::lazy(move || {
+            if file.size() == 0 {
+                future::ok(SharedMmap(None))
+            }
+            else {
+                let f = file.open_read_from_std(0);
+                // unsafe justification: we opened this file specifically to do memory mapping, and will do nothing else with it.
+                future::ok(SharedMmap(Some(Arc::new(unsafe { Mmap::map(&f) }.unwrap()))))
+            }
+        }))
     }
 }
 

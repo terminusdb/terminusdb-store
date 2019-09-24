@@ -97,12 +97,12 @@ pub enum LayerType {
 }
 
 #[derive(Clone)]
-pub enum GenericLayer<M:'static+AsRef<[u8]>+Clone> {
+pub enum GenericLayer<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
     Base(BaseLayer<M>),
     Child(ChildLayer<M>)
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> Layer for GenericLayer<M> {
+impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for GenericLayer<M> {
     type PredicateObjectPairsForSubject = GenericPredicateObjectPairsForSubject<M>;
     type SubjectIterator = GenericSubjectIterator<M>;
 

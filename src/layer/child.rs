@@ -151,7 +151,7 @@ impl<F:FileLoad+FileStore+Clone> ChildLayerFiles<F> {
 }
 
 #[derive(Clone)]
-pub struct ChildLayer<M:'static+AsRef<[u8]>+Clone> {
+pub struct ChildLayer<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
     name: [u32;5],
     parent: Arc<GenericLayer<M>>,
 
@@ -168,7 +168,7 @@ pub struct ChildLayer<M:'static+AsRef<[u8]>+Clone> {
     neg_sp_o_adjacency_list: AdjacencyList<M>
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> ChildLayer<M> {
+impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> ChildLayer<M> {
     pub fn load_from_files<F:FileLoad<Map=M>+FileStore+Clone>(name: [u32;5], parent: GenericLayer<M>, files: &ChildLayerFiles<F>) -> impl Future<Item=Self,Error=std::io::Error> {
         files.map_all()
             .map(move |maps| Self::load(name, parent, maps))
@@ -210,7 +210,7 @@ impl<M:'static+AsRef<[u8]>+Clone> ChildLayer<M> {
     }
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> Layer for ChildLayer<M> {
+impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
     type PredicateObjectPairsForSubject = ChildPredicateObjectPairsForSubject<M>;
     type SubjectIterator = ChildSubjectIterator<M>;
 
@@ -770,7 +770,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildObjectIterator<M> {
     }
 }
 
-pub struct ChildLayerFileBuilder<F:'static+FileLoad+FileStore> {
+pub struct ChildLayerFileBuilder<F:'static+FileLoad+FileStore+Send+Sync> {
     parent: GenericLayer<F::Map>,
     node_dictionary_files: DictionaryFiles<F>,
     predicate_dictionary_files: DictionaryFiles<F>,
@@ -927,7 +927,7 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
         }
     }
 
-    pub fn add_node(self, node: &str) -> Box<dyn Future<Item=(u64, Self), Error=std::io::Error>> {
+    pub fn add_node(self, node: &str) -> Box<dyn Future<Item=(u64, Self), Error=std::io::Error>+Send+Sync> {
         match self.parent.subject_id(node) {
             None => {
                 let ChildLayerFileBuilder {
@@ -974,7 +974,7 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
         }
     }
     
-    pub fn add_predicate(self, predicate: &str) -> Box<dyn Future<Item=(u64, Self), Error=std::io::Error>> {
+    pub fn add_predicate(self, predicate: &str) -> Box<dyn Future<Item=(u64, Self), Error=std::io::Error>+Send+Sync> {
         match self.parent.predicate_id(predicate) {
             None => {
                 let ChildLayerFileBuilder {
@@ -1022,7 +1022,7 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
         }
     }
 
-    pub fn add_value(self, value: &str) -> Box<dyn Future<Item=(u64, Self), Error=std::io::Error>> {
+    pub fn add_value(self, value: &str) -> Box<dyn Future<Item=(u64, Self), Error=std::io::Error>+Send+Sync> {
         match self.parent.object_value_id(value) {
             None => {
                 let ChildLayerFileBuilder {
@@ -1123,9 +1123,9 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
             value_dictionary_builder
         } = self;
 
-        let finalize_nodedict: Box<dyn Future<Item=(),Error=std::io::Error>> = Box::new(node_dictionary_builder.finalize());
-        let finalize_preddict: Box<dyn Future<Item=(),Error=std::io::Error>> = Box::new(predicate_dictionary_builder.finalize());
-        let finalize_valdict: Box<dyn Future<Item=(),Error=std::io::Error>> = Box::new(value_dictionary_builder.finalize());
+        let finalize_nodedict: Box<dyn Future<Item=(),Error=std::io::Error>+Send+Sync> = Box::new(node_dictionary_builder.finalize());
+        let finalize_preddict: Box<dyn Future<Item=(),Error=std::io::Error>+Send+Sync> = Box::new(predicate_dictionary_builder.finalize());
+        let finalize_valdict: Box<dyn Future<Item=(),Error=std::io::Error>+Send+Sync> = Box::new(value_dictionary_builder.finalize());
 
         let dict_maps_fut = vec![node_dictionary_files.blocks_file.map(),
                                  node_dictionary_files.offsets_file.map(),
@@ -1288,7 +1288,7 @@ impl<F:'static+FileLoad+FileStore> ChildLayerFileBuilderPhase2<F> {
         }
     }
 
-    pub fn add_triple(self, subject: u64, predicate: u64, object: u64) -> Box<dyn Future<Item=Self, Error=std::io::Error>> {
+    pub fn add_triple(self, subject: u64, predicate: u64, object: u64) -> Box<dyn Future<Item=Self, Error=std::io::Error>+Send+Sync> {
         if self.parent.triple_exists(subject, predicate, object) {
             // no need to do anything
             // TODO maybe return an error instead?
@@ -1376,7 +1376,7 @@ impl<F:'static+FileLoad+FileStore> ChildLayerFileBuilderPhase2<F> {
         }
     }
 
-    pub fn remove_triple(self, subject: u64, predicate: u64, object: u64) -> Box<dyn Future<Item=Self, Error=std::io::Error>> {
+    pub fn remove_triple(self, subject: u64, predicate: u64, object: u64) -> Box<dyn Future<Item=Self, Error=std::io::Error>+Send+Sync> {
         if !self.parent.triple_exists(subject, predicate, object) {
             // no need to do anything
             // TODO maybe return an error instead?
@@ -1483,15 +1483,15 @@ impl<F:'static+FileLoad+FileStore> ChildLayerFileBuilderPhase2<F> {
         let pos_subjects_logarray_builder = LogArrayFileBuilder::new(self.pos_subjects_file.open_write(), pos_subjects_width);
         let neg_subjects_logarray_builder = LogArrayFileBuilder::new(self.neg_subjects_file.open_write(), neg_subjects_width);
 
-        let build_pos_s_p_adjacency_list: Box<dyn Future<Item=(),Error=std::io::Error>> = Box::new(self.pos_s_p_adjacency_list_builder.finalize());
-        let build_pos_sp_o_adjacency_list: Box<dyn Future<Item=(),Error=std::io::Error>> = Box::new(self.pos_sp_o_adjacency_list_builder.finalize());
-        let build_neg_s_p_adjacency_list: Box<dyn Future<Item=(),Error=std::io::Error>> = Box::new(self.neg_s_p_adjacency_list_builder.finalize());
-        let build_neg_sp_o_adjacency_list: Box<dyn Future<Item=(),Error=std::io::Error>> = Box::new(self.neg_sp_o_adjacency_list_builder.finalize());
+        let build_pos_s_p_adjacency_list: Box<dyn Future<Item=(),Error=std::io::Error>+Send+Sync> = Box::new(self.pos_s_p_adjacency_list_builder.finalize());
+        let build_pos_sp_o_adjacency_list: Box<dyn Future<Item=(),Error=std::io::Error>+Send+Sync> = Box::new(self.pos_sp_o_adjacency_list_builder.finalize());
+        let build_neg_s_p_adjacency_list: Box<dyn Future<Item=(),Error=std::io::Error>+Send+Sync> = Box::new(self.neg_s_p_adjacency_list_builder.finalize());
+        let build_neg_sp_o_adjacency_list: Box<dyn Future<Item=(),Error=std::io::Error>+Send+Sync> = Box::new(self.neg_sp_o_adjacency_list_builder.finalize());
 
-        let build_pos_subjects: Box<dyn Future<Item=(),Error=std::io::Error>> = Box::new(pos_subjects_logarray_builder.push_all(stream::iter_ok(self.pos_subjects))
+        let build_pos_subjects: Box<dyn Future<Item=(),Error=std::io::Error>+Send+Sync> = Box::new(pos_subjects_logarray_builder.push_all(stream::iter_ok(self.pos_subjects))
                                                                                          .and_then(|b|b.finalize())
                                                                                          .map(|_|()));
-        let build_neg_subjects: Box<dyn Future<Item=(), Error=std::io::Error>> = Box::new(neg_subjects_logarray_builder.push_all(stream::iter_ok(self.neg_subjects))
+        let build_neg_subjects: Box<dyn Future<Item=(), Error=std::io::Error>+Send+Sync> = Box::new(neg_subjects_logarray_builder.push_all(stream::iter_ok(self.neg_subjects))
                                                                                           .and_then(|b|b.finalize())
                                                                                           .map(|_|()));
 
@@ -1507,7 +1507,6 @@ impl<F:'static+FileLoad+FileStore> ChildLayerFileBuilderPhase2<F> {
 
 #[cfg(test)]
 mod tests {
-    use crate::storage::file::*;
     use crate::layer::base::*;
     use super::*;
 

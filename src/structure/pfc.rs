@@ -314,7 +314,7 @@ impl<M:AsRef<[u8]>+Clone> PfcDict<M> {
     }
 }
 
-pub struct PfcDictFileBuilder<W:tokio::io::AsyncWrite> {
+pub struct PfcDictFileBuilder<W:tokio::io::AsyncWrite+Send+Sync> {
     /// the file that this builder writes the pfc blocks to
     pfc_blocks_file: W,
     /// the file that this builder writes the block offsets to
@@ -327,7 +327,7 @@ pub struct PfcDictFileBuilder<W:tokio::io::AsyncWrite> {
     index: Vec<u64>
 }
 
-impl<W:'static+tokio::io::AsyncWrite> PfcDictFileBuilder<W> {
+impl<W:'static+tokio::io::AsyncWrite+Send+Sync> PfcDictFileBuilder<W> {
     pub fn new(pfc_blocks_file: W, pfc_block_offsets_file: W) -> PfcDictFileBuilder<W> {
         PfcDictFileBuilder {
             pfc_blocks_file,
@@ -338,7 +338,7 @@ impl<W:'static+tokio::io::AsyncWrite> PfcDictFileBuilder<W> {
             index: Vec::new()
         }
     }
-    pub fn add(self, s: &str) -> Box<dyn Future<Item=(u64, PfcDictFileBuilder<W>),Error=std::io::Error>> {
+    pub fn add(self, s: &str) -> Box<dyn Future<Item=(u64, PfcDictFileBuilder<W>),Error=std::io::Error>+Send+Sync> {
         let count = self.count;
         let size = self.size;
         let mut index = self.index;
@@ -379,7 +379,7 @@ impl<W:'static+tokio::io::AsyncWrite> PfcDictFileBuilder<W> {
         }
     }
 
-    fn add_all_1<I:'static+Iterator<Item=String>>(self, mut it:I, mut result: Vec<u64>) -> Box<dyn Future<Item=(Vec<u64>, PfcDictFileBuilder<W>), Error=std::io::Error>> {
+    fn add_all_1<I:'static+Iterator<Item=String>+Send+Sync>(self, mut it:I, mut result: Vec<u64>) -> Box<dyn Future<Item=(Vec<u64>, PfcDictFileBuilder<W>), Error=std::io::Error>+Send+Sync> {
         let next = it.next();
         match next {
             None => Box::new(future::ok((result, self))),
@@ -391,7 +391,7 @@ impl<W:'static+tokio::io::AsyncWrite> PfcDictFileBuilder<W> {
         }
     }
 
-    pub fn add_all<I:'static+Iterator<Item=String>>(self, it:I) -> Box<dyn Future<Item=(Vec<u64>, PfcDictFileBuilder<W>), Error=std::io::Error>> {
+    pub fn add_all<I:'static+Iterator<Item=String>+Send+Sync>(self, it:I) -> Box<dyn Future<Item=(Vec<u64>, PfcDictFileBuilder<W>), Error=std::io::Error>+Send+Sync> {
         self.add_all_1(it, Vec::new())
     }
 

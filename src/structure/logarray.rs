@@ -223,7 +223,7 @@ impl<M:AsRef<[u8]>+Clone> LogArraySlice<M> {
 }
 
 /// write a logarray directly to an AsyncWrite
-pub struct LogArrayFileBuilder<W:'static+tokio::io::AsyncWrite> {
+pub struct LogArrayFileBuilder<W:'static+tokio::io::AsyncWrite+Send+Sync> {
     file: W,
     width: u8,
     current: u64,
@@ -231,7 +231,7 @@ pub struct LogArrayFileBuilder<W:'static+tokio::io::AsyncWrite> {
     pub count: u32
 }
 
-impl<W:'static+tokio::io::AsyncWrite> LogArrayFileBuilder<W> {
+impl<W:'static+tokio::io::AsyncWrite+Send+Sync> LogArrayFileBuilder<W> {
     pub fn new(w: W, width: u8) -> LogArrayFileBuilder<W> {
         LogArrayFileBuilder {
             file: w,
@@ -242,7 +242,7 @@ impl<W:'static+tokio::io::AsyncWrite> LogArrayFileBuilder<W> {
         }
     }
 
-    pub fn push(mut self, val: u64) -> Box<dyn Future<Item=LogArrayFileBuilder<W>,Error=std::io::Error>> {
+    pub fn push(mut self, val: u64) -> Box<dyn Future<Item=LogArrayFileBuilder<W>,Error=std::io::Error>+Send+Sync> {
         if val.leading_zeros() < 64 - self.width as u32 {
             panic!("value {} too large for width {}", val, self.width);
         }
@@ -294,7 +294,7 @@ impl<W:'static+tokio::io::AsyncWrite> LogArrayFileBuilder<W> {
         } = self;
         
 
-        let write_last_bits: Box<dyn Future<Item=W, Error=std::io::Error>> = if count % 8 == 0 {
+        let write_last_bits: Box<dyn Future<Item=W, Error=std::io::Error>+Send+Sync> = if count % 8 == 0 {
             Box::new(future::ok(file))
         }
         else {

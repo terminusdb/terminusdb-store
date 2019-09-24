@@ -115,7 +115,7 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
 
     }
 
-    pub fn finalize(self) -> Box<dyn Future<Item=GenericLayer<F::Map>, Error=std::io::Error>> {
+    pub fn finalize(self) -> Box<dyn Future<Item=GenericLayer<F::Map>, Error=std::io::Error>+Send+Sync> {
         let (unresolved_nodes, unresolved_predicates, unresolved_values) = self.unresolved_strings();
         let name = self.name;
         let additions = self.additions;

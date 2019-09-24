@@ -16,10 +16,10 @@ use rand;
 
 pub trait LayerStore {
     type File: FileLoad+FileStore+Clone;
-    fn layers(&self) -> Box<dyn Future<Item=Vec<[u32;5]>, Error=io::Error>>;
-    fn create_base_layer(&mut self) -> Box<dyn Future<Item=SimpleLayerBuilder<Self::File>, Error=io::Error>>;
-    fn create_child_layer(&mut self, parent: [u32;5]) -> Box<dyn Future<Item=SimpleLayerBuilder<Self::File>,Error=io::Error>>;
-    fn get_layer(&self, name: [u32;5]) -> Box<dyn Future<Item=Option<GenericLayer<<Self::File as FileLoad>::Map>>,Error=io::Error>>;
+    fn layers(&self) -> Box<dyn Future<Item=Vec<[u32;5]>, Error=io::Error>+Send+Sync>;
+    fn create_base_layer(&mut self) -> Box<dyn Future<Item=SimpleLayerBuilder<Self::File>, Error=io::Error>+Send+Sync>;
+    fn create_child_layer(&mut self, parent: [u32;5]) -> Box<dyn Future<Item=SimpleLayerBuilder<Self::File>,Error=io::Error>+Send+Sync>;
+    fn get_layer(&self, name: [u32;5]) -> Box<dyn Future<Item=Option<GenericLayer<<Self::File as FileLoad>::Map>>,Error=io::Error>+Send+Sync>;
 }
 
 pub struct MemoryLayerStore {
@@ -54,11 +54,11 @@ impl MemoryLayerStore {
 impl LayerStore for MemoryLayerStore {
     type File = MemoryBackedStore;
 
-    fn layers(&self) -> Box<dyn Future<Item=Vec<[u32;5]>, Error=io::Error>> {
+    fn layers(&self) -> Box<dyn Future<Item=Vec<[u32;5]>, Error=io::Error>+Send+Sync> {
         Box::new(future::ok(self.layers.keys().map(|k|k.clone()).collect()))
     }
 
-    fn create_base_layer(&mut self) -> Box<dyn Future<Item=SimpleLayerBuilder<MemoryBackedStore>,Error=io::Error>> {
+    fn create_base_layer(&mut self) -> Box<dyn Future<Item=SimpleLayerBuilder<MemoryBackedStore>,Error=io::Error>+Send+Sync> {
         let name = rand::random();
 
         let files: Vec<_> = (0..14).map(|_| MemoryBackedStore::new()).collect();
@@ -88,7 +88,7 @@ impl LayerStore for MemoryLayerStore {
         Box::new(future::ok(SimpleLayerBuilder::new(name, blf)))
     }
 
-    fn create_child_layer(&mut self, parent: [u32;5]) -> Box<dyn Future<Item=SimpleLayerBuilder<MemoryBackedStore>, Error=io::Error>> {
+    fn create_child_layer(&mut self, parent: [u32;5]) -> Box<dyn Future<Item=SimpleLayerBuilder<MemoryBackedStore>, Error=io::Error>+Send+Sync> {
         Box::new(if let Some(parent_layer) = self.get_layer_immediate(parent) {
             let name = rand::random();
             let files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
@@ -136,21 +136,21 @@ impl LayerStore for MemoryLayerStore {
                  })
     }
 
-    fn get_layer(&self, name: [u32;5]) -> Box<dyn Future<Item=Option<GenericLayer<<MemoryBackedStore as FileLoad>::Map>>,Error=io::Error>> {
+    fn get_layer(&self, name: [u32;5]) -> Box<dyn Future<Item=Option<GenericLayer<<MemoryBackedStore as FileLoad>::Map>>,Error=io::Error>+Send+Sync> {
         Box::new(future::ok(self.get_layer_immediate(name)))
     }
 }
 
-pub trait PersistentLayerStore : 'static+Clone {
+pub trait PersistentLayerStore : 'static+Send+Sync+Clone {
     type File: FileLoad+FileStore+Clone;
 
-    fn directories(&self) -> Box<dyn Future<Item=Vec<[u32; 5]>, Error=io::Error>>;
-    fn create_directory(&self) -> Box<dyn Future<Item=[u32;5], Error=io::Error>>;
-    fn directory_exists(&self, name: [u32; 5]) -> Box<dyn Future<Item=bool,Error=io::Error>>;
-    fn get_file(&self, directory: [u32;5], name: &str) -> Box<dyn Future<Item=Self::File, Error=io::Error>>;
-    fn file_exists(&self, directory: [u32;5], file: &str) -> Box<dyn Future<Item=bool,Error=io::Error>>;
+    fn directories(&self) -> Box<dyn Future<Item=Vec<[u32; 5]>, Error=io::Error>+Send+Sync>;
+    fn create_directory(&self) -> Box<dyn Future<Item=[u32;5], Error=io::Error>+Send+Sync>;
+    fn directory_exists(&self, name: [u32; 5]) -> Box<dyn Future<Item=bool,Error=io::Error>+Send+Sync>;
+    fn get_file(&self, directory: [u32;5], name: &str) -> Box<dyn Future<Item=Self::File, Error=io::Error>+Send+Sync>;
+    fn file_exists(&self, directory: [u32;5], file: &str) -> Box<dyn Future<Item=bool,Error=io::Error>+Send+Sync>;
 
-    fn layer_type(&self, name: [u32;5]) -> Box<dyn Future<Item=LayerType,Error=io::Error>> {
+    fn layer_type(&self, name: [u32;5]) -> Box<dyn Future<Item=LayerType,Error=io::Error>+Send+Sync> {
         Box::new(self.file_exists(name, FILENAMES.parent)
                  .map(|b| match b {
                      true => LayerType::Child,
@@ -158,7 +158,7 @@ pub trait PersistentLayerStore : 'static+Clone {
                  }))
     }
 
-    fn base_layer_files(&self, name: [u32;5]) -> Box<dyn Future<Item=BaseLayerFiles<Self::File>, Error=io::Error>> {
+    fn base_layer_files(&self, name: [u32;5]) -> Box<dyn Future<Item=BaseLayerFiles<Self::File>, Error=io::Error>+Send+Sync> {
         let filenames = vec![FILENAMES.node_dictionary_blocks,
                              FILENAMES.node_dictionary_offsets,
 
@@ -203,7 +203,7 @@ pub trait PersistentLayerStore : 'static+Clone {
                  }))
     }
 
-    fn child_layer_files(&self, name: [u32;5]) -> Box<dyn Future<Item=ChildLayerFiles<Self::File>,Error=io::Error>> {
+    fn child_layer_files(&self, name: [u32;5]) -> Box<dyn Future<Item=ChildLayerFiles<Self::File>,Error=io::Error>+Send+Sync> {
         let filenames = vec![FILENAMES.node_dictionary_blocks,
                              FILENAMES.node_dictionary_offsets,
 
@@ -274,7 +274,7 @@ pub trait PersistentLayerStore : 'static+Clone {
                  }))
     }
 
-    fn write_parent_file(&self, dir_name: [u32;5], parent_name: [u32;5]) -> Box<dyn Future<Item=(), Error=std::io::Error>> {
+    fn write_parent_file(&self, dir_name: [u32;5], parent_name: [u32;5]) -> Box<dyn Future<Item=(), Error=std::io::Error>+Send+Sync> {
         let parent_string = name_to_string(parent_name);
 
         Box::new(self.get_file(dir_name, FILENAMES.parent)
@@ -283,36 +283,39 @@ pub trait PersistentLayerStore : 'static+Clone {
                  .map(|_|()))
     }
 
-    fn read_parent_file(&self, dir_name: [u32;5]) -> Box<dyn Future<Item=[u32;5], Error=std::io::Error>> {
+    fn read_parent_file(&self, dir_name: [u32;5]) -> Box<dyn Future<Item=[u32;5], Error=std::io::Error>+Send+Sync> {
         Box::new(self.get_file(dir_name, FILENAMES.parent)
                  .map(|f|f.open_read())
-                 .and_then(|reader| tokio::io::read_exact(reader, vec![0;20]))
+                 .and_then(|reader| tokio::io::read_exact(reader, vec![0;40]))
                  .and_then(|(_, buf)| bytes_to_name(&buf)))
     }
 }
 
 fn name_to_string(name: [u32;5]) -> String {
-    format!("{:x}{:x}{:x}{:x}{:x}", name[0], name[1], name[2], name[3], name[4])
+    format!("{:08x}{:08x}{:08x}{:08x}{:08x}", name[0], name[1], name[2], name[3], name[4])
 }
 
 fn string_to_name(string: &str) -> Result<[u32;5], std::io::Error> {
-    let n1 = u32::from_str_radix(&string[..4], 16)
+    if string.len() != 40 {
+        return Err(io::Error::new(io::ErrorKind::Other, "string not len 40"));
+    }
+    let n1 = u32::from_str_radix(&string[..8], 16)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    let n2 = u32::from_str_radix(&string[4..8], 16)
+    let n2 = u32::from_str_radix(&string[8..16], 16)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    let n3 = u32::from_str_radix(&string[8..12], 16)
+    let n3 = u32::from_str_radix(&string[16..24], 16)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    let n4 = u32::from_str_radix(&string[12..16], 16)
+    let n4 = u32::from_str_radix(&string[24..32], 16)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    let n5 = u32::from_str_radix(&string[16..20], 16)
+    let n5 = u32::from_str_radix(&string[32..40], 16)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
     Ok([n1,n2,n3,n4,n5])
 }
 
 fn bytes_to_name(bytes: &Vec<u8>) -> Result<[u32;5],std::io::Error> {
-    if bytes.len() != 20 {
-        Err(io::Error::new(io::ErrorKind::Other, "bytes not len 20"))
+    if bytes.len() != 40 {
+        Err(io::Error::new(io::ErrorKind::Other, "bytes not len 40"))
     }
     else {
         let string = String::from_utf8_lossy(&bytes);
@@ -324,18 +327,18 @@ fn bytes_to_name(bytes: &Vec<u8>) -> Result<[u32;5],std::io::Error> {
 impl<F:'static+FileLoad+FileStore+Clone,T: 'static+PersistentLayerStore<File=F>> LayerStore for T {
     type File = F;
 
-    fn layers(&self) -> Box<dyn Future<Item=Vec<[u32;5]>, Error=io::Error>> {
+    fn layers(&self) -> Box<dyn Future<Item=Vec<[u32;5]>, Error=io::Error>+Send+Sync> {
         self.directories()
     }
     
-    fn create_base_layer(&mut self) -> Box<dyn Future<Item=SimpleLayerBuilder<F>,Error=io::Error>> {
+    fn create_base_layer(&mut self) -> Box<dyn Future<Item=SimpleLayerBuilder<F>,Error=io::Error>+Send+Sync> {
         let cloned = self.clone();
         Box::new(self.create_directory()
                  .and_then(move |dir_name| cloned.base_layer_files(dir_name)
                            .map(move |blf| SimpleLayerBuilder::new(dir_name, blf))))
     }
 
-    fn create_child_layer(&mut self, parent: [u32;5]) -> Box<dyn Future<Item=SimpleLayerBuilder<F>,Error=io::Error>> {
+    fn create_child_layer(&mut self, parent: [u32;5]) -> Box<dyn Future<Item=SimpleLayerBuilder<F>,Error=io::Error>+Send+Sync> {
         let cloned = self.clone();
         Box::new(self.get_layer(parent)
                  .and_then(|parent_layer|
@@ -350,18 +353,18 @@ impl<F:'static+FileLoad+FileStore+Clone,T: 'static+PersistentLayerStore<File=F>>
                                                .map(move |clf| SimpleLayerBuilder::from_parent(dir_name, parent_layer, clf))))))
     }
 
-    fn get_layer(&self, name: [u32;5]) -> Box<dyn Future<Item=Option<GenericLayer<<F as FileLoad>::Map>>,Error=io::Error>> {
+    fn get_layer(&self, name: [u32;5]) -> Box<dyn Future<Item=Option<GenericLayer<<F as FileLoad>::Map>>,Error=io::Error>+Send+Sync> {
         let cloned = self.clone();
         Box::new(self.directory_exists(name)
                  .and_then(move |b| match b {
                      false => {
-                         let result: Box<dyn Future<Item=_,Error=_>> = Box::new(future::ok(None));
+                         let result: Box<dyn Future<Item=_,Error=_>+Send+Sync> = Box::new(future::ok(None));
 
                          result
                      },
                      true => Box::new(cloned.layer_type(name)
                                       .and_then(move |t| {
-                                          let result: Box<dyn Future<Item=Option<GenericLayer<<F as FileLoad>::Map>>,Error=io::Error>> =
+                                          let result: Box<dyn Future<Item=Option<GenericLayer<<F as FileLoad>::Map>>,Error=io::Error>+Send+Sync> =
                                               match t {
                                                   LayerType::Base => Box::new(cloned.base_layer_files(name)
                                                                               .and_then(move |blf| BaseLayer::load_from_files(name, &blf))
@@ -399,7 +402,7 @@ impl DirectoryLayerStore {
 impl PersistentLayerStore for DirectoryLayerStore {
     type File = FileBackedStore;
 
-    fn directories(&self) -> Box<dyn Future<Item=Vec<[u32; 5]>, Error=std::io::Error>> {
+    fn directories(&self) -> Box<dyn Future<Item=Vec<[u32; 5]>, Error=std::io::Error>+Send+Sync> {
         Box::new(fs::read_dir(self.path.clone()).flatten_stream()
                  .map(|direntry| (direntry.file_name(), direntry))
                  .and_then(|(dir_name, direntry)| future::poll_fn(move || direntry.poll_file_type())
@@ -413,7 +416,7 @@ impl PersistentLayerStore for DirectoryLayerStore {
                  .collect())
     }
 
-    fn create_directory(&self) -> Box<dyn Future<Item=[u32;5], Error=io::Error>> {
+    fn create_directory(&self) -> Box<dyn Future<Item=[u32;5], Error=io::Error>+Send+Sync> {
         let name = rand::random();
         let mut p = self.path.clone();
         p.push(name_to_string(name));
@@ -422,7 +425,7 @@ impl PersistentLayerStore for DirectoryLayerStore {
                  .map(move |_| name))
     }
 
-    fn directory_exists(&self, name: [u32; 5]) -> Box<dyn Future<Item=bool,Error=io::Error>> {
+    fn directory_exists(&self, name: [u32; 5]) -> Box<dyn Future<Item=bool,Error=io::Error>+Send+Sync> {
         let mut p = self.path.clone();
         p.push(name_to_string(name));
 
@@ -433,14 +436,14 @@ impl PersistentLayerStore for DirectoryLayerStore {
                  }))
     }
 
-    fn get_file(&self, directory: [u32;5], name: &str) -> Box<dyn Future<Item=Self::File, Error=io::Error>> {
+    fn get_file(&self, directory: [u32;5], name: &str) -> Box<dyn Future<Item=Self::File, Error=io::Error>+Send+Sync> {
         let mut p = self.path.clone();
         p.push(name_to_string(directory));
         p.push(name);
         Box::new(future::ok(FileBackedStore::new(p)))
     }
     
-    fn file_exists(&self, directory: [u32;5], file: &str) -> Box<dyn Future<Item=bool,Error=io::Error>> {
+    fn file_exists(&self, directory: [u32;5], file: &str) -> Box<dyn Future<Item=bool,Error=io::Error>+Send+Sync> {
         let mut p = self.path.clone();
         p.push(name_to_string(directory));
         p.push(file);
@@ -456,7 +459,8 @@ impl PersistentLayerStore for DirectoryLayerStore {
 pub mod tests {
     use super::*;
     use crate::layer::layer::*;
-    use futures::prelude::*;
+    use tempfile::tempdir;
+    use tokio::sync::oneshot::channel;
     
     #[test]
     fn create_layers_from_memory_store() {
@@ -470,7 +474,7 @@ pub mod tests {
 
         builder.finalize().wait().unwrap();
 
-        builder = store.create_child_layer(base_name).wait().unwrap().unwrap();
+        builder = store.create_child_layer(base_name).wait().unwrap();
         let child_name = builder.name();
 
         builder.remove_string_triple(&StringTriple::new_value("duck","says","quack"));
@@ -479,6 +483,45 @@ pub mod tests {
         builder.finalize().wait().unwrap();
 
         let layer = store.get_layer(child_name).wait().unwrap().unwrap();
+
+        assert!(layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+        assert!(layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
+        assert!(layer.string_triple_exists(&StringTriple::new_node("cow", "likes", "pig")));
+        assert!(!layer.string_triple_exists(&StringTriple::new_value("duck", "says", "quack")));
+    }
+    
+    #[test]
+    fn create_layers_from_directory_store() {
+        let dir = tempdir().unwrap();
+        let (tx,rx) = channel::<Result<Option<GenericLayer<SharedMmap>>,std::io::Error>>();
+        let mut store = DirectoryLayerStore::new(dir.path());
+        let task = store.create_base_layer()
+            .and_then(|mut builder| {
+                let base_name = builder.name();
+
+                builder.add_string_triple(&StringTriple::new_value("cow","says","moo"));
+                builder.add_string_triple(&StringTriple::new_value("pig","says","oink"));
+                builder.add_string_triple(&StringTriple::new_value("duck","says","quack"));
+
+                builder.finalize()
+                    .map(move |_| base_name)
+            })
+            .and_then(move |base_name| store.create_child_layer(base_name)
+                      .and_then(|mut builder| {
+                          let child_name = builder.name();
+
+                          builder.remove_string_triple(&StringTriple::new_value("duck","says","quack"));
+                          builder.add_string_triple(&StringTriple::new_node("cow","likes","pig"));
+
+                          builder.finalize()
+                              .map(move |_| child_name)
+                      })
+                      .and_then(move |child_name| store.get_layer(child_name)))
+            .then(|layer| tx.send(layer).map_err(|_|()));
+
+        tokio::run(task);
+
+        let layer = rx.wait().unwrap().unwrap().unwrap();
 
         assert!(layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));

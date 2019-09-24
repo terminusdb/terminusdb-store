@@ -47,7 +47,7 @@ impl<M:AsRef<[u8]>+Clone> BitArray<M> {
 }
 
 pub struct BitArrayFileBuilder<W>
-where W: 'static+AsyncWrite {
+where W: 'static+AsyncWrite+Send+Sync {
     current_byte: u8,
     current_bit_pos: u8,
     bit_output: W,
@@ -55,7 +55,7 @@ where W: 'static+AsyncWrite {
 }
 
 impl<W> BitArrayFileBuilder<W>
-where W: 'static+AsyncWrite {
+where W: 'static+AsyncWrite+Send+Sync {
     pub fn new(output: W) -> BitArrayFileBuilder<W> {
         BitArrayFileBuilder {
             current_byte: 0,
@@ -65,7 +65,7 @@ where W: 'static+AsyncWrite {
         }
     }
 
-    fn flush_current(self) -> Box<dyn Future<Item=BitArrayFileBuilder<W>, Error=std::io::Error>> {
+    fn flush_current(self) -> Box<dyn Future<Item=BitArrayFileBuilder<W>, Error=std::io::Error>+Send+Sync> {
         let count = self.count;
         Box::new(tokio::io::write_all(self.bit_output, vec![self.current_byte])
                  .map(move |(w,_)| BitArrayFileBuilder {
@@ -76,7 +76,7 @@ where W: 'static+AsyncWrite {
                  }))
     }
 
-    pub fn push(mut self, bit: bool) -> Box<dyn Future<Item=BitArrayFileBuilder<W>, Error=std::io::Error>> {
+    pub fn push(mut self, bit: bool) -> Box<dyn Future<Item=BitArrayFileBuilder<W>, Error=std::io::Error>+Send+Sync> {
         let mut b = match bit { true => 128, false => 0 };
         b >>= self.current_bit_pos;
         self.current_byte |= b;
@@ -91,7 +91,7 @@ where W: 'static+AsyncWrite {
         }
     }
 
-    pub fn push_all<S:'static+Stream<Item=bool,Error=std::io::Error>>(self, stream: S) -> Box<dyn Future<Item=BitArrayFileBuilder<W>,Error=std::io::Error>> {
+    pub fn push_all<S:'static+Stream<Item=bool,Error=std::io::Error>+Send+Sync>(self, stream: S) -> Box<dyn Future<Item=BitArrayFileBuilder<W>,Error=std::io::Error>+Send+Sync> {
         Box::new(stream.fold(self, |builder, bit| builder.push(bit)))
     }
 
@@ -102,7 +102,7 @@ where W: 'static+AsyncWrite {
 
     pub fn finalize(self) -> impl Future<Item=W, Error=std::io::Error> {
         let count = self.count;
-        let flush_current: Box<dyn Future<Item=BitArrayFileBuilder<W>,Error=std::io::Error>> =
+        let flush_current: Box<dyn Future<Item=BitArrayFileBuilder<W>,Error=std::io::Error>+Send+Sync> =
             if count % 8 == 0 {
                 Box::new(future::ok(self))
             } else {
