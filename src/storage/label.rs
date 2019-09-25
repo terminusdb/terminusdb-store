@@ -5,20 +5,27 @@ use futures_locks::RwLock;
 #[derive(Clone,PartialEq,Eq,Debug)]
 pub struct Label {
     pub name: String,
-    pub layer: [u32;5],
+    pub layer: Option<[u32;5]>,
     pub version: u64
 }
 
 impl Label {
+    pub fn new_empty(name: &str) -> Label {
+        Label {
+            name: name.to_owned(),
+            layer: None,
+            version: 0
+        }
+    }
     pub fn new(name: &str, layer: [u32;5]) -> Label {
         Label {
             name: name.to_owned(),
-            layer: layer,
+            layer: Some(layer),
             version: 0
         }
     }
 
-    pub fn with_updated_layer(&self, layer: [u32;5]) -> Label {
+    pub fn with_updated_layer(&self, layer: Option<[u32;5]>) -> Label {
         Label {
             name: self.name.clone(),
             layer,
@@ -29,9 +36,17 @@ impl Label {
 
 pub trait LabelStore {
     fn labels(&self) -> Box<dyn Future<Item=Vec<Label>,Error=std::io::Error>+Send+Sync>;
-    fn create_label(&self, name: &str, layer: [u32;5]) -> Box<dyn Future<Item=Label, Error=std::io::Error>+Send+Sync>;
+    fn create_label(&self, name: &str) -> Box<dyn Future<Item=Label, Error=std::io::Error>+Send+Sync>;
     fn get_label(&self, name: &str) -> Box<dyn Future<Item=Option<Label>,Error=std::io::Error>+Send+Sync>;
-    fn set_label(&self, label: &Label, layer: [u32;5]) -> Box<dyn Future<Item=Option<Label>, Error=std::io::Error>+Send+Sync>;
+    fn set_label_option(&self, label: &Label, layer: Option<[u32;5]>) -> Box<dyn Future<Item=Option<Label>, Error=std::io::Error>+Send+Sync>;
+
+    fn set_label(&self, label: &Label, layer: [u32;5]) -> Box<dyn Future<Item=Option<Label>, Error=std::io::Error>+Send+Sync> {
+        self.set_label_option(label, Some(layer))
+    }
+
+    fn clear_label(&self, label: &Label) -> Box<dyn Future<Item=Option<Label>, Error=std::io::Error>+Send+Sync> {
+        self.set_label_option(label, None)
+    }
 }
 
 #[derive(Clone)]
@@ -54,8 +69,8 @@ impl LabelStore for MemoryLabelStore {
                               .values().map(|v|v.clone()).collect())))
     }
 
-    fn create_label(&self, name: &str, layer: [u32;5]) -> Box<dyn Future<Item=Label, Error=std::io::Error>+Send+Sync> {
-        let label = Label::new(name, layer);
+    fn create_label(&self, name: &str) -> Box<dyn Future<Item=Label, Error=std::io::Error>+Send+Sync> {
+        let label = Label::new_empty(name);
 
         Box::new(self.labels.write()
                  .then(move |l| {
@@ -77,7 +92,7 @@ impl LabelStore for MemoryLabelStore {
                                    .get(&name).map(|label|label.clone()))))
     }
 
-    fn set_label(&self, label: &Label, layer: [u32;5]) -> Box<dyn Future<Item=Option<Label>, Error=std::io::Error>+Send+Sync> {
+    fn set_label_option(&self, label: &Label, layer: Option<[u32;5]>) -> Box<dyn Future<Item=Option<Label>, Error=std::io::Error>+Send+Sync> {
         let new_label = label.with_updated_layer(layer);
 
         Box::new(self.labels.write()
@@ -108,14 +123,14 @@ mod tests {
     #[test]
     fn create_and_retrieve_equal_label() {
         let store = MemoryLabelStore::new();
-        let foo = store.create_label("foo", [1,2,3,4,5]).wait().unwrap();
+        let foo = store.create_label("foo").wait().unwrap();
         assert_eq!(foo, store.get_label("foo").wait().unwrap().unwrap());
     }
 
     #[test]
     fn update_label_succeeds() {
         let store = MemoryLabelStore::new();
-        let foo = store.create_label("foo", [1,2,3,4,5]).wait().unwrap();
+        let foo = store.create_label("foo").wait().unwrap();
 
         assert_eq!(1, store.set_label(&foo, [6,7,8,9,10]).wait().unwrap().unwrap().version);
 
@@ -125,7 +140,7 @@ mod tests {
     #[test]
     fn update_label_twice_from_same_label_object_fails() {
         let store = MemoryLabelStore::new();
-        let foo = store.create_label("foo", [1,2,3,4,5]).wait().unwrap();
+        let foo = store.create_label("foo").wait().unwrap();
 
         assert!(store.set_label(&foo, [6,7,8,9,10]).wait().unwrap().is_some());
         assert!(store.set_label(&foo, [1,1,1,1,1]).wait().unwrap().is_none());
@@ -134,7 +149,7 @@ mod tests {
     #[test]
     fn update_label_twice_from_updated_label_object_succeeds() {
         let store = MemoryLabelStore::new();
-        let foo = store.create_label("foo", [1,2,3,4,5]).wait().unwrap();
+        let foo = store.create_label("foo").wait().unwrap();
 
         let foo2 = store.set_label(&foo, [6,7,8,9,10]).wait().unwrap().unwrap();
         assert!(store.set_label(&foo2, [1,1,1,1,1]).wait().unwrap().is_some());
