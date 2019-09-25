@@ -4,11 +4,12 @@ use super::child::*;
 use crate::storage::file::*;
 use futures::prelude::*;
 use std::collections::{HashMap,BTreeSet};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct SimpleLayerBuilder<F:'static+FileLoad+FileStore+Clone> {
     name: [u32;5],
-    parent: Option<GenericLayer<F::Map>>,
+    parent: Option<Arc<GenericLayer<F::Map>>>,
     files: LayerFiles<F>,
     additions: BTreeSet<PartiallyResolvedTriple>,
     removals: BTreeSet<IdTriple>, // always resolved!
@@ -25,7 +26,7 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
         }
     }
 
-    pub fn from_parent(name: [u32;5], parent: GenericLayer<F::Map>, files: ChildLayerFiles<F>) -> Self {
+    pub fn from_parent(name: [u32;5], parent: Arc<GenericLayer<F::Map>>, files: ChildLayerFiles<F>) -> Self {
         Self {
             name,
             parent: Some(parent),
@@ -285,7 +286,7 @@ mod tests {
         }
     }
 
-    fn example_base_layer() -> GenericLayer<<MemoryBackedStore as FileLoad>::Map> {
+    fn example_base_layer() -> Arc<GenericLayer<<MemoryBackedStore as FileLoad>::Map>> {
         let files = new_base_files();
         let mut builder = SimpleLayerBuilder::new([1,2,3,4,5],files.clone());
 
@@ -293,7 +294,7 @@ mod tests {
         builder.add_string_triple(&StringTriple::new_value("pig","says","oink"));
         builder.add_string_triple(&StringTriple::new_value("duck","says","quack"));
 
-        builder.finalize().wait().unwrap()
+        Arc::new(builder.finalize().wait().unwrap())
     }
 
     #[test]
@@ -332,19 +333,19 @@ mod tests {
         builder.add_string_triple(&StringTriple::new_node("horse", "likes", "cow"));
         builder.remove_string_triple(&StringTriple::new_value("duck", "says", "quack"));
 
-        let layer2 = builder.finalize().wait().unwrap();
+        let layer2 = Arc::new(builder.finalize().wait().unwrap());
 
         builder = SimpleLayerBuilder::from_parent([0,0,0,0,1], layer2, new_child_files());
         builder.remove_string_triple(&StringTriple::new_node("horse", "likes", "cow"));
         builder.add_string_triple(&StringTriple::new_node("horse", "likes", "pig"));
         builder.add_string_triple(&StringTriple::new_value("duck", "says", "quack"));
 
-        let layer3 = builder.finalize().wait().unwrap();
+        let layer3 = Arc::new(builder.finalize().wait().unwrap());
 
         builder = SimpleLayerBuilder::from_parent([0,0,0,0,2], layer3, new_child_files());
         builder.remove_string_triple(&StringTriple::new_value("pig", "says", "oink"));
         builder.add_string_triple(&StringTriple::new_node("cow", "likes", "horse"));
-        let layer4 = builder.finalize().wait().unwrap();
+        let layer4 = Arc::new(builder.finalize().wait().unwrap());
 
         assert!(layer4.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(layer4.string_triple_exists(&StringTriple::new_value("duck", "says", "quack")));

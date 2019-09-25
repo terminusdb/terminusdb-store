@@ -5,7 +5,9 @@ use crate::layer::child::{ChildLayer,ChildLayerFiles};
 use super::file::*;
 use super::consts::FILENAMES;
 use tokio::fs;
+use tokio::sync::lock::Lock;
 use std::io;
+use std::sync::{Arc,Weak};
 
 use futures::prelude::*;
 use futures::future;
@@ -19,7 +21,7 @@ pub trait LayerStore {
     fn layers(&self) -> Box<dyn Future<Item=Vec<[u32;5]>, Error=io::Error>+Send+Sync>;
     fn create_base_layer(&mut self) -> Box<dyn Future<Item=SimpleLayerBuilder<Self::File>, Error=io::Error>+Send+Sync>;
     fn create_child_layer(&mut self, parent: [u32;5]) -> Box<dyn Future<Item=SimpleLayerBuilder<Self::File>,Error=io::Error>+Send+Sync>;
-    fn get_layer(&self, name: [u32;5]) -> Box<dyn Future<Item=Option<GenericLayer<<Self::File as FileLoad>::Map>>,Error=io::Error>+Send+Sync>;
+    fn get_layer(&self, name: [u32;5]) -> Box<dyn Future<Item=Option<Arc<GenericLayer<<Self::File as FileLoad>::Map>>>,Error=io::Error>+Send+Sync>;
 }
 
 pub struct MemoryLayerStore {
@@ -33,7 +35,7 @@ impl MemoryLayerStore {
         }
     }
 
-    fn get_layer_immediate(&self, name: [u32;5]) -> Option<GenericLayer<<MemoryBackedStore as FileLoad>::Map>> {
+    fn get_layer_immediate(&self, name: [u32;5]) -> Option<Arc<GenericLayer<<MemoryBackedStore as FileLoad>::Map>>> {
         self.layers.get(&name)
             .map(|(parent_name, files)| {
                 if parent_name.is_some() {
@@ -48,6 +50,7 @@ impl MemoryLayerStore {
                     GenericLayer::Base(layer)
                 }
             })
+            .map(|layer| Arc::new(layer))
     }
 }
 
@@ -136,7 +139,7 @@ impl LayerStore for MemoryLayerStore {
                  })
     }
 
-    fn get_layer(&self, name: [u32;5]) -> Box<dyn Future<Item=Option<GenericLayer<<MemoryBackedStore as FileLoad>::Map>>,Error=io::Error>+Send+Sync> {
+    fn get_layer(&self, name: [u32;5]) -> Box<dyn Future<Item=Option<Arc<GenericLayer<<MemoryBackedStore as FileLoad>::Map>>>,Error=io::Error>+Send+Sync> {
         Box::new(future::ok(self.get_layer_immediate(name)))
     }
 }
@@ -353,7 +356,7 @@ impl<F:'static+FileLoad+FileStore+Clone,T: 'static+PersistentLayerStore<File=F>>
                                                .map(move |clf| SimpleLayerBuilder::from_parent(dir_name, parent_layer, clf))))))
     }
 
-    fn get_layer(&self, name: [u32;5]) -> Box<dyn Future<Item=Option<GenericLayer<<F as FileLoad>::Map>>,Error=io::Error>+Send+Sync> {
+    fn get_layer(&self, name: [u32;5]) -> Box<dyn Future<Item=Option<Arc<GenericLayer<<F as FileLoad>::Map>>>,Error=io::Error>+Send+Sync> {
         let cloned = self.clone();
         Box::new(self.directory_exists(name)
                  .and_then(move |b| match b {
@@ -382,7 +385,8 @@ impl<F:'static+FileLoad+FileStore+Clone,T: 'static+PersistentLayerStore<File=F>>
 
                                           result
                                       }))
-                 }))
+                 })
+        .map(|layer| layer.map(|l|Arc::new(l))))
     }
 }
 
@@ -493,7 +497,7 @@ pub mod tests {
     #[test]
     fn create_layers_from_directory_store() {
         let dir = tempdir().unwrap();
-        let (tx,rx) = channel::<Result<Option<GenericLayer<SharedMmap>>,std::io::Error>>();
+        let (tx,rx) = channel::<Result<Option<Arc<GenericLayer<SharedMmap>>>,std::io::Error>>();
         let mut store = DirectoryLayerStore::new(dir.path());
         let task = store.create_base_layer()
             .and_then(|mut builder| {

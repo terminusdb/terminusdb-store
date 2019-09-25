@@ -169,13 +169,13 @@ pub struct ChildLayer<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> ChildLayer<M> {
-    pub fn load_from_files<F:FileLoad<Map=M>+FileStore+Clone>(name: [u32;5], parent: GenericLayer<M>, files: &ChildLayerFiles<F>) -> impl Future<Item=Self,Error=std::io::Error> {
+    pub fn load_from_files<F:FileLoad<Map=M>+FileStore+Clone>(name: [u32;5], parent: Arc<GenericLayer<M>>, files: &ChildLayerFiles<F>) -> impl Future<Item=Self,Error=std::io::Error> {
         files.map_all()
             .map(move |maps| Self::load(name, parent, maps))
     }
 
     pub fn load(name: [u32;5],
-                parent: GenericLayer<M>,
+                parent: Arc<GenericLayer<M>>,
                 maps: ChildLayerMaps<M>) -> ChildLayer<M> {
         let node_dictionary = PfcDict::parse(maps.node_dictionary_blocks_map, maps.node_dictionary_offsets_map).unwrap();
         let predicate_dictionary = PfcDict::parse(maps.predicate_dictionary_blocks_map, maps.predicate_dictionary_offsets_map).unwrap();
@@ -192,7 +192,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> ChildLayer<M> {
 
         ChildLayer {
             name,
-            parent: Arc::new(parent),
+            parent: parent,
             
             node_dictionary: node_dictionary,
             predicate_dictionary: predicate_dictionary,
@@ -771,7 +771,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildObjectIterator<M> {
 }
 
 pub struct ChildLayerFileBuilder<F:'static+FileLoad+FileStore+Send+Sync> {
-    parent: GenericLayer<F::Map>,
+    parent: Arc<GenericLayer<F::Map>>,
     node_dictionary_files: DictionaryFiles<F>,
     predicate_dictionary_files: DictionaryFiles<F>,
     value_dictionary_files: DictionaryFiles<F>,
@@ -791,7 +791,7 @@ pub struct ChildLayerFileBuilder<F:'static+FileLoad+FileStore+Send+Sync> {
 }
 
 impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
-    pub fn from_files(parent: GenericLayer<F::Map>, files: &ChildLayerFiles<F>) -> Self {
+    pub fn from_files(parent: Arc<GenericLayer<F::Map>>, files: &ChildLayerFiles<F>) -> Self {
         Self::new(parent,
                   files.node_dictionary_blocks_file.clone(),
                   files.node_dictionary_offsets_file.clone(),
@@ -826,7 +826,7 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
                   files.neg_sp_o_adjacency_list_nums_file.clone())
     }
 
-    pub fn new(parent: GenericLayer<F::Map>,
+    pub fn new(parent: Arc<GenericLayer<F::Map>>,
                node_dictionary_blocks_file: F,
                node_dictionary_offsets_file: F,
 
@@ -1194,7 +1194,7 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
 }
 
 pub struct ChildLayerFileBuilderPhase2<F:'static+FileLoad+FileStore> {
-    parent: GenericLayer<F::Map>,
+    parent: Arc<GenericLayer<F::Map>>,
 
     pos_subjects_file: F,
     neg_subjects_file: F,
@@ -1213,7 +1213,7 @@ pub struct ChildLayerFileBuilderPhase2<F:'static+FileLoad+FileStore> {
 }
 
 impl<F:'static+FileLoad+FileStore> ChildLayerFileBuilderPhase2<F> {
-    fn new(parent: GenericLayer<F::Map>,
+    fn new(parent: Arc<GenericLayer<F::Map>>,
            pos_subjects_file: F,
            neg_subjects_file: F,
 
@@ -1602,7 +1602,7 @@ mod tests {
     fn empty_child_layer_equivalent_to_parent() {
         let base_layer = example_base_layer();
 
-        let parent = GenericLayer::Base(base_layer);
+        let parent = Arc::new(GenericLayer::Base(base_layer));
 
         let child_files = example_child_files();
 
@@ -1627,7 +1627,7 @@ mod tests {
     fn child_layer_can_have_inserts() {
         let base_layer = example_base_layer();
 
-        let parent = GenericLayer::Base(base_layer);
+        let parent = Arc::new(GenericLayer::Base(base_layer));
 
         let child_files = example_child_files();
 
@@ -1656,7 +1656,7 @@ mod tests {
     fn child_layer_can_have_deletes() {
         let base_layer = example_base_layer();
 
-        let parent = GenericLayer::Base(base_layer);
+        let parent = Arc::new(GenericLayer::Base(base_layer));
 
         let child_files = example_child_files();
 
@@ -1682,7 +1682,7 @@ mod tests {
     #[test]
     fn child_layer_can_have_inserts_and_deletes() {
         let base_layer = example_base_layer();
-        let parent = GenericLayer::Base(base_layer);
+        let parent = Arc::new(GenericLayer::Base(base_layer));
 
         let child_files = example_child_files();
 
@@ -1711,7 +1711,7 @@ mod tests {
     #[test]
     fn iterate_child_layer_triples() {
         let base_layer = example_base_layer();
-        let parent = GenericLayer::Base(base_layer);
+        let parent = Arc::new(GenericLayer::Base(base_layer));
 
         let child_files = example_child_files();
 
@@ -1741,7 +1741,7 @@ mod tests {
     #[test]
     fn adding_new_nodes_predicates_and_values_in_child() {
         let base_layer = example_base_layer();
-        let parent = GenericLayer::Base(base_layer);
+        let parent = Arc::new(GenericLayer::Base(base_layer));
 
         let child_files = example_child_files();
 
@@ -1760,7 +1760,7 @@ mod tests {
     #[test]
     fn old_dictionary_entries_in_child() {
         let base_layer = example_base_layer();
-        let parent = GenericLayer::Base(base_layer);
+        let parent = Arc::new(GenericLayer::Base(base_layer));
 
         let child_files = example_child_files();
 
@@ -1788,7 +1788,7 @@ mod tests {
     #[test]
     fn new_dictionary_entries_in_child() {
         let base_layer = example_base_layer();
-        let parent = GenericLayer::Base(base_layer);
+        let parent = Arc::new(GenericLayer::Base(base_layer));
 
         let child_files = example_child_files();
 
