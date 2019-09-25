@@ -329,11 +329,11 @@ pub trait PersistentLayerStore : 'static+Send+Sync+Clone {
     }
 }
 
-fn name_to_string(name: [u32;5]) -> String {
+pub fn name_to_string(name: [u32;5]) -> String {
     format!("{:08x}{:08x}{:08x}{:08x}{:08x}", name[0], name[1], name[2], name[3], name[4])
 }
 
-fn string_to_name(string: &str) -> Result<[u32;5], std::io::Error> {
+pub fn string_to_name(string: &str) -> Result<[u32;5], std::io::Error> {
     if string.len() != 40 {
         return Err(io::Error::new(io::ErrorKind::Other, "string not len 40"));
     }
@@ -351,7 +351,7 @@ fn string_to_name(string: &str) -> Result<[u32;5], std::io::Error> {
     Ok([n1,n2,n3,n4,n5])
 }
 
-fn bytes_to_name(bytes: &Vec<u8>) -> Result<[u32;5],std::io::Error> {
+pub fn bytes_to_name(bytes: &Vec<u8>) -> Result<[u32;5],std::io::Error> {
     if bytes.len() != 40 {
         Err(io::Error::new(io::ErrorKind::Other, "bytes not len 40"))
     }
