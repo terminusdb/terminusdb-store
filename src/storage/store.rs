@@ -6,7 +6,7 @@ use super::file::*;
 use super::consts::FILENAMES;
 use tokio::fs;
 use std::io;
-use std::sync::Arc;
+use std::sync::{Arc,Weak};
 
 use futures::prelude::*;
 use futures::future;
@@ -502,7 +502,7 @@ impl PersistentLayerStore for DirectoryLayerStore {
 #[derive(Clone)]
 pub struct CachedLayerStore<S:LayerStore> {
     inner: S,
-    cache: RwLock<HashMap<[u32;5],Arc<GenericLayer<S::Map>>>>
+    cache: RwLock<HashMap<[u32;5],Weak<GenericLayer<S::Map>>>>
 }
 
 
@@ -540,15 +540,23 @@ impl<S:LayerStore> LayerRetriever for CachedLayerStore<S> {
                                                 Some(layer) => Box::new(cloned.cache.write()
                                                                         .then(move |cache| {
                                                                             cache.expect("rwlock write should always succeed")
-                                                                                .insert(name, layer.clone());
-                                                                            
-
+                                                                                .insert(name, Arc::downgrade(&layer));
                                                                             Ok(Some(layer))
                                                                         }))
                                             };
                                         fut
                                     })),
-                            Some(cached) => Box::new(future::ok(Some(cached)))
+                            Some(cached) => match cached.upgrade() {
+                                None => Box::new(cloned.cache.write()
+                                                 .then(move |cache| {
+                                                     println!("removing from cache");
+                                                     cache.expect("rwlock write should always succeed")
+                                                         .remove(&name);
+
+                                                     cloned.get_layer_with_retriever(name, retriever)
+                                    })),
+                                Some(cached) => Box::new(future::ok(Some(cached)))
+                            }
                         };
 
                     fut
@@ -666,7 +674,47 @@ pub mod tests {
 
         let base_layer = store.get_layer(base_name).wait().unwrap().unwrap();
 
-        assert_eq!(Arc::into_raw(layer1.clone()), Arc::into_raw(layer2));
-        assert_eq!(Arc::into_raw(base_layer), Arc::into_raw(layer1.parent().unwrap()));
+        assert!(Arc::ptr_eq(&layer1, &layer2));
+        assert!(Arc::ptr_eq(&base_layer, &layer1.parent().unwrap()));
+    }
+
+    fn get_pointer_from_arc<T>(arc: &Arc<T>) -> *const T {
+        let ptr = Arc::into_raw(arc.clone());
+        // we got a pointer now, but also raised the reference count. We need to 'remember' and drop
+        let _remembered = unsafe { Arc::from_raw(ptr) };
+
+        ptr
+    }
+
+    #[test]
+    fn cached_layer_store_forgets_entries_when_they_are_dropped() {
+        let store = CachedLayerStore::new(MemoryLayerStore::new());
+        let mut builder = store.create_base_layer().wait().unwrap();
+        let base_name = builder.name();
+
+        builder.add_string_triple(&StringTriple::new_value("cow","says","moo"));
+        builder.add_string_triple(&StringTriple::new_value("pig","says","oink"));
+        builder.add_string_triple(&StringTriple::new_value("duck","says","quack"));
+
+        builder.finalize().wait().unwrap();
+
+        let layer = store.get_layer(base_name).wait().unwrap().unwrap();
+        let weak = Arc::downgrade(&layer);
+
+        // we expect 2 weak pointers, the one we made above and the one stored in cache
+        assert_eq!(2, Arc::weak_count(&layer));
+
+
+        // forget the layers
+        std::mem::drop(layer);
+
+        // according to our weak reference, there's no longer any strong reference around
+        assert!(weak.upgrade().is_none());
+
+        // retrieving the same layer again works just fine
+        let layer = store.get_layer(base_name).wait().unwrap().unwrap();
+
+        // and only has one weak pointer pointing to it, the newly cached one
+        assert_eq!(1, Arc::weak_count(&layer));
     }
 }
