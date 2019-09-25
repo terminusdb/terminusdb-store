@@ -3,6 +3,7 @@ use super::child::*;
 use crate::storage::file::*;
 use std::hash::Hash;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub trait Layer {
     type PredicateObjectPairsForSubject: PredicateObjectPairsForSubject;
@@ -100,6 +101,15 @@ pub enum LayerType {
 pub enum GenericLayer<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
     Base(BaseLayer<M>),
     Child(ChildLayer<M>)
+}
+
+impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> GenericLayer<M> {
+    pub fn parent(&self) -> Option<Arc<GenericLayer<M>>> {
+        match self {
+            Self::Base(_) => None,
+            Self::Child(c) => Some(c.parent())
+        }
+    }
 }
 
 impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for GenericLayer<M> {

@@ -208,6 +208,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> ChildLayer<M> {
             neg_sp_o_adjacency_list,
         }
     }
+
+    pub fn parent(&self) -> Arc<GenericLayer<M>> {
+        self.parent.clone()
+    }
 }
 
 impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
