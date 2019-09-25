@@ -5,9 +5,8 @@ use crate::layer::child::{ChildLayer,ChildLayerFiles};
 use super::file::*;
 use super::consts::FILENAMES;
 use tokio::fs;
-use tokio::sync::lock::Lock;
 use std::io;
-use std::sync::{Arc,Weak};
+use std::sync::Arc;
 
 use futures::prelude::*;
 use futures::future;

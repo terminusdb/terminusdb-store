@@ -1,6 +1,6 @@
-use tokio::sync::lock::*;
 use futures::prelude::*;
 use std::collections::HashMap;
+use futures_locks::RwLock;
 
 #[derive(Clone,PartialEq,Eq,Debug)]
 pub struct Label {
@@ -34,120 +34,69 @@ pub trait LabelStore {
     fn set_label(&self, label: &Label, layer: [u32;5]) -> Box<dyn Future<Item=Option<Label>, Error=std::io::Error>+Send+Sync>;
 }
 
-pub struct MemoryLabelsFuture {
-    labels: Lock<HashMap<String, Label>>
-}
-
-impl Future for MemoryLabelsFuture {
-    type Item = Vec<Label>;
-    type Error = std::io::Error;
-
-    fn poll(&mut self) -> Result<Async<Vec<Label>>, std::io::Error> {
-        match self.labels.poll_lock() {
-            Async::NotReady => Ok(Async::NotReady),
-            Async::Ready(guard) => {
-                Ok(Async::Ready(guard.values().map(|l|l.clone()).collect()))
-            }
-        }
-    }
-}
-
-pub struct MemoryGetLabelFuture {
-    labels: Lock<HashMap<String, Label>>,
-    name: String
-}
-
-impl Future for MemoryGetLabelFuture {
-    type Item = Option<Label>;
-    type Error = std::io::Error;
-
-    fn poll(&mut self) -> Result<Async<Option<Label>>, std::io::Error> {
-        match self.labels.poll_lock() {
-            Async::NotReady => Ok(Async::NotReady),
-            Async::Ready(guard) => Ok(Async::Ready(guard.get(&self.name).map(|l|l.clone())))
-        }
-    }
-}
-
-pub struct MemorySetLabelFuture {
-    labels: Lock<HashMap<String, Label>>,
-    label: Label
-}
-
-impl Future for MemorySetLabelFuture {
-    type Item = bool;
-    type Error = std::io::Error;
-
-    fn poll(&mut self) -> Result<Async<bool>, std::io::Error> {
-        match self.labels.poll_lock() {
-            Async::NotReady => Ok(Async::NotReady),
-            Async::Ready(mut guard) => {
-                let previous = guard.insert(self.label.name.clone(), self.label.clone());
-                if previous.is_some() {
-                    let previous = previous.unwrap();
-                    if previous.version + 1 != self.label.version {
-                        guard.insert(previous.name.clone(), previous);
-                        Ok(Async::Ready(false))
-                    }
-                    else {
-                        Ok(Async::Ready(true))
-                    }
-                }
-                else {
-                    if self.label.version != 0 {
-                        guard.remove(&self.label.name);
-                        Ok(Async::Ready(false))
-                    }
-                    else {
-                        Ok(Async::Ready(true))
-                    }
-                }
-            }
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct MemoryLabelStore {
-    labels: Lock<HashMap<String, Label>>
+    labels: RwLock<HashMap<String, Label>>
 }
 
 impl MemoryLabelStore {
     pub fn new() -> MemoryLabelStore {
         MemoryLabelStore {
-            labels: Lock::new(HashMap::new())
+            labels: RwLock::new(HashMap::new())
         }
     }
 }
 
 impl LabelStore for MemoryLabelStore {
     fn labels(&self) -> Box<dyn Future<Item=Vec<Label>,Error=std::io::Error>+Send+Sync> {
-        Box::new(MemoryLabelsFuture { labels: self.labels.clone() })
+        Box::new(self.labels.read()
+                 .then(|l| Ok(l.expect("rwlock read should always succeed")
+                              .values().map(|v|v.clone()).collect())))
     }
 
     fn create_label(&self, name: &str, layer: [u32;5]) -> Box<dyn Future<Item=Label, Error=std::io::Error>+Send+Sync> {
-        let labels = self.labels.clone();
         let label = Label::new(name, layer);
 
-        Box::new(MemorySetLabelFuture { labels: labels, label: label.clone() }
-                 .and_then(move |b| match b {
-                     true => Ok(label),
-                     false => Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "layer already exists"))
+        Box::new(self.labels.write()
+                 .then(move |l| {
+                     let mut labels = l.expect("rwlock write should always succeed");
+                     if labels.get(&label.name).is_some() {
+                         Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "label already exists"))
+                     }
+                     else {
+                         labels.insert(label.name.clone(), label.clone());
+                         Ok(label)
+                     }
                  }))
     }
 
     fn get_label(&self, name: &str) -> Box<dyn Future<Item=Option<Label>,Error=std::io::Error>+Send+Sync> {
-        Box::new(MemoryGetLabelFuture { labels: self.labels.clone(), name: name.to_owned() })
+        let name = name.to_owned();
+        Box::new(self.labels.read()
+                 .then(move |l| Ok(l.expect("rwlock read should always succeed")
+                                   .get(&name).map(|label|label.clone()))))
     }
 
     fn set_label(&self, label: &Label, layer: [u32;5]) -> Box<dyn Future<Item=Option<Label>, Error=std::io::Error>+Send+Sync> {
-        let labels = self.labels.clone();
         let new_label = label.with_updated_layer(layer);
 
-        Box::new(MemorySetLabelFuture { labels: labels, label: new_label.clone() }
-                 .map(move |b| match b {
-                     true => Some(new_label),
-                     false => None
+        Box::new(self.labels.write()
+                 .then(move |l| {
+                     let mut labels = l.expect("rwlock write should always succeed");
+
+                     match labels.get(&new_label.name) {
+                         None => Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "label does not exist")),
+                         Some(old_label) => {
+                             if old_label.version+1 != new_label.version {
+                                 Ok(None)
+                             }
+                             else {
+                                 labels.insert(new_label.name.clone(), new_label.clone());
+
+                                 Ok(Some(new_label))
+                             }
+                         }
+                     }
                  }))
     }
 }
