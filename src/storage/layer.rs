@@ -431,7 +431,7 @@ impl<F:'static+FileLoad+FileStore+Clone,T: 'static+PersistentLayerStore<File=F>>
 }
 
 #[derive(Clone)]
-struct DirectoryLayerStore {
+pub struct DirectoryLayerStore {
     path: PathBuf
 }
 
