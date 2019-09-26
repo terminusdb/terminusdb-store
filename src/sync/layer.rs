@@ -65,7 +65,7 @@ mod tests {
         builder.add_string_triple(&StringTriple::new_value("pig","says","oink"));
         builder.add_string_triple(&StringTriple::new_value("duck","says","quack"));
 
-        builder.finalize().unwrap();
+        builder.commit().unwrap();
 
         builder = store.create_child_layer(base_name).unwrap();
 
@@ -74,7 +74,7 @@ mod tests {
         builder.remove_string_triple(&StringTriple::new_value("duck","says","quack"));
         builder.add_string_triple(&StringTriple::new_node("cow","likes","pig"));
 
-        builder.finalize().unwrap();
+        builder.commit().unwrap();
 
         let layer = store.get_layer(child_name).unwrap().unwrap();
 

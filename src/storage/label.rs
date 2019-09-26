@@ -39,7 +39,7 @@ impl Label {
     }
 }
 
-pub trait LabelStore {
+pub trait LabelStore: Clone+Send+Sync {
     fn labels(&self) -> Box<dyn Future<Item=Vec<Label>,Error=std::io::Error>+Send+Sync>;
     fn create_label(&self, name: &str) -> Box<dyn Future<Item=Label, Error=std::io::Error>+Send+Sync>;
     fn get_label(&self, name: &str) -> Box<dyn Future<Item=Option<Label>,Error=std::io::Error>+Send+Sync>;

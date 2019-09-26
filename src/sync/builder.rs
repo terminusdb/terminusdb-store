@@ -55,8 +55,8 @@ impl<F:'static+FileLoad+FileStore+Clone> SyncLayerBuilder<F> {
         self.inner.remove_string_triple(triple)
     }
 
-    pub fn finalize(self) ->Result<GenericLayer<F::Map>, std::io::Error> {
-        oneshot::spawn(self.inner.finalize(), &self.executor).wait()
+    pub fn commit(self) ->Result<GenericLayer<F::Map>, std::io::Error> {
+        oneshot::spawn(self.inner.commit(), &self.executor).wait()
     }
 }
 
@@ -100,7 +100,7 @@ mod tests {
         builder.add_string_triple(&StringTriple::new_node("cow", "says", "cow_sound"));
         builder.add_string_triple(&StringTriple::new_value("cow_sound", "sounds_like", "moo"));
 
-        let layer = builder.finalize().unwrap();
+        let layer = builder.commit().unwrap();
 
         assert!(layer.string_triple_exists(&StringTriple::new_node("cow", "says", "cow_sound")));
         assert!(layer.string_triple_exists(&StringTriple::new_value("cow_sound", "sounds_like", "moo")));

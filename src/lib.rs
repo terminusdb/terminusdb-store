@@ -4,4 +4,6 @@ pub mod structure;
 pub mod layer;
 pub mod storage;
 
+pub mod store;
+
 pub mod sync;

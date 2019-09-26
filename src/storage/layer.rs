@@ -591,7 +591,7 @@ pub mod tests {
         builder.add_string_triple(&StringTriple::new_value("pig","says","oink"));
         builder.add_string_triple(&StringTriple::new_value("duck","says","quack"));
 
-        builder.finalize().wait().unwrap();
+        builder.commit().wait().unwrap();
 
         builder = store.create_child_layer(base_name).wait().unwrap();
         let child_name = builder.name();
@@ -599,7 +599,7 @@ pub mod tests {
         builder.remove_string_triple(&StringTriple::new_value("duck","says","quack"));
         builder.add_string_triple(&StringTriple::new_node("cow","likes","pig"));
 
-        builder.finalize().wait().unwrap();
+        builder.commit().wait().unwrap();
 
         let layer = store.get_layer(child_name).wait().unwrap().unwrap();
 
@@ -622,7 +622,7 @@ pub mod tests {
                 builder.add_string_triple(&StringTriple::new_value("pig","says","oink"));
                 builder.add_string_triple(&StringTriple::new_value("duck","says","quack"));
 
-                builder.finalize()
+                builder.commit()
                     .map(move |_| base_name)
             })
             .and_then(move |base_name| store.create_child_layer(base_name)
@@ -632,7 +632,7 @@ pub mod tests {
                           builder.remove_string_triple(&StringTriple::new_value("duck","says","quack"));
                           builder.add_string_triple(&StringTriple::new_node("cow","likes","pig"));
 
-                          builder.finalize()
+                          builder.commit()
                               .map(move |_| child_name)
                       })
                       .and_then(move |child_name| store.get_layer(child_name)))
@@ -658,7 +658,7 @@ pub mod tests {
         builder.add_string_triple(&StringTriple::new_value("pig","says","oink"));
         builder.add_string_triple(&StringTriple::new_value("duck","says","quack"));
 
-        builder.finalize().wait().unwrap();
+        builder.commit().wait().unwrap();
 
         builder = store.create_child_layer(base_name).wait().unwrap();
         let child_name = builder.name();
@@ -666,7 +666,7 @@ pub mod tests {
         builder.remove_string_triple(&StringTriple::new_value("duck","says","quack"));
         builder.add_string_triple(&StringTriple::new_node("cow","likes","pig"));
 
-        builder.finalize().wait().unwrap();
+        builder.commit().wait().unwrap();
 
         let layer1 = store.get_layer(child_name).wait().unwrap().unwrap();
         let layer2 = store.get_layer(child_name).wait().unwrap().unwrap();
@@ -695,7 +695,7 @@ pub mod tests {
         builder.add_string_triple(&StringTriple::new_value("pig","says","oink"));
         builder.add_string_triple(&StringTriple::new_value("duck","says","quack"));
 
-        builder.finalize().wait().unwrap();
+        builder.commit().wait().unwrap();
 
         let layer = store.get_layer(base_name).wait().unwrap().unwrap();
         let weak = Arc::downgrade(&layer);

@@ -116,7 +116,7 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
 
     }
 
-    pub fn finalize(self) -> Box<dyn Future<Item=GenericLayer<F::Map>, Error=std::io::Error>+Send+Sync> {
+    pub fn commit(self) -> Box<dyn Future<Item=GenericLayer<F::Map>, Error=std::io::Error>+Send+Sync> {
         let (unresolved_nodes, unresolved_predicates, unresolved_values) = self.unresolved_strings();
         let name = self.name;
         let additions = self.additions;
@@ -294,7 +294,7 @@ mod tests {
         builder.add_string_triple(&StringTriple::new_value("pig","says","oink"));
         builder.add_string_triple(&StringTriple::new_value("duck","says","quack"));
 
-        Arc::new(builder.finalize().wait().unwrap())
+        Arc::new(builder.commit().wait().unwrap())
     }
 
     #[test]
@@ -316,7 +316,7 @@ mod tests {
         builder.add_string_triple(&StringTriple::new_node("horse", "likes", "cow"));
         builder.remove_string_triple(&StringTriple::new_value("duck", "says", "quack"));
 
-        let child_layer = builder.finalize().wait().unwrap();
+        let child_layer = builder.commit().wait().unwrap();
         assert!(child_layer.string_triple_exists(&StringTriple::new_value("horse", "says", "neigh")));
         assert!(child_layer.string_triple_exists(&StringTriple::new_node("horse", "likes", "cow")));
         assert!(child_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
@@ -333,19 +333,19 @@ mod tests {
         builder.add_string_triple(&StringTriple::new_node("horse", "likes", "cow"));
         builder.remove_string_triple(&StringTriple::new_value("duck", "says", "quack"));
 
-        let layer2 = Arc::new(builder.finalize().wait().unwrap());
+        let layer2 = Arc::new(builder.commit().wait().unwrap());
 
         builder = SimpleLayerBuilder::from_parent([0,0,0,0,1], layer2, new_child_files());
         builder.remove_string_triple(&StringTriple::new_node("horse", "likes", "cow"));
         builder.add_string_triple(&StringTriple::new_node("horse", "likes", "pig"));
         builder.add_string_triple(&StringTriple::new_value("duck", "says", "quack"));
 
-        let layer3 = Arc::new(builder.finalize().wait().unwrap());
+        let layer3 = Arc::new(builder.commit().wait().unwrap());
 
         builder = SimpleLayerBuilder::from_parent([0,0,0,0,2], layer3, new_child_files());
         builder.remove_string_triple(&StringTriple::new_value("pig", "says", "oink"));
         builder.add_string_triple(&StringTriple::new_node("cow", "likes", "horse"));
-        let layer4 = Arc::new(builder.finalize().wait().unwrap());
+        let layer4 = Arc::new(builder.commit().wait().unwrap());
 
         assert!(layer4.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(layer4.string_triple_exists(&StringTriple::new_value("duck", "says", "quack")));

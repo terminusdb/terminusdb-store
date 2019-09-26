@@ -110,6 +110,13 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> GenericLayer<M> {
             Self::Child(c) => Some(c.parent())
         }
     }
+
+    pub fn is_ancestor_of(&self, other: &GenericLayer<M>) -> bool {
+        match other.parent() {
+            None => false,
+            Some(parent) => parent.name() == self.name() || self.is_ancestor_of(&parent)
+        }
+    }
 }
 
 impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for GenericLayer<M> {
