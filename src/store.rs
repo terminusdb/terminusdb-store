@@ -1,9 +1,9 @@
 use futures::prelude::*;
 use futures::future;
 use std::sync::Arc;
+use std::path::PathBuf;
 
-use crate::storage::label::LabelStore;
-use crate::storage::layer::LayerStore;
+use crate::storage::{LabelStore, LayerStore, MemoryLabelStore, MemoryLayerStore, DirectoryLabelStore, DirectoryLayerStore};
 use crate::layer::{Layer,GenericLayer,SimpleLayerBuilder,ObjectType,StringTriple,IdTriple};
 
 use std::io;
@@ -247,19 +247,27 @@ impl<Labels:'static+LabelStore, Layers:'static+LayerStore> Store<Labels, Layers>
     }
 }
 
+pub fn open_memory_store() -> Store<MemoryLabelStore, MemoryLayerStore> {
+    Store::new(MemoryLabelStore::new(), MemoryLayerStore::new())
+}
+
+pub fn open_directory_store<P:Into<PathBuf>>(path: P) -> Store<DirectoryLabelStore, DirectoryLayerStore> {
+    let p = path.into();
+    Store::new(DirectoryLabelStore::new(p.clone()), DirectoryLayerStore::new(p))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use tokio::runtime::Runtime;
     use futures::sync::oneshot;
-    use crate::storage::{MemoryLabelStore,MemoryLayerStore, DirectoryLabelStore, DirectoryLayerStore};
     use tempfile::tempdir;
 
     #[test]
     fn create_and_manipulate_memory_database() {
         let runtime = Runtime::new().unwrap();
 
-        let store = Store::new(MemoryLabelStore::new(), MemoryLayerStore::new());
+        let store = open_memory_store();
         let database = oneshot::spawn(store.create("foodb"), &runtime.executor()).wait().unwrap();
 
         let head = oneshot::spawn(database.head(), &runtime.executor()).wait().unwrap();
@@ -290,7 +298,7 @@ mod tests {
         let runtime = Runtime::new().unwrap();
         let dir = tempdir().unwrap();
 
-        let store = Store::new(DirectoryLabelStore::new(dir.path()), DirectoryLayerStore::new(dir.path()));
+        let store = open_directory_store(dir.path());
         let database = oneshot::spawn(store.create("foodb"), &runtime.executor()).wait().unwrap();
 
         let head = oneshot::spawn(database.head(), &runtime.executor()).wait().unwrap();
