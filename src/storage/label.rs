@@ -218,8 +218,8 @@ impl LabelStore for DirectoryLabelStore {
         let old_label = label.clone();
         let new_label = label.with_updated_layer(layer);
         let contents = match new_label.layer {
-            None => format!("{}\n\n", label.version).into_bytes(),
-            Some(layer) => format!("{}\n{}\n", label.version, layer::name_to_string(layer)).into_bytes()
+            None => format!("{}\n\n", new_label.version).into_bytes(),
+            Some(layer) => format!("{}\n{}\n", new_label.version, layer::name_to_string(layer)).into_bytes()
         };
 
         Box::new(self.get_label(&label.name)

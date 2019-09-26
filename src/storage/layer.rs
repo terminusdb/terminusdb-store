@@ -549,7 +549,6 @@ impl<S:LayerStore> LayerRetriever for CachedLayerStore<S> {
                             Some(cached) => match cached.upgrade() {
                                 None => Box::new(cloned.cache.write()
                                                  .then(move |cache| {
-                                                     println!("removing from cache");
                                                      cache.expect("rwlock write should always succeed")
                                                          .remove(&name);
 
