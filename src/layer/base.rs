@@ -133,19 +133,16 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> BaseLayer<M> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
-    type PredicateObjectPairsForSubject = BasePredicateObjectPairsForSubject<M>;
-    type SubjectIterator = BaseSubjectIterator<M>;
-
     fn name(&self) -> [u32;5] {
         self.name
     }
 
-    fn subjects(&self) -> BaseSubjectIterator<M> {
-        BaseSubjectIterator {
+    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn PredicateObjectPairsForSubject>>> {
+        Box::new(BaseSubjectIterator {
             pos: 0,
             s_p_adjacency_list: self.s_p_adjacency_list.clone(),
             sp_o_adjacency_list: self.sp_o_adjacency_list.clone()
-        }
+        })
     }
 
     fn node_and_value_count(&self) -> usize {
@@ -217,17 +214,17 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         }
     }
 
-    fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<BasePredicateObjectPairsForSubject<M>> {
+    fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<Box<dyn PredicateObjectPairsForSubject>> {
         if subject == 0 || subject >= (self.s_p_adjacency_list.left_count() + 1) as u64 {
             None
         }
         else {
-            Some(BasePredicateObjectPairsForSubject {
+            Some(Box::new(BasePredicateObjectPairsForSubject {
                 subject: subject,
                 predicates: self.s_p_adjacency_list.get(subject),
                 sp_offset: self.s_p_adjacency_list.offset_for(subject),
                 sp_o_adjacency_list: self.sp_o_adjacency_list.clone()
-            })
+            }))
         }
     }
 }
@@ -240,9 +237,9 @@ pub struct BaseSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseSubjectIterator<M> {
-    type Item = BasePredicateObjectPairsForSubject<M>;
+    type Item = Box<dyn PredicateObjectPairsForSubject>;
 
-    fn next(&mut self) -> Option<BasePredicateObjectPairsForSubject<M>> {
+    fn next(&mut self) -> Option<Box<dyn PredicateObjectPairsForSubject>> {
         if self.pos >= self.s_p_adjacency_list.left_count() as u64 {
             None
         }
@@ -255,12 +252,12 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseSubjectIterator<M> {
                 self.next()
             }
             else {
-                Some(BasePredicateObjectPairsForSubject {
+                Some(Box::new(BasePredicateObjectPairsForSubject {
                     subject,
                     predicates: self.s_p_adjacency_list.get(subject),
                     sp_offset: self.s_p_adjacency_list.offset_for(subject),
                     sp_o_adjacency_list: self.sp_o_adjacency_list.clone()
-                })
+                }))
             }
         }
     }
@@ -275,32 +272,29 @@ pub struct BasePredicateObjectPairsForSubject<M:'static+AsRef<[u8]>+Clone> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> PredicateObjectPairsForSubject for BasePredicateObjectPairsForSubject<M> {
-    type Objects = BaseObjectsForSubjectPredicatePair<M>;
-    type PredicateIterator = BasePredicateIterator<M>;
-
     fn subject(&self) -> u64 {
         self.subject
     }
 
-    fn predicates(&self) -> BasePredicateIterator<M> {
-        BasePredicateIterator {
+    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectsForSubjectPredicatePair>>> {
+        Box::new(BasePredicateIterator {
             subject: self.subject,
             pos: 0,
             predicates: self.predicates.clone(),
             sp_offset: self.sp_offset,
             sp_o_adjacency_list: self.sp_o_adjacency_list.clone()
-        }
+        })
     }
 
-    fn objects_for_predicate(&self, predicate: u64) -> Option<BaseObjectsForSubjectPredicatePair<M>> {
+    fn objects_for_predicate(&self, predicate: u64) -> Option<Box<dyn ObjectsForSubjectPredicatePair>> {
         let pos = self.predicates.iter().position(|p| p == predicate);
         match pos {
             None => None,
-            Some(pos) => Some(BaseObjectsForSubjectPredicatePair {
+            Some(pos) => Some(Box::new(BaseObjectsForSubjectPredicatePair {
                 subject: self.subject,
                 predicate: predicate,
                 objects: self.sp_o_adjacency_list.get(self.sp_offset+(pos as u64)+1)
-            })
+            }))
         }
     }
 }
@@ -315,9 +309,9 @@ pub struct BasePredicateIterator<M:'static+AsRef<[u8]>+Clone> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> Iterator for BasePredicateIterator<M> {
-    type Item = BaseObjectsForSubjectPredicatePair<M>;
+    type Item = Box<dyn ObjectsForSubjectPredicatePair>;
 
-    fn next(&mut self) -> Option<BaseObjectsForSubjectPredicatePair<M>> {
+    fn next(&mut self) -> Option<Box<dyn ObjectsForSubjectPredicatePair>> {
         if self.pos >= self.predicates.len() {
             None
         }
@@ -331,11 +325,11 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for BasePredicateIterator<M> {
                 self.next()
             }
             else {
-                Some(BaseObjectsForSubjectPredicatePair {
+                Some(Box::new(BaseObjectsForSubjectPredicatePair {
                     subject: self.subject,
                     predicate,
                     objects
-                })
+                }))
             }
         }
     }
@@ -349,8 +343,6 @@ pub struct BaseObjectsForSubjectPredicatePair<M:'static+AsRef<[u8]>+Clone> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for BaseObjectsForSubjectPredicatePair<M> {
-    type ObjectIterator = BaseObjectIterator<M>;
-
     fn subject(&self) -> u64 {
         self.subject
     }
@@ -359,13 +351,13 @@ impl<M:'static+AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for BaseObjects
         self.predicate
     }
 
-    fn triples(&self) -> BaseObjectIterator<M> {
-        BaseObjectIterator {
+    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
+        Box::new(BaseObjectIterator {
             subject: self.subject,
             predicate: self.predicate,
             objects: self.objects.clone(),
             pos: 0
-        }
+        })
     }
 
     fn triple(&self, object: u64) -> Option<IdTriple> {
@@ -946,7 +938,7 @@ mod tests {
     #[test]
     fn subject_iteration() {
         let layer = example_base_layer();
-        let subjects: Vec<_> = layer.subjects().map(|s|s.subject).collect();
+        let subjects: Vec<_> = layer.subjects().map(|s|s.subject()).collect();
 
         assert_eq!(vec![1,2,3,4], subjects);
     }
@@ -954,13 +946,13 @@ mod tests {
     #[test]
     fn predicates_iterator() {
         let layer = example_base_layer();
-        let p1: Vec<_> = layer.predicate_object_pairs_for_subject(1).unwrap().predicates().map(|p|p.predicate).collect();
+        let p1: Vec<_> = layer.predicate_object_pairs_for_subject(1).unwrap().predicates().map(|p|p.predicate()).collect();
         assert_eq!(vec![1], p1);
-        let p2: Vec<_> = layer.predicate_object_pairs_for_subject(2).unwrap().predicates().map(|p|p.predicate).collect();
+        let p2: Vec<_> = layer.predicate_object_pairs_for_subject(2).unwrap().predicates().map(|p|p.predicate()).collect();
         assert_eq!(vec![1,3], p2);
-        let p3: Vec<_> = layer.predicate_object_pairs_for_subject(3).unwrap().predicates().map(|p|p.predicate).collect();
+        let p3: Vec<_> = layer.predicate_object_pairs_for_subject(3).unwrap().predicates().map(|p|p.predicate()).collect();
         assert_eq!(vec![2,3], p3);
-        let p4: Vec<_> = layer.predicate_object_pairs_for_subject(4).unwrap().predicates().map(|p|p.predicate).collect();
+        let p4: Vec<_> = layer.predicate_object_pairs_for_subject(4).unwrap().predicates().map(|p|p.predicate()).collect();
         assert_eq!(vec![3], p4);
     }
 

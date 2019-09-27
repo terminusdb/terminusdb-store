@@ -6,7 +6,7 @@ use std::io;
 use std::path::PathBuf;
 
 use crate::storage::{LabelStore, LayerStore, MemoryLabelStore, MemoryLayerStore, DirectoryLabelStore, DirectoryLayerStore};
-use crate::layer::{Layer,GenericLayer,ObjectType,StringTriple,IdTriple};
+use crate::layer::{Layer,ObjectType,StringTriple,IdTriple,PredicateObjectPairsForSubject};
 use crate::store::{Store, Database, DatabaseLayer, DatabaseLayerBuilder, open_memory_store, open_directory_store};
 
 pub struct SyncDatabaseLayerBuilder<Layers:'static+LayerStore> {
@@ -69,8 +69,6 @@ impl<Layers:'static+LayerStore> SyncDatabaseLayer<Layers> {
 }
 
 impl<Layers:'static+LayerStore> Layer for SyncDatabaseLayer<Layers> {
-    type PredicateObjectPairsForSubject = <GenericLayer<Layers::Map> as Layer>::PredicateObjectPairsForSubject;
-    type SubjectIterator = <GenericLayer<Layers::Map> as Layer>::SubjectIterator;
     fn name(&self) -> [u32;5] {
         self.inner.name()
     }
@@ -111,11 +109,11 @@ impl<Layers:'static+LayerStore> Layer for SyncDatabaseLayer<Layers> {
         self.inner.id_object(id)
     }
 
-    fn subjects(&self) -> Self::SubjectIterator {
+    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn PredicateObjectPairsForSubject>>> {
         self.inner.subjects()
     }
 
-    fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<Self::PredicateObjectPairsForSubject> {
+    fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<Box<dyn PredicateObjectPairsForSubject>> {
         self.inner.predicate_object_pairs_for_subject(subject)
     }
 }

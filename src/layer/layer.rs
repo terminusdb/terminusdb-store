@@ -6,9 +6,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 pub trait Layer {
-    type PredicateObjectPairsForSubject: PredicateObjectPairsForSubject;
-    type SubjectIterator: 'static+Iterator<Item=Self::PredicateObjectPairsForSubject>;
-
     fn name(&self) -> [u32;5];
 
     fn node_and_value_count(&self) -> usize;
@@ -22,8 +19,8 @@ pub trait Layer {
     fn id_predicate(&self, id: u64) -> Option<String>;
     fn id_object(&self, id: u64) -> Option<ObjectType>;
 
-    fn subjects(&self) -> Self::SubjectIterator;
-    fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<Self::PredicateObjectPairsForSubject>;
+    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn PredicateObjectPairsForSubject>>>;
+    fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<Box<dyn PredicateObjectPairsForSubject>>;
     
     fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
         self.predicate_object_pairs_for_subject(subject)
@@ -120,9 +117,6 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> GenericLayer<M> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for GenericLayer<M> {
-    type PredicateObjectPairsForSubject = GenericPredicateObjectPairsForSubject<M>;
-    type SubjectIterator = GenericSubjectIterator<M>;
-
     fn name(&self) -> [u32;5] {
         match self {
             Self::Base(b) => b.name(),
@@ -193,46 +187,26 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for GenericLayer<M> {
         }
     }
 
-    fn subjects(&self) -> GenericSubjectIterator<M> {
+    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn PredicateObjectPairsForSubject>>> {
         match self {
-            Self::Base(b) => GenericSubjectIterator::Base(b.subjects()),
-            Self::Child(c) => GenericSubjectIterator::Child(c.subjects())
+            Self::Base(b) => b.subjects(),
+            Self::Child(c) => c.subjects()
         }
     }
 
-    fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<GenericPredicateObjectPairsForSubject<M>> {
+    fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<Box<dyn PredicateObjectPairsForSubject>> {
         match self {
-            Self::Base(b) => b.predicate_object_pairs_for_subject(subject).map(|b| GenericPredicateObjectPairsForSubject::Base(b)),
-            Self::Child(c) => c.predicate_object_pairs_for_subject(subject).map(|c| GenericPredicateObjectPairsForSubject::Child(c)),
-        }
-    }
-}
-
-#[derive(Clone)]
-pub enum GenericSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
-    Base(BaseSubjectIterator<M>),
-    Child(ChildSubjectIterator<M>)
-}
-
-impl<M:'static+AsRef<[u8]>+Clone> Iterator for GenericSubjectIterator<M> {
-    type Item = GenericPredicateObjectPairsForSubject<M>;
-    
-    fn next(&mut self) -> Option<GenericPredicateObjectPairsForSubject<M>> {
-        match self {
-            Self::Base(b) => b.next().map(|b|GenericPredicateObjectPairsForSubject::Base(b)),
-            Self::Child(c) => c.next().map(|c|GenericPredicateObjectPairsForSubject::Child(c))
+            Self::Base(b) => b.predicate_object_pairs_for_subject(subject),
+            Self::Child(c) => c.predicate_object_pairs_for_subject(subject),
         }
     }
 }
 
 pub trait PredicateObjectPairsForSubject {
-    type Objects: ObjectsForSubjectPredicatePair;
-    type PredicateIterator: 'static+Iterator<Item=Self::Objects>;
-
     fn subject(&self) -> u64;
 
-    fn predicates(&self) -> Self::PredicateIterator;
-    fn objects_for_predicate(&self, predicate: u64) -> Option<Self::Objects>;
+    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectsForSubjectPredicatePair>>>;
+    fn objects_for_predicate(&self, predicate: u64) -> Option<Box<dyn ObjectsForSubjectPredicatePair>>;
 
     fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
         Box::new(self.predicates().map(|p|p.triples()).flatten())
@@ -240,12 +214,10 @@ pub trait PredicateObjectPairsForSubject {
 }
 
 pub trait ObjectsForSubjectPredicatePair {
-    type ObjectIterator: Iterator<Item=IdTriple>;
-
     fn subject(&self) -> u64;
     fn predicate(&self) -> u64;
 
-    fn triples(&self) -> Self::ObjectIterator;
+    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>>;
     fn triple(&self, object: u64) -> Option<IdTriple>;
 }
 
@@ -359,110 +331,6 @@ impl PartiallyResolvedTriple {
         };
 
         Some(IdTriple { subject, predicate, object })
-    }
-}
-
-#[derive(Clone)]
-pub enum GenericPredicateObjectPairsForSubject<M:'static+AsRef<[u8]>+Clone> {
-    Base(BasePredicateObjectPairsForSubject<M>),
-    Child(ChildPredicateObjectPairsForSubject<M>)
-}
-
-impl<M:'static+AsRef<[u8]>+Clone> PredicateObjectPairsForSubject for GenericPredicateObjectPairsForSubject<M> {
-    type Objects = GenericObjectsForSubjectPredicatePair<M>;
-    type PredicateIterator = GenericPredicateIterator<M>;
-
-    fn subject(&self) -> u64 {
-        match self {
-            Self::Base(b) => b.subject(),
-            Self::Child(c) => c.subject(),
-        }
-    }
-
-    fn predicates(&self) -> GenericPredicateIterator<M> {
-        match self {
-            Self::Base(b) => GenericPredicateIterator::Base(b.predicates()),
-            Self::Child(c) => GenericPredicateIterator::Child(c.predicates())
-        }
-    }
-
-    fn objects_for_predicate(&self, predicate: u64) -> Option<GenericObjectsForSubjectPredicatePair<M>> {
-        match self {
-            Self::Base(b) => b.objects_for_predicate(predicate).map(|b| GenericObjectsForSubjectPredicatePair::Base(b)),
-            Self::Child(c) => c.objects_for_predicate(predicate).map(|c| GenericObjectsForSubjectPredicatePair::Child(c)),
-        }
-    }
-}
-
-#[derive(Clone)]
-pub enum GenericPredicateIterator<M:'static+AsRef<[u8]>+Clone> {
-    Base(BasePredicateIterator<M>),
-    Child(ChildPredicateIterator<M>)
-}
-
-impl<M:'static+AsRef<[u8]>+Clone> Iterator for GenericPredicateIterator<M> {
-    type Item = GenericObjectsForSubjectPredicatePair<M>;
-
-    fn next(&mut self) -> Option<GenericObjectsForSubjectPredicatePair<M>> {
-        match self {
-            Self::Base(b) => b.next().map(|b|GenericObjectsForSubjectPredicatePair::Base(b)),
-            Self::Child(c) => c.next().map(|c|GenericObjectsForSubjectPredicatePair::Child(c)),
-        }
-    }
-}
-
-#[derive(Clone)]
-pub enum GenericObjectsForSubjectPredicatePair<M:'static+AsRef<[u8]>+Clone> {
-    Base(BaseObjectsForSubjectPredicatePair<M>),
-    Child(ChildObjectsForSubjectPredicatePair<M>)
-}
-
-impl<M:'static+AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for GenericObjectsForSubjectPredicatePair<M> {
-    type ObjectIterator = GenericObjectIterator<M>;
-
-    fn subject(&self) -> u64 {
-        match self {
-            Self::Base(b) => b.subject(),
-            Self::Child(c) => c.subject()
-        }
-    }
-
-    fn predicate(&self) -> u64 {
-        match self {
-            Self::Base(b) => b.predicate(),
-            Self::Child(c) => c.predicate()
-        }
-    }
-
-    fn triples(&self) -> GenericObjectIterator<M> {
-        match self {
-            Self::Base(b) => GenericObjectIterator::Base(b.triples()),
-            Self::Child(c) => GenericObjectIterator::Child(c.triples())
-        }
-    }
-
-    fn triple(&self, object: u64) -> Option<IdTriple> {
-        match self {
-            Self::Base(b) => b.triple(object),
-            Self::Child(c) => c.triple(object)
-        }
-    }
-}
-
-#[derive(Clone)]
-pub enum GenericObjectIterator<M:'static+AsRef<[u8]>+Clone> {
-    Base(BaseObjectIterator<M>),
-    Child(ChildObjectIterator<M>)
-}
-
-impl<M:'static+AsRef<[u8]>+Clone> Iterator for GenericObjectIterator<M> {
-    type Item = IdTriple;
-
-    fn next(&mut self) -> Option<IdTriple> {
-        match self {
-            Self::Base(b) => b.next(),
-            Self::Child(c) => c.next()
-        }
     }
 }
 

@@ -215,9 +215,6 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> ChildLayer<M> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
-    type PredicateObjectPairsForSubject = ChildPredicateObjectPairsForSubject<M>;
-    type SubjectIterator = ChildSubjectIterator<M>;
-
     fn name(&self) -> [u32;5] {
         self.name
     }
@@ -332,8 +329,8 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         }
     }
 
-    fn subjects(&self) -> ChildSubjectIterator<M> {
-        ChildSubjectIterator {
+    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn PredicateObjectPairsForSubject>>> {
+        Box::new(ChildSubjectIterator {
             parent: Some(Box::new(self.parent.subjects())),
 
             pos_subjects: self.pos_subjects.clone(),
@@ -347,10 +344,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             next_parent_subject: None,
             pos_pos: 0,
             neg_pos: 0
-        }
+        })
     }
 
-    fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<ChildPredicateObjectPairsForSubject<M>> {
+    fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<Box<dyn PredicateObjectPairsForSubject>> {
         if subject == 0 {
             return None;
         }
@@ -361,7 +358,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         // first determine where we should be looking.
         let pos_index = self.pos_subjects.index_of(subject);
         let neg_index = self.neg_subjects.index_of(subject);
-        let parent = self.parent.predicate_object_pairs_for_subject(subject).map(|p|Box::new(p));
+        let parent = self.parent.predicate_object_pairs_for_subject(subject);
         if pos_index.is_none() && parent.is_none() {
             return None;
         }
@@ -393,18 +390,17 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             }
         }
 
-        Some(ChildPredicateObjectPairsForSubject {
+        Some(Box::new(ChildPredicateObjectPairsForSubject {
             parent,
             subject,
             pos,
             neg
-        })
+        }))
     }
 }
 
-#[derive(Clone)]
 pub struct ChildSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
-    parent: Option<Box<GenericSubjectIterator<M>>>,
+    parent: Option<Box<dyn Iterator<Item=Box<dyn PredicateObjectPairsForSubject>>>>,
     pos_subjects: MonotonicLogArray<M>,
     pos_s_p_adjacency_list: AdjacencyList<M>,
     pos_sp_o_adjacency_list: AdjacencyList<M>,
@@ -413,15 +409,15 @@ pub struct ChildSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
     neg_s_p_adjacency_list: AdjacencyList<M>,
     neg_sp_o_adjacency_list: AdjacencyList<M>,
 
-    next_parent_subject: Option<GenericPredicateObjectPairsForSubject<M>>,
+    next_parent_subject: Option<Box<dyn PredicateObjectPairsForSubject>>,
     pos_pos: usize,
     neg_pos: usize
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildSubjectIterator<M> {
-    type Item = ChildPredicateObjectPairsForSubject<M>;
+    type Item = Box<dyn PredicateObjectPairsForSubject>;
 
-    fn next(&mut self) -> Option<ChildPredicateObjectPairsForSubject<M>> {
+    fn next(&mut self) -> Option<Box<dyn PredicateObjectPairsForSubject>> {
         if self.parent.is_some() && self.next_parent_subject.is_none() {
             self.next_parent_subject = self.parent.as_mut().unwrap().next();
             if self.next_parent_subject.is_none() {
@@ -429,7 +425,8 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildSubjectIterator<M> {
             }
         }
 
-        let next_parent = self.next_parent_subject.clone().map(|parent|Box::new(parent));
+        let mut next_parent = None;
+        std::mem::swap(&mut next_parent, &mut self.next_parent_subject);
         let next_parent_subject = next_parent.as_ref().map(|p|p.subject()).unwrap_or(0);
 
         let next_pos_subject = if self.pos_pos < self.pos_subjects.len() { self.pos_subjects.entry(self.pos_pos) } else { 0 };
@@ -461,17 +458,17 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildSubjectIterator<M> {
             self.neg_pos +=1;
         }
 
-        if next_pos_subject == 0 || next_parent_subject <= next_pos_subject {
-            self.next_parent_subject = None;
+        if !(next_pos_subject == 0 || next_parent_subject <= next_pos_subject) {
+            std::mem::swap(&mut next_parent, &mut self.next_parent_subject);
         }
 
         if next_parent_subject != 0 || next_pos_subject != 0 {
-            Some(ChildPredicateObjectPairsForSubject {
+            Some(Box::new(ChildPredicateObjectPairsForSubject {
                 parent: next_parent,
                 subject: subject,
                 pos,
                 neg
-            })
+            }))
         }
         else {
             None
@@ -487,9 +484,8 @@ struct AdjacencyStuff<M:'static+AsRef<[u8]>+Clone> {
 }
 
 
-#[derive(Clone)]
 pub struct ChildPredicateObjectPairsForSubject<M:'static+AsRef<[u8]>+Clone> {
-    parent: Option<Box<GenericPredicateObjectPairsForSubject<M>>>,
+    parent: Option<Box<dyn PredicateObjectPairsForSubject>>,
     subject: u64,
 
     pos: Option<AdjacencyStuff<M>>,
@@ -497,31 +493,28 @@ pub struct ChildPredicateObjectPairsForSubject<M:'static+AsRef<[u8]>+Clone> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> PredicateObjectPairsForSubject for ChildPredicateObjectPairsForSubject<M> {
-    type Objects = ChildObjectsForSubjectPredicatePair<M>;
-    type PredicateIterator = ChildPredicateIterator<M>;
-
     fn subject(&self) -> u64 {
         self.subject
     }
 
-    fn predicates(&self) -> ChildPredicateIterator<M> {
-        ChildPredicateIterator {
-            parent: self.parent.as_ref().map(|parent|Box::new(parent.predicates())),
+    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectsForSubjectPredicatePair>>> {
+        Box::new(ChildPredicateIterator {
+            parent: self.parent.as_ref().map(|parent|parent.predicates()),
             subject: self.subject,
             pos_adjacencies: self.pos.clone(),
             neg_adjacencies: self.neg.clone(),
             next_parent_predicate: None,
             pos_pos: 0,
             neg_pos: 0
-        }
+        })
     }
 
-    fn objects_for_predicate(&self, predicate: u64) -> Option<ChildObjectsForSubjectPredicatePair<M>> {
+    fn objects_for_predicate(&self, predicate: u64) -> Option<Box<dyn ObjectsForSubjectPredicatePair>> {
         if predicate == 0 {
             return None;
         }
 
-        let parent_objects = self.parent.as_ref().and_then(|parent|parent.objects_for_predicate(predicate).map(|ofp|Box::new(ofp)));
+        let parent_objects = self.parent.as_ref().and_then(|parent|parent.objects_for_predicate(predicate));
 
         if self.pos.is_none() && parent_objects.is_none() {
             None
@@ -536,32 +529,31 @@ impl<M:'static+AsRef<[u8]>+Clone> PredicateObjectPairsForSubject for ChildPredic
                           .map(|position_in_neg_predicates|
                                neg.sp_o_adjacency_list.get(neg.sp_offset+(position_in_neg_predicates as u64)+1)));
 
-            Some(ChildObjectsForSubjectPredicatePair {
+            Some(Box::new(ChildObjectsForSubjectPredicatePair {
                 parent: parent_objects,
                 subject: self.subject,
                 predicate,
                 pos_objects,
                 neg_objects
-            })
+            }))
         }
     }
 }
 
-#[derive(Clone)]
 pub struct ChildPredicateIterator<M:'static+AsRef<[u8]>+Clone> {
-    parent: Option<Box<GenericPredicateIterator<M>>>,
+    parent: Option<Box<dyn Iterator<Item=Box<dyn ObjectsForSubjectPredicatePair>>>>,
     subject: u64,
     pos_adjacencies: Option<AdjacencyStuff<M>>,
     neg_adjacencies: Option<AdjacencyStuff<M>>,
-    next_parent_predicate: Option<GenericObjectsForSubjectPredicatePair<M>>,
+    next_parent_predicate: Option<Box<dyn ObjectsForSubjectPredicatePair>>,
     pos_pos: usize,
     neg_pos: usize
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateIterator<M> {
-    type Item=ChildObjectsForSubjectPredicatePair<M>;
+    type Item=Box<dyn ObjectsForSubjectPredicatePair>;
 
-    fn next(&mut self) -> Option<ChildObjectsForSubjectPredicatePair<M>> {
+    fn next(&mut self) -> Option<Box<dyn ObjectsForSubjectPredicatePair>> {
         if self.parent.is_some() && self.next_parent_predicate.is_none() {
             match self.parent.as_mut().unwrap().next() {
                 Some(predicate) => self.next_parent_predicate = Some(predicate),
@@ -571,7 +563,9 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateIterator<M> {
         let pos_predicate = if self.pos_pos < self.pos_adjacencies.as_ref().map(|pa|pa.predicates.len()).unwrap_or(0) { Some(self.pos_adjacencies.as_ref().unwrap().predicates.entry(self.pos_pos)) } else { None };
         let neg_predicate = if self.neg_pos < self.neg_adjacencies.as_ref().map(|no|no.predicates.len()).unwrap_or(0) { Some(self.neg_adjacencies.as_ref().unwrap().predicates.entry(self.neg_pos)) } else { None };
 
-        match (self.next_parent_predicate.clone(), pos_predicate, neg_predicate) {
+        let mut next_parent_predicate = None;
+        std::mem::swap(&mut next_parent_predicate, &mut self.next_parent_predicate);
+        match (next_parent_predicate, pos_predicate, neg_predicate) {
             (Some(parent), Some(pos), neg) => {
                 let neg_objects = if parent.predicate() == neg.unwrap_or(0) && parent.predicate() <= pos {
                     let neg_adjacencies = self.neg_adjacencies.as_ref().unwrap();
@@ -597,11 +591,12 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateIterator<M> {
                 let predicate = if parent_predicate <= pos { parent_predicate } else { pos };
 
                 let parent_option = if parent.predicate() <= pos {
-                    self.next_parent_predicate = None;
-                    Some(Box::new(parent))
+                    Some(parent)
                 } else {
+                    std::mem::swap(&mut Some(parent), &mut self.next_parent_predicate);
                     None
                 };
+
 
                 Some(ChildObjectsForSubjectPredicatePair {
                     parent: parent_option,
@@ -612,7 +607,6 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateIterator<M> {
                 })
             },
             (Some(parent), None, neg) => {
-                self.next_parent_predicate = None;
                 let neg_objects = if parent.predicate() == neg.unwrap_or(0) {
                     let neg_adjacencies = self.neg_adjacencies.as_ref().unwrap();
                     let result = neg_adjacencies.sp_o_adjacency_list.get(neg_adjacencies.sp_offset+(self.neg_pos as u64)+1);
@@ -625,7 +619,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateIterator<M> {
                 let predicate = parent.predicate();
                 
                 Some(ChildObjectsForSubjectPredicatePair {
-                    parent: Some(Box::new(parent)),
+                    parent: Some(parent),
                     subject: self.subject,
                     predicate,
                     pos_objects: None,
@@ -647,12 +641,15 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateIterator<M> {
             },
             (None, None, _) => None
         }
+        .map(|x|{
+            let result: Box<dyn ObjectsForSubjectPredicatePair> = Box::new(x);
+            result
+        })
     }
 }
 
-#[derive(Clone)]
 pub struct ChildObjectsForSubjectPredicatePair<M:'static+AsRef<[u8]>+Clone> {
-    parent: Option<Box<GenericObjectsForSubjectPredicatePair<M>>>,
+    parent: Option<Box<dyn ObjectsForSubjectPredicatePair>>,
     subject: u64,
     predicate: u64,
     pos_objects: Option<LogArraySlice<M>>,
@@ -660,8 +657,6 @@ pub struct ChildObjectsForSubjectPredicatePair<M:'static+AsRef<[u8]>+Clone> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for ChildObjectsForSubjectPredicatePair<M> {
-    type ObjectIterator = ChildObjectIterator<M>;
-
     fn subject(&self) -> u64 {
         self.subject
     }
@@ -670,9 +665,9 @@ impl<M:'static+AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for ChildObject
         self.predicate
     }
     
-    fn triples(&self) -> ChildObjectIterator<M> {
-        ChildObjectIterator {
-            parent: self.parent.as_ref().map(|p|Box::new(p.triples())),
+    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
+        Box::new(ChildObjectIterator {
+            parent: self.parent.as_ref().map(|p|p.triples()),
             subject: self.subject,
             predicate: self.predicate,
             pos_objects: self.pos_objects.clone(),
@@ -681,7 +676,7 @@ impl<M:'static+AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for ChildObject
             next_parent_object: None,
             pos_pos: 0,
             neg_pos: 0
-        }
+        })
     }
 
     fn triple(&self, object: u64) -> Option<IdTriple> {
@@ -704,9 +699,8 @@ impl<M:'static+AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for ChildObject
     }
 }
 
-#[derive(Clone)]
 pub struct ChildObjectIterator<M:'static+AsRef<[u8]>+Clone> {
-    parent: Option<Box<GenericObjectIterator<M>>>,
+    parent: Option<Box<dyn Iterator<Item=IdTriple>>>,
     next_parent_object: Option<u64>,
     subject: u64,
     predicate: u64,

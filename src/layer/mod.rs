@@ -5,5 +5,5 @@ pub mod builder;
 
 pub use base::{BaseLayer, BaseLayerFiles};
 pub use child::{ChildLayer, ChildLayerFiles};
-pub use layer::{Layer,GenericLayer,IdTriple,StringTriple,ObjectType};
+pub use layer::{Layer,GenericLayer,IdTriple,StringTriple,ObjectType,PredicateObjectPairsForSubject};
 pub use builder::SimpleLayerBuilder;
