@@ -4,3 +4,4 @@
 pub mod builder;
 pub mod layer;
 pub mod label;
+pub mod store;

@@ -72,14 +72,11 @@ impl<Layers:'static+LayerStore> DatabaseLayer<Layers> {
             layer, store
         }
     }
+
     pub fn open_write(&self) -> impl Future<Item=DatabaseLayerBuilder<Layers>,Error=io::Error>+Send+Sync {
         let store = self.store.clone();
         self.store.create_child_layer(self.layer.name())
             .map(move |layer|DatabaseLayerBuilder::wrap(layer, store))
-    }
-
-    pub fn is_ancestor_of(&self, other: &DatabaseLayer<Layers>) -> bool {
-        self.layer.is_ancestor_of(&other.layer)
     }
 }
 
