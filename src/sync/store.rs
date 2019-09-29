@@ -25,23 +25,23 @@ impl<Layers:'static+LayerStore> SyncDatabaseLayerBuilder<Layers> {
         self.inner.name()
     }
 
-    pub fn add_string_triple(&mut self, triple: &StringTriple) {
-        self.inner.add_string_triple(triple)
+    pub fn add_string_triple(&self, triple: &StringTriple) -> Result<(), io::Error> {
+        oneshot::spawn(self.inner.add_string_triple(triple), &self.executor).wait()
     }
 
-    pub fn add_id_triple(&mut self, triple: IdTriple) -> bool {
-        self.inner.add_id_triple(triple)
+    pub fn add_id_triple(&self, triple: IdTriple) -> Result<bool, io::Error> {
+        oneshot::spawn(self.inner.add_id_triple(triple), &self.executor).wait()
     }
 
-    pub fn remove_id_triple(&mut self, triple: IdTriple) -> bool {
-        self.inner.remove_id_triple(triple)
+    pub fn remove_id_triple(&self, triple: IdTriple) -> Result<bool, io::Error> {
+        oneshot::spawn(self.inner.remove_id_triple(triple), &self.executor).wait()
     }
 
-    pub fn remove_string_triple(&mut self, triple: &StringTriple) -> bool {
-        self.inner.remove_string_triple(triple)
+    pub fn remove_string_triple(&self, triple: &StringTriple) -> Result<bool, io::Error> {
+        oneshot::spawn(self.inner.remove_string_triple(triple), &self.executor).wait()
     }
 
-    pub fn commit(self) -> Result<SyncDatabaseLayer<Layers>,io::Error> {
+    pub fn commit(&self) -> Result<SyncDatabaseLayer<Layers>,io::Error> {
         let executor = self.executor.clone();
         let inner = oneshot::spawn(self.inner.commit(), &self.executor).wait();
 
@@ -194,13 +194,13 @@ mod tests {
         assert!(head.is_none());
 
         let mut builder = store.create_base_layer().unwrap();
-        builder.add_string_triple(&StringTriple::new_value("cow","says","moo"));
+        builder.add_string_triple(&StringTriple::new_value("cow","says","moo")).unwrap();
 
         let layer = builder.commit().unwrap();
         assert!(database.set_head(&layer).unwrap());
 
         builder = layer.open_write().unwrap();
-        builder.add_string_triple(&StringTriple::new_value("pig","says","oink"));
+        builder.add_string_triple(&StringTriple::new_value("pig","says","oink")).unwrap();
 
         let layer2 = builder.commit().unwrap();
         assert!(database.set_head(&layer2).unwrap());
@@ -223,13 +223,13 @@ mod tests {
         assert!(head.is_none());
 
         let mut builder = store.create_base_layer().unwrap();
-        builder.add_string_triple(&StringTriple::new_value("cow","says","moo"));
+        builder.add_string_triple(&StringTriple::new_value("cow","says","moo")).unwrap();
 
         let layer = builder.commit().unwrap();
         assert!(database.set_head(&layer).unwrap());
 
         builder = layer.open_write().unwrap();
-        builder.add_string_triple(&StringTriple::new_value("pig","says","oink"));
+        builder.add_string_triple(&StringTriple::new_value("pig","says","oink")).unwrap();
 
         let layer2 = builder.commit().unwrap();
         assert!(database.set_head(&layer2).unwrap());

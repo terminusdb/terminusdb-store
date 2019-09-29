@@ -3,13 +3,16 @@ use futures::future;
 use std::sync::Arc;
 use std::path::PathBuf;
 
+use futures_locks::RwLock;
+
 use crate::storage::{LabelStore, LayerStore, MemoryLabelStore, MemoryLayerStore, DirectoryLabelStore, DirectoryLayerStore};
 use crate::layer::{Layer,GenericLayer,SimpleLayerBuilder,ObjectType,StringTriple,IdTriple,PredicateObjectPairsForSubject};
 
 use std::io;
 
 pub struct DatabaseLayerBuilder<Layers:'static+LayerStore> {
-    builder: SimpleLayerBuilder<Layers::File>,
+    builder: RwLock<Option<SimpleLayerBuilder<Layers::File>>>,
+    name: [u32;5],
     store: Layers
 }
 
@@ -18,45 +21,74 @@ impl<Layers:'static+LayerStore> DatabaseLayerBuilder<Layers> {
         store.create_base_layer()
             .map(|builder|
                  Self {
-                     builder,
+                     name: builder.name(),
+                     builder: RwLock::new(Some(builder)),
                      store 
                  })
     }
 
     fn wrap(builder: SimpleLayerBuilder<Layers::File>, store: Layers) -> Self {
         DatabaseLayerBuilder {
-            builder,
+            name: builder.name(),
+            builder: RwLock::new(Some(builder)),
             store
         }
     }
 
+    fn with_builder<R:Send+Sync,F: FnOnce(&mut SimpleLayerBuilder<Layers::File>)->R+Send+Sync>(&self, f: F) -> impl Future<Item=R,Error=io::Error>+Send+Sync {
+        self.builder.write()
+            .then(|b| {
+                let mut builder = b.expect("rwlock write should always succeed");
+                match (*builder).as_mut() {
+                    None => future::err(io::Error::new(io::ErrorKind::InvalidData, "builder has already been committed")),
+                    Some(builder) => future::ok(f(builder))
+                }
+            })
+    }
+
     pub fn name(&self) -> [u32;5] {
-        self.builder.name()
+        self.name
     }
 
-    pub fn add_string_triple(&mut self, triple: &StringTriple) {
-        self.builder.add_string_triple(triple)
+    pub fn add_string_triple(&self, triple: &StringTriple) -> impl Future<Item=(),Error=io::Error>+Send+Sync {
+        let triple = triple.clone();
+        self.with_builder(move |b|b.add_string_triple(&triple))
     }
 
-    pub fn add_id_triple(&mut self, triple: IdTriple) -> bool {
-        self.builder.add_id_triple(triple)
+    pub fn add_id_triple(&self, triple: IdTriple) -> impl Future<Item=bool,Error=io::Error>+Send+Sync {
+        self.with_builder(move |b|b.add_id_triple(triple))
     }
 
-    pub fn remove_id_triple(&mut self, triple: IdTriple) -> bool {
-        self.builder.remove_id_triple(triple)
+    pub fn remove_id_triple(&self, triple: IdTriple) -> impl Future<Item=bool,Error=io::Error>+Send+Sync {
+        self.with_builder(move |b|b.remove_id_triple(triple))
     }
 
-    pub fn remove_string_triple(&mut self, triple: &StringTriple) -> bool {
-        self.builder.remove_string_triple(triple)
+    pub fn remove_string_triple(&self, triple: &StringTriple) -> impl Future<Item=bool,Error=io::Error>+Send+Sync {
+        let triple = triple.clone();
+        self.with_builder(move |b|b.remove_string_triple(&triple))
     }
 
-    pub fn commit(self) -> impl Future<Item=DatabaseLayer<Layers>, Error=std::io::Error>+Send+Sync {
+    pub fn commit(&self) -> impl Future<Item=DatabaseLayer<Layers>, Error=std::io::Error>+Send+Sync {
         let store = self.store.clone();
-        let name = self.builder.name();
+        let name = self.name;
+        self.builder.write()
+            .then(move |b| {
+                let mut swap = b.expect("rwlock write should always succeed");
+                let mut builder = None;
 
-        self.builder.commit()
-            .and_then(move |_| store.get_layer(name)
-                      .map(move |layer| DatabaseLayer::wrap(layer.expect("layer that was just created was not found in store"), store)))
+                std::mem::swap(&mut builder, &mut swap);
+
+                let result: Box<dyn Future<Item=_,Error=_>+Send+Sync> =
+                    match builder {
+                        None => Box::new(future::err(io::Error::new(io::ErrorKind::InvalidData, "builder has already been committed"))),
+                        Some(builder) => Box::new( 
+                            builder.commit()
+                                .and_then(move |_| store.get_layer(name)
+                                          .map(move |layer| DatabaseLayer::wrap(layer.expect("layer that was just created was not found in store"), store))))
+                    };
+
+                result
+            })
     }
 }
 
@@ -269,13 +301,13 @@ mod tests {
         assert!(head.is_none());
 
         let mut builder = oneshot::spawn(store.create_base_layer(), &runtime.executor()).wait().unwrap();
-        builder.add_string_triple(&StringTriple::new_value("cow","says","moo"));
+        oneshot::spawn(builder.add_string_triple(&StringTriple::new_value("cow","says","moo")), &runtime.executor()).wait().unwrap();
 
         let layer = oneshot::spawn(builder.commit(), &runtime.executor()).wait().unwrap();
         assert!(oneshot::spawn(database.set_head(&layer), &runtime.executor()).wait().unwrap());
 
         builder = oneshot::spawn(layer.open_write(), &runtime.executor()).wait().unwrap();
-        builder.add_string_triple(&StringTriple::new_value("pig","says","oink"));
+        oneshot::spawn(builder.add_string_triple(&StringTriple::new_value("pig","says","oink")), &runtime.executor()).wait().unwrap();
 
         let layer2 = oneshot::spawn(builder.commit(), &runtime.executor()).wait().unwrap();
         assert!(oneshot::spawn(database.set_head(&layer2), &runtime.executor()).wait().unwrap());
@@ -300,13 +332,13 @@ mod tests {
         assert!(head.is_none());
 
         let mut builder = oneshot::spawn(store.create_base_layer(), &runtime.executor()).wait().unwrap();
-        builder.add_string_triple(&StringTriple::new_value("cow","says","moo"));
+        oneshot::spawn(builder.add_string_triple(&StringTriple::new_value("cow","says","moo")), &runtime.executor()).wait().unwrap();
 
         let layer = oneshot::spawn(builder.commit(), &runtime.executor()).wait().unwrap();
         assert!(oneshot::spawn(database.set_head(&layer), &runtime.executor()).wait().unwrap());
 
         builder = oneshot::spawn(layer.open_write(), &runtime.executor()).wait().unwrap();
-        builder.add_string_triple(&StringTriple::new_value("pig","says","oink"));
+        oneshot::spawn(builder.add_string_triple(&StringTriple::new_value("pig","says","oink")), &runtime.executor()).wait().unwrap();
 
         let layer2 = oneshot::spawn(builder.commit(), &runtime.executor()).wait().unwrap();
         assert!(oneshot::spawn(database.set_head(&layer2), &runtime.executor()).wait().unwrap());
