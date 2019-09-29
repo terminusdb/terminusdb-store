@@ -229,6 +229,10 @@ pub struct IdTriple {
 }
 
 impl IdTriple {
+    pub fn new(subject: u64, predicate: u64, object: u64) -> Self {
+        IdTriple { subject, predicate, object }
+    }
+
     pub fn to_resolved(&self) -> PartiallyResolvedTriple {
         PartiallyResolvedTriple {
             subject: PossiblyResolved::Resolved(self.subject),
