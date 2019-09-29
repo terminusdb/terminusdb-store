@@ -38,15 +38,15 @@ impl<Layers:'static+LayerStore> DatabaseLayerBuilder<Layers> {
         self.builder.add_string_triple(triple)
     }
 
-    pub fn add_id_triple(&mut self, triple: IdTriple) -> Option<()> {
+    pub fn add_id_triple(&mut self, triple: IdTriple) -> bool {
         self.builder.add_id_triple(triple)
     }
 
-    pub fn remove_id_triple(&mut self, triple: IdTriple) -> Option<()> {
+    pub fn remove_id_triple(&mut self, triple: IdTriple) -> bool {
         self.builder.remove_id_triple(triple)
     }
 
-    pub fn remove_string_triple(&mut self, triple: &StringTriple) -> Option<()> {
+    pub fn remove_string_triple(&mut self, triple: &StringTriple) -> bool {
         self.builder.remove_string_triple(triple)
     }
 

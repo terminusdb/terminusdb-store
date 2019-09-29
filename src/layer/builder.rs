@@ -49,7 +49,7 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
         }
     }
 
-    pub fn add_id_triple(&mut self, triple: IdTriple) -> Option<()> {
+    pub fn add_id_triple(&mut self, triple: IdTriple) -> bool {
         if self.parent.as_mut()
             .map(|parent|
                  !parent.id_triple_exists(triple)
@@ -58,16 +58,17 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
                  && parent.id_object(triple.object).is_some())
             .unwrap_or(false) {
                 self.additions.insert(triple.to_resolved());
-                Some(())
+
+                true
             }
         else {
-            None
+            false
         }
     }
 
-    pub fn remove_id_triple(&mut self, triple: IdTriple) -> Option<()> {
+    pub fn remove_id_triple(&mut self, triple: IdTriple) -> bool {
         if self.parent.is_none() {
-            return None;
+            return false;
         }
 
         let parent = self.parent.as_ref().unwrap();
@@ -75,16 +76,17 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
         if parent.id_triple_exists(triple) {
             self.removals.insert(triple);
 
-            Some(())
+            true
         }
         else {
-            None
+            false
         }
     }
 
-    pub fn remove_string_triple(&mut self, triple: &StringTriple) -> Option<()> {
+    pub fn remove_string_triple(&mut self, triple: &StringTriple) -> bool {
         self.parent.as_ref().and_then(|p|p.string_triple_to_id(&triple))
-            .and_then(|t| self.remove_id_triple(t))
+            .map(|t| self.remove_id_triple(t))
+            .unwrap_or(false)
     }
 
     fn unresolved_strings(&self) -> (Vec<String>, Vec<String>, Vec<String>) {

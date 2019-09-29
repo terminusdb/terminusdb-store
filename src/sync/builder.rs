@@ -41,17 +41,17 @@ impl<F:'static+FileLoad+FileStore+Clone> SyncLayerBuilder<F> {
         self.inner.add_string_triple(triple)
     }
 
-    pub fn add_id_triple(&mut self, triple: IdTriple) -> Option<()> {
+    pub fn add_id_triple(&mut self, triple: IdTriple) -> bool {
         self.inner.add_id_triple(triple)
     }
 
 
-    pub fn remove_id_triple(&mut self, triple: IdTriple) -> Option<()> {
+    pub fn remove_id_triple(&mut self, triple: IdTriple) -> bool {
         self.inner.remove_id_triple(triple)
     }
 
     
-    pub fn remove_string_triple(&mut self, triple: &StringTriple) -> Option<()> {
+    pub fn remove_string_triple(&mut self, triple: &StringTriple) -> bool {
         self.inner.remove_string_triple(triple)
     }
 
