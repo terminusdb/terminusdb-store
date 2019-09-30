@@ -190,8 +190,16 @@ impl LabelStore for DirectoryLabelStore {
         let label = label.to_owned();
         p.push(format!("{}.label", label));
         let contents = format!("0\n\n").into_bytes();
-        Box::new(fs::write(p, contents)
-                 .map(move |_| Label::new_empty(&label)))
+        Box::new(fs::metadata(p.clone())
+                 .then(move |metadata| match metadata {
+                     Ok(_) => future::err(io::Error::new(io::ErrorKind::InvalidInput, "database already exists")),
+                     Err(e) => match e.kind() {
+                         io::ErrorKind::NotFound => future::ok(p),
+                         _ => future::err(e)
+                     }
+                 })
+                 .and_then(|p| fs::write(p, contents)
+                           .map(move |_| Label::new_empty(&label))))
     }
 
     fn get_label(&self, label: &str) -> Box<dyn Future<Item=Option<Label>,Error=std::io::Error>+Send+Sync> {
@@ -239,7 +247,8 @@ impl LabelStore for DirectoryLabelStore {
 mod tests {
     use super::*;
     use tempfile::tempdir;
-    use futures::sync::oneshot::channel;
+    use futures::sync::oneshot::{self, channel};
+    use tokio::runtime::Runtime;
 
     #[test]
     fn memory_create_and_retrieve_equal_label() {
@@ -332,5 +341,22 @@ mod tests {
 
         assert!(stored2.is_some());
         assert!(stored3.is_none());
+    }
+
+    #[test]
+    fn directory_create_label_twice_errors() {
+        let runtime = Runtime::new().unwrap();
+        let executor = runtime.executor();
+
+        let dir = tempdir().unwrap();
+        let store = DirectoryLabelStore::new(dir.path());
+
+        oneshot::spawn(store.create_label("foo"), &executor).wait().unwrap();
+        let result = oneshot::spawn(store.create_label("foo"), &executor).wait();
+
+        assert!(result.is_err());
+
+        let error = result.err().unwrap();
+        assert_eq!(io::ErrorKind::InvalidInput, error.kind());
     }
 }
