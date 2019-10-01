@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use futures_locks::RwLock;
 
 use crate::storage::{LabelStore, LayerStore, MemoryLabelStore, MemoryLayerStore, DirectoryLabelStore, DirectoryLayerStore, CachedLayerStore};
-use crate::layer::{Layer,GenericLayer,SimpleLayerBuilder,ObjectType,StringTriple,IdTriple,SubjectLookup};
+use crate::layer::{Layer,GenericLayer,LayerBuilder,SimpleLayerBuilder,ObjectType,StringTriple,IdTriple,SubjectLookup};
 
 use std::io;
 

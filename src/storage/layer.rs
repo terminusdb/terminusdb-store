@@ -577,7 +577,7 @@ impl<S:LayerStore> LayerStore for CachedLayerStore<S> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::layer::layer::*;
+    use crate::layer::*;
     use tempfile::tempdir;
     use tokio::sync::oneshot::channel;
     

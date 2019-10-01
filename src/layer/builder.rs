@@ -17,6 +17,25 @@ use futures::prelude::*;
 use std::collections::{HashMap,BTreeSet};
 use std::sync::Arc;
 
+/// A layer builder trait with no generic typing.
+///
+/// Lack of generic types allows layer builders with different storage
+/// backends to be handled by trait objects of this type.
+pub trait LayerBuilder {
+    /// Returns the name of the layer being built
+    fn name(&self) -> [u32;5];
+    /// Add a string triple
+    fn add_string_triple(&mut self, triple: &StringTriple);
+    /// Add an id triple
+    fn add_id_triple(&mut self, triple: IdTriple) -> bool;
+    /// Remove a string triple
+    fn remove_string_triple(&mut self, triple: &StringTriple) -> bool;
+    /// Remove an id triple
+    fn remove_id_triple(&mut self, triple: IdTriple) -> bool;
+    /// Commit the layer to storage
+    fn commit(self) -> Box<dyn Future<Item=(), Error=std::io::Error>+Send+Sync>;
+}
+
 /// A layer builder
 ///
 /// `SimpleLayerBuilder` provides methods for adding and removing
@@ -53,64 +72,6 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
         }
     }
 
-    /// Returns the name of the layer being built
-    pub fn name(&self) -> [u32;5] {
-        self.name
-    }
-
-    /// Add a string triple
-    pub fn add_string_triple(&mut self, triple: &StringTriple) {
-        if self.parent.is_some() {
-            self.additions.insert(self.parent.as_ref().unwrap().string_triple_to_partially_resolved(triple));
-        }
-        else {
-            self.additions.insert(triple.to_unresolved());
-        }
-    }
-
-    /// Add an id triple
-    pub fn add_id_triple(&mut self, triple: IdTriple) -> bool {
-        if self.parent.as_mut()
-            .map(|parent|
-                 !parent.id_triple_exists(triple)
-                 && parent.id_subject(triple.subject).is_some()
-                 && parent.id_predicate(triple.predicate).is_some()
-                 && parent.id_object(triple.object).is_some())
-            .unwrap_or(false) {
-                self.additions.insert(triple.to_resolved());
-
-                true
-            }
-        else {
-            false
-        }
-    }
-
-    /// Remove a string triple
-    pub fn remove_string_triple(&mut self, triple: &StringTriple) -> bool {
-        self.parent.as_ref().and_then(|p|p.string_triple_to_id(&triple))
-            .map(|t| self.remove_id_triple(t))
-            .unwrap_or(false)
-    }
-
-    /// Remove an id triple
-    pub fn remove_id_triple(&mut self, triple: IdTriple) -> bool {
-        if self.parent.is_none() {
-            return false;
-        }
-
-        let parent = self.parent.as_ref().unwrap();
-
-        if parent.id_triple_exists(triple) {
-            self.removals.insert(triple);
-
-            true
-        }
-        else {
-            false
-        }
-    }
-
     fn unresolved_strings(&self) -> (Vec<String>, Vec<String>, Vec<String>) {
         let mut node_builder:BTreeSet<String> = BTreeSet::new();
         let mut predicate_builder:BTreeSet<String> = BTreeSet::new();
@@ -139,9 +100,63 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
          value_builder.into_iter().collect())
 
     }
+}
 
-    /// Commit the layer to storage
-    pub fn commit(self) -> Box<dyn Future<Item=(), Error=std::io::Error>+Send+Sync> {
+impl<F:'static+FileLoad+FileStore+Clone> LayerBuilder for SimpleLayerBuilder<F> {
+    fn name(&self) -> [u32;5] {
+        self.name
+    }
+
+    fn add_string_triple(&mut self, triple: &StringTriple) {
+        if self.parent.is_some() {
+            self.additions.insert(self.parent.as_ref().unwrap().string_triple_to_partially_resolved(triple));
+        }
+        else {
+            self.additions.insert(triple.to_unresolved());
+        }
+    }
+
+    fn add_id_triple(&mut self, triple: IdTriple) -> bool {
+        if self.parent.as_mut()
+            .map(|parent|
+                 !parent.id_triple_exists(triple)
+                 && parent.id_subject(triple.subject).is_some()
+                 && parent.id_predicate(triple.predicate).is_some()
+                 && parent.id_object(triple.object).is_some())
+            .unwrap_or(false) {
+                self.additions.insert(triple.to_resolved());
+
+                true
+            }
+        else {
+            false
+        }
+    }
+
+    fn remove_string_triple(&mut self, triple: &StringTriple) -> bool {
+        self.parent.as_ref().and_then(|p|p.string_triple_to_id(&triple))
+            .map(|t| self.remove_id_triple(t))
+            .unwrap_or(false)
+    }
+
+    fn remove_id_triple(&mut self, triple: IdTriple) -> bool {
+        if self.parent.is_none() {
+            return false;
+        }
+
+        let parent = self.parent.as_ref().unwrap();
+
+        if parent.id_triple_exists(triple) {
+            self.removals.insert(triple);
+
+            true
+        }
+        else {
+            false
+        }
+    }
+
+    fn commit(self) -> Box<dyn Future<Item=(), Error=std::io::Error>+Send+Sync> {
         let (unresolved_nodes, unresolved_predicates, unresolved_values) = self.unresolved_strings();
         let additions = self.additions;
         let removals = self.removals;
