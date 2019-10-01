@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use futures_locks::RwLock;
 
-use crate::storage::{LabelStore, LayerStore, MemoryLabelStore, MemoryLayerStore, DirectoryLabelStore, DirectoryLayerStore};
+use crate::storage::{LabelStore, LayerStore, MemoryLabelStore, MemoryLayerStore, DirectoryLabelStore, DirectoryLayerStore, CachedLayerStore};
 use crate::layer::{Layer,GenericLayer,SimpleLayerBuilder,ObjectType,StringTriple,IdTriple,PredicateObjectPairsForSubject};
 
 use std::io;
@@ -307,14 +307,14 @@ impl<Labels:'static+LabelStore, Layers:'static+LayerStore> Store<Labels, Layers>
 /// Open a store that is entirely in memory
 ///
 /// This is useful for testing purposes, or if the database is only going to be used for caching purposes
-pub fn open_memory_store() -> Store<MemoryLabelStore, MemoryLayerStore> {
-    Store::new(MemoryLabelStore::new(), MemoryLayerStore::new())
+pub fn open_memory_store() -> Store<MemoryLabelStore, CachedLayerStore<MemoryLayerStore>> {
+    Store::new(MemoryLabelStore::new(), CachedLayerStore::new(MemoryLayerStore::new()))
 }
 
 /// Open a store that stores its data in the given directory
-pub fn open_directory_store<P:Into<PathBuf>>(path: P) -> Store<DirectoryLabelStore, DirectoryLayerStore> {
+pub fn open_directory_store<P:Into<PathBuf>>(path: P) -> Store<DirectoryLabelStore, CachedLayerStore<DirectoryLayerStore>> {
     let p = path.into();
-    Store::new(DirectoryLabelStore::new(p.clone()), DirectoryLayerStore::new(p))
+    Store::new(DirectoryLabelStore::new(p.clone()), CachedLayerStore::new(DirectoryLayerStore::new(p)))
 }
 
 #[cfg(test)]

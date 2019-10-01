@@ -677,14 +677,6 @@ pub mod tests {
         assert!(Arc::ptr_eq(&base_layer, &layer1.parent().unwrap()));
     }
 
-    fn get_pointer_from_arc<T>(arc: &Arc<T>) -> *const T {
-        let ptr = Arc::into_raw(arc.clone());
-        // we got a pointer now, but also raised the reference count. We need to 'remember' and drop
-        let _remembered = unsafe { Arc::from_raw(ptr) };
-
-        ptr
-    }
-
     #[test]
     fn cached_layer_store_forgets_entries_when_they_are_dropped() {
         let store = CachedLayerStore::new(MemoryLayerStore::new());
