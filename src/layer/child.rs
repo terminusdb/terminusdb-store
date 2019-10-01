@@ -1,3 +1,8 @@
+//! Child layer implementation
+//!
+//! A child layer stores a reference to a base layer, as well as
+//! triple additions and removals, and any new dictionary entries that
+//! this layer needs for its additions.
 use super::layer::*;
 use crate::structure::*;
 use crate::storage::file::*;

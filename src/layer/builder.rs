@@ -1,3 +1,14 @@
+//! builder frontend for constructing new layers
+//!
+//! `base` and `child` contain their own layer builders, but these are
+//! not very easy to use. They require one to first insert all new
+//! dictionary entries in sorted order, and then all numerical triple
+//! additions/removals in sorted order
+//!
+//! The layer builder implemented here will instead take triples in
+//! any format (numerical, string, or a mixture), store them in
+//! memory, then does the required sorting and id conversion on
+//! commit.
 use super::layer::*;
 use super::base::*;
 use super::child::*;
@@ -6,6 +17,10 @@ use futures::prelude::*;
 use std::collections::{HashMap,BTreeSet};
 use std::sync::Arc;
 
+/// A layer builder
+///
+/// `SimpleLayerBuilder` provides methods for adding and removing
+/// triples, and for committing the layer builder to storage.
 #[derive(Clone)]
 pub struct SimpleLayerBuilder<F:'static+FileLoad+FileStore+Clone> {
     name: [u32;5],
@@ -16,6 +31,7 @@ pub struct SimpleLayerBuilder<F:'static+FileLoad+FileStore+Clone> {
 }
 
 impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
+    /// Construct a layer builder for a base layer
     pub fn new(name: [u32;5], files: BaseLayerFiles<F>) -> Self {
         Self {
             name,
@@ -26,6 +42,7 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
         }
     }
 
+    /// Construct a layer builder for a child layer
     pub fn from_parent(name: [u32;5], parent: Arc<GenericLayer<F::Map>>, files: ChildLayerFiles<F>) -> Self {
         Self {
             name,
@@ -36,10 +53,12 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
         }
     }
 
+    /// Returns the name of the layer being built
     pub fn name(&self) -> [u32;5] {
         self.name
     }
 
+    /// Add a string triple
     pub fn add_string_triple(&mut self, triple: &StringTriple) {
         if self.parent.is_some() {
             self.additions.insert(self.parent.as_ref().unwrap().string_triple_to_partially_resolved(triple));
@@ -49,6 +68,7 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
         }
     }
 
+    /// Add an id triple
     pub fn add_id_triple(&mut self, triple: IdTriple) -> bool {
         if self.parent.as_mut()
             .map(|parent|
@@ -66,6 +86,14 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
         }
     }
 
+    /// Remove a string triple
+    pub fn remove_string_triple(&mut self, triple: &StringTriple) -> bool {
+        self.parent.as_ref().and_then(|p|p.string_triple_to_id(&triple))
+            .map(|t| self.remove_id_triple(t))
+            .unwrap_or(false)
+    }
+
+    /// Remove an id triple
     pub fn remove_id_triple(&mut self, triple: IdTriple) -> bool {
         if self.parent.is_none() {
             return false;
@@ -81,12 +109,6 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
         else {
             false
         }
-    }
-
-    pub fn remove_string_triple(&mut self, triple: &StringTriple) -> bool {
-        self.parent.as_ref().and_then(|p|p.string_triple_to_id(&triple))
-            .map(|t| self.remove_id_triple(t))
-            .unwrap_or(false)
     }
 
     fn unresolved_strings(&self) -> (Vec<String>, Vec<String>, Vec<String>) {
@@ -118,6 +140,7 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
 
     }
 
+    /// Commit the layer to storage
     pub fn commit(self) -> Box<dyn Future<Item=GenericLayer<F::Map>, Error=std::io::Error>+Send+Sync> {
         let (unresolved_nodes, unresolved_predicates, unresolved_values) = self.unresolved_strings();
         let name = self.name;
@@ -202,6 +225,7 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
     }
 }
 
+/// The files required for storing a layer
 #[derive(Clone)]
 pub enum LayerFiles<F:FileLoad+FileStore+Clone> {
     Base(BaseLayerFiles<F>),

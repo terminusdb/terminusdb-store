@@ -1,3 +1,6 @@
+//! Base layer implementation
+//!
+//! A base layer stores triple data without referring to a parent.
 use futures::prelude::*;
 use futures::future;
 use futures::stream;
