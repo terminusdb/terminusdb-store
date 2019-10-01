@@ -11,7 +11,7 @@ use std::io;
 use std::path::PathBuf;
 
 use crate::storage::{LabelStore, LayerStore, MemoryLabelStore, MemoryLayerStore, DirectoryLabelStore, DirectoryLayerStore, CachedLayerStore};
-use crate::layer::{Layer,ObjectType,StringTriple,IdTriple,PredicateObjectPairsForSubject};
+use crate::layer::{Layer,ObjectType,StringTriple,IdTriple,SubjectLookup};
 use crate::store::{Store, Database, DatabaseLayer, DatabaseLayerBuilder, open_memory_store, open_directory_store};
 
 /// A wrapper over a SimpleLayerBuilder, providing a thread-safe sharable interface
@@ -130,12 +130,12 @@ impl<Layers:'static+LayerStore> Layer for SyncDatabaseLayer<Layers> {
         self.inner.id_object(id)
     }
 
-    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn PredicateObjectPairsForSubject>>> {
+    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
         self.inner.subjects()
     }
 
-    fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<Box<dyn PredicateObjectPairsForSubject>> {
-        self.inner.predicate_object_pairs_for_subject(subject)
+    fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
+        self.inner.lookup_subject(subject)
     }
 }
 

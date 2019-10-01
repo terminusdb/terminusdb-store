@@ -334,7 +334,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         }
     }
 
-    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn PredicateObjectPairsForSubject>>> {
+    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
         Box::new(ChildSubjectIterator {
             parent: Some(Box::new(self.parent.subjects())),
 
@@ -352,7 +352,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         })
     }
 
-    fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<Box<dyn PredicateObjectPairsForSubject>> {
+    fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
         if subject == 0 {
             return None;
         }
@@ -363,7 +363,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         // first determine where we should be looking.
         let pos_index = self.pos_subjects.index_of(subject);
         let neg_index = self.neg_subjects.index_of(subject);
-        let parent = self.parent.predicate_object_pairs_for_subject(subject);
+        let parent = self.parent.lookup_subject(subject);
         if pos_index.is_none() && parent.is_none() {
             return None;
         }
@@ -395,7 +395,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             }
         }
 
-        Some(Box::new(ChildPredicateObjectPairsForSubject {
+        Some(Box::new(ChildSubjectLookup {
             parent,
             subject,
             pos,
@@ -405,7 +405,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
 }
 
 pub struct ChildSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
-    parent: Option<Box<dyn Iterator<Item=Box<dyn PredicateObjectPairsForSubject>>>>,
+    parent: Option<Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>>,
     pos_subjects: MonotonicLogArray<M>,
     pos_s_p_adjacency_list: AdjacencyList<M>,
     pos_sp_o_adjacency_list: AdjacencyList<M>,
@@ -414,15 +414,15 @@ pub struct ChildSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
     neg_s_p_adjacency_list: AdjacencyList<M>,
     neg_sp_o_adjacency_list: AdjacencyList<M>,
 
-    next_parent_subject: Option<Box<dyn PredicateObjectPairsForSubject>>,
+    next_parent_subject: Option<Box<dyn SubjectLookup>>,
     pos_pos: usize,
     neg_pos: usize
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildSubjectIterator<M> {
-    type Item = Box<dyn PredicateObjectPairsForSubject>;
+    type Item = Box<dyn SubjectLookup>;
 
-    fn next(&mut self) -> Option<Box<dyn PredicateObjectPairsForSubject>> {
+    fn next(&mut self) -> Option<Box<dyn SubjectLookup>> {
         if self.parent.is_some() && self.next_parent_subject.is_none() {
             self.next_parent_subject = self.parent.as_mut().unwrap().next();
             if self.next_parent_subject.is_none() {
@@ -468,7 +468,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildSubjectIterator<M> {
         }
 
         if next_parent_subject != 0 || next_pos_subject != 0 {
-            Some(Box::new(ChildPredicateObjectPairsForSubject {
+            Some(Box::new(ChildSubjectLookup {
                 parent: next_parent,
                 subject: subject,
                 pos,
@@ -489,20 +489,20 @@ struct AdjacencyStuff<M:'static+AsRef<[u8]>+Clone> {
 }
 
 
-pub struct ChildPredicateObjectPairsForSubject<M:'static+AsRef<[u8]>+Clone> {
-    parent: Option<Box<dyn PredicateObjectPairsForSubject>>,
+pub struct ChildSubjectLookup<M:'static+AsRef<[u8]>+Clone> {
+    parent: Option<Box<dyn SubjectLookup>>,
     subject: u64,
 
     pos: Option<AdjacencyStuff<M>>,
     neg: Option<AdjacencyStuff<M>>,
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> PredicateObjectPairsForSubject for ChildPredicateObjectPairsForSubject<M> {
+impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for ChildSubjectLookup<M> {
     fn subject(&self) -> u64 {
         self.subject
     }
 
-    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectsForSubjectPredicatePair>>> {
+    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
         Box::new(ChildPredicateIterator {
             parent: self.parent.as_ref().map(|parent|parent.predicates()),
             subject: self.subject,
@@ -514,12 +514,12 @@ impl<M:'static+AsRef<[u8]>+Clone> PredicateObjectPairsForSubject for ChildPredic
         })
     }
 
-    fn objects_for_predicate(&self, predicate: u64) -> Option<Box<dyn ObjectsForSubjectPredicatePair>> {
+    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn SubjectPredicateLookup>> {
         if predicate == 0 {
             return None;
         }
 
-        let parent_objects = self.parent.as_ref().and_then(|parent|parent.objects_for_predicate(predicate));
+        let parent_objects = self.parent.as_ref().and_then(|parent|parent.lookup_predicate(predicate));
 
         if self.pos.is_none() && parent_objects.is_none() {
             None
@@ -534,7 +534,7 @@ impl<M:'static+AsRef<[u8]>+Clone> PredicateObjectPairsForSubject for ChildPredic
                           .map(|position_in_neg_predicates|
                                neg.sp_o_adjacency_list.get(neg.sp_offset+(position_in_neg_predicates as u64)+1)));
 
-            Some(Box::new(ChildObjectsForSubjectPredicatePair {
+            Some(Box::new(ChildSubjectPredicateLookup {
                 parent: parent_objects,
                 subject: self.subject,
                 predicate,
@@ -546,19 +546,19 @@ impl<M:'static+AsRef<[u8]>+Clone> PredicateObjectPairsForSubject for ChildPredic
 }
 
 pub struct ChildPredicateIterator<M:'static+AsRef<[u8]>+Clone> {
-    parent: Option<Box<dyn Iterator<Item=Box<dyn ObjectsForSubjectPredicatePair>>>>,
+    parent: Option<Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>>>,
     subject: u64,
     pos_adjacencies: Option<AdjacencyStuff<M>>,
     neg_adjacencies: Option<AdjacencyStuff<M>>,
-    next_parent_predicate: Option<Box<dyn ObjectsForSubjectPredicatePair>>,
+    next_parent_predicate: Option<Box<dyn SubjectPredicateLookup>>,
     pos_pos: usize,
     neg_pos: usize
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateIterator<M> {
-    type Item=Box<dyn ObjectsForSubjectPredicatePair>;
+    type Item=Box<dyn SubjectPredicateLookup>;
 
-    fn next(&mut self) -> Option<Box<dyn ObjectsForSubjectPredicatePair>> {
+    fn next(&mut self) -> Option<Box<dyn SubjectPredicateLookup>> {
         if self.parent.is_some() && self.next_parent_predicate.is_none() {
             match self.parent.as_mut().unwrap().next() {
                 Some(predicate) => self.next_parent_predicate = Some(predicate),
@@ -603,7 +603,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateIterator<M> {
                 };
 
 
-                Some(ChildObjectsForSubjectPredicatePair {
+                Some(ChildSubjectPredicateLookup {
                     parent: parent_option,
                     subject: self.subject,
                     predicate,
@@ -623,7 +623,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateIterator<M> {
 
                 let predicate = parent.predicate();
                 
-                Some(ChildObjectsForSubjectPredicatePair {
+                Some(ChildSubjectPredicateLookup {
                     parent: Some(parent),
                     subject: self.subject,
                     predicate,
@@ -636,7 +636,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateIterator<M> {
                 let pos_objects = Some(pos_adjacencies.sp_o_adjacency_list.get(pos_adjacencies.sp_offset+(self.pos_pos as u64)+1));
                 self.pos_pos += 1;
 
-                Some(ChildObjectsForSubjectPredicatePair {
+                Some(ChildSubjectPredicateLookup {
                     parent: None,
                     subject: self.subject,
                     predicate: pos,
@@ -647,21 +647,21 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateIterator<M> {
             (None, None, _) => None
         }
         .map(|x|{
-            let result: Box<dyn ObjectsForSubjectPredicatePair> = Box::new(x);
+            let result: Box<dyn SubjectPredicateLookup> = Box::new(x);
             result
         })
     }
 }
 
-pub struct ChildObjectsForSubjectPredicatePair<M:'static+AsRef<[u8]>+Clone> {
-    parent: Option<Box<dyn ObjectsForSubjectPredicatePair>>,
+pub struct ChildSubjectPredicateLookup<M:'static+AsRef<[u8]>+Clone> {
+    parent: Option<Box<dyn SubjectPredicateLookup>>,
     subject: u64,
     predicate: u64,
     pos_objects: Option<LogArraySlice<M>>,
     neg_objects: Option<LogArraySlice<M>>
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for ChildObjectsForSubjectPredicatePair<M> {
+impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for ChildSubjectPredicateLookup<M> {
     fn subject(&self) -> u64 {
         self.subject
     }

@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use futures_locks::RwLock;
 
 use crate::storage::{LabelStore, LayerStore, MemoryLabelStore, MemoryLayerStore, DirectoryLabelStore, DirectoryLayerStore, CachedLayerStore};
-use crate::layer::{Layer,GenericLayer,SimpleLayerBuilder,ObjectType,StringTriple,IdTriple,PredicateObjectPairsForSubject};
+use crate::layer::{Layer,GenericLayer,SimpleLayerBuilder,ObjectType,StringTriple,IdTriple,SubjectLookup};
 
 use std::io;
 
@@ -173,12 +173,12 @@ impl<Layers:'static+LayerStore> Layer for DatabaseLayer<Layers> {
         self.layer.id_object(id)
     }
 
-    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn PredicateObjectPairsForSubject>>> {
+    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
         self.layer.subjects()
     }
 
-    fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<Box<dyn PredicateObjectPairsForSubject>> {
-        self.layer.predicate_object_pairs_for_subject(subject)
+    fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
+        self.layer.lookup_subject(subject)
     }
 }
 

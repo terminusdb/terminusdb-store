@@ -40,12 +40,12 @@ pub trait Layer {
     /// Returns an iterator over all triple data known to this layer
     ///
     /// This data is returned by
-    /// `PredicateObjectPairsForSubject`. Each such object stores a
+    /// `SubjectLookup`. Each such object stores a
     /// subject id, and knows how to retrieve any linked
     /// predicate-object pair.
-    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn PredicateObjectPairsForSubject>>>;
+    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>;
 
-    /// Returns a `PredicateObjectPairsForSubject` object for the given subject, or None if it cannot be constructed
+    /// Returns a `SubjectLookup` object for the given subject, or None if it cannot be constructed
     ///
     /// Note that even if a value is returned here, that doesn't
     /// necessarily mean that there will be triples for the given
@@ -53,12 +53,12 @@ pub trait Layer {
     /// registered an addition involving this subject. However, later
     /// layers may have then removed every triple involving this
     /// subject.
-    fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<Box<dyn PredicateObjectPairsForSubject>>;
+    fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>>;
     
     /// Returns true if the given triple exists, and false otherwise
     fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
-        self.predicate_object_pairs_for_subject(subject)
-            .and_then(|pairs| pairs.objects_for_predicate(predicate))
+        self.lookup_subject(subject)
+            .and_then(|pairs| pairs.lookup_predicate(predicate))
             .and_then(|objects| objects.triple(object))
             .is_some()
     }
@@ -78,8 +78,8 @@ pub trait Layer {
     /// Iterator over all triples known to this layer.
     ///
     /// This is a convenient werapper around
-    /// `PredicateObjectPairsForSubject` and
-    /// `ObjectsForSubjectPredicatePair` style querying.
+    /// `SubjectLookup` and
+    /// `SubjectPredicateLookup` style querying.
     fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
         Box::new(self.subjects().map(|s|s.predicates()).flatten()
                  .map(|p|p.triples()).flatten())
@@ -234,17 +234,17 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for GenericLayer<M> {
         }
     }
 
-    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn PredicateObjectPairsForSubject>>> {
+    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
         match self {
             Self::Base(b) => b.subjects(),
             Self::Child(c) => c.subjects()
         }
     }
 
-    fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<Box<dyn PredicateObjectPairsForSubject>> {
+    fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
         match self {
-            Self::Base(b) => b.predicate_object_pairs_for_subject(subject),
-            Self::Child(c) => c.predicate_object_pairs_for_subject(subject),
+            Self::Base(b) => b.lookup_subject(subject),
+            Self::Child(c) => c.lookup_subject(subject),
         }
     }
 }
@@ -252,15 +252,15 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for GenericLayer<M> {
 /// A trait that caches a lookup in a layer by subject
 ///
 /// This is returned by `Layer::subjects` and
-/// `Layer::predicate_object_pairs_for_subject`. It stores slices of
+/// `Layer::lookup_subject`. It stores slices of
 /// the relevant data structures to allow quick retrieval of
 /// predicate-object pairs when one already knows the subject.
-pub trait PredicateObjectPairsForSubject {
+pub trait SubjectLookup {
     /// The subject that this lookup is based on
     fn subject(&self) -> u64;
 
     /// Returns an iterator over predicate lookups
-    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectsForSubjectPredicatePair>>>;
+    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>>;
     /// Returns a predicate lookup for the given predicate, or None if no such lookup could be constructed
     ///
     /// Note that even when it can be constructed, that doesn't mean
@@ -268,7 +268,7 @@ pub trait PredicateObjectPairsForSubject {
     /// additions for a given subject and predicate will cause a
     /// lookup to be constructable, but if subsequent layers deleted
     /// all these triples, none will be retrievable.
-    fn objects_for_predicate(&self, predicate: u64) -> Option<Box<dyn ObjectsForSubjectPredicatePair>>;
+    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn SubjectPredicateLookup>>;
 
     /// Returns an iterator over all triples that can be found by this lookup
     fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
@@ -278,12 +278,12 @@ pub trait PredicateObjectPairsForSubject {
 
 /// a trait that caches a lookup in a layer by subject and predicate
 ///
-/// This is returned by `PredicateObjectPairsForSubject::predicates`
-/// and `PredicateObjectPairsForSubject::objects_for_predicate`. It
+/// This is returned by `SubjectLookup::predicates`
+/// and `SubjectLookup::lookup_predicate`. It
 /// stores slices of the relevant data structures to allow quick
 /// retrieval of objects when one already knows the subject and
 /// predicate.
-pub trait ObjectsForSubjectPredicatePair {
+pub trait SubjectPredicateLookup {
     /// The subject that this lookup is based on
     fn subject(&self) -> u64;
     /// The predicate that this lookup is based on
@@ -450,27 +450,4 @@ pub struct AdjacencyListFiles<F:'static+FileLoad+FileStore> {
 pub enum ObjectType {
     Node(String),
     Value(String)
-}
-
-/// The files required for loading and storing a layer
-#[derive(Clone)]
-pub enum LayerFiles<F:FileLoad+FileStore+Clone> {
-    Base(BaseLayerFiles<F>),
-    Child(ChildLayerFiles<F>)
-}
-
-impl<F:FileLoad+FileStore+Clone> LayerFiles<F> {
-    pub fn into_base(self) -> BaseLayerFiles<F> {
-        match self {
-            Self::Base(b) => b,
-            _ => panic!("layer files are not for base")
-        }
-    }
-
-    pub fn into_child(self) -> ChildLayerFiles<F> {
-        match self {
-            Self::Child(c) => c,
-            _ => panic!("layer files are not for child")
-        }
-    }
 }

@@ -140,7 +140,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         self.name
     }
 
-    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn PredicateObjectPairsForSubject>>> {
+    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
         Box::new(BaseSubjectIterator {
             pos: 0,
             s_p_adjacency_list: self.s_p_adjacency_list.clone(),
@@ -217,12 +217,12 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         }
     }
 
-    fn predicate_object_pairs_for_subject(&self, subject: u64) -> Option<Box<dyn PredicateObjectPairsForSubject>> {
+    fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
         if subject == 0 || subject >= (self.s_p_adjacency_list.left_count() + 1) as u64 {
             None
         }
         else {
-            Some(Box::new(BasePredicateObjectPairsForSubject {
+            Some(Box::new(BaseSubjectLookup {
                 subject: subject,
                 predicates: self.s_p_adjacency_list.get(subject),
                 sp_offset: self.s_p_adjacency_list.offset_for(subject),
@@ -240,9 +240,9 @@ pub struct BaseSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseSubjectIterator<M> {
-    type Item = Box<dyn PredicateObjectPairsForSubject>;
+    type Item = Box<dyn SubjectLookup>;
 
-    fn next(&mut self) -> Option<Box<dyn PredicateObjectPairsForSubject>> {
+    fn next(&mut self) -> Option<Box<dyn SubjectLookup>> {
         if self.pos >= self.s_p_adjacency_list.left_count() as u64 {
             None
         }
@@ -255,7 +255,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseSubjectIterator<M> {
                 self.next()
             }
             else {
-                Some(Box::new(BasePredicateObjectPairsForSubject {
+                Some(Box::new(BaseSubjectLookup {
                     subject,
                     predicates: self.s_p_adjacency_list.get(subject),
                     sp_offset: self.s_p_adjacency_list.offset_for(subject),
@@ -267,19 +267,19 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseSubjectIterator<M> {
 }
 
 #[derive(Clone)]
-pub struct BasePredicateObjectPairsForSubject<M:'static+AsRef<[u8]>+Clone> {
+pub struct BaseSubjectLookup<M:'static+AsRef<[u8]>+Clone> {
     subject: u64,
     predicates: LogArraySlice<M>,
     sp_offset: u64,
     sp_o_adjacency_list: AdjacencyList<M>
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> PredicateObjectPairsForSubject for BasePredicateObjectPairsForSubject<M> {
+impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for BaseSubjectLookup<M> {
     fn subject(&self) -> u64 {
         self.subject
     }
 
-    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectsForSubjectPredicatePair>>> {
+    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
         Box::new(BasePredicateIterator {
             subject: self.subject,
             pos: 0,
@@ -289,11 +289,11 @@ impl<M:'static+AsRef<[u8]>+Clone> PredicateObjectPairsForSubject for BasePredica
         })
     }
 
-    fn objects_for_predicate(&self, predicate: u64) -> Option<Box<dyn ObjectsForSubjectPredicatePair>> {
+    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn SubjectPredicateLookup>> {
         let pos = self.predicates.iter().position(|p| p == predicate);
         match pos {
             None => None,
-            Some(pos) => Some(Box::new(BaseObjectsForSubjectPredicatePair {
+            Some(pos) => Some(Box::new(BaseSubjectPredicateLookup {
                 subject: self.subject,
                 predicate: predicate,
                 objects: self.sp_o_adjacency_list.get(self.sp_offset+(pos as u64)+1)
@@ -312,9 +312,9 @@ pub struct BasePredicateIterator<M:'static+AsRef<[u8]>+Clone> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> Iterator for BasePredicateIterator<M> {
-    type Item = Box<dyn ObjectsForSubjectPredicatePair>;
+    type Item = Box<dyn SubjectPredicateLookup>;
 
-    fn next(&mut self) -> Option<Box<dyn ObjectsForSubjectPredicatePair>> {
+    fn next(&mut self) -> Option<Box<dyn SubjectPredicateLookup>> {
         if self.pos >= self.predicates.len() {
             None
         }
@@ -328,7 +328,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for BasePredicateIterator<M> {
                 self.next()
             }
             else {
-                Some(Box::new(BaseObjectsForSubjectPredicatePair {
+                Some(Box::new(BaseSubjectPredicateLookup {
                     subject: self.subject,
                     predicate,
                     objects
@@ -339,13 +339,13 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for BasePredicateIterator<M> {
 }
 
 #[derive(Clone)]
-pub struct BaseObjectsForSubjectPredicatePair<M:'static+AsRef<[u8]>+Clone> {
+pub struct BaseSubjectPredicateLookup<M:'static+AsRef<[u8]>+Clone> {
     subject: u64,
     predicate: u64,
     objects: LogArraySlice<M>
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> ObjectsForSubjectPredicatePair for BaseObjectsForSubjectPredicatePair<M> {
+impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for BaseSubjectPredicateLookup<M> {
     fn subject(&self) -> u64 {
         self.subject
     }
@@ -949,13 +949,13 @@ mod tests {
     #[test]
     fn predicates_iterator() {
         let layer = example_base_layer();
-        let p1: Vec<_> = layer.predicate_object_pairs_for_subject(1).unwrap().predicates().map(|p|p.predicate()).collect();
+        let p1: Vec<_> = layer.lookup_subject(1).unwrap().predicates().map(|p|p.predicate()).collect();
         assert_eq!(vec![1], p1);
-        let p2: Vec<_> = layer.predicate_object_pairs_for_subject(2).unwrap().predicates().map(|p|p.predicate()).collect();
+        let p2: Vec<_> = layer.lookup_subject(2).unwrap().predicates().map(|p|p.predicate()).collect();
         assert_eq!(vec![1,3], p2);
-        let p3: Vec<_> = layer.predicate_object_pairs_for_subject(3).unwrap().predicates().map(|p|p.predicate()).collect();
+        let p3: Vec<_> = layer.lookup_subject(3).unwrap().predicates().map(|p|p.predicate()).collect();
         assert_eq!(vec![2,3], p3);
-        let p4: Vec<_> = layer.predicate_object_pairs_for_subject(4).unwrap().predicates().map(|p|p.predicate()).collect();
+        let p4: Vec<_> = layer.lookup_subject(4).unwrap().predicates().map(|p|p.predicate()).collect();
         assert_eq!(vec![3], p4);
     }
 
@@ -963,8 +963,8 @@ mod tests {
     fn objects_iterator() {
         let layer = example_base_layer();
         let objects: Vec<_> = layer
-            .predicate_object_pairs_for_subject(2).unwrap()
-            .objects_for_predicate(1).unwrap()
+            .lookup_subject(2).unwrap()
+            .lookup_predicate(1).unwrap()
             .triples().map(|o|o.object).collect();
 
         assert_eq!(vec![1,3], objects);
