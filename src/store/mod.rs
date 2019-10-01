@@ -263,6 +263,7 @@ impl<Labels:'static+LabelStore, Layers:'static+LayerStore> Database<Labels, Laye
 }
 
 /// A store, storing a set of layers and database labels pointing to these layers
+#[derive(Clone)]
 pub struct Store<Labels:'static+LabelStore, Layers:'static+LayerStore> {
     label_store: Labels,
     layer_store: Layers,

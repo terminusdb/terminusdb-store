@@ -35,7 +35,7 @@ impl<Layers:'static+LayerStore> SyncDatabaseLayerBuilder<Layers> {
     }
 
     /// Returns the name of the layer being built
-    fn name(&self) -> [u32;5] {
+    pub fn name(&self) -> [u32;5] {
         self.inner.name()
     }
 
