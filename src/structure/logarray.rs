@@ -109,30 +109,6 @@ impl<M:AsRef<[u8]>+Clone> LogArray<M> {
         64 - self.width as i8 - (index * self.width as usize % 64) as i8
     }
 
-    fn mask_for_index(&self, index:usize) -> (u64, u64) {
-        let shift_for_index = self.shift_for_index(index);
-        if shift_for_index < 0 {
-            let mut m1 = 0xFFFFFFFF;
-            let s1 = 64 - (self.width as i8 + shift_for_index) as u8;
-            m1 <<= s1;
-            m1 >>= s1;
-
-            let mut m2 = 0xFFFFFFFF;
-            let s2 = (64 + shift_for_index) as u8;
-            m2 >>= s2;
-            m2 <<= s2;
-
-            (m1, m2)
-        }
-        else {
-            let mut m = 0xFFFFFFFF;
-            m <<= 64 - self.width;
-            m >>= 64 - (self.width as i8 + shift_for_index) as u8;
-            
-            (m, 0)
-        }
-    }
-
     pub fn entry(&self, index:usize) -> u64 {
         let (n1,n2) = self.nums_for_index(index);
         let shift_for_index = self.shift_for_index(index);
