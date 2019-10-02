@@ -5,4 +5,6 @@ rust:
 
 notifications:
   irc:
-    - "chat.freenode.net##terminusdb"
+    channels:
+      - "chat.freenode.net##terminusdb"
+    on_success: never
