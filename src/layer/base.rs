@@ -9,6 +9,8 @@ use crate::structure::*;
 use crate::storage::file::*;
 use super::layer::*;
 
+use std::sync::Arc;
+
 #[derive(Clone)]
 pub struct BaseLayerFiles<F:FileLoad+FileStore> {
     pub node_dictionary_blocks_file: F,
@@ -138,6 +140,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> BaseLayer<M> {
 impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
     fn name(&self) -> [u32;5] {
         self.name
+    }
+
+    fn parent(&self) -> Option<Arc<dyn Layer>> {
+        None
     }
 
     fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {

@@ -1,5 +1,5 @@
-use crate::layer::layer::{GenericLayer,LayerType};
-use crate::layer::builder::{SimpleLayerBuilder, LayerFiles};
+use crate::layer::layer::{Layer,GenericLayer,LayerType};
+use crate::layer::builder::{LayerBuilder,SimpleLayerBuilder, LayerFiles};
 use crate::layer::base::{BaseLayer,BaseLayerFiles};
 use crate::layer::child::{ChildLayer,ChildLayerFiles};
 use super::file::*;
@@ -16,22 +16,20 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use rand;
 
-pub trait LayerRetriever: 'static+Clone+Send+Sync {
-    type Map: AsRef<[u8]>+Clone+Send+Sync;
-
+pub trait LayerRetriever: 'static+Send+Sync {
     fn layers(&self) -> Box<dyn Future<Item=Vec<[u32;5]>, Error=io::Error>+Send+Sync>;
-    fn get_layer_with_retriever<R:'static+LayerRetriever<Map=Self::Map>>(&self, name: [u32;5], retriever: R) -> Box<dyn Future<Item=Option<Arc<GenericLayer<Self::Map>>>,Error=io::Error>+Send+Sync>;
-    fn get_layer(&self, name: [u32;5]) -> Box<dyn Future<Item=Option<Arc<GenericLayer<Self::Map>>>,Error=io::Error>+Send+Sync> {
-        self.get_layer_with_retriever(name, self.clone())
+    fn get_layer_with_retriever(&self, name: [u32;5], retriever: Box<dyn LayerRetriever>) -> Box<dyn Future<Item=Option<Arc<dyn Layer>>,Error=io::Error>+Send+Sync>;
+    fn boxed_retriever(&self) -> Box<dyn LayerRetriever>;
+    fn get_layer(&self, name: [u32;5]) -> Box<dyn Future<Item=Option<Arc<dyn Layer>>,Error=io::Error>+Send+Sync> {
+        self.get_layer_with_retriever(name, self.boxed_retriever())
     }
 }
 
 pub trait LayerStore: LayerRetriever {
-    type File: FileLoad<Map=<Self as LayerRetriever>::Map>+FileStore+Clone;
-    fn create_base_layer(&self) -> Box<dyn Future<Item=SimpleLayerBuilder<Self::File>, Error=io::Error>+Send+Sync>;
-    fn create_child_layer_with_retriever<R:'static+LayerRetriever<Map=<Self::File as FileLoad>::Map>>(&self, parent: [u32;5], retriever: R) -> Box<dyn Future<Item=SimpleLayerBuilder<Self::File>,Error=io::Error>+Send+Sync>;
-    fn create_child_layer(&self, parent: [u32;5]) -> Box<dyn Future<Item=SimpleLayerBuilder<Self::File>,Error=io::Error>+Send+Sync> {
-        self.create_child_layer_with_retriever(parent, self.clone())
+    fn create_base_layer(&self) -> Box<dyn Future<Item=Box<dyn LayerBuilder>, Error=io::Error>+Send+Sync>;
+    fn create_child_layer_with_retriever(&self, parent: [u32;5], retriever: Box<dyn LayerRetriever>) -> Box<dyn Future<Item=Box<dyn LayerBuilder>,Error=io::Error>+Send+Sync>;
+    fn create_child_layer(&self, parent: [u32;5]) -> Box<dyn Future<Item=Box<dyn LayerBuilder>,Error=io::Error>+Send+Sync> {
+        self.create_child_layer_with_retriever(parent, self.boxed_retriever())
     }
 }
 
@@ -49,13 +47,12 @@ impl MemoryLayerStore {
 }
 
 impl LayerRetriever for MemoryLayerStore {
-    type Map = <MemoryBackedStore as FileLoad>::Map;
     fn layers(&self) -> Box<dyn Future<Item=Vec<[u32;5]>, Error=io::Error>+Send+Sync> {
         Box::new(self.layers.read()
                  .then(|layers|Ok(layers.expect("rwlock read cannot fail").keys().map(|k|k.clone()).collect())))
     }
 
-    fn get_layer_with_retriever<R:'static+LayerRetriever<Map=Self::Map>>(&self, name: [u32;5], retriever: R) -> Box<dyn Future<Item=Option<Arc<GenericLayer<Self::Map>>>,Error=io::Error>+Send+Sync> {
+    fn get_layer_with_retriever(&self, name: [u32;5], retriever: Box<dyn LayerRetriever>) -> Box<dyn Future<Item=Option<Arc<dyn Layer>>,Error=io::Error>+Send+Sync> {
         Box::new(self.layers.read()
                  .then(move |layers| {
                      let layers = layers.expect("rwlock read should always succeed");
@@ -80,7 +77,7 @@ impl LayerRetriever for MemoryLayerStore {
                                                       .map(|layer| GenericLayer::Base(layer)))
                                          };
                                      
-                                     fut.map(|layer| Some(Arc::new(layer)))
+                                     fut.map(|layer| Some(Arc::new(layer) as Arc<dyn Layer>))
                                  }))
                      };
 
@@ -88,12 +85,14 @@ impl LayerRetriever for MemoryLayerStore {
                  }))
 
     }
+
+    fn boxed_retriever(&self) -> Box<dyn LayerRetriever> {
+        Box::new(self.clone())
+    }
 }
 
 impl LayerStore for MemoryLayerStore {
-    type File = MemoryBackedStore;
-
-    fn create_base_layer(&self) -> Box<dyn Future<Item=SimpleLayerBuilder<MemoryBackedStore>,Error=io::Error>+Send+Sync> {
+    fn create_base_layer(&self) -> Box<dyn Future<Item=Box<dyn LayerBuilder>,Error=io::Error>+Send+Sync> {
         let name = rand::random();
 
         let files: Vec<_> = (0..14).map(|_| MemoryBackedStore::new()).collect();
@@ -121,11 +120,11 @@ impl LayerStore for MemoryLayerStore {
         Box::new(self.layers.write()
                  .then(move |layers| {
                      layers.expect("rwlock write should always succeed").insert(name, (None, LayerFiles::Base(blf.clone())));
-                     Ok(SimpleLayerBuilder::new(name, blf))
+                     Ok(Box::new(SimpleLayerBuilder::new(name, blf)) as Box<dyn LayerBuilder>)
                  }))
     }
 
-    fn create_child_layer_with_retriever<R:LayerRetriever<Map=<Self::File as FileLoad>::Map>>(&self, parent: [u32;5], retriever: R) -> Box<dyn Future<Item=SimpleLayerBuilder<Self::File>,Error=io::Error>+Send+Sync> {
+    fn create_child_layer_with_retriever(&self, parent: [u32;5], retriever: Box<dyn LayerRetriever>) -> Box<dyn Future<Item=Box<dyn LayerBuilder>,Error=io::Error>+Send+Sync> {
         let layers = self.layers.clone();
         Box::new(retriever.get_layer(parent)
                  .and_then(|parent_layer| match parent_layer {
@@ -173,7 +172,7 @@ impl LayerStore for MemoryLayerStore {
                      layers.write()
                          .then(move |layers| {
                              layers.expect("rwlock write should always succeed").insert(name, (Some(parent), LayerFiles::Child(clf.clone())));
-                             Ok(SimpleLayerBuilder::from_parent(name, parent_layer, clf))
+                             Ok(Box::new(SimpleLayerBuilder::from_parent(name, parent_layer, clf)) as Box<dyn LayerBuilder>)
                          })
                  }))
     }
@@ -181,7 +180,6 @@ impl LayerStore for MemoryLayerStore {
 
 pub trait PersistentLayerStore : 'static+Send+Sync+Clone {
     type File: FileLoad+FileStore+Clone;
-
     fn directories(&self) -> Box<dyn Future<Item=Vec<[u32; 5]>, Error=io::Error>+Send+Sync>;
     fn create_directory(&self) -> Box<dyn Future<Item=[u32;5], Error=io::Error>+Send+Sync>;
     fn directory_exists(&self, name: [u32; 5]) -> Box<dyn Future<Item=bool,Error=io::Error>+Send+Sync>;
@@ -363,13 +361,11 @@ pub fn bytes_to_name(bytes: &Vec<u8>) -> Result<[u32;5],std::io::Error> {
 }
 
 impl<F:'static+FileLoad+FileStore+Clone,T: 'static+PersistentLayerStore<File=F>> LayerRetriever for T {
-    type Map = F::Map;
-
     fn layers(&self) -> Box<dyn Future<Item=Vec<[u32;5]>, Error=io::Error>+Send+Sync> {
         self.directories()
     }
     
-    fn get_layer_with_retriever<R:LayerRetriever<Map=Self::Map>>(&self, name: [u32;5], retriever: R) -> Box<dyn Future<Item=Option<Arc<GenericLayer<Self::Map>>>,Error=io::Error>+Send+Sync> {
+    fn get_layer_with_retriever(&self, name: [u32;5], retriever: Box<dyn LayerRetriever>) -> Box<dyn Future<Item=Option<Arc<dyn Layer>>,Error=io::Error>+Send+Sync> {
         let cloned = self.clone();
         Box::new(self.directory_exists(name)
                  .and_then(move |b| match b {
@@ -399,21 +395,23 @@ impl<F:'static+FileLoad+FileStore+Clone,T: 'static+PersistentLayerStore<File=F>>
                                           result
                                       }))
                  })
-        .map(|layer| layer.map(|l|Arc::new(l))))
+        .map(|layer| layer.map(|l|Arc::new(l) as Arc<dyn Layer>)))
+    }
+
+    fn boxed_retriever(&self) -> Box<dyn LayerRetriever> {
+        Box::new(self.clone())
     }
 }
 
 impl<F:'static+FileLoad+FileStore+Clone,T: 'static+PersistentLayerStore<File=F>> LayerStore for T {
-    type File = F;
-
-    fn create_base_layer(&self) -> Box<dyn Future<Item=SimpleLayerBuilder<F>,Error=io::Error>+Send+Sync> {
+    fn create_base_layer(&self) -> Box<dyn Future<Item=Box<dyn LayerBuilder>,Error=io::Error>+Send+Sync> {
         let cloned = self.clone();
         Box::new(self.create_directory()
                  .and_then(move |dir_name| cloned.base_layer_files(dir_name)
-                           .map(move |blf| SimpleLayerBuilder::new(dir_name, blf))))
+                           .map(move |blf| Box::new(SimpleLayerBuilder::new(dir_name, blf)) as Box<dyn LayerBuilder>)))
     }
 
-    fn create_child_layer_with_retriever<R:LayerRetriever<Map=<Self::File as FileLoad>::Map>>(&self, parent: [u32;5], retriever: R) -> Box<dyn Future<Item=SimpleLayerBuilder<Self::File>,Error=io::Error>+Send+Sync> {
+    fn create_child_layer_with_retriever(&self, parent: [u32;5], retriever: Box<dyn LayerRetriever>) -> Box<dyn Future<Item=Box<dyn LayerBuilder>,Error=io::Error>+Send+Sync> {
         let cloned = self.clone();
         Box::new(retriever.get_layer(parent)
                  .and_then(|parent_layer|
@@ -425,7 +423,7 @@ impl<F:'static+FileLoad+FileStore+Clone,T: 'static+PersistentLayerStore<File=F>>
                            cloned.create_directory()
                            .and_then(move |dir_name| cloned.write_parent_file(dir_name, parent)
                                      .and_then(move |_| cloned.child_layer_files(dir_name)
-                                               .map(move |clf| SimpleLayerBuilder::from_parent(dir_name, parent_layer, clf))))))
+                                               .map(move |clf| Box::new(SimpleLayerBuilder::from_parent(dir_name, parent_layer, clf)) as Box<dyn LayerBuilder>)))))
     }
 
 }
@@ -445,7 +443,6 @@ impl DirectoryLayerStore {
 
 impl PersistentLayerStore for DirectoryLayerStore {
     type File = FileBackedStore;
-
     fn directories(&self) -> Box<dyn Future<Item=Vec<[u32; 5]>, Error=std::io::Error>+Send+Sync> {
         Box::new(fs::read_dir(self.path.clone()).flatten_stream()
                  .map(|direntry| (direntry.file_name(), direntry))
@@ -500,28 +497,27 @@ impl PersistentLayerStore for DirectoryLayerStore {
 }
 
 #[derive(Clone)]
-pub struct CachedLayerStore<S:LayerStore> {
-    inner: S,
-    cache: RwLock<HashMap<[u32;5],Weak<GenericLayer<S::Map>>>>
+pub struct CachedLayerStore {
+    inner: Arc<dyn LayerStore>,
+    cache: RwLock<HashMap<[u32;5],Weak<dyn Layer>>>
 }
 
 
-impl<S:LayerStore> CachedLayerStore<S> {
-    pub fn new(inner: S) -> CachedLayerStore<S> {
+impl CachedLayerStore {
+    pub fn new<S:LayerStore>(inner: S) -> CachedLayerStore {
         CachedLayerStore {
-            inner,
+            inner: Arc::new(inner),
             cache: RwLock::new(HashMap::new())
         }
     }
 }
 
-impl<S:LayerStore> LayerRetriever for CachedLayerStore<S> {
-    type Map = S::Map;
+impl LayerRetriever for CachedLayerStore {
     fn layers(&self) -> Box<dyn Future<Item=Vec<[u32;5]>, Error=io::Error>+Send+Sync> {
         self.inner.layers()
     }
 
-    fn get_layer_with_retriever<R:'static+LayerRetriever<Map=Self::Map>>(&self, name: [u32;5], retriever: R) -> Box<dyn Future<Item=Option<Arc<GenericLayer<Self::Map>>>,Error=io::Error>+Send+Sync> {
+    fn get_layer_with_retriever(&self, name: [u32;5], retriever: Box<dyn LayerRetriever+>) -> Box<dyn Future<Item=Option<Arc<dyn Layer>>,Error=io::Error>+Send+Sync> {
         let cloned = self.clone();
         Box::new(
             self.cache.read()
@@ -561,15 +557,18 @@ impl<S:LayerStore> LayerRetriever for CachedLayerStore<S> {
                     fut
                 }))
     }
+
+    fn boxed_retriever(&self) -> Box<dyn LayerRetriever> {
+        Box::new(self.clone())
+    }
 }
 
-impl<S:LayerStore> LayerStore for CachedLayerStore<S> {
-    type File = S::File;
-    fn create_base_layer(&self) -> Box<dyn Future<Item=SimpleLayerBuilder<Self::File>, Error=io::Error>+Send+Sync> {
+impl LayerStore for CachedLayerStore {
+    fn create_base_layer(&self) -> Box<dyn Future<Item=Box<dyn LayerBuilder>, Error=io::Error>+Send+Sync> {
         self.inner.create_base_layer()
     }
 
-    fn create_child_layer_with_retriever<R:'static+LayerRetriever<Map=<Self::File as FileLoad>::Map>>(&self, parent: [u32;5], retriever: R) -> Box<dyn Future<Item=SimpleLayerBuilder<Self::File>,Error=io::Error>+Send+Sync> {
+    fn create_child_layer_with_retriever(&self, parent: [u32;5], retriever: Box<dyn LayerRetriever>) -> Box<dyn Future<Item=Box<dyn LayerBuilder>,Error=io::Error>+Send+Sync> {
         self.inner.create_child_layer_with_retriever(parent, retriever)
     }
 }
@@ -579,7 +578,8 @@ pub mod tests {
     use super::*;
     use crate::layer::*;
     use tempfile::tempdir;
-    use tokio::sync::oneshot::channel;
+    use tokio::runtime::Runtime;
+    use futures::sync::oneshot;
     
     #[test]
     fn create_layers_from_memory_store() {
@@ -591,7 +591,7 @@ pub mod tests {
         builder.add_string_triple(&StringTriple::new_value("pig","says","oink"));
         builder.add_string_triple(&StringTriple::new_value("duck","says","quack"));
 
-        builder.commit().wait().unwrap();
+        builder.commit_boxed().wait().unwrap();
 
         builder = store.create_child_layer(base_name).wait().unwrap();
         let child_name = builder.name();
@@ -599,7 +599,7 @@ pub mod tests {
         builder.remove_string_triple(&StringTriple::new_value("duck","says","quack"));
         builder.add_string_triple(&StringTriple::new_node("cow","likes","pig"));
 
-        builder.commit().wait().unwrap();
+        builder.commit_boxed().wait().unwrap();
 
         let layer = store.get_layer(child_name).wait().unwrap().unwrap();
 
@@ -611,8 +611,8 @@ pub mod tests {
     
     #[test]
     fn create_layers_from_directory_store() {
+        let runtime = Runtime::new().unwrap();
         let dir = tempdir().unwrap();
-        let (tx,rx) = channel::<Result<Option<Arc<GenericLayer<SharedMmap>>>,std::io::Error>>();
         let store = DirectoryLayerStore::new(dir.path());
         let task = store.create_base_layer()
             .and_then(|mut builder| {
@@ -622,7 +622,7 @@ pub mod tests {
                 builder.add_string_triple(&StringTriple::new_value("pig","says","oink"));
                 builder.add_string_triple(&StringTriple::new_value("duck","says","quack"));
 
-                builder.commit()
+                builder.commit_boxed()
                     .map(move |_| base_name)
             })
             .and_then(move |base_name| store.create_child_layer(base_name)
@@ -632,15 +632,12 @@ pub mod tests {
                           builder.remove_string_triple(&StringTriple::new_value("duck","says","quack"));
                           builder.add_string_triple(&StringTriple::new_node("cow","likes","pig"));
 
-                          builder.commit()
+                          builder.commit_boxed()
                               .map(move |_| child_name)
                       })
-                      .and_then(move |child_name| store.get_layer(child_name)))
-            .then(|layer| tx.send(layer).map_err(|_|()));
+                      .and_then(move |child_name| store.get_layer(child_name)));
 
-        tokio::run(task);
-
-        let layer = rx.wait().unwrap().unwrap().unwrap();
+        let layer = oneshot::spawn(task, &runtime.executor()).wait().unwrap().unwrap();
 
         assert!(layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
@@ -658,7 +655,7 @@ pub mod tests {
         builder.add_string_triple(&StringTriple::new_value("pig","says","oink"));
         builder.add_string_triple(&StringTriple::new_value("duck","says","quack"));
 
-        builder.commit().wait().unwrap();
+        builder.commit_boxed().wait().unwrap();
 
         builder = store.create_child_layer(base_name).wait().unwrap();
         let child_name = builder.name();
@@ -666,7 +663,7 @@ pub mod tests {
         builder.remove_string_triple(&StringTriple::new_value("duck","says","quack"));
         builder.add_string_triple(&StringTriple::new_node("cow","likes","pig"));
 
-        builder.commit().wait().unwrap();
+        builder.commit_boxed().wait().unwrap();
 
         let layer1 = store.get_layer(child_name).wait().unwrap().unwrap();
         let layer2 = store.get_layer(child_name).wait().unwrap().unwrap();
@@ -687,7 +684,7 @@ pub mod tests {
         builder.add_string_triple(&StringTriple::new_value("pig","says","oink"));
         builder.add_string_triple(&StringTriple::new_value("duck","says","quack"));
 
-        builder.commit().wait().unwrap();
+        builder.commit_boxed().wait().unwrap();
 
         let layer = store.get_layer(base_name).wait().unwrap().unwrap();
         let weak = Arc::downgrade(&layer);

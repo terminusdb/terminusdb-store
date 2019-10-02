@@ -11,9 +11,12 @@ use std::sync::Arc;
 /// A layer can be queried. To answer queries, layers will check their
 /// own data structures, and if they have a parent, the parent is
 /// queried as well.
-pub trait Layer {
+pub trait Layer: Send+Sync {
     /// The name of this layer
     fn name(&self) -> [u32;5];
+
+    /// The parent of this layer, or None if this is a base layer
+    fn parent(&self) -> Option<Arc<dyn Layer>>;
 
     /// The amount of nodes and values known to this layer
     /// This also counts entries in the parent.
@@ -129,6 +132,14 @@ pub trait Layer {
                                     object
                                 })))
     }
+
+    /// Returns true if the given layer is an ancestor of this layer, false otherwise
+    fn is_ancestor_of(&self, other: &dyn Layer) -> bool {
+        match other.parent() {
+            None => false,
+            Some(parent) => parent.name() == self.name() || self.is_ancestor_of(&*parent)
+        }
+    }
 }
 
 /// The type of a layer - either base or child
@@ -145,29 +156,18 @@ pub enum GenericLayer<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
     Child(ChildLayer<M>)
 }
 
-impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> GenericLayer<M> {
-    /// The parent of this layer, or None if this is a base layer
-    pub fn parent(&self) -> Option<Arc<GenericLayer<M>>> {
-        match self {
-            Self::Base(_) => None,
-            Self::Child(c) => Some(c.parent())
-        }
-    }
-
-    /// Returns true if the given layer is an ancestor of this layer, false otherwise
-    pub fn is_ancestor_of(&self, other: &GenericLayer<M>) -> bool {
-        match other.parent() {
-            None => false,
-            Some(parent) => parent.name() == self.name() || self.is_ancestor_of(&parent)
-        }
-    }
-}
-
 impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for GenericLayer<M> {
     fn name(&self) -> [u32;5] {
         match self {
             Self::Base(b) => b.name(),
             Self::Child(c) => c.name()
+        }
+    }
+
+    fn parent(&self) -> Option<Arc<dyn Layer>> {
+        match self {
+            Self::Base(_b) => None,
+            Self::Child(c) => c.parent()
         }
     }
 

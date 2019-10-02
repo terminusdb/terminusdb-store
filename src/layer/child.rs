@@ -158,7 +158,7 @@ impl<F:FileLoad+FileStore+Clone> ChildLayerFiles<F> {
 #[derive(Clone)]
 pub struct ChildLayer<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
     name: [u32;5],
-    parent: Arc<GenericLayer<M>>,
+    parent: Arc<dyn Layer>,
 
     node_dictionary: PfcDict<M>,
     predicate_dictionary: PfcDict<M>,
@@ -174,13 +174,13 @@ pub struct ChildLayer<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> ChildLayer<M> {
-    pub fn load_from_files<F:FileLoad<Map=M>+FileStore+Clone>(name: [u32;5], parent: Arc<GenericLayer<M>>, files: &ChildLayerFiles<F>) -> impl Future<Item=Self,Error=std::io::Error> {
+    pub fn load_from_files<F:FileLoad<Map=M>+FileStore+Clone>(name: [u32;5], parent: Arc<dyn Layer>, files: &ChildLayerFiles<F>) -> impl Future<Item=Self,Error=std::io::Error> {
         files.map_all()
             .map(move |maps| Self::load(name, parent, maps))
     }
 
     pub fn load(name: [u32;5],
-                parent: Arc<GenericLayer<M>>,
+                parent: Arc<dyn Layer>,
                 maps: ChildLayerMaps<M>) -> ChildLayer<M> {
         let node_dictionary = PfcDict::parse(maps.node_dictionary_blocks_map, maps.node_dictionary_offsets_map).unwrap();
         let predicate_dictionary = PfcDict::parse(maps.predicate_dictionary_blocks_map, maps.predicate_dictionary_offsets_map).unwrap();
@@ -213,15 +213,15 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> ChildLayer<M> {
             neg_sp_o_adjacency_list,
         }
     }
-
-    pub fn parent(&self) -> Arc<GenericLayer<M>> {
-        self.parent.clone()
-    }
 }
 
 impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
     fn name(&self) -> [u32;5] {
         self.name
+    }
+
+    fn parent(&self) -> Option<Arc<dyn Layer>> {
+        Some(self.parent.clone())
     }
 
     fn node_and_value_count(&self) -> usize {
@@ -774,7 +774,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildObjectIterator<M> {
 }
 
 pub struct ChildLayerFileBuilder<F:'static+FileLoad+FileStore+Send+Sync> {
-    parent: Arc<GenericLayer<F::Map>>,
+    parent: Arc<dyn Layer>,
     node_dictionary_files: DictionaryFiles<F>,
     predicate_dictionary_files: DictionaryFiles<F>,
     value_dictionary_files: DictionaryFiles<F>,
@@ -794,7 +794,7 @@ pub struct ChildLayerFileBuilder<F:'static+FileLoad+FileStore+Send+Sync> {
 }
 
 impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
-    pub fn from_files(parent: Arc<GenericLayer<F::Map>>, files: &ChildLayerFiles<F>) -> Self {
+    pub fn from_files(parent: Arc<dyn Layer>, files: &ChildLayerFiles<F>) -> Self {
         Self::new(parent,
                   files.node_dictionary_blocks_file.clone(),
                   files.node_dictionary_offsets_file.clone(),
@@ -829,7 +829,7 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
                   files.neg_sp_o_adjacency_list_nums_file.clone())
     }
 
-    pub fn new(parent: Arc<GenericLayer<F::Map>>,
+    pub fn new(parent: Arc<dyn Layer>,
                node_dictionary_blocks_file: F,
                node_dictionary_offsets_file: F,
 
@@ -1197,7 +1197,7 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
 }
 
 pub struct ChildLayerFileBuilderPhase2<F:'static+FileLoad+FileStore> {
-    parent: Arc<GenericLayer<F::Map>>,
+    parent: Arc<dyn Layer>,
 
     pos_subjects_file: F,
     neg_subjects_file: F,
@@ -1216,7 +1216,7 @@ pub struct ChildLayerFileBuilderPhase2<F:'static+FileLoad+FileStore> {
 }
 
 impl<F:'static+FileLoad+FileStore> ChildLayerFileBuilderPhase2<F> {
-    fn new(parent: Arc<GenericLayer<F::Map>>,
+    fn new(parent: Arc<dyn Layer>,
            pos_subjects_file: F,
            neg_subjects_file: F,
 

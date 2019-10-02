@@ -9,8 +9,8 @@ use futures::sync::oneshot;
 
 use std::io;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use crate::storage::{LabelStore, LayerStore, MemoryLabelStore, MemoryLayerStore, DirectoryLabelStore, DirectoryLayerStore, CachedLayerStore};
 use crate::layer::{Layer,ObjectType,StringTriple,IdTriple,SubjectLookup};
 use crate::store::{Store, Database, DatabaseLayer, DatabaseLayerBuilder, open_memory_store, open_directory_store};
 
@@ -22,13 +22,13 @@ use crate::store::{Store, Database, DatabaseLayer, DatabaseLayerBuilder, open_me
 /// to synchronize access to it between threads. Also, rather than
 /// consuming itself on commit, this wrapper will simply mark itself
 /// as having committed, returning errors on further calls.
-pub struct SyncDatabaseLayerBuilder<Layers:'static+LayerStore> {
-    inner: DatabaseLayerBuilder<Layers>,
+pub struct SyncDatabaseLayerBuilder {
+    inner: DatabaseLayerBuilder,
     executor: TaskExecutor
 }
 
-impl<Layers:'static+LayerStore> SyncDatabaseLayerBuilder<Layers> {
-    fn wrap(inner: DatabaseLayerBuilder<Layers>, executor: TaskExecutor) -> Self {
+impl SyncDatabaseLayerBuilder {
+    fn wrap(inner: DatabaseLayerBuilder, executor: TaskExecutor) -> Self {
         SyncDatabaseLayerBuilder {
             inner, executor
         }
@@ -60,7 +60,7 @@ impl<Layers:'static+LayerStore> SyncDatabaseLayerBuilder<Layers> {
     }
 
     /// Commit the layer to storage
-    pub fn commit(&self) -> Result<SyncDatabaseLayer<Layers>,io::Error> {
+    pub fn commit(&self) -> Result<SyncDatabaseLayer,io::Error> {
         let executor = self.executor.clone();
         let inner = oneshot::spawn(self.inner.commit(), &self.executor).wait();
 
@@ -69,29 +69,33 @@ impl<Layers:'static+LayerStore> SyncDatabaseLayerBuilder<Layers> {
 }
 
 /// A layer that keeps track of the store it came out of, allowing the creation of a layer builder on top of this layer
-pub struct SyncDatabaseLayer<Layers:'static+LayerStore> {
-    inner: DatabaseLayer<Layers>,
+pub struct SyncDatabaseLayer {
+    inner: DatabaseLayer,
     executor: TaskExecutor
 }
 
-impl<Layers:'static+LayerStore> SyncDatabaseLayer<Layers> {
-    fn wrap(inner: DatabaseLayer<Layers>, executor: TaskExecutor) -> Self {
+impl SyncDatabaseLayer {
+    fn wrap(inner: DatabaseLayer, executor: TaskExecutor) -> Self {
         Self {
             inner, executor
         }
     }
 
     /// Create a layer builder based on this layer
-    pub fn open_write(&self) -> Result<SyncDatabaseLayerBuilder<Layers>,io::Error> {
+    pub fn open_write(&self) -> Result<SyncDatabaseLayerBuilder,io::Error> {
         let inner = oneshot::spawn(self.inner.open_write(), &self.executor).wait();
 
         inner.map(|i|SyncDatabaseLayerBuilder::wrap(i, self.executor.clone()))
     }
 }
 
-impl<Layers:'static+LayerStore> Layer for SyncDatabaseLayer<Layers> {
+impl Layer for SyncDatabaseLayer {
     fn name(&self) -> [u32;5] {
         self.inner.name()
+    }
+
+    fn parent(&self) -> Option<Arc<dyn Layer>> {
+        self.inner.parent()
     }
 
     fn node_and_value_count(&self) -> usize {
@@ -145,40 +149,40 @@ impl<Layers:'static+LayerStore> Layer for SyncDatabaseLayer<Layers> {
 /// a layer. Opening a read transaction to a database is just getting
 /// hold of the layer it points at, as layers are read-only. Writing
 /// to a database is just making it point to a new layer.
-pub struct SyncDatabase<Labels:'static+LabelStore, Layers:'static+LayerStore> {
-    inner: Database<Labels, Layers>,
+pub struct SyncDatabase {
+    inner: Database,
     executor: TaskExecutor
 }
 
-impl<Labels:'static+LabelStore, Layers:'static+LayerStore> SyncDatabase<Labels, Layers> {
-    fn wrap(inner: Database<Labels, Layers>, executor: TaskExecutor) -> Self {
+impl SyncDatabase {
+    fn wrap(inner: Database, executor: TaskExecutor) -> Self {
         Self {
             inner, executor
         }
     }
 
     /// Returns the layer this database points at
-    pub fn head(&self) -> Result<Option<SyncDatabaseLayer<Layers>>,io::Error> {
+    pub fn head(&self) -> Result<Option<SyncDatabaseLayer>,io::Error> {
         let inner = oneshot::spawn(self.inner.head(), &self.executor).wait();
 
         inner.map(|i|i.map(|i|SyncDatabaseLayer::wrap(i, self.executor.clone())))
     }
 
     /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise
-    pub fn set_head(&self, layer: &SyncDatabaseLayer<Layers>) -> Result<bool, io::Error> {
+    pub fn set_head(&self, layer: &SyncDatabaseLayer) -> Result<bool, io::Error> {
         oneshot::spawn(self.inner.set_head(&layer.inner), &self.executor).wait()
     }
 }
 
 /// A store, storing a set of layers and database labels pointing to these layers
-pub struct SyncStore<Labels:'static+LabelStore, Layers:'static+LayerStore> {
-    inner: Store<Labels, Layers>,
+pub struct SyncStore {
+    inner: Store,
     runtime: Runtime
 }
 
-impl<Labels:'static+LabelStore, Layers:'static+LayerStore> SyncStore<Labels, Layers> {
+impl SyncStore {
     /// wrap an asynchronous `Store`, running all futures on the given tokio runtime
-    pub fn wrap(inner: Store<Labels, Layers>, runtime: Runtime) -> Self {
+    pub fn wrap(inner: Store, runtime: Runtime) -> Self {
         Self {
             inner, runtime
         }
@@ -187,14 +191,14 @@ impl<Labels:'static+LabelStore, Layers:'static+LayerStore> SyncStore<Labels, Lay
     /// Create a new database with the given name
     ///
     /// If the database already exists, this will return an error
-    pub fn create(&self, label: &str) -> Result<SyncDatabase<Labels,Layers>,io::Error> {
+    pub fn create(&self, label: &str) -> Result<SyncDatabase,io::Error> {
         let inner = oneshot::spawn(self.inner.create(label), &self.runtime.executor()).wait();
 
         inner.map(|i| SyncDatabase::wrap(i, self.runtime.executor()))
     }
 
     /// Open an existing database with the given name, or None if it does not exist
-    pub fn open(&self, label: &str) -> Result<Option<SyncDatabase<Labels,Layers>>,io::Error> {
+    pub fn open(&self, label: &str) -> Result<Option<SyncDatabase>,io::Error> {
         let inner = oneshot::spawn(self.inner.open(label), &self.runtime.executor()).wait();
 
         inner.map(|i| i.map(|i|SyncDatabase::wrap(i, self.runtime.executor())))
@@ -203,7 +207,7 @@ impl<Labels:'static+LabelStore, Layers:'static+LayerStore> SyncStore<Labels, Lay
     /// Create a base layer builder, unattached to any database label
     ///
     /// After having committed it, use `set_head` on a `Database` to attach it.
-    pub fn create_base_layer(&self) -> Result<SyncDatabaseLayerBuilder<Layers>,io::Error> {
+    pub fn create_base_layer(&self) -> Result<SyncDatabaseLayerBuilder,io::Error> {
         let inner = oneshot::spawn(self.inner.create_base_layer(), &self.runtime.executor()).wait();
 
         inner.map(|i| SyncDatabaseLayerBuilder::wrap(i, self.runtime.executor()))
@@ -213,12 +217,12 @@ impl<Labels:'static+LabelStore, Layers:'static+LayerStore> SyncStore<Labels, Lay
 /// Open a store that is entirely in memory
 ///
 /// This is useful for testing purposes, or if the database is only going to be used for caching purposes
-pub fn open_sync_memory_store() -> SyncStore<MemoryLabelStore, CachedLayerStore<MemoryLayerStore>> {
+pub fn open_sync_memory_store() -> SyncStore {
     SyncStore::wrap(open_memory_store(), Runtime::new().unwrap())
 }
 
 /// Open a store that stores its data in the given directory
-pub fn open_sync_directory_store<P:Into<PathBuf>>(path: P) -> SyncStore<DirectoryLabelStore, CachedLayerStore<DirectoryLayerStore>> {
+pub fn open_sync_directory_store<P:Into<PathBuf>>(path: P) -> SyncStore {
     SyncStore::wrap(open_directory_store(path), Runtime::new().unwrap())
 }
 

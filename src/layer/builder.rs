@@ -21,7 +21,7 @@ use std::sync::Arc;
 ///
 /// Lack of generic types allows layer builders with different storage
 /// backends to be handled by trait objects of this type.
-pub trait LayerBuilder {
+pub trait LayerBuilder: Send+Sync {
     /// Returns the name of the layer being built
     fn name(&self) -> [u32;5];
     /// Add a string triple
@@ -34,6 +34,9 @@ pub trait LayerBuilder {
     fn remove_id_triple(&mut self, triple: IdTriple) -> bool;
     /// Commit the layer to storage
     fn commit(self) -> Box<dyn Future<Item=(), Error=std::io::Error>+Send+Sync>;
+    /// Commit a boxed layer to storage
+    fn commit_boxed(self: Box<Self>) -> Box<dyn Future<Item=(), Error=std::io::Error>+Send+Sync>;
+    
 }
 
 /// A layer builder
@@ -43,7 +46,7 @@ pub trait LayerBuilder {
 #[derive(Clone)]
 pub struct SimpleLayerBuilder<F:'static+FileLoad+FileStore+Clone> {
     name: [u32;5],
-    parent: Option<Arc<GenericLayer<F::Map>>>,
+    parent: Option<Arc<dyn Layer>>,
     files: LayerFiles<F>,
     additions: BTreeSet<PartiallyResolvedTriple>,
     removals: BTreeSet<IdTriple>, // always resolved!
@@ -62,7 +65,7 @@ impl<F:'static+FileLoad+FileStore+Clone> SimpleLayerBuilder<F> {
     }
 
     /// Construct a layer builder for a child layer
-    pub fn from_parent(name: [u32;5], parent: Arc<GenericLayer<F::Map>>, files: ChildLayerFiles<F>) -> Self {
+    pub fn from_parent(name: [u32;5], parent: Arc<dyn Layer>, files: ChildLayerFiles<F>) -> Self {
         Self {
             name,
             parent: Some(parent),
@@ -232,6 +235,11 @@ impl<F:'static+FileLoad+FileStore+Clone> LayerBuilder for SimpleLayerBuilder<F> 
                          }))
             }
         }
+    }
+
+    fn commit_boxed(self: Box<Self>) -> Box<dyn Future<Item=(), Error=std::io::Error>+Send+Sync> {
+        let builder = *self;
+        builder.commit()
     }
 }
 
