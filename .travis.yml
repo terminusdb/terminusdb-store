@@ -2,3 +2,7 @@ language: rust
 
 rust:
   - stable
+
+notifications:
+  irc:
+    - "chat.freenode.net##terminusdb"
