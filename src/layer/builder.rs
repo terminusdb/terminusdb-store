@@ -330,7 +330,7 @@ mod tests {
         }
     }
 
-    fn example_base_layer() -> Arc<GenericLayer<<MemoryBackedStore as FileLoad>::Map>> {
+    fn example_base_layer() -> Arc<dyn Layer> {
         let name = [1,2,3,4,5];
         let files = new_base_files();
         let mut builder = SimpleLayerBuilder::new(name, files.clone());
@@ -342,7 +342,7 @@ mod tests {
         builder.commit().wait().unwrap();
 
         let layer = BaseLayer::load_from_files(name, &files).wait().unwrap();
-        Arc::new(GenericLayer::Base(layer))
+        Arc::new(layer)
     }
 
     #[test]
@@ -366,7 +366,7 @@ mod tests {
         builder.remove_string_triple(&StringTriple::new_value("duck", "says", "quack"));
 
         builder.commit().wait().unwrap();
-        let child_layer = Arc::new(GenericLayer::Child(ChildLayer::load_from_files(name, base_layer, &files).wait().unwrap()));
+        let child_layer = Arc::new(ChildLayer::load_from_files(name, base_layer, &files).wait().unwrap());
 
         assert!(child_layer.string_triple_exists(&StringTriple::new_value("horse", "says", "neigh")));
         assert!(child_layer.string_triple_exists(&StringTriple::new_node("horse", "likes", "cow")));
@@ -387,7 +387,7 @@ mod tests {
         builder.remove_string_triple(&StringTriple::new_value("duck", "says", "quack"));
 
         builder.commit().wait().unwrap();
-        let layer2 = Arc::new(GenericLayer::Child(ChildLayer::load_from_files(name2, base_layer, &files2).wait().unwrap()));
+        let layer2 = Arc::new(ChildLayer::load_from_files(name2, base_layer, &files2).wait().unwrap());
 
         let name3 = [0,0,0,0,1];
         let files3 = new_child_files();
@@ -397,7 +397,7 @@ mod tests {
         builder.add_string_triple(&StringTriple::new_value("duck", "says", "quack"));
 
         builder.commit().wait().unwrap();
-        let layer3 = Arc::new(GenericLayer::Child(ChildLayer::load_from_files(name3, layer2, &files3).wait().unwrap()));
+        let layer3 = Arc::new(ChildLayer::load_from_files(name3, layer2, &files3).wait().unwrap());
 
         let name4 = [0,0,0,0,1];
         let files4 = new_child_files();
@@ -405,7 +405,7 @@ mod tests {
         builder.remove_string_triple(&StringTriple::new_value("pig", "says", "oink"));
         builder.add_string_triple(&StringTriple::new_node("cow", "likes", "horse"));
         builder.commit().wait().unwrap();
-        let layer4 = Arc::new(GenericLayer::Child(ChildLayer::load_from_files(name4, layer3, &files4).wait().unwrap()));
+        let layer4 = Arc::new(ChildLayer::load_from_files(name4, layer3, &files4).wait().unwrap());
 
         assert!(layer4.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(layer4.string_triple_exists(&StringTriple::new_value("duck", "says", "quack")));

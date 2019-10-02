@@ -1,4 +1,4 @@
-use crate::layer::layer::{Layer,GenericLayer,LayerType};
+use crate::layer::layer::{Layer,LayerType};
 use crate::layer::builder::{LayerBuilder,SimpleLayerBuilder, LayerFiles};
 use crate::layer::base::{BaseLayer,BaseLayerFiles};
 use crate::layer::child::{ChildLayer,ChildLayerFiles};
@@ -71,13 +71,12 @@ impl LayerRetriever for MemoryLayerStore {
                                                           Some(p) => Ok(p)
                                                       })
                                                       .and_then(move |parent| ChildLayer::load_from_files(name, parent, &files))
-                                                      .map(|layer| GenericLayer::Child(layer)))
+                                                      .map(|layer| Some(Arc::new(layer) as Arc<dyn Layer>)))
                                          } else {
                                              Box::new(BaseLayer::load_from_files(name, &files.clone().into_base())
-                                                      .map(|layer| GenericLayer::Base(layer)))
+                                                      .map(|layer| Some(Arc::new(layer) as Arc<dyn Layer>)))
                                          };
-                                     
-                                     fut.map(|layer| Some(Arc::new(layer) as Arc<dyn Layer>))
+                                     fut
                                  }))
                      };
 
@@ -376,11 +375,11 @@ impl<F:'static+FileLoad+FileStore+Clone,T: 'static+PersistentLayerStore<File=F>>
                      },
                      true => Box::new(cloned.layer_type(name)
                                       .and_then(move |t| {
-                                          let result: Box<dyn Future<Item=Option<GenericLayer<<F as FileLoad>::Map>>,Error=io::Error>+Send+Sync> =
+                                          let result: Box<dyn Future<Item=Option<Arc<dyn Layer>>,Error=io::Error>+Send+Sync> =
                                               match t {
                                                   LayerType::Base => Box::new(cloned.base_layer_files(name)
                                                                               .and_then(move |blf| BaseLayer::load_from_files(name, &blf))
-                                                                              .map(|bl| Some(GenericLayer::Base(bl)))),
+                                                                              .map(|bl| Some(Arc::new(bl) as Arc<dyn Layer>))),
                                                   LayerType::Child => Box::new(cloned.read_parent_file(name)
                                                                                .and_then(move |parent_name| retriever.get_layer(parent_name)
                                                                                          .and_then(|parent_layer| match parent_layer {
@@ -389,13 +388,12 @@ impl<F:'static+FileLoad+FileStore+Clone,T: 'static+PersistentLayerStore<File=F>>
                                                                                          })
                                                                                          .and_then(move |parent_layer| cloned.child_layer_files(name)
                                                                                                    .and_then(move |clf| ChildLayer::load_from_files(name, parent_layer, &clf))))
-                                                                               .map(|cl| Some(GenericLayer::Child(cl))))
+                                                                               .map(|cl| Some(Arc::new(cl) as Arc<dyn Layer>)))
                                               };
 
                                           result
                                       }))
-                 })
-        .map(|layer| layer.map(|l|Arc::new(l) as Arc<dyn Layer>)))
+                 }))
     }
 
     fn boxed_retriever(&self) -> Box<dyn LayerRetriever> {

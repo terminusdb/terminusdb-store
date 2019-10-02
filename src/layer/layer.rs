@@ -1,6 +1,4 @@
 //! Common data structures and traits for all layer types
-use super::base::*;
-use super::child::*;
 use crate::storage::file::*;
 use std::hash::Hash;
 use std::collections::HashMap;
@@ -147,106 +145,6 @@ pub trait Layer: Send+Sync {
 pub enum LayerType {
     Base,
     Child
-}
-
-/// A wrapper over base and child layer
-#[derive(Clone)]
-pub enum GenericLayer<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
-    Base(BaseLayer<M>),
-    Child(ChildLayer<M>)
-}
-
-impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for GenericLayer<M> {
-    fn name(&self) -> [u32;5] {
-        match self {
-            Self::Base(b) => b.name(),
-            Self::Child(c) => c.name()
-        }
-    }
-
-    fn parent(&self) -> Option<Arc<dyn Layer>> {
-        match self {
-            Self::Base(_b) => None,
-            Self::Child(c) => c.parent()
-        }
-    }
-
-    fn node_and_value_count(&self) -> usize {
-        match self {
-            Self::Base(b) => b.node_and_value_count(),
-            Self::Child(c) => c.node_and_value_count()
-        }
-    }
-
-    fn predicate_count(&self) -> usize {
-        match self {
-            Self::Base(b) => b.predicate_count(),
-            Self::Child(c) => c.predicate_count()
-        }
-    }
-
-    fn subject_id(&self, subject: &str) -> Option<u64> {
-        match self {
-            Self::Base(b) => b.subject_id(subject),
-            Self::Child(c) => c.subject_id(subject)
-        }
-    }
-
-    fn predicate_id(&self, predicate: &str) -> Option<u64> {
-        match self {
-            Self::Base(b) => b.predicate_id(predicate),
-            Self::Child(c) => c.predicate_id(predicate)
-        }
-    }
-
-    fn object_node_id(&self, node: &str) -> Option<u64> {
-        match self {
-            Self::Base(b) => b.object_node_id(node),
-            Self::Child(c) => c.object_node_id(node)
-        }
-    }
-
-    fn object_value_id(&self, value: &str) -> Option<u64> {
-        match self {
-            Self::Base(b) => b.object_value_id(value),
-            Self::Child(c) => c.object_value_id(value)
-        }
-    }
-
-    fn id_subject(&self, id: u64) -> Option<String> {
-        match self {
-            Self::Base(b) => b.id_subject(id),
-            Self::Child(c) => c.id_subject(id)
-        }
-    }
-
-    fn id_predicate(&self, id: u64) -> Option<String> {
-        match self {
-            Self::Base(b) => b.id_predicate(id),
-            Self::Child(c) => c.id_predicate(id)
-        }
-    }
-
-    fn id_object(&self, id: u64) -> Option<ObjectType> {
-        match self {
-            Self::Base(b) => b.id_object(id),
-            Self::Child(c) => c.id_object(id)
-        }
-    }
-
-    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
-        match self {
-            Self::Base(b) => b.subjects(),
-            Self::Child(c) => c.subjects()
-        }
-    }
-
-    fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
-        match self {
-            Self::Base(b) => b.lookup_subject(subject),
-            Self::Child(c) => c.lookup_subject(subject),
-        }
-    }
 }
 
 /// A trait that caches a lookup in a layer by subject

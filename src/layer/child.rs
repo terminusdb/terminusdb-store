@@ -1605,7 +1605,7 @@ mod tests {
     fn empty_child_layer_equivalent_to_parent() {
         let base_layer = example_base_layer();
 
-        let parent = Arc::new(GenericLayer::Base(base_layer));
+        let parent = Arc::new(base_layer);
 
         let child_files = example_child_files();
 
@@ -1630,7 +1630,7 @@ mod tests {
     fn child_layer_can_have_inserts() {
         let base_layer = example_base_layer();
 
-        let parent = Arc::new(GenericLayer::Base(base_layer));
+        let parent = Arc::new(base_layer);
 
         let child_files = example_child_files();
 
@@ -1659,7 +1659,7 @@ mod tests {
     fn child_layer_can_have_deletes() {
         let base_layer = example_base_layer();
 
-        let parent = Arc::new(GenericLayer::Base(base_layer));
+        let parent = Arc::new(base_layer);
 
         let child_files = example_child_files();
 
@@ -1685,7 +1685,7 @@ mod tests {
     #[test]
     fn child_layer_can_have_inserts_and_deletes() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(GenericLayer::Base(base_layer));
+        let parent = Arc::new(base_layer);
 
         let child_files = example_child_files();
 
@@ -1714,7 +1714,7 @@ mod tests {
     #[test]
     fn iterate_child_layer_triples() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(GenericLayer::Base(base_layer));
+        let parent = Arc::new(base_layer);
 
         let child_files = example_child_files();
 
@@ -1744,7 +1744,7 @@ mod tests {
     #[test]
     fn adding_new_nodes_predicates_and_values_in_child() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(GenericLayer::Base(base_layer));
+        let parent = Arc::new(base_layer);
 
         let child_files = example_child_files();
 
@@ -1763,7 +1763,7 @@ mod tests {
     #[test]
     fn old_dictionary_entries_in_child() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(GenericLayer::Base(base_layer));
+        let parent = Arc::new(base_layer);
 
         let child_files = example_child_files();
 
@@ -1791,7 +1791,7 @@ mod tests {
     #[test]
     fn new_dictionary_entries_in_child() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(GenericLayer::Base(base_layer));
+        let parent = Arc::new(base_layer);
 
         let child_files = example_child_files();
 
