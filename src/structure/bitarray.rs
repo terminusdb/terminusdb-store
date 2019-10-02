@@ -4,6 +4,7 @@ use tokio::prelude::*;
 use tokio::codec::{FramedRead,Decoder};
 use bytes::BytesMut;
 use super::util::*;
+use crate::storage::*;
 
 #[derive(Clone)]
 pub struct BitArray<M:AsRef<[u8]>+Clone> {
@@ -144,8 +145,35 @@ impl Decoder for BitArrayBlockDecoder {
     }
 }
 
-pub fn bitarray_stream_blocks<R:'static+AsyncRead>(r: R) -> FramedRead<R, BitArrayBlockDecoder> {
+pub fn bitarray_stream_blocks<R:AsyncRead>(r: R) -> FramedRead<R, BitArrayBlockDecoder> {
     FramedRead::new(r, BitArrayBlockDecoder { readahead: None })
+}
+
+fn bitarray_count_from_file<F:FileLoad>(f: F) -> impl Future<Item=u64, Error=std::io::Error> {
+    let offset = f.size() - 8;
+    tokio::io::read_exact(f.open_read_from(offset), vec![0;8])
+        .map(|(_,buf)| BigEndian::read_u64(&buf))
+}
+
+fn block_bits(block: u64) -> Vec<bool> {
+    let mut mask = 0x8000000000000000;
+    let mut result = Vec::with_capacity(64);
+    for _ in 0..64 {
+        result.push(block & mask != 0);
+        mask >>= 1;
+    }
+
+    result
+}
+
+pub fn bitarray_stream_bits<F:FileLoad+Clone>(f: F) -> impl Stream<Item=bool, Error=std::io::Error> {
+    bitarray_count_from_file(f.clone())
+        .into_stream()
+        .map(move |count| bitarray_stream_blocks(f.open_read())
+             .map(|block| stream::iter_ok(block_bits(block).into_iter()))
+             .flatten()
+             .take(count))
+        .flatten()
 }
 
 #[cfg(test)]
@@ -210,5 +238,22 @@ mod tests {
         let stream = bitarray_stream_blocks(x.open_read());
 
         stream.for_each(|block| Ok(assert_eq!(0x4444444444444444, block))).wait().unwrap();
+    }
+
+    #[test]
+    fn stream_bits() {
+        let x = MemoryBackedStore::new();
+        let contents: Vec<_> = (0..).map(|n| n % 4 == 1).take(123).collect();
+
+
+        let builder = BitArrayFileBuilder::new(x.open_write());
+        let _written = builder.push_all(stream::iter_ok(contents.clone()))
+            .and_then(|b|b.finalize())
+            .wait()
+            .unwrap();
+
+        let result = bitarray_stream_bits(x).collect().wait().unwrap();
+
+        assert_eq!(contents, result);
     }
 }
