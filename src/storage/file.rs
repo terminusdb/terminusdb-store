@@ -8,7 +8,7 @@ use std::io::{self,Seek, SeekFrom};
 use std::path::PathBuf;
 use memmap::*;
 
-pub trait FileStore: Send+Sync {
+pub trait FileStore: Clone+Send+Sync {
     type Write: AsyncWrite+Send+Sync;
     fn open_write(&self) -> Self::Write {
         self.open_write_from(0)
@@ -16,7 +16,7 @@ pub trait FileStore: Send+Sync {
     fn open_write_from(&self, offset: usize) -> Self::Write;
 }
 
-pub trait FileLoad: Send+Sync {
+pub trait FileLoad: Clone+Send+Sync {
     type Read: AsyncRead+Send+Sync;
     type Map: AsRef<[u8]>+Clone+Send+Sync;
     

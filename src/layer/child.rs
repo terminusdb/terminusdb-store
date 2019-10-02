@@ -1188,7 +1188,7 @@ mod tests {
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
 
-        let files: Vec<_> = (0..14).map(|_| MemoryBackedStore::new()).collect();
+        let files: Vec<_> = (0..18).map(|_| MemoryBackedStore::new()).collect();
         let base_layer_files = BaseLayerFiles {
             node_dictionary_files: DictionaryFiles {
                 blocks_file: files[0].clone(),
@@ -1213,6 +1213,12 @@ mod tests {
                 blocks_file: files[11].clone(),
                 sblocks_file: files[12].clone(),
                 nums_file: files[13].clone()
+            },
+            o_ps_adjacency_list_files: AdjacencyListFiles {
+                bits_file: files[14].clone(),
+                blocks_file: files[15].clone(),
+                sblocks_file: files[16].clone(),
+                nums_file: files[17].clone()
             },
         };
 

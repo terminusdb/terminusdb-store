@@ -10,6 +10,7 @@ use crate::storage::file::*;
 use super::layer::*;
 
 use std::sync::Arc;
+use std::collections::BTreeSet;
 
 #[derive(Clone)]
 pub struct BaseLayerFiles<F:'static+FileLoad+FileStore> {
@@ -18,7 +19,9 @@ pub struct BaseLayerFiles<F:'static+FileLoad+FileStore> {
     pub value_dictionary_files: DictionaryFiles<F>,
 
     pub s_p_adjacency_list_files: AdjacencyListFiles<F>,
-    pub sp_o_adjacency_list_files: AdjacencyListFiles<F>
+    pub sp_o_adjacency_list_files: AdjacencyListFiles<F>,
+
+    pub o_ps_adjacency_list_files: AdjacencyListFiles<F>
 }
 
 #[derive(Clone)]
@@ -28,7 +31,9 @@ pub struct BaseLayerMaps<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
     pub value_dictionary_maps: DictionaryMaps<M>,
 
     pub s_p_adjacency_list_maps: AdjacencyListMaps<M>,
-    pub sp_o_adjacency_list_maps: AdjacencyListMaps<M>
+    pub sp_o_adjacency_list_maps: AdjacencyListMaps<M>,
+
+    pub o_ps_adjacency_list_maps: AdjacencyListMaps<M>
 }
 
 impl<F:FileLoad+FileStore> BaseLayerFiles<F> {
@@ -38,7 +43,8 @@ impl<F:FileLoad+FileStore> BaseLayerFiles<F> {
                              self.value_dictionary_files.map_all()];
 
         let aj_futs = vec![self.s_p_adjacency_list_files.map_all(),
-                           self.sp_o_adjacency_list_files.map_all()];
+                           self.sp_o_adjacency_list_files.map_all(),
+                           self.o_ps_adjacency_list_files.map_all()];
 
         future::join_all(dict_futs).join(future::join_all(aj_futs))
             .map(|(dict_results, aj_results)| BaseLayerMaps {
@@ -48,6 +54,8 @@ impl<F:FileLoad+FileStore> BaseLayerFiles<F> {
 
                 s_p_adjacency_list_maps: aj_results[0].clone(),
                 sp_o_adjacency_list_maps: aj_results[1].clone(),
+
+                o_ps_adjacency_list_maps: aj_results[2].clone(),
             })
     }
 }
@@ -59,7 +67,8 @@ pub struct BaseLayer<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
     predicate_dictionary: PfcDict<M>,
     value_dictionary: PfcDict<M>,
     s_p_adjacency_list: AdjacencyList<M>,
-    sp_o_adjacency_list: AdjacencyList<M>
+    sp_o_adjacency_list: AdjacencyList<M>,
+    o_ps_adjacency_list: AdjacencyList<M>
 }
 
 impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> BaseLayer<M> {
@@ -76,6 +85,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> BaseLayer<M> {
 
         let s_p_adjacency_list = AdjacencyList::parse(maps.s_p_adjacency_list_maps.nums_map, maps.s_p_adjacency_list_maps.bits_map, maps.s_p_adjacency_list_maps.blocks_map, maps.s_p_adjacency_list_maps.sblocks_map);
         let sp_o_adjacency_list = AdjacencyList::parse(maps.sp_o_adjacency_list_maps.nums_map, maps.sp_o_adjacency_list_maps.bits_map, maps.sp_o_adjacency_list_maps.blocks_map, maps.sp_o_adjacency_list_maps.sblocks_map);
+        let o_ps_adjacency_list = AdjacencyList::parse(maps.o_ps_adjacency_list_maps.nums_map, maps.o_ps_adjacency_list_maps.bits_map, maps.o_ps_adjacency_list_maps.blocks_map, maps.o_ps_adjacency_list_maps.sblocks_map);
 
         BaseLayer {
             name,
@@ -84,7 +94,9 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> BaseLayer<M> {
             value_dictionary,
 
             s_p_adjacency_list,
-            sp_o_adjacency_list
+            sp_o_adjacency_list,
+
+            o_ps_adjacency_list
         }
     }
 }
@@ -566,6 +578,7 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
 }
 
 pub struct BaseLayerFileBuilderPhase2<F:'static+FileLoad+FileStore> {
+    files: BaseLayerFiles<F>,
     s_p_adjacency_list_builder: AdjacencyListBuilder<F, F::Write, F::Write, F::Write>,
     sp_o_adjacency_list_builder: AdjacencyListBuilder<F, F::Write, F::Write, F::Write>,
     last_subject: u64,
@@ -581,6 +594,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
     ) -> Self {
         let s_p_width = ((num_predicates + 1) as f32).log2().ceil() as u8;
         let sp_o_width = ((num_nodes + num_values + 1) as f32).log2().ceil() as u8;
+        let f = files.clone();
         let s_p_adjacency_list_builder = AdjacencyListBuilder::new(files.s_p_adjacency_list_files.bits_file,
                                                                    files.s_p_adjacency_list_files.blocks_file.open_write(),
                                                                    files.s_p_adjacency_list_files.sblocks_file.open_write(),
@@ -594,6 +608,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
                                                                     sp_o_width);
 
         BaseLayerFileBuilderPhase2 {
+            files: f,
             s_p_adjacency_list_builder,
             sp_o_adjacency_list_builder,
             last_subject: 0,
@@ -603,6 +618,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
 
     pub fn add_triple(self, subject: u64, predicate: u64, object: u64) -> Box<dyn Future<Item=Self, Error=std::io::Error>+Send+Sync> {
         let BaseLayerFileBuilderPhase2 {
+            files,
             s_p_adjacency_list_builder,
             sp_o_adjacency_list_builder,
             last_subject,
@@ -615,6 +631,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
             Box::new(sp_o_adjacency_list_builder.push(count, object)
                      .map(move |sp_o_adjacency_list_builder| {
                          BaseLayerFileBuilderPhase2 {
+                             files,
                              s_p_adjacency_list_builder,
                              sp_o_adjacency_list_builder,
                              last_subject: subject,
@@ -631,6 +648,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
                         sp_o_adjacency_list_builder.push(count, object)
                             .map(move |sp_o_adjacency_list_builder| {
                                 BaseLayerFileBuilderPhase2 {
+                                    files,
                                     s_p_adjacency_list_builder,
                                     sp_o_adjacency_list_builder,
                                     last_subject: subject,
@@ -647,7 +665,28 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
     }
 
     pub fn finalize(self) -> impl Future<Item=(), Error=std::io::Error> {
+        let sp_o_adjacency_list_files = self.files.sp_o_adjacency_list_files;
+        let o_ps_adjacency_list_files = self.files.o_ps_adjacency_list_files;
         future::join_all(vec![self.s_p_adjacency_list_builder.finalize(), self.sp_o_adjacency_list_builder.finalize()])
+            .and_then(move |_| adjacency_list_stream_pairs(sp_o_adjacency_list_files.bits_file, sp_o_adjacency_list_files.nums_file)
+                      .map(|(left, right)| (right, left))
+                      .fold(BTreeSet::new(), |mut set, (left, right)| {
+                          set.insert((left, right));
+                          future::ok::<_,std::io::Error>(set)
+                      }))
+            .and_then(move |tuples| {
+                let (greatest_left,_) = tuples.iter().next_back().unwrap_or(&(0,0));
+                let width = (*greatest_left as f32).log2().ceil() as u8;
+
+                let o_ps_adjacency_list_builder = AdjacencyListBuilder::new(o_ps_adjacency_list_files.bits_file,
+                                                                            o_ps_adjacency_list_files.blocks_file.open_write(),
+                                                                            o_ps_adjacency_list_files.sblocks_file.open_write(),
+                                                                            o_ps_adjacency_list_files.nums_file.open_write(),
+                                                                            width);
+
+                o_ps_adjacency_list_builder.push_all(stream::iter_ok(tuples))
+                    .and_then(|builder| builder.finalize())
+            })
             .map(|_|())
     }
 }
@@ -661,7 +700,7 @@ mod tests {
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
 
-        let files: Vec<_> = (0..14).map(|_| MemoryBackedStore::new()).collect();
+        let files: Vec<_> = (0..18).map(|_| MemoryBackedStore::new()).collect();
         let base_layer_files = BaseLayerFiles {
             node_dictionary_files: DictionaryFiles {
                 blocks_file: files[0].clone(),
@@ -686,6 +725,12 @@ mod tests {
                 blocks_file: files[11].clone(),
                 sblocks_file: files[12].clone(),
                 nums_file: files[13].clone()
+            },
+            o_ps_adjacency_list_files: AdjacencyListFiles {
+                bits_file: files[14].clone(),
+                blocks_file: files[15].clone(),
+                sblocks_file: files[16].clone(),
+                nums_file: files[17].clone()
             },
         };
 

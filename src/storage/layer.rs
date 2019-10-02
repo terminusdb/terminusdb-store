@@ -94,7 +94,7 @@ impl LayerStore for MemoryLayerStore {
     fn create_base_layer(&self) -> Box<dyn Future<Item=Box<dyn LayerBuilder>,Error=io::Error>+Send+Sync> {
         let name = rand::random();
 
-        let files: Vec<_> = (0..14).map(|_| MemoryBackedStore::new()).collect();
+        let files: Vec<_> = (0..18).map(|_| MemoryBackedStore::new()).collect();
         let blf = BaseLayerFiles {
             node_dictionary_files: DictionaryFiles {
                 blocks_file: files[0].clone(),
@@ -119,6 +119,12 @@ impl LayerStore for MemoryLayerStore {
                 blocks_file: files[11].clone(),
                 sblocks_file: files[12].clone(),
                 nums_file: files[13].clone()
+            },
+            o_ps_adjacency_list_files: AdjacencyListFiles {
+                bits_file: files[14].clone(),
+                blocks_file: files[15].clone(),
+                sblocks_file: files[16].clone(),
+                nums_file: files[17].clone()
             },
         };
 
@@ -226,7 +232,12 @@ pub trait PersistentLayerStore : 'static+Send+Sync+Clone {
                              FILENAMES.base_sp_o_adjacency_list_bits,
                              FILENAMES.base_sp_o_adjacency_list_bit_index_blocks,
                              FILENAMES.base_sp_o_adjacency_list_bit_index_sblocks,
-                             FILENAMES.base_sp_o_adjacency_list_nums];
+                             FILENAMES.base_sp_o_adjacency_list_nums,
+                             
+                             FILENAMES.base_o_ps_adjacency_list_bits,
+                             FILENAMES.base_o_ps_adjacency_list_bit_index_blocks,
+                             FILENAMES.base_o_ps_adjacency_list_bit_index_sblocks,
+                             FILENAMES.base_o_ps_adjacency_list_nums];
 
         let clone = self.clone();
 
@@ -255,6 +266,12 @@ pub trait PersistentLayerStore : 'static+Send+Sync+Clone {
                          blocks_file: files[11].clone(),
                          sblocks_file: files[12].clone(),
                          nums_file: files[13].clone()
+                     },
+                     o_ps_adjacency_list_files: AdjacencyListFiles {
+                         bits_file: files[14].clone(),
+                         blocks_file: files[15].clone(),
+                         sblocks_file: files[16].clone(),
+                         nums_file: files[17].clone()
                      },
                  }))
     }

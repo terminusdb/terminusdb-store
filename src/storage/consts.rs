@@ -18,6 +18,11 @@ pub struct Filenames {
     pub base_sp_o_adjacency_list_bit_index_blocks: &'static str,
     pub base_sp_o_adjacency_list_bit_index_sblocks: &'static str,
 
+    pub base_o_ps_adjacency_list_nums: &'static str,
+    pub base_o_ps_adjacency_list_bits: &'static str,
+    pub base_o_ps_adjacency_list_bit_index_blocks: &'static str,
+    pub base_o_ps_adjacency_list_bit_index_sblocks: &'static str,
+
     pub pos_subjects: &'static str,
 
     pub pos_s_p_adjacency_list_nums: &'static str,
@@ -64,6 +69,11 @@ pub const FILENAMES: Filenames = Filenames {
     base_sp_o_adjacency_list_bits: "base_sp_o_adjacency_list_bits.bitarray",
     base_sp_o_adjacency_list_bit_index_blocks: "base_sp_o_adjacency_list_bit_index_blocks.logarray",
     base_sp_o_adjacency_list_bit_index_sblocks: "base_sp_o_adjacency_list_bit_index_sblocks.logarray",
+
+    base_o_ps_adjacency_list_nums: "base_o_ps_adjacency_list_nums.logarray",
+    base_o_ps_adjacency_list_bits: "base_o_ps_adjacency_list_bits.bitarray",
+    base_o_ps_adjacency_list_bit_index_blocks: "base_o_ps_adjacency_list_bit_index_blocks.logarray",
+    base_o_ps_adjacency_list_bit_index_sblocks: "base_o_ps_adjacency_list_bit_index_sblocks.logarray",
 
     pos_subjects: "child_pos_subjects.logarray",
 

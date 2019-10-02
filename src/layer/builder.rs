@@ -270,7 +270,7 @@ impl<F:'static+FileLoad+FileStore+Clone> LayerFiles<F> {
 mod tests {
     use super::*;
     fn new_base_files() -> BaseLayerFiles<MemoryBackedStore> {
-        let files: Vec<_> = (0..14).map(|_| MemoryBackedStore::new()).collect();
+        let files: Vec<_> = (0..18).map(|_| MemoryBackedStore::new()).collect();
         BaseLayerFiles {
             node_dictionary_files: DictionaryFiles {
                 blocks_file: files[0].clone(),
@@ -295,6 +295,12 @@ mod tests {
                 blocks_file: files[11].clone(),
                 sblocks_file: files[12].clone(),
                 nums_file: files[13].clone()
+            },
+            o_ps_adjacency_list_files: AdjacencyListFiles {
+                bits_file: files[14].clone(),
+                blocks_file: files[15].clone(),
+                sblocks_file: files[16].clone(),
+                nums_file: files[17].clone()
             },
        }
     }
