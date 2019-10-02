@@ -12,90 +12,42 @@ use super::layer::*;
 use std::sync::Arc;
 
 #[derive(Clone)]
-pub struct BaseLayerFiles<F:FileLoad+FileStore> {
-    pub node_dictionary_blocks_file: F,
-    pub node_dictionary_offsets_file: F,
+pub struct BaseLayerFiles<F:'static+FileLoad+FileStore> {
+    pub node_dictionary_files: DictionaryFiles<F>,
+    pub predicate_dictionary_files: DictionaryFiles<F>,
+    pub value_dictionary_files: DictionaryFiles<F>,
 
-    pub predicate_dictionary_blocks_file: F,
-    pub predicate_dictionary_offsets_file: F,
-
-    pub value_dictionary_blocks_file: F,
-    pub value_dictionary_offsets_file: F,
-
-    pub s_p_adjacency_list_bits_file: F,
-    pub s_p_adjacency_list_blocks_file: F,
-    pub s_p_adjacency_list_sblocks_file: F,
-    pub s_p_adjacency_list_nums_file: F,
-
-    pub sp_o_adjacency_list_bits_file: F,
-    pub sp_o_adjacency_list_blocks_file: F,
-    pub sp_o_adjacency_list_sblocks_file: F,
-    pub sp_o_adjacency_list_nums_file: F,
+    pub s_p_adjacency_list_files: AdjacencyListFiles<F>,
+    pub sp_o_adjacency_list_files: AdjacencyListFiles<F>
 }
 
 #[derive(Clone)]
-pub struct BaseLayerMaps<M:AsRef<[u8]>+Clone> {
-    pub node_dictionary_blocks_map: M,
-    pub node_dictionary_offsets_map: M,
+pub struct BaseLayerMaps<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
+    pub node_dictionary_maps: DictionaryMaps<M>,
+    pub predicate_dictionary_maps: DictionaryMaps<M>,
+    pub value_dictionary_maps: DictionaryMaps<M>,
 
-    pub predicate_dictionary_blocks_map: M,
-    pub predicate_dictionary_offsets_map: M,
-
-    pub value_dictionary_blocks_map: M,
-    pub value_dictionary_offsets_map: M,
-
-    pub s_p_adjacency_list_bits_map: M,
-    pub s_p_adjacency_list_blocks_map: M,
-    pub s_p_adjacency_list_sblocks_map: M,
-    pub s_p_adjacency_list_nums_map: M,
-
-    pub sp_o_adjacency_list_bits_map: M,
-    pub sp_o_adjacency_list_blocks_map: M,
-    pub sp_o_adjacency_list_sblocks_map: M,
-    pub sp_o_adjacency_list_nums_map: M,
+    pub s_p_adjacency_list_maps: AdjacencyListMaps<M>,
+    pub sp_o_adjacency_list_maps: AdjacencyListMaps<M>
 }
 
 impl<F:FileLoad+FileStore> BaseLayerFiles<F> {
     pub fn map_all(&self) -> impl Future<Item=BaseLayerMaps<F::Map>,Error=std::io::Error> {
-        let futs = vec![self.node_dictionary_blocks_file.map(),
-                        self.node_dictionary_offsets_file.map(),
+        let dict_futs = vec![self.node_dictionary_files.map_all(),
+                        self.predicate_dictionary_files.map_all(),
+                             self.value_dictionary_files.map_all()];
 
-                        self.predicate_dictionary_blocks_file.map(),
-                        self.predicate_dictionary_offsets_file.map(),
+        let aj_futs = vec![self.s_p_adjacency_list_files.map_all(),
+                           self.sp_o_adjacency_list_files.map_all()];
 
-                        self.value_dictionary_blocks_file.map(),
-                        self.value_dictionary_offsets_file.map(),
+        future::join_all(dict_futs).join(future::join_all(aj_futs))
+            .map(|(dict_results, aj_results)| BaseLayerMaps {
+                node_dictionary_maps: dict_results[0].clone(),
+                predicate_dictionary_maps: dict_results[1].clone(),
+                value_dictionary_maps: dict_results[2].clone(),
 
-                        self.s_p_adjacency_list_bits_file.map(),
-                        self.s_p_adjacency_list_blocks_file.map(),
-                        self.s_p_adjacency_list_sblocks_file.map(),
-                        self.s_p_adjacency_list_nums_file.map(),
-
-                        self.sp_o_adjacency_list_bits_file.map(),
-                        self.sp_o_adjacency_list_blocks_file.map(),
-                        self.sp_o_adjacency_list_sblocks_file.map(),
-                        self.sp_o_adjacency_list_nums_file.map()];
-
-        future::join_all(futs)
-            .map(|results| BaseLayerMaps {
-                node_dictionary_blocks_map: results[0].clone(),
-                node_dictionary_offsets_map: results[1].clone(),
-
-                predicate_dictionary_blocks_map: results[2].clone(),
-                predicate_dictionary_offsets_map: results[3].clone(),
-
-                value_dictionary_blocks_map: results[4].clone(),
-                value_dictionary_offsets_map: results[5].clone(),
-
-                s_p_adjacency_list_bits_map: results[6].clone(),
-                s_p_adjacency_list_blocks_map: results[7].clone(),
-                s_p_adjacency_list_sblocks_map: results[8].clone(),
-                s_p_adjacency_list_nums_map: results[9].clone(),
-
-                sp_o_adjacency_list_bits_map: results[10].clone(),
-                sp_o_adjacency_list_blocks_map: results[11].clone(),
-                sp_o_adjacency_list_sblocks_map: results[12].clone(),
-                sp_o_adjacency_list_nums_map: results[13].clone(),
+                s_p_adjacency_list_maps: aj_results[0].clone(),
+                sp_o_adjacency_list_maps: aj_results[1].clone(),
             })
     }
 }
@@ -118,12 +70,12 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> BaseLayer<M> {
 
     pub fn load(name: [u32;5],
                 maps: BaseLayerMaps<M>) -> BaseLayer<M> {
-        let node_dictionary = PfcDict::parse(maps.node_dictionary_blocks_map, maps.node_dictionary_offsets_map).unwrap();
-        let predicate_dictionary = PfcDict::parse(maps.predicate_dictionary_blocks_map, maps.predicate_dictionary_offsets_map).unwrap();
-        let value_dictionary = PfcDict::parse(maps.value_dictionary_blocks_map, maps.value_dictionary_offsets_map).unwrap();
+        let node_dictionary = PfcDict::parse(maps.node_dictionary_maps.blocks_map, maps.node_dictionary_maps.offsets_map).unwrap();
+        let predicate_dictionary = PfcDict::parse(maps.predicate_dictionary_maps.blocks_map, maps.predicate_dictionary_maps.offsets_map).unwrap();
+        let value_dictionary = PfcDict::parse(maps.value_dictionary_maps.blocks_map, maps.value_dictionary_maps.offsets_map).unwrap();
 
-        let s_p_adjacency_list = AdjacencyList::parse(maps.s_p_adjacency_list_nums_map, maps.s_p_adjacency_list_bits_map, maps.s_p_adjacency_list_blocks_map, maps.s_p_adjacency_list_sblocks_map);
-        let sp_o_adjacency_list = AdjacencyList::parse(maps.sp_o_adjacency_list_nums_map, maps.sp_o_adjacency_list_bits_map, maps.sp_o_adjacency_list_blocks_map, maps.sp_o_adjacency_list_sblocks_map);
+        let s_p_adjacency_list = AdjacencyList::parse(maps.s_p_adjacency_list_maps.nums_map, maps.s_p_adjacency_list_maps.bits_map, maps.s_p_adjacency_list_maps.blocks_map, maps.s_p_adjacency_list_maps.sblocks_map);
+        let sp_o_adjacency_list = AdjacencyList::parse(maps.sp_o_adjacency_list_maps.nums_map, maps.sp_o_adjacency_list_maps.bits_map, maps.sp_o_adjacency_list_maps.blocks_map, maps.sp_o_adjacency_list_maps.sblocks_map);
 
         BaseLayer {
             name,
@@ -417,12 +369,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseObjectIterator<M> {
 }
 
 pub struct BaseLayerFileBuilder<F:'static+FileLoad+FileStore> {
-    node_dictionary_files: DictionaryFiles<F>,
-    predicate_dictionary_files: DictionaryFiles<F>,
-    value_dictionary_files: DictionaryFiles<F>,
-
-    s_p_adjacency_list_files: AdjacencyListFiles<F>,
-    sp_o_adjacency_list_files: AdjacencyListFiles<F>,
+    files: BaseLayerFiles<F>,
 
     node_dictionary_builder: PfcDictFileBuilder<F::Write>,
     predicate_dictionary_builder: PfcDictFileBuilder<F::Write>,
@@ -431,100 +378,22 @@ pub struct BaseLayerFileBuilder<F:'static+FileLoad+FileStore> {
 
 impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
     pub fn from_files(files: &BaseLayerFiles<F>) -> Self {
-        Self::new(files.node_dictionary_blocks_file.clone(),
-                  files.node_dictionary_offsets_file.clone(),
-
-                  files.predicate_dictionary_blocks_file.clone(),
-                  files.predicate_dictionary_offsets_file.clone(),
-
-                  files.value_dictionary_blocks_file.clone(),
-                  files.value_dictionary_offsets_file.clone(),
-
-                  files.s_p_adjacency_list_bits_file.clone(),
-                  files.s_p_adjacency_list_blocks_file.clone(),
-                  files.s_p_adjacency_list_sblocks_file.clone(),
-                  files.s_p_adjacency_list_nums_file.clone(),
-
-                  files.sp_o_adjacency_list_bits_file.clone(),
-                  files.sp_o_adjacency_list_blocks_file.clone(),
-                  files.sp_o_adjacency_list_sblocks_file.clone(),
-                  files.sp_o_adjacency_list_nums_file.clone())
-    }
-
-    pub fn new(node_dictionary_blocks_file: F,
-               node_dictionary_offsets_file: F,
-
-               predicate_dictionary_blocks_file: F,
-               predicate_dictionary_offsets_file: F,
-
-               value_dictionary_blocks_file: F,
-               value_dictionary_offsets_file: F,
-
-               s_p_adjacency_list_bits_file: F,
-               s_p_adjacency_list_blocks_file: F,
-               s_p_adjacency_list_sblocks_file: F,
-               s_p_adjacency_list_nums_file: F,
-
-               sp_o_adjacency_list_bits_file: F,
-               sp_o_adjacency_list_blocks_file: F,
-               sp_o_adjacency_list_sblocks_file: F,
-               sp_o_adjacency_list_nums_file: F
-    ) -> Self {
-        let node_dictionary_builder = PfcDictFileBuilder::new(node_dictionary_blocks_file.open_write(), node_dictionary_offsets_file.open_write());
-        let predicate_dictionary_builder = PfcDictFileBuilder::new(predicate_dictionary_blocks_file.open_write(), predicate_dictionary_offsets_file.open_write());
-        let value_dictionary_builder = PfcDictFileBuilder::new(value_dictionary_blocks_file.open_write(), value_dictionary_offsets_file.open_write());
-
-        let node_dictionary_files = DictionaryFiles { 
-            blocks_file: node_dictionary_blocks_file,
-            offsets_file: node_dictionary_offsets_file,
-        };
-
-        let predicate_dictionary_files = DictionaryFiles { 
-            blocks_file: predicate_dictionary_blocks_file,
-            offsets_file: predicate_dictionary_offsets_file,
-        };
-
-        let value_dictionary_files = DictionaryFiles { 
-            blocks_file: value_dictionary_blocks_file,
-            offsets_file: value_dictionary_offsets_file,
-        };
-
-        let s_p_adjacency_list_files = AdjacencyListFiles {
-            bits_file: s_p_adjacency_list_bits_file,
-            blocks_file: s_p_adjacency_list_blocks_file,
-            sblocks_file: s_p_adjacency_list_sblocks_file,
-            nums_file: s_p_adjacency_list_nums_file,
-        };
-
-        let sp_o_adjacency_list_files = AdjacencyListFiles {
-            bits_file: sp_o_adjacency_list_bits_file,
-            blocks_file: sp_o_adjacency_list_blocks_file,
-            sblocks_file: sp_o_adjacency_list_sblocks_file,
-            nums_file: sp_o_adjacency_list_nums_file,
-        };
+        let node_dictionary_builder = PfcDictFileBuilder::new(files.node_dictionary_files.blocks_file.open_write(), files.node_dictionary_files.offsets_file.open_write());
+        let predicate_dictionary_builder = PfcDictFileBuilder::new(files.predicate_dictionary_files.blocks_file.open_write(), files.predicate_dictionary_files.offsets_file.open_write());
+        let value_dictionary_builder = PfcDictFileBuilder::new(files.value_dictionary_files.blocks_file.open_write(), files.value_dictionary_files.offsets_file.open_write());
 
         BaseLayerFileBuilder {
-            node_dictionary_files,
-            predicate_dictionary_files,
-            value_dictionary_files,
-
-            s_p_adjacency_list_files,
-            sp_o_adjacency_list_files,
-
+            files: files.clone(),
             node_dictionary_builder,
             predicate_dictionary_builder,
             value_dictionary_builder
+            
         }
     }
 
     pub fn add_node(self, node: &str) -> impl Future<Item=(u64, Self), Error=std::io::Error> {
         let BaseLayerFileBuilder {
-            node_dictionary_files,
-            predicate_dictionary_files,
-            value_dictionary_files,
-
-            s_p_adjacency_list_files,
-            sp_o_adjacency_list_files,
+            files,
 
             node_dictionary_builder,
             predicate_dictionary_builder,
@@ -533,12 +402,7 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
 
         node_dictionary_builder.add(node)
             .map(move|(result, node_dictionary_builder)| (result, BaseLayerFileBuilder {
-                node_dictionary_files,
-                predicate_dictionary_files,
-                value_dictionary_files,
-
-                s_p_adjacency_list_files,
-                sp_o_adjacency_list_files,
+                files,
 
                 node_dictionary_builder,
                 predicate_dictionary_builder,
@@ -548,12 +412,7 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
     
     pub fn add_predicate(self, predicate: &str) -> impl Future<Item=(u64, Self), Error=std::io::Error> {
         let BaseLayerFileBuilder {
-            node_dictionary_files,
-            predicate_dictionary_files,
-            value_dictionary_files,
-
-            s_p_adjacency_list_files,
-            sp_o_adjacency_list_files,
+            files,
 
             node_dictionary_builder,
             predicate_dictionary_builder,
@@ -562,12 +421,7 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
 
         predicate_dictionary_builder.add(predicate)
             .map(move|(result, predicate_dictionary_builder)| (result, BaseLayerFileBuilder {
-                node_dictionary_files,
-                predicate_dictionary_files,
-                value_dictionary_files,
-
-                s_p_adjacency_list_files,
-                sp_o_adjacency_list_files,
+                files,
 
                 node_dictionary_builder,
                 predicate_dictionary_builder,
@@ -577,12 +431,7 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
 
     pub fn add_value(self, value: &str) -> impl Future<Item=(u64, Self), Error=std::io::Error> {
         let BaseLayerFileBuilder {
-            node_dictionary_files,
-            predicate_dictionary_files,
-            value_dictionary_files,
-
-            s_p_adjacency_list_files,
-            sp_o_adjacency_list_files,
+            files,
 
             node_dictionary_builder,
             predicate_dictionary_builder,
@@ -591,12 +440,7 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
 
         value_dictionary_builder.add(value)
             .map(move|(result, value_dictionary_builder)| (result, BaseLayerFileBuilder {
-                node_dictionary_files,
-                predicate_dictionary_files,
-                value_dictionary_files,
-
-                s_p_adjacency_list_files,
-                sp_o_adjacency_list_files,
+                files,
 
                 node_dictionary_builder,
                 predicate_dictionary_builder,
@@ -607,12 +451,7 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
     pub fn add_nodes<I:'static+IntoIterator<Item=String>+Send+Sync>(self, nodes: I) -> impl Future<Item=(Vec<u64>, Self), Error=std::io::Error>
     where <I as std::iter::IntoIterator>::IntoIter: Send+Sync {
         let BaseLayerFileBuilder {
-            node_dictionary_files,
-            predicate_dictionary_files,
-            value_dictionary_files,
-
-            s_p_adjacency_list_files,
-            sp_o_adjacency_list_files,
+            files,
 
             node_dictionary_builder,
             predicate_dictionary_builder,
@@ -621,12 +460,7 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
 
         node_dictionary_builder.add_all(nodes.into_iter())
             .map(move|(result, node_dictionary_builder)| (result, BaseLayerFileBuilder {
-                node_dictionary_files,
-                predicate_dictionary_files,
-                value_dictionary_files,
-
-                s_p_adjacency_list_files,
-                sp_o_adjacency_list_files,
+                files,
 
                 node_dictionary_builder,
                 predicate_dictionary_builder,
@@ -637,12 +471,7 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
     pub fn add_predicates<I:'static+IntoIterator<Item=String>+Send+Sync>(self, predicates: I) -> impl Future<Item=(Vec<u64>, Self), Error=std::io::Error>
     where <I as std::iter::IntoIterator>::IntoIter: Send+Sync {
         let BaseLayerFileBuilder {
-            node_dictionary_files,
-            predicate_dictionary_files,
-            value_dictionary_files,
-
-            s_p_adjacency_list_files,
-            sp_o_adjacency_list_files,
+            files,
 
             node_dictionary_builder,
             predicate_dictionary_builder,
@@ -651,12 +480,7 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
 
         predicate_dictionary_builder.add_all(predicates.into_iter())
             .map(move|(result, predicate_dictionary_builder)| (result, BaseLayerFileBuilder {
-                node_dictionary_files,
-                predicate_dictionary_files,
-                value_dictionary_files,
-
-                s_p_adjacency_list_files,
-                sp_o_adjacency_list_files,
+                files,
 
                 node_dictionary_builder,
                 predicate_dictionary_builder,
@@ -667,12 +491,7 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
     pub fn add_values<I:'static+IntoIterator<Item=String>+Send+Sync>(self, values: I) -> impl Future<Item=(Vec<u64>, Self), Error=std::io::Error>
     where <I as std::iter::IntoIterator>::IntoIter: Send+Sync {
         let BaseLayerFileBuilder {
-            node_dictionary_files,
-            predicate_dictionary_files,
-            value_dictionary_files,
-
-            s_p_adjacency_list_files,
-            sp_o_adjacency_list_files,
+            files,
 
             node_dictionary_builder,
             predicate_dictionary_builder,
@@ -681,12 +500,7 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
 
         value_dictionary_builder.add_all(values.into_iter())
             .map(move|(result, value_dictionary_builder)| (result, BaseLayerFileBuilder {
-                node_dictionary_files,
-                predicate_dictionary_files,
-                value_dictionary_files,
-
-                s_p_adjacency_list_files,
-                sp_o_adjacency_list_files,
+                files,
 
                 node_dictionary_builder,
                 predicate_dictionary_builder,
@@ -696,12 +510,7 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
 
     pub fn into_phase2(self) -> impl Future<Item=BaseLayerFileBuilderPhase2<F>,Error=std::io::Error> {
         let BaseLayerFileBuilder {
-            node_dictionary_files,
-            predicate_dictionary_files,
-            value_dictionary_files,
-
-            s_p_adjacency_list_files,
-            sp_o_adjacency_list_files,
+            files,
 
             node_dictionary_builder,
             predicate_dictionary_builder,
@@ -712,12 +521,12 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
         let finalize_preddict = predicate_dictionary_builder.finalize();
         let finalize_valdict = value_dictionary_builder.finalize();
 
-        let dict_maps_fut = vec![node_dictionary_files.blocks_file.map(),
-                                 node_dictionary_files.offsets_file.map(),
-                                 predicate_dictionary_files.blocks_file.map(),
-                                 predicate_dictionary_files.offsets_file.map(),
-                                 value_dictionary_files.blocks_file.map(),
-                                 value_dictionary_files.offsets_file.map()];
+        let dict_maps_fut = vec![files.node_dictionary_files.blocks_file.map(),
+                                 files.node_dictionary_files.offsets_file.map(),
+                                 files.predicate_dictionary_files.blocks_file.map(),
+                                 files.predicate_dictionary_files.offsets_file.map(),
+                                 files.value_dictionary_files.blocks_file.map(),
+                                 files.value_dictionary_files.offsets_file.map()];
 
         future::join_all(vec![finalize_nodedict, finalize_preddict, finalize_valdict])
             .and_then(|_| future::join_all(dict_maps_fut))
@@ -747,15 +556,7 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
                 let num_predicates = pred_dict.len();
                 let num_values = val_dict.len();
 
-                future::ok(BaseLayerFileBuilderPhase2::new(s_p_adjacency_list_files.bits_file,
-                                                           s_p_adjacency_list_files.blocks_file,
-                                                           s_p_adjacency_list_files.sblocks_file,
-                                                           s_p_adjacency_list_files.nums_file,
-
-                                                           sp_o_adjacency_list_files.bits_file,
-                                                           sp_o_adjacency_list_files.blocks_file,
-                                                           sp_o_adjacency_list_files.sblocks_file,
-                                                           sp_o_adjacency_list_files.nums_file,
+                future::ok(BaseLayerFileBuilderPhase2::new(files,
 
                                                            num_nodes,
                                                            num_predicates,
@@ -772,15 +573,7 @@ pub struct BaseLayerFileBuilderPhase2<F:'static+FileLoad+FileStore> {
 }
 
 impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
-    fn new(s_p_adjacency_list_bits_file: F,
-           s_p_adjacency_list_blocks_file: F,
-           s_p_adjacency_list_sblocks_file: F,
-           s_p_adjacency_list_nums_file: F,
-           
-           sp_o_adjacency_list_bits_file: F,
-           sp_o_adjacency_list_blocks_file: F,
-           sp_o_adjacency_list_sblocks_file: F,
-           sp_o_adjacency_list_nums_file: F,
+    fn new(files: BaseLayerFiles<F>,
 
            num_nodes: usize,
            num_predicates: usize,
@@ -788,16 +581,16 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
     ) -> Self {
         let s_p_width = ((num_predicates + 1) as f32).log2().ceil() as u8;
         let sp_o_width = ((num_nodes + num_values + 1) as f32).log2().ceil() as u8;
-        let s_p_adjacency_list_builder = AdjacencyListBuilder::new(s_p_adjacency_list_bits_file,
-                                                                   s_p_adjacency_list_blocks_file.open_write(),
-                                                                   s_p_adjacency_list_sblocks_file.open_write(),
-                                                                   s_p_adjacency_list_nums_file.open_write(),
+        let s_p_adjacency_list_builder = AdjacencyListBuilder::new(files.s_p_adjacency_list_files.bits_file,
+                                                                   files.s_p_adjacency_list_files.blocks_file.open_write(),
+                                                                   files.s_p_adjacency_list_files.sblocks_file.open_write(),
+                                                                   files.s_p_adjacency_list_files.nums_file.open_write(),
                                                                    s_p_width);
 
-        let sp_o_adjacency_list_builder = AdjacencyListBuilder::new(sp_o_adjacency_list_bits_file,
-                                                                    sp_o_adjacency_list_blocks_file.open_write(),
-                                                                    sp_o_adjacency_list_sblocks_file.open_write(),
-                                                                    sp_o_adjacency_list_nums_file.open_write(),
+        let sp_o_adjacency_list_builder = AdjacencyListBuilder::new(files.sp_o_adjacency_list_files.bits_file,
+                                                                    files.sp_o_adjacency_list_files.blocks_file.open_write(),
+                                                                    files.sp_o_adjacency_list_files.sblocks_file.open_write(),
+                                                                    files.sp_o_adjacency_list_files.nums_file.open_write(),
                                                                     sp_o_width);
 
         BaseLayerFileBuilderPhase2 {
@@ -870,24 +663,30 @@ mod tests {
 
         let files: Vec<_> = (0..14).map(|_| MemoryBackedStore::new()).collect();
         let base_layer_files = BaseLayerFiles {
-            node_dictionary_blocks_file: files[0].clone(),
-            node_dictionary_offsets_file: files[1].clone(),
-
-            predicate_dictionary_blocks_file: files[2].clone(),
-            predicate_dictionary_offsets_file: files[3].clone(),
-
-            value_dictionary_blocks_file: files[4].clone(),
-            value_dictionary_offsets_file: files[5].clone(),
-
-            s_p_adjacency_list_bits_file: files[6].clone(),
-            s_p_adjacency_list_blocks_file: files[7].clone(),
-            s_p_adjacency_list_sblocks_file: files[8].clone(),
-            s_p_adjacency_list_nums_file: files[9].clone(),
-
-            sp_o_adjacency_list_bits_file: files[10].clone(),
-            sp_o_adjacency_list_blocks_file: files[11].clone(),
-            sp_o_adjacency_list_sblocks_file: files[12].clone(),
-            sp_o_adjacency_list_nums_file: files[13].clone(),
+            node_dictionary_files: DictionaryFiles {
+                blocks_file: files[0].clone(),
+                offsets_file: files[1].clone()
+            },
+            predicate_dictionary_files: DictionaryFiles {
+                blocks_file: files[2].clone(),
+                offsets_file: files[3].clone()
+            },
+            value_dictionary_files: DictionaryFiles {
+                blocks_file: files[4].clone(),
+                offsets_file: files[5].clone()
+            },
+            s_p_adjacency_list_files: AdjacencyListFiles {
+                bits_file: files[6].clone(),
+                blocks_file: files[7].clone(),
+                sblocks_file: files[8].clone(),
+                nums_file: files[9].clone()
+            },
+            sp_o_adjacency_list_files: AdjacencyListFiles {
+                bits_file: files[10].clone(),
+                blocks_file: files[11].clone(),
+                sblocks_file: files[12].clone(),
+                nums_file: files[13].clone()
+            },
         };
 
         let builder = BaseLayerFileBuilder::from_files(&base_layer_files);

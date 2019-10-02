@@ -14,143 +14,63 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 #[derive(Clone)]
-pub struct ChildLayerFiles<F:FileLoad+FileStore+Clone> {
-    pub node_dictionary_blocks_file: F,
-    pub node_dictionary_offsets_file: F,
-
-    pub predicate_dictionary_blocks_file: F,
-    pub predicate_dictionary_offsets_file: F,
-
-    pub value_dictionary_blocks_file: F,
-    pub value_dictionary_offsets_file: F,
+pub struct ChildLayerFiles<F:'static+FileLoad+FileStore+Clone+Send+Sync> {
+    pub node_dictionary_files: DictionaryFiles<F>,
+    pub predicate_dictionary_files: DictionaryFiles<F>,
+    pub value_dictionary_files: DictionaryFiles<F>,
 
     pub pos_subjects_file: F,
     pub neg_subjects_file: F,
 
-    pub pos_s_p_adjacency_list_bits_file: F,
-    pub pos_s_p_adjacency_list_blocks_file: F,
-    pub pos_s_p_adjacency_list_sblocks_file: F,
-    pub pos_s_p_adjacency_list_nums_file: F,
-
-    pub pos_sp_o_adjacency_list_bits_file: F,
-    pub pos_sp_o_adjacency_list_blocks_file: F,
-    pub pos_sp_o_adjacency_list_sblocks_file: F,
-    pub pos_sp_o_adjacency_list_nums_file: F,
-
-    pub neg_s_p_adjacency_list_bits_file: F,
-    pub neg_s_p_adjacency_list_blocks_file: F,
-    pub neg_s_p_adjacency_list_sblocks_file: F,
-    pub neg_s_p_adjacency_list_nums_file: F,
-
-    pub neg_sp_o_adjacency_list_bits_file: F,
-    pub neg_sp_o_adjacency_list_blocks_file: F,
-    pub neg_sp_o_adjacency_list_sblocks_file: F,
-    pub neg_sp_o_adjacency_list_nums_file: F,
+    pub pos_s_p_adjacency_list_files: AdjacencyListFiles<F>,
+    pub pos_sp_o_adjacency_list_files: AdjacencyListFiles<F>,
+    pub neg_s_p_adjacency_list_files: AdjacencyListFiles<F>,
+    pub neg_sp_o_adjacency_list_files: AdjacencyListFiles<F>,
 }
 
 #[derive(Clone)]
-pub struct ChildLayerMaps<M:AsRef<[u8]>+Clone> {
-    pub node_dictionary_blocks_map: M,
-    pub node_dictionary_offsets_map: M,
-
-    pub predicate_dictionary_blocks_map: M,
-    pub predicate_dictionary_offsets_map: M,
-
-    pub value_dictionary_blocks_map: M,
-    pub value_dictionary_offsets_map: M,
+pub struct ChildLayerMaps<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
+    pub node_dictionary_maps: DictionaryMaps<M>,
+    pub predicate_dictionary_maps: DictionaryMaps<M>,
+    pub value_dictionary_maps: DictionaryMaps<M>,
 
     pub pos_subjects_map: M,
     pub neg_subjects_map: M,
 
-    pub pos_s_p_adjacency_list_bits_map: M,
-    pub pos_s_p_adjacency_list_blocks_map: M,
-    pub pos_s_p_adjacency_list_sblocks_map: M,
-    pub pos_s_p_adjacency_list_nums_map: M,
-
-    pub pos_sp_o_adjacency_list_bits_map: M,
-    pub pos_sp_o_adjacency_list_blocks_map: M,
-    pub pos_sp_o_adjacency_list_sblocks_map: M,
-    pub pos_sp_o_adjacency_list_nums_map: M,
-
-    pub neg_s_p_adjacency_list_bits_map: M,
-    pub neg_s_p_adjacency_list_blocks_map: M,
-    pub neg_s_p_adjacency_list_sblocks_map: M,
-    pub neg_s_p_adjacency_list_nums_map: M,
-
-    pub neg_sp_o_adjacency_list_bits_map: M,
-    pub neg_sp_o_adjacency_list_blocks_map: M,
-    pub neg_sp_o_adjacency_list_sblocks_map: M,
-    pub neg_sp_o_adjacency_list_nums_map: M,
+    pub pos_s_p_adjacency_list_maps: AdjacencyListMaps<M>,
+    pub pos_sp_o_adjacency_list_maps: AdjacencyListMaps<M>,
+    pub neg_s_p_adjacency_list_maps: AdjacencyListMaps<M>,
+    pub neg_sp_o_adjacency_list_maps: AdjacencyListMaps<M>,
 }
 
 impl<F:FileLoad+FileStore+Clone> ChildLayerFiles<F> {
     pub fn map_all(&self) -> impl Future<Item=ChildLayerMaps<F::Map>,Error=std::io::Error> {
-        let futs = vec![self.node_dictionary_blocks_file.map(),
-                        self.node_dictionary_offsets_file.map(),
+        let dict_futs = vec![self.node_dictionary_files.map_all(),
+                             self.predicate_dictionary_files.map_all(),
+                             self.value_dictionary_files.map_all()];
 
-                        self.predicate_dictionary_blocks_file.map(),
-                        self.predicate_dictionary_offsets_file.map(),
+        let sub_futs = vec![self.pos_subjects_file.map(), self.neg_subjects_file.map()];
 
-                        self.value_dictionary_blocks_file.map(),
-                        self.value_dictionary_offsets_file.map(),
+        let aj_futs = vec![self.pos_s_p_adjacency_list_files.map_all(),
+                           self.pos_sp_o_adjacency_list_files.map_all(),
+                           self.neg_s_p_adjacency_list_files.map_all(),
+                           self.neg_sp_o_adjacency_list_files.map_all()];
 
-                        self.pos_subjects_file.map(),
-                        self.neg_subjects_file.map(),
+        future::join_all(dict_futs)
+            .join(future::join_all(sub_futs))
+            .join(future::join_all(aj_futs))
+            .map(|((dict_results, sub_results), aj_results)| ChildLayerMaps {
+                node_dictionary_maps: dict_results[0].clone(),
+                predicate_dictionary_maps: dict_results[1].clone(),
+                value_dictionary_maps: dict_results[2].clone(),
 
-                        self.pos_s_p_adjacency_list_bits_file.map(),
-                        self.pos_s_p_adjacency_list_blocks_file.map(),
-                        self.pos_s_p_adjacency_list_sblocks_file.map(),
-                        self.pos_s_p_adjacency_list_nums_file.map(),
+                pos_subjects_map: sub_results[0].clone(),
+                neg_subjects_map: sub_results[1].clone(),
 
-                        self.pos_sp_o_adjacency_list_bits_file.map(),
-                        self.pos_sp_o_adjacency_list_blocks_file.map(),
-                        self.pos_sp_o_adjacency_list_sblocks_file.map(),
-                        self.pos_sp_o_adjacency_list_nums_file.map(),
-
-                        self.neg_s_p_adjacency_list_bits_file.map(),
-                        self.neg_s_p_adjacency_list_blocks_file.map(),
-                        self.neg_s_p_adjacency_list_sblocks_file.map(),
-                        self.neg_s_p_adjacency_list_nums_file.map(),
-
-                        self.neg_sp_o_adjacency_list_bits_file.map(),
-                        self.neg_sp_o_adjacency_list_blocks_file.map(),
-                        self.neg_sp_o_adjacency_list_sblocks_file.map(),
-                        self.neg_sp_o_adjacency_list_nums_file.map()];
-
-        
-        future::join_all(futs)
-            .map(|results| ChildLayerMaps {
-                node_dictionary_blocks_map: results[0].clone(),
-                node_dictionary_offsets_map: results[1].clone(),
-
-                predicate_dictionary_blocks_map: results[2].clone(),
-                predicate_dictionary_offsets_map: results[3].clone(),
-
-                value_dictionary_blocks_map: results[4].clone(),
-                value_dictionary_offsets_map: results[5].clone(),
-
-                pos_subjects_map: results[6].clone(),
-                neg_subjects_map: results[7].clone(),
-
-                pos_s_p_adjacency_list_bits_map: results[8].clone(),
-                pos_s_p_adjacency_list_blocks_map: results[9].clone(),
-                pos_s_p_adjacency_list_sblocks_map: results[10].clone(),
-                pos_s_p_adjacency_list_nums_map: results[11].clone(),
-
-                pos_sp_o_adjacency_list_bits_map: results[12].clone(),
-                pos_sp_o_adjacency_list_blocks_map: results[13].clone(),
-                pos_sp_o_adjacency_list_sblocks_map: results[14].clone(),
-                pos_sp_o_adjacency_list_nums_map: results[15].clone(),
-
-                neg_s_p_adjacency_list_bits_map: results[16].clone(),
-                neg_s_p_adjacency_list_blocks_map: results[17].clone(),
-                neg_s_p_adjacency_list_sblocks_map: results[18].clone(),
-                neg_s_p_adjacency_list_nums_map: results[19].clone(),
-
-                neg_sp_o_adjacency_list_bits_map: results[20].clone(),
-                neg_sp_o_adjacency_list_blocks_map: results[21].clone(),
-                neg_sp_o_adjacency_list_sblocks_map: results[22].clone(),
-                neg_sp_o_adjacency_list_nums_map: results[23].clone(),
+                pos_s_p_adjacency_list_maps: aj_results[0].clone(),
+                pos_sp_o_adjacency_list_maps: aj_results[1].clone(),
+                neg_s_p_adjacency_list_maps: aj_results[2].clone(),
+                neg_sp_o_adjacency_list_maps: aj_results[3].clone(),
             })
     }
 }
@@ -182,18 +102,18 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> ChildLayer<M> {
     pub fn load(name: [u32;5],
                 parent: Arc<dyn Layer>,
                 maps: ChildLayerMaps<M>) -> ChildLayer<M> {
-        let node_dictionary = PfcDict::parse(maps.node_dictionary_blocks_map, maps.node_dictionary_offsets_map).unwrap();
-        let predicate_dictionary = PfcDict::parse(maps.predicate_dictionary_blocks_map, maps.predicate_dictionary_offsets_map).unwrap();
-        let value_dictionary = PfcDict::parse(maps.value_dictionary_blocks_map, maps.value_dictionary_offsets_map).unwrap();
+        let node_dictionary = PfcDict::parse(maps.node_dictionary_maps.blocks_map, maps.node_dictionary_maps.offsets_map).unwrap();
+        let predicate_dictionary = PfcDict::parse(maps.predicate_dictionary_maps.blocks_map, maps.predicate_dictionary_maps.offsets_map).unwrap();
+        let value_dictionary = PfcDict::parse(maps.value_dictionary_maps.blocks_map, maps.value_dictionary_maps.offsets_map).unwrap();
 
         let pos_subjects = MonotonicLogArray::from_logarray(LogArray::parse(maps.pos_subjects_map).unwrap());
         let neg_subjects = MonotonicLogArray::from_logarray(LogArray::parse(maps.neg_subjects_map).unwrap());
 
-        let pos_s_p_adjacency_list = AdjacencyList::parse(maps.pos_s_p_adjacency_list_nums_map, maps.pos_s_p_adjacency_list_bits_map, maps.pos_s_p_adjacency_list_blocks_map, maps.pos_s_p_adjacency_list_sblocks_map);
-        let pos_sp_o_adjacency_list = AdjacencyList::parse(maps.pos_sp_o_adjacency_list_nums_map, maps.pos_sp_o_adjacency_list_bits_map, maps.pos_sp_o_adjacency_list_blocks_map, maps.pos_sp_o_adjacency_list_sblocks_map);
+        let pos_s_p_adjacency_list = AdjacencyList::parse(maps.pos_s_p_adjacency_list_maps.nums_map, maps.pos_s_p_adjacency_list_maps.bits_map, maps.pos_s_p_adjacency_list_maps.blocks_map, maps.pos_s_p_adjacency_list_maps.sblocks_map);
+        let pos_sp_o_adjacency_list = AdjacencyList::parse(maps.pos_sp_o_adjacency_list_maps.nums_map, maps.pos_sp_o_adjacency_list_maps.bits_map, maps.pos_sp_o_adjacency_list_maps.blocks_map, maps.pos_sp_o_adjacency_list_maps.sblocks_map);
 
-        let neg_s_p_adjacency_list = AdjacencyList::parse(maps.neg_s_p_adjacency_list_nums_map, maps.neg_s_p_adjacency_list_bits_map, maps.neg_s_p_adjacency_list_blocks_map, maps.neg_s_p_adjacency_list_sblocks_map);
-        let neg_sp_o_adjacency_list = AdjacencyList::parse(maps.neg_sp_o_adjacency_list_nums_map, maps.neg_sp_o_adjacency_list_bits_map, maps.neg_sp_o_adjacency_list_blocks_map, maps.neg_sp_o_adjacency_list_sblocks_map);
+        let neg_s_p_adjacency_list = AdjacencyList::parse(maps.neg_s_p_adjacency_list_maps.nums_map, maps.neg_s_p_adjacency_list_maps.bits_map, maps.neg_s_p_adjacency_list_maps.blocks_map, maps.neg_s_p_adjacency_list_maps.sblocks_map);
+        let neg_sp_o_adjacency_list = AdjacencyList::parse(maps.neg_sp_o_adjacency_list_maps.nums_map, maps.neg_sp_o_adjacency_list_maps.bits_map, maps.neg_sp_o_adjacency_list_maps.blocks_map, maps.neg_sp_o_adjacency_list_maps.sblocks_map);
 
         ChildLayer {
             name,
@@ -773,156 +693,25 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildObjectIterator<M> {
     }
 }
 
-pub struct ChildLayerFileBuilder<F:'static+FileLoad+FileStore+Send+Sync> {
+pub struct ChildLayerFileBuilder<F:'static+FileLoad+FileStore+Clone+Send+Sync> {
     parent: Arc<dyn Layer>,
-    node_dictionary_files: DictionaryFiles<F>,
-    predicate_dictionary_files: DictionaryFiles<F>,
-    value_dictionary_files: DictionaryFiles<F>,
-
-    pos_subjects_file: F,
-    neg_subjects_file: F,
-
-    pos_s_p_adjacency_list_files: AdjacencyListFiles<F>,
-    pos_sp_o_adjacency_list_files: AdjacencyListFiles<F>,
-
-    neg_s_p_adjacency_list_files: AdjacencyListFiles<F>,
-    neg_sp_o_adjacency_list_files: AdjacencyListFiles<F>,
+    files: ChildLayerFiles<F>,
 
     node_dictionary_builder: PfcDictFileBuilder<F::Write>,
     predicate_dictionary_builder: PfcDictFileBuilder<F::Write>,
     value_dictionary_builder: PfcDictFileBuilder<F::Write>,
 }
 
-impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
+impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilder<F> {
     pub fn from_files(parent: Arc<dyn Layer>, files: &ChildLayerFiles<F>) -> Self {
-        Self::new(parent,
-                  files.node_dictionary_blocks_file.clone(),
-                  files.node_dictionary_offsets_file.clone(),
+        let node_dictionary_builder = PfcDictFileBuilder::new(files.node_dictionary_files.blocks_file.open_write(), files.node_dictionary_files.offsets_file.open_write());
+        let predicate_dictionary_builder = PfcDictFileBuilder::new(files.predicate_dictionary_files.blocks_file.open_write(), files.predicate_dictionary_files.offsets_file.open_write());
+        let value_dictionary_builder = PfcDictFileBuilder::new(files.value_dictionary_files.blocks_file.open_write(), files.value_dictionary_files.offsets_file.open_write());
 
-                  files.predicate_dictionary_blocks_file.clone(),
-                  files.predicate_dictionary_offsets_file.clone(),
 
-                  files.value_dictionary_blocks_file.clone(),
-                  files.value_dictionary_offsets_file.clone(),
-
-                  files.pos_subjects_file.clone(),
-                  files.neg_subjects_file.clone(),
-
-                  files.pos_s_p_adjacency_list_bits_file.clone(),
-                  files.pos_s_p_adjacency_list_blocks_file.clone(),
-                  files.pos_s_p_adjacency_list_sblocks_file.clone(),
-                  files.pos_s_p_adjacency_list_nums_file.clone(),
-
-                  files.pos_sp_o_adjacency_list_bits_file.clone(),
-                  files.pos_sp_o_adjacency_list_blocks_file.clone(),
-                  files.pos_sp_o_adjacency_list_sblocks_file.clone(),
-                  files.pos_sp_o_adjacency_list_nums_file.clone(),
-
-                  files.neg_s_p_adjacency_list_bits_file.clone(),
-                  files.neg_s_p_adjacency_list_blocks_file.clone(),
-                  files.neg_s_p_adjacency_list_sblocks_file.clone(),
-                  files.neg_s_p_adjacency_list_nums_file.clone(),
-
-                  files.neg_sp_o_adjacency_list_bits_file.clone(),
-                  files.neg_sp_o_adjacency_list_blocks_file.clone(),
-                  files.neg_sp_o_adjacency_list_sblocks_file.clone(),
-                  files.neg_sp_o_adjacency_list_nums_file.clone())
-    }
-
-    pub fn new(parent: Arc<dyn Layer>,
-               node_dictionary_blocks_file: F,
-               node_dictionary_offsets_file: F,
-
-               predicate_dictionary_blocks_file: F,
-               predicate_dictionary_offsets_file: F,
-
-               value_dictionary_blocks_file: F,
-               value_dictionary_offsets_file: F,
-
-               pos_subjects_file: F,
-               neg_subjects_file: F,
-
-               pos_s_p_adjacency_list_bits_file: F,
-               pos_s_p_adjacency_list_blocks_file: F,
-               pos_s_p_adjacency_list_sblocks_file: F,
-               pos_s_p_adjacency_list_nums_file: F,
-
-               pos_sp_o_adjacency_list_bits_file: F,
-               pos_sp_o_adjacency_list_blocks_file: F,
-               pos_sp_o_adjacency_list_sblocks_file: F,
-               pos_sp_o_adjacency_list_nums_file: F,
-
-               neg_s_p_adjacency_list_bits_file: F,
-               neg_s_p_adjacency_list_blocks_file: F,
-               neg_s_p_adjacency_list_sblocks_file: F,
-               neg_s_p_adjacency_list_nums_file: F,
-
-               neg_sp_o_adjacency_list_bits_file: F,
-               neg_sp_o_adjacency_list_blocks_file: F,
-               neg_sp_o_adjacency_list_sblocks_file: F,
-               neg_sp_o_adjacency_list_nums_file: F,
-    ) -> Self {
-        let node_dictionary_builder = PfcDictFileBuilder::new(node_dictionary_blocks_file.open_write(), node_dictionary_offsets_file.open_write());
-        let predicate_dictionary_builder = PfcDictFileBuilder::new(predicate_dictionary_blocks_file.open_write(), predicate_dictionary_offsets_file.open_write());
-        let value_dictionary_builder = PfcDictFileBuilder::new(value_dictionary_blocks_file.open_write(), value_dictionary_offsets_file.open_write());
-
-        let node_dictionary_files = DictionaryFiles { 
-            blocks_file: node_dictionary_blocks_file,
-            offsets_file: node_dictionary_offsets_file,
-        };
-
-        let predicate_dictionary_files = DictionaryFiles { 
-            blocks_file: predicate_dictionary_blocks_file,
-            offsets_file: predicate_dictionary_offsets_file,
-        };
-
-        let value_dictionary_files = DictionaryFiles { 
-            blocks_file: value_dictionary_blocks_file,
-            offsets_file: value_dictionary_offsets_file,
-        };
-
-        let pos_s_p_adjacency_list_files = AdjacencyListFiles {
-            bits_file: pos_s_p_adjacency_list_bits_file,
-            blocks_file: pos_s_p_adjacency_list_blocks_file,
-            sblocks_file: pos_s_p_adjacency_list_sblocks_file,
-            nums_file: pos_s_p_adjacency_list_nums_file,
-        };
-
-        let pos_sp_o_adjacency_list_files = AdjacencyListFiles {
-            bits_file: pos_sp_o_adjacency_list_bits_file,
-            blocks_file: pos_sp_o_adjacency_list_blocks_file,
-            sblocks_file: pos_sp_o_adjacency_list_sblocks_file,
-            nums_file: pos_sp_o_adjacency_list_nums_file,
-        };
-
-        let neg_s_p_adjacency_list_files = AdjacencyListFiles {
-            bits_file: neg_s_p_adjacency_list_bits_file,
-            blocks_file: neg_s_p_adjacency_list_blocks_file,
-            sblocks_file: neg_s_p_adjacency_list_sblocks_file,
-            nums_file: neg_s_p_adjacency_list_nums_file,
-        };
-
-        let neg_sp_o_adjacency_list_files = AdjacencyListFiles {
-            bits_file: neg_sp_o_adjacency_list_bits_file,
-            blocks_file: neg_sp_o_adjacency_list_blocks_file,
-            sblocks_file: neg_sp_o_adjacency_list_sblocks_file,
-            nums_file: neg_sp_o_adjacency_list_nums_file,
-        };
-
-        ChildLayerFileBuilder {
+        Self {
             parent,
-            
-            node_dictionary_files,
-            predicate_dictionary_files,
-            value_dictionary_files,
-
-            pos_subjects_file,
-            neg_subjects_file,
-
-            pos_s_p_adjacency_list_files,
-            pos_sp_o_adjacency_list_files,
-            neg_s_p_adjacency_list_files,
-            neg_sp_o_adjacency_list_files,
+            files: files.clone(),
 
             node_dictionary_builder,
             predicate_dictionary_builder,
@@ -935,19 +724,8 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
             None => {
                 let ChildLayerFileBuilder {
                     parent,
+                    files,
                     
-                    node_dictionary_files,
-                    predicate_dictionary_files,
-                    value_dictionary_files,
-
-                    pos_subjects_file,
-                    neg_subjects_file,
-
-                    pos_s_p_adjacency_list_files,
-                    pos_sp_o_adjacency_list_files,
-                    neg_s_p_adjacency_list_files,
-                    neg_sp_o_adjacency_list_files,
-
                     node_dictionary_builder,
                     predicate_dictionary_builder,
                     value_dictionary_builder
@@ -955,18 +733,7 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
                 Box::new(node_dictionary_builder.add(node)
                          .map(move|(result, node_dictionary_builder)| (result, ChildLayerFileBuilder {
                              parent,
-
-                             node_dictionary_files,
-                             predicate_dictionary_files,
-                             value_dictionary_files,
-
-                             pos_subjects_file,
-                             neg_subjects_file,
-
-                             pos_s_p_adjacency_list_files,
-                             pos_sp_o_adjacency_list_files,
-                             neg_s_p_adjacency_list_files,
-                             neg_sp_o_adjacency_list_files,
+                             files,
 
                              node_dictionary_builder,
                              predicate_dictionary_builder,
@@ -982,18 +749,7 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
             None => {
                 let ChildLayerFileBuilder {
                     parent,
-
-                    node_dictionary_files,
-                    predicate_dictionary_files,
-                    value_dictionary_files,
-
-                    pos_subjects_file,
-                    neg_subjects_file,
-
-                    pos_s_p_adjacency_list_files,
-                    pos_sp_o_adjacency_list_files,
-                    neg_s_p_adjacency_list_files,
-                    neg_sp_o_adjacency_list_files,
+                    files,
 
                     node_dictionary_builder,
                     predicate_dictionary_builder,
@@ -1003,18 +759,7 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
                 Box::new(predicate_dictionary_builder.add(predicate)
                          .map(move|(result, predicate_dictionary_builder)| (result, ChildLayerFileBuilder {
                              parent,
-
-                             node_dictionary_files,
-                             predicate_dictionary_files,
-                             value_dictionary_files,
-
-                             pos_subjects_file,
-                             neg_subjects_file,
-
-                             pos_s_p_adjacency_list_files,
-                             pos_sp_o_adjacency_list_files,
-                             neg_s_p_adjacency_list_files,
-                             neg_sp_o_adjacency_list_files,
+                             files,
 
                              node_dictionary_builder,
                              predicate_dictionary_builder,
@@ -1030,18 +775,7 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
             None => {
                 let ChildLayerFileBuilder {
                     parent,
-
-                    node_dictionary_files,
-                    predicate_dictionary_files,
-                    value_dictionary_files,
-
-                    pos_subjects_file,
-                    neg_subjects_file,
-
-                    pos_s_p_adjacency_list_files,
-                    pos_sp_o_adjacency_list_files,
-                    neg_s_p_adjacency_list_files,
-                    neg_sp_o_adjacency_list_files,
+                    files,
 
                     node_dictionary_builder,
                     predicate_dictionary_builder,
@@ -1050,18 +784,7 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
                 Box::new(value_dictionary_builder.add(value)
                          .map(move|(result, value_dictionary_builder)| (result, ChildLayerFileBuilder {
                              parent,
-
-                             node_dictionary_files,
-                             predicate_dictionary_files,
-                             value_dictionary_files,
-
-                             pos_subjects_file,
-                             neg_subjects_file,
-
-                             pos_s_p_adjacency_list_files,
-                             pos_sp_o_adjacency_list_files,
-                             neg_s_p_adjacency_list_files,
-                             neg_sp_o_adjacency_list_files,
+                             files,
 
                              node_dictionary_builder,
                              predicate_dictionary_builder,
@@ -1108,18 +831,7 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
     pub fn into_phase2(self) -> impl Future<Item=ChildLayerFileBuilderPhase2<F>,Error=std::io::Error> {
         let ChildLayerFileBuilder {
             parent,
-
-            node_dictionary_files,
-            predicate_dictionary_files,
-            value_dictionary_files,
-
-            pos_subjects_file,
-            neg_subjects_file,
-
-            pos_s_p_adjacency_list_files,
-            pos_sp_o_adjacency_list_files,
-            neg_s_p_adjacency_list_files,
-            neg_sp_o_adjacency_list_files,
+            files,
 
             node_dictionary_builder,
             predicate_dictionary_builder,
@@ -1130,12 +842,12 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
         let finalize_preddict: Box<dyn Future<Item=(),Error=std::io::Error>+Send+Sync> = Box::new(predicate_dictionary_builder.finalize());
         let finalize_valdict: Box<dyn Future<Item=(),Error=std::io::Error>+Send+Sync> = Box::new(value_dictionary_builder.finalize());
 
-        let dict_maps_fut = vec![node_dictionary_files.blocks_file.map(),
-                                 node_dictionary_files.offsets_file.map(),
-                                 predicate_dictionary_files.blocks_file.map(),
-                                 predicate_dictionary_files.offsets_file.map(),
-                                 value_dictionary_files.blocks_file.map(),
-                                 value_dictionary_files.offsets_file.map()];
+        let dict_maps_fut = vec![files.node_dictionary_files.blocks_file.map(),
+                                 files.node_dictionary_files.offsets_file.map(),
+                                 files.predicate_dictionary_files.blocks_file.map(),
+                                 files.predicate_dictionary_files.offsets_file.map(),
+                                 files.value_dictionary_files.blocks_file.map(),
+                                 files.value_dictionary_files.offsets_file.map()];
 
         future::join_all(vec![finalize_nodedict, finalize_preddict, finalize_valdict])
             .and_then(move |_| future::join_all(dict_maps_fut))
@@ -1166,28 +878,7 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
                 let num_values = val_dict.len();
 
                 future::ok(ChildLayerFileBuilderPhase2::new(parent,
-                                                            pos_subjects_file,
-                                                            neg_subjects_file,
-                                                            
-                                                            pos_s_p_adjacency_list_files.bits_file,
-                                                            pos_s_p_adjacency_list_files.blocks_file,
-                                                            pos_s_p_adjacency_list_files.sblocks_file,
-                                                            pos_s_p_adjacency_list_files.nums_file,
-
-                                                            pos_sp_o_adjacency_list_files.bits_file,
-                                                            pos_sp_o_adjacency_list_files.blocks_file,
-                                                            pos_sp_o_adjacency_list_files.sblocks_file,
-                                                            pos_sp_o_adjacency_list_files.nums_file,
-
-                                                            neg_s_p_adjacency_list_files.bits_file,
-                                                            neg_s_p_adjacency_list_files.blocks_file,
-                                                            neg_s_p_adjacency_list_files.sblocks_file,
-                                                            neg_s_p_adjacency_list_files.nums_file,
-
-                                                            neg_sp_o_adjacency_list_files.bits_file,
-                                                            neg_sp_o_adjacency_list_files.blocks_file,
-                                                            neg_sp_o_adjacency_list_files.sblocks_file,
-                                                            neg_sp_o_adjacency_list_files.nums_file,
+                                                            files,
 
                                                             num_nodes,
                                                             num_predicates,
@@ -1196,7 +887,7 @@ impl<F:'static+FileLoad+FileStore+Clone> ChildLayerFileBuilder<F> {
     }
 }
 
-pub struct ChildLayerFileBuilderPhase2<F:'static+FileLoad+FileStore> {
+pub struct ChildLayerFileBuilderPhase2<F:'static+FileLoad+FileStore+Clone+Send+Sync> {
     parent: Arc<dyn Layer>,
 
     pos_subjects_file: F,
@@ -1215,30 +906,9 @@ pub struct ChildLayerFileBuilderPhase2<F:'static+FileLoad+FileStore> {
     neg_last_predicate: u64,
 }
 
-impl<F:'static+FileLoad+FileStore> ChildLayerFileBuilderPhase2<F> {
+impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F> {
     fn new(parent: Arc<dyn Layer>,
-           pos_subjects_file: F,
-           neg_subjects_file: F,
-
-           pos_s_p_adjacency_list_bits_file: F,
-           pos_s_p_adjacency_list_blocks_file: F,
-           pos_s_p_adjacency_list_sblocks_file: F,
-           pos_s_p_adjacency_list_nums_file: F,
-           
-           pos_sp_o_adjacency_list_bits_file: F,
-           pos_sp_o_adjacency_list_blocks_file: F,
-           pos_sp_o_adjacency_list_sblocks_file: F,
-           pos_sp_o_adjacency_list_nums_file: F,
-
-           neg_s_p_adjacency_list_bits_file: F,
-           neg_s_p_adjacency_list_blocks_file: F,
-           neg_s_p_adjacency_list_sblocks_file: F,
-           neg_s_p_adjacency_list_nums_file: F,
-           
-           neg_sp_o_adjacency_list_bits_file: F,
-           neg_sp_o_adjacency_list_blocks_file: F,
-           neg_sp_o_adjacency_list_sblocks_file: F,
-           neg_sp_o_adjacency_list_nums_file: F,
+           files: ChildLayerFiles<F>,
 
            num_nodes: usize,
            num_predicates: usize,
@@ -1248,34 +918,34 @@ impl<F:'static+FileLoad+FileStore> ChildLayerFileBuilderPhase2<F> {
         let neg_subjects = Vec::new();
         let s_p_width = ((parent.predicate_count() + num_predicates + 1) as f32).log2().ceil() as u8;
         let sp_o_width = ((parent.node_and_value_count() + num_nodes + num_values + 1) as f32).log2().ceil() as u8;
-        let pos_s_p_adjacency_list_builder = AdjacencyListBuilder::new(pos_s_p_adjacency_list_bits_file,
-                                                                       pos_s_p_adjacency_list_blocks_file.open_write(),
-                                                                       pos_s_p_adjacency_list_sblocks_file.open_write(),
-                                                                       pos_s_p_adjacency_list_nums_file.open_write(),
+        let pos_s_p_adjacency_list_builder = AdjacencyListBuilder::new(files.pos_s_p_adjacency_list_files.bits_file,
+                                                                       files.pos_s_p_adjacency_list_files.blocks_file.open_write(),
+                                                                       files.pos_s_p_adjacency_list_files.sblocks_file.open_write(),
+                                                                       files.pos_s_p_adjacency_list_files.nums_file.open_write(),
                                                                        s_p_width);
 
-        let pos_sp_o_adjacency_list_builder = AdjacencyListBuilder::new(pos_sp_o_adjacency_list_bits_file,
-                                                                        pos_sp_o_adjacency_list_blocks_file.open_write(),
-                                                                        pos_sp_o_adjacency_list_sblocks_file.open_write(),
-                                                                        pos_sp_o_adjacency_list_nums_file.open_write(),
+        let pos_sp_o_adjacency_list_builder = AdjacencyListBuilder::new(files.pos_sp_o_adjacency_list_files.bits_file,
+                                                                        files.pos_sp_o_adjacency_list_files.blocks_file.open_write(),
+                                                                        files.pos_sp_o_adjacency_list_files.sblocks_file.open_write(),
+                                                                        files.pos_sp_o_adjacency_list_files.nums_file.open_write(),
                                                                         sp_o_width);
 
-        let neg_s_p_adjacency_list_builder = AdjacencyListBuilder::new(neg_s_p_adjacency_list_bits_file,
-                                                                       neg_s_p_adjacency_list_blocks_file.open_write(),
-                                                                       neg_s_p_adjacency_list_sblocks_file.open_write(),
-                                                                       neg_s_p_adjacency_list_nums_file.open_write(),
+        let neg_s_p_adjacency_list_builder = AdjacencyListBuilder::new(files.neg_s_p_adjacency_list_files.bits_file,
+                                                                       files.neg_s_p_adjacency_list_files.blocks_file.open_write(),
+                                                                       files.neg_s_p_adjacency_list_files.sblocks_file.open_write(),
+                                                                       files.neg_s_p_adjacency_list_files.nums_file.open_write(),
                                                                        s_p_width);
 
-        let neg_sp_o_adjacency_list_builder = AdjacencyListBuilder::new(neg_sp_o_adjacency_list_bits_file,
-                                                                        neg_sp_o_adjacency_list_blocks_file.open_write(),
-                                                                        neg_sp_o_adjacency_list_sblocks_file.open_write(),
-                                                                        neg_sp_o_adjacency_list_nums_file.open_write(),
+        let neg_sp_o_adjacency_list_builder = AdjacencyListBuilder::new(files.neg_sp_o_adjacency_list_files.bits_file,
+                                                                        files.neg_sp_o_adjacency_list_files.blocks_file.open_write(),
+                                                                        files.neg_sp_o_adjacency_list_files.sblocks_file.open_write(),
+                                                                        files.neg_sp_o_adjacency_list_files.nums_file.open_write(),
                                                                         sp_o_width);
 
         ChildLayerFileBuilderPhase2 {
             parent,
-            pos_subjects_file,
-            neg_subjects_file,
+            pos_subjects_file: files.pos_subjects_file.clone(),
+            neg_subjects_file: files.neg_subjects_file.clone(),
             pos_subjects,
             neg_subjects,
 
@@ -1518,26 +1188,32 @@ mod tests {
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
 
-        let base_files: Vec<_> = (0..14).map(|_| MemoryBackedStore::new()).collect();
+        let files: Vec<_> = (0..14).map(|_| MemoryBackedStore::new()).collect();
         let base_layer_files = BaseLayerFiles {
-            node_dictionary_blocks_file: base_files[0].clone(),
-            node_dictionary_offsets_file: base_files[1].clone(),
-
-            predicate_dictionary_blocks_file: base_files[2].clone(),
-            predicate_dictionary_offsets_file: base_files[3].clone(),
-
-            value_dictionary_blocks_file: base_files[4].clone(),
-            value_dictionary_offsets_file: base_files[5].clone(),
-
-            s_p_adjacency_list_bits_file: base_files[6].clone(),
-            s_p_adjacency_list_blocks_file: base_files[7].clone(),
-            s_p_adjacency_list_sblocks_file: base_files[8].clone(),
-            s_p_adjacency_list_nums_file: base_files[9].clone(),
-
-            sp_o_adjacency_list_bits_file: base_files[10].clone(),
-            sp_o_adjacency_list_blocks_file: base_files[11].clone(),
-            sp_o_adjacency_list_sblocks_file: base_files[12].clone(),
-            sp_o_adjacency_list_nums_file: base_files[13].clone(),
+            node_dictionary_files: DictionaryFiles {
+                blocks_file: files[0].clone(),
+                offsets_file: files[1].clone()
+            },
+            predicate_dictionary_files: DictionaryFiles {
+                blocks_file: files[2].clone(),
+                offsets_file: files[3].clone()
+            },
+            value_dictionary_files: DictionaryFiles {
+                blocks_file: files[4].clone(),
+                offsets_file: files[5].clone()
+            },
+            s_p_adjacency_list_files: AdjacencyListFiles {
+                bits_file: files[6].clone(),
+                blocks_file: files[7].clone(),
+                sblocks_file: files[8].clone(),
+                nums_file: files[9].clone()
+            },
+            sp_o_adjacency_list_files: AdjacencyListFiles {
+                bits_file: files[10].clone(),
+                blocks_file: files[11].clone(),
+                sblocks_file: files[12].clone(),
+                nums_file: files[13].clone()
+            },
         };
 
         let base_builder = BaseLayerFileBuilder::from_files(&base_layer_files);
@@ -1567,37 +1243,46 @@ mod tests {
         let files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
 
         ChildLayerFiles {
-            node_dictionary_blocks_file: files[0].clone(),
-            node_dictionary_offsets_file: files[1].clone(),
-
-            predicate_dictionary_blocks_file: files[2].clone(),
-            predicate_dictionary_offsets_file: files[3].clone(),
-
-            value_dictionary_blocks_file: files[4].clone(),
-            value_dictionary_offsets_file: files[5].clone(),
+            node_dictionary_files: DictionaryFiles {
+                blocks_file: files[0].clone(),
+                offsets_file: files[1].clone()
+            },
+            predicate_dictionary_files: DictionaryFiles {
+                blocks_file: files[2].clone(),
+                offsets_file: files[3].clone()
+            },
+            value_dictionary_files: DictionaryFiles {
+                blocks_file: files[4].clone(),
+                offsets_file: files[5].clone()
+            },
 
             pos_subjects_file: files[6].clone(),
             neg_subjects_file: files[7].clone(),
 
-            pos_s_p_adjacency_list_bits_file: files[8].clone(),
-            pos_s_p_adjacency_list_blocks_file: files[9].clone(),
-            pos_s_p_adjacency_list_sblocks_file: files[10].clone(),
-            pos_s_p_adjacency_list_nums_file: files[11].clone(),
-
-            pos_sp_o_adjacency_list_bits_file: files[12].clone(),
-            pos_sp_o_adjacency_list_blocks_file: files[13].clone(),
-            pos_sp_o_adjacency_list_sblocks_file: files[14].clone(),
-            pos_sp_o_adjacency_list_nums_file: files[15].clone(),
-
-            neg_s_p_adjacency_list_bits_file: files[16].clone(),
-            neg_s_p_adjacency_list_blocks_file: files[17].clone(),
-            neg_s_p_adjacency_list_sblocks_file: files[18].clone(),
-            neg_s_p_adjacency_list_nums_file: files[19].clone(),
-
-            neg_sp_o_adjacency_list_bits_file: files[20].clone(),
-            neg_sp_o_adjacency_list_blocks_file: files[21].clone(),
-            neg_sp_o_adjacency_list_sblocks_file: files[22].clone(),
-            neg_sp_o_adjacency_list_nums_file: files[23].clone(),
+            pos_s_p_adjacency_list_files: AdjacencyListFiles {
+                bits_file: files[8].clone(),
+                blocks_file: files[9].clone(),
+                sblocks_file: files[10].clone(),
+                nums_file: files[11].clone()
+            },
+            pos_sp_o_adjacency_list_files: AdjacencyListFiles {
+                bits_file: files[12].clone(),
+                blocks_file: files[13].clone(),
+                sblocks_file: files[14].clone(),
+                nums_file: files[15].clone()
+            },
+            neg_s_p_adjacency_list_files: AdjacencyListFiles {
+                bits_file: files[16].clone(),
+                blocks_file: files[17].clone(),
+                sblocks_file: files[18].clone(),
+                nums_file: files[19].clone()
+            },
+            neg_sp_o_adjacency_list_files: AdjacencyListFiles {
+                bits_file: files[20].clone(),
+                blocks_file: files[21].clone(),
+                sblocks_file: files[22].clone(),
+                nums_file: files[23].clone()
+            },
         }
     }
     
