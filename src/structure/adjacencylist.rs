@@ -106,6 +106,48 @@ impl<M:AsRef<[u8]>+Clone> Iterator for AdjacencyListIterator<M> {
     }
 }
 
+pub struct AdjacencyBitCountStream<S:Stream<Item=bool,Error=std::io::Error>> {
+    stream: S,
+    count: u64 
+}
+
+impl<S:Stream<Item=bool,Error=std::io::Error>> AdjacencyBitCountStream<S> {
+    fn new(stream: S, offset: u64) -> Self {
+        AdjacencyBitCountStream {
+            stream,
+            count: offset
+        }
+    }
+}
+
+impl<S:Stream<Item=bool,Error=std::io::Error>> Stream for AdjacencyBitCountStream<S> {
+    type Item=u64;
+    type Error = std::io::Error;
+
+    fn poll(&mut self) -> Poll<Option<u64>, std::io::Error> {
+        match self.stream.poll() {
+            Ok(Async::Ready(Some(b))) => {
+                let result = self.count;
+
+                if b {
+                    self.count += 1;
+                }
+
+                Ok(Async::Ready(Some(result)))
+            },
+            Ok(Async::Ready(None)) => Ok(Async::Ready(None)),
+            Ok(Async::NotReady) => Ok(Async::NotReady),
+            Err(e) => Err(e)
+        }
+    }
+}
+
+pub fn adjacency_list_stream_pairs<F:FileLoad+Clone>(bits_file: F, nums_file: F) -> impl Stream<Item=(u64,u64),Error=std::io::Error> {
+    AdjacencyBitCountStream::new(bitarray_stream_bits(bits_file), 1)
+        .zip(logarray_stream_entries(nums_file))
+        .filter(|(_,right)| *right != 0)
+}
+
 pub struct AdjacencyListBuilder<F,W1,W2,W3>
 where F: 'static+FileLoad+FileStore,
       W1: 'static+AsyncWrite+Send+Sync,
@@ -351,6 +393,25 @@ mod tests {
         let adjacencylist = AdjacencyList::parse(&nums_contents, &bitfile_contents, &bitindex_blocks_contents, &bitindex_sblocks_contents);
 
         assert_eq!(vec![(1,1), (1,3), (2,5), (7,4)], adjacencylist.iter().collect::<Vec<_>>());
+    }
+    
+    #[test]
+    fn iterate_over_adjacency_list_files() {
+        let bitfile = MemoryBackedStore::new();
+        let bitindex_blocks_file = MemoryBackedStore::new();
+        let bitindex_sblocks_file = MemoryBackedStore::new();
+        let nums_file = MemoryBackedStore::new();
+
+        let builder = AdjacencyListBuilder::new(bitfile.clone(), bitindex_blocks_file.open_write(), bitindex_sblocks_file.open_write(), nums_file.open_write(), 8);
+        let pairs = vec![(1,1), (1,3), (2,5), (7,4)];
+        builder.push_all(stream::iter_ok(pairs.clone()))
+            .and_then(|b|b.finalize())
+            .wait()
+            .unwrap();
+
+        let result = adjacency_list_stream_pairs(bitfile, nums_file).collect().wait().unwrap();
+
+        assert_eq!(result, pairs);
     }
     
 }
