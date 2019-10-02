@@ -60,8 +60,51 @@ impl<M:AsRef<[u8]>+Clone> AdjacencyList<M> {
 
         self.nums.slice(start as usize, length as usize)
     }
+
+    pub fn iter(&self) -> AdjacencyListIterator<M> {
+        AdjacencyListIterator {
+            pos: 0,
+            left: 1,
+            bits: self.bits.clone(),
+            nums: self.nums.clone()
+        }
+    }
 }
 
+pub struct AdjacencyListIterator<M:AsRef<[u8]>+Clone> {
+    pos: usize,
+    left: u64,
+    bits: BitIndex<M>,
+    nums: LogArray<M>
+}
+
+impl<M:AsRef<[u8]>+Clone> Iterator for AdjacencyListIterator<M> {
+    type Item = (u64, u64);
+
+    fn next(&mut self) -> Option<(u64, u64)> {
+        loop {
+            if self.pos >= self.bits.len() {
+                return None;
+            }
+
+            let bit = self.bits.get(self.pos as u64);
+            let num = self.nums.entry(self.pos);
+
+            let result = (self.left, num);
+            if bit {
+                self.left += 1;
+            }
+
+            self.pos += 1;
+
+            if num == 0 {
+                continue;
+            }
+
+            return Some(result)
+        }
+    }
+}
 
 pub struct AdjacencyListBuilder<F,W1,W2,W3>
 where F: 'static+FileLoad+FileStore,
@@ -286,4 +329,28 @@ mod tests {
         assert_eq!(1, slice.len());
         assert_eq!(4, slice.entry(0));
     }
+
+    #[test]
+    fn iterate_over_adjacency_list() {
+        let bitfile = MemoryBackedStore::new();
+        let bitindex_blocks_file = MemoryBackedStore::new();
+        let bitindex_sblocks_file = MemoryBackedStore::new();
+        let nums_file = MemoryBackedStore::new();
+
+        let builder = AdjacencyListBuilder::new(bitfile.clone(), bitindex_blocks_file.open_write(), bitindex_sblocks_file.open_write(), nums_file.open_write(), 8);
+        builder.push_all(stream::iter_ok(vec![(1,1), (1,3), (2,5), (7,4)]))
+            .and_then(|b|b.finalize())
+            .wait()
+            .unwrap();
+
+        let bitfile_contents = bitfile.map().wait().unwrap();
+        let bitindex_blocks_contents = bitindex_blocks_file.map().wait().unwrap();
+        let bitindex_sblocks_contents = bitindex_sblocks_file.map().wait().unwrap();
+        let nums_contents = nums_file.map().wait().unwrap();
+
+        let adjacencylist = AdjacencyList::parse(&nums_contents, &bitfile_contents, &bitindex_blocks_contents, &bitindex_sblocks_contents);
+
+        assert_eq!(vec![(1,1), (1,3), (2,5), (7,4)], adjacencylist.iter().collect::<Vec<_>>());
+    }
+    
 }
