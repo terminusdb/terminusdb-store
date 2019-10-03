@@ -49,6 +49,13 @@ impl<M:AsRef<[u8]>+Clone> AdjacencyList<M> {
         }
     }
 
+    pub fn pair_at_pos(&self, pos: u64) -> (u64, u64) {
+        let left = if pos == 0 { 0 } else { self.bits.rank(pos-1) } + 1;
+        let right = self.nums.entry(pos as usize);
+
+        (left, right)
+    }
+
     pub fn get(&self, index: u64) -> LogArraySlice<M> {
         if index < 1 {
             panic!("minimum index has to be 1");
@@ -412,6 +419,32 @@ mod tests {
         let result = adjacency_list_stream_pairs(bitfile, nums_file).collect().wait().unwrap();
 
         assert_eq!(result, pairs);
+    }
+
+    #[test]
+    fn pair_at_pos_returns_correct_pair() {
+        let bitfile = MemoryBackedStore::new();
+        let bitindex_blocks_file = MemoryBackedStore::new();
+        let bitindex_sblocks_file = MemoryBackedStore::new();
+        let nums_file = MemoryBackedStore::new();
+
+        let builder = AdjacencyListBuilder::new(bitfile.clone(), bitindex_blocks_file.open_write(), bitindex_sblocks_file.open_write(), nums_file.open_write(), 8);
+        let contents = vec![(2,3),(2,4),(2,6),(3,1),(3,3),(3,4),(3,8),(7,4), (8,12), (11,3)];
+        builder.push_all(stream::iter_ok(contents))
+            .and_then(|b|b.finalize())
+            .wait()
+            .unwrap();
+
+        let bitfile_contents = bitfile.map().wait().unwrap();
+        let bitindex_blocks_contents = bitindex_blocks_file.map().wait().unwrap();
+        let bitindex_sblocks_contents = bitindex_sblocks_file.map().wait().unwrap();
+        let nums_contents = nums_file.map().wait().unwrap();
+
+        let adjacencylist = AdjacencyList::parse(&nums_contents, &bitfile_contents, &bitindex_blocks_contents, &bitindex_sblocks_contents);
+
+        let result: Vec<_> = (0..adjacencylist.right_count()).map(|i|adjacencylist.pair_at_pos(i as u64)).collect();
+
+        assert_eq!(vec![(1,0), (2,3), (2,4), (2,6), (3,1), (3,3), (3,4), (3,8), (4,0), (5,0), (6,0), (7,4), (8,12), (9,0), (10,0), (11,3)], result);
     }
     
 }
