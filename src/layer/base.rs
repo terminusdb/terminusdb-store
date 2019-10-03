@@ -200,6 +200,26 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
             }))
         }
     }
+
+    fn objects(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
+        let cloned = self.clone();
+        Box::new((0..self.node_and_value_count())
+                 .map(move |object| cloned.lookup_object((object+1) as u64).unwrap()))
+    }
+
+    fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+        if object == 0 || object > self.node_and_value_count() as u64 {
+            None
+        }
+        else {
+            let sp_slice = self.o_ps_adjacency_list.get(object);
+            Some(Box::new(BaseObjectLookup {
+                object,
+                sp_slice,
+                s_p_adjacency_list: self.s_p_adjacency_list.clone(),
+            }))
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -377,6 +397,32 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseObjectIterator<M> {
                 })
             }
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct BaseObjectLookup<M:AsRef<[u8]>+Clone> {
+    object: u64,
+    sp_slice: LogArraySlice<M>,
+    s_p_adjacency_list: AdjacencyList<M>,
+}
+
+impl<M:'static+AsRef<[u8]>+Clone> ObjectLookup for BaseObjectLookup<M> {
+    fn object(&self) -> u64 {
+        self.object
+    }
+
+    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=(u64, u64)>> {
+        let cloned = self.clone();
+        Box::new(self.sp_slice.clone().into_iter()
+                 .filter_map(move |i| {
+                     if i == 0 {
+                         None
+                     }
+                     else {
+                         Some(cloned.s_p_adjacency_list.pair_at_pos(i-1))
+                     }
+                 }))
     }
 }
 
@@ -583,6 +629,7 @@ pub struct BaseLayerFileBuilderPhase2<F:'static+FileLoad+FileStore> {
     sp_o_adjacency_list_builder: AdjacencyListBuilder<F, F::Write, F::Write, F::Write>,
     last_subject: u64,
     last_predicate: u64,
+    object_count: usize
 }
 
 impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
@@ -613,6 +660,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
             sp_o_adjacency_list_builder,
             last_subject: 0,
             last_predicate: 0,
+            object_count: num_nodes + num_values
         }
     }
 
@@ -622,7 +670,8 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
             s_p_adjacency_list_builder,
             sp_o_adjacency_list_builder,
             last_subject,
-            last_predicate
+            last_predicate,
+            object_count
         } = self;
 
         if last_subject == subject && last_predicate == predicate {
@@ -635,7 +684,8 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
                              s_p_adjacency_list_builder,
                              sp_o_adjacency_list_builder,
                              last_subject: subject,
-                             last_predicate: predicate
+                             last_predicate: predicate,
+                             object_count,
                          }
                      }))
         }
@@ -652,7 +702,8 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
                                     s_p_adjacency_list_builder,
                                     sp_o_adjacency_list_builder,
                                     last_subject: subject,
-                                    last_predicate: predicate
+                                    last_predicate: predicate,
+                                    object_count
                                 }
                             })
                     }))
@@ -667,6 +718,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
     pub fn finalize(self) -> impl Future<Item=(), Error=std::io::Error> {
         let sp_o_adjacency_list_files = self.files.sp_o_adjacency_list_files;
         let o_ps_adjacency_list_files = self.files.o_ps_adjacency_list_files;
+        let object_count = self.object_count;
         future::join_all(vec![self.s_p_adjacency_list_builder.finalize(), self.sp_o_adjacency_list_builder.finalize()])
             .and_then(move |_| adjacency_list_stream_pairs(sp_o_adjacency_list_files.bits_file, sp_o_adjacency_list_files.nums_file)
                       .map(|(left, right)| (right, left))
@@ -674,9 +726,12 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
                           set.insert((left, right));
                           future::ok::<_,std::io::Error>(set)
                       }))
-            .and_then(move |tuples| {
+            .and_then(move |mut tuples| {
                 let (greatest_left,_) = tuples.iter().next_back().unwrap_or(&(0,0));
-                let width = ((*greatest_left+1) as f32).log2().ceil() as u8;
+                for pad_object in *greatest_left..(object_count as u64)+1 {
+                    tuples.insert((pad_object, 0));
+                }
+                let width = ((object_count+1) as f32).log2().ceil() as u8;
 
                 let o_ps_adjacency_list_builder = AdjacencyListBuilder::new(o_ps_adjacency_list_files.bits_file,
                                                                             o_ps_adjacency_list_files.blocks_file.open_write(),
@@ -835,5 +890,46 @@ mod tests {
                         (3,3,6),
                         (4,3,6)],
                    triples);
+    }
+
+    #[test]
+    fn lookup_by_object() {
+        let layer = example_base_layer();
+
+        let lookup = layer.lookup_object(1).unwrap();
+        let pairs: Vec<_> = lookup.subject_predicate_pairs().collect();
+        assert_eq!(vec![(1,1), (2,1)], pairs);
+
+        let lookup = layer.lookup_object(3).unwrap();
+        let pairs: Vec<_> = lookup.subject_predicate_pairs().collect();
+        assert_eq!(vec![(2,1)], pairs);
+
+        let lookup = layer.lookup_object(5).unwrap();
+        let pairs: Vec<_> = lookup.subject_predicate_pairs().collect();
+        assert_eq!(vec![(3,2)], pairs);
+
+        let lookup = layer.lookup_object(6).unwrap();
+        let pairs: Vec<_> = lookup.subject_predicate_pairs().collect();
+        assert_eq!(vec![(2,3), (3,3), (4,3)], pairs);
+    }
+
+    #[test]
+    fn lookup_objects() {
+        let layer = example_base_layer();
+
+        let triples_by_object: Vec<_> = layer.objects()
+            .map(|o|o.subject_predicate_pairs()
+                 .map(move |(s,p)|(s,p,o.object())))
+            .flatten()
+            .collect();
+
+        assert_eq!(vec![(1,1,1),
+                        (2,1,1),
+                        (2,1,3),
+                        (3,2,5),
+                        (2,3,6),
+                        (3,3,6),
+                        (4,3,6)],
+                   triples_by_object);
     }
 }

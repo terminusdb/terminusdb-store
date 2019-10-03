@@ -57,6 +57,23 @@ pub trait Layer: Send+Sync {
     /// layers may have then removed every triple involving this
     /// subject.
     fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>>;
+
+    /// Returns an iterator over all objects known to this layer.
+    ///
+    /// Objects are returned as an `ObjectLookup`, an object that can
+    /// then be queried for subject-predicate pairs pointing to that
+    /// object.
+    fn objects(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>>;
+
+    /// Returns an `ObjectLookup` for the given object, or None if it could not be constructed
+    ///
+    /// Note that even if a value is returned here, that doesn't
+    /// necessarily mean that there will be triples for the given
+    /// object. All it means is that this layer or a parent layer has
+    /// registered an addition involving this object. However, later
+    /// layers may have then removed every triple involving this
+    /// object.
+    fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>>;
     
     /// Returns true if the given triple exists, and false otherwise
     fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
@@ -194,6 +211,15 @@ pub trait SubjectPredicateLookup {
 
     /// Returns a triple for the given object, or None if it doesn't exist
     fn triple(&self, object: u64) -> Option<IdTriple>;
+}
+
+/// a trait that caches a lookup in a layer by object
+pub trait ObjectLookup {
+    /// The object that this lookup is based on
+    fn object(&self) -> u64;
+
+    /// Returns an iterator over the subject-predicate pairs pointing at this object
+    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=(u64, u64)>>;
 }
 
 /// A triple, stored as numerical ids

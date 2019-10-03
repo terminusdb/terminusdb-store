@@ -11,7 +11,7 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::layer::{Layer,ObjectType,StringTriple,IdTriple,SubjectLookup};
+use crate::layer::{Layer,ObjectType,StringTriple,IdTriple,SubjectLookup,ObjectLookup};
 use crate::store::{Store, Database, DatabaseLayer, DatabaseLayerBuilder, open_memory_store, open_directory_store};
 
 /// A wrapper over a SimpleLayerBuilder, providing a thread-safe sharable interface
@@ -140,6 +140,14 @@ impl Layer for SyncDatabaseLayer {
 
     fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
         self.inner.lookup_subject(subject)
+    }
+
+    fn objects(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
+        self.inner.objects()
+    }
+
+    fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+        self.inner.lookup_object(object)
     }
 }
 

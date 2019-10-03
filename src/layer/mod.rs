@@ -10,5 +10,5 @@ pub mod builder;
 
 pub use base::{BaseLayer, BaseLayerFiles};
 pub use child::{ChildLayer, ChildLayerFiles};
-pub use layer::{Layer,IdTriple,StringTriple,ObjectType,SubjectLookup,SubjectPredicateLookup};
+pub use layer::{Layer,IdTriple,StringTriple,ObjectType,SubjectLookup,SubjectPredicateLookup, ObjectLookup};
 pub use builder::{LayerBuilder,SimpleLayerBuilder};

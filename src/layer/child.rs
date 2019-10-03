@@ -352,6 +352,14 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             neg
         }))
     }
+
+    fn objects(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
+        unimplemented!();
+    }
+
+    fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+        unimplemented!();
+    }
 }
 
 pub struct ChildSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
