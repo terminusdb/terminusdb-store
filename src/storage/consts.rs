@@ -24,6 +24,7 @@ pub struct Filenames {
     pub base_o_ps_adjacency_list_bit_index_sblocks: &'static str,
 
     pub pos_subjects: &'static str,
+    pub pos_objects: &'static str,
 
     pub pos_s_p_adjacency_list_nums: &'static str,
     pub pos_s_p_adjacency_list_bits: &'static str,
@@ -35,7 +36,13 @@ pub struct Filenames {
     pub pos_sp_o_adjacency_list_bit_index_blocks: &'static str,
     pub pos_sp_o_adjacency_list_bit_index_sblocks: &'static str,
 
+    pub pos_o_ps_adjacency_list_nums: &'static str,
+    pub pos_o_ps_adjacency_list_bits: &'static str,
+    pub pos_o_ps_adjacency_list_bit_index_blocks: &'static str,
+    pub pos_o_ps_adjacency_list_bit_index_sblocks: &'static str,
+
     pub neg_subjects: &'static str,
+    pub neg_objects: &'static str,
 
     pub neg_s_p_adjacency_list_nums: &'static str,
     pub neg_s_p_adjacency_list_bits: &'static str,
@@ -46,6 +53,11 @@ pub struct Filenames {
     pub neg_sp_o_adjacency_list_bits: &'static str,
     pub neg_sp_o_adjacency_list_bit_index_blocks: &'static str,
     pub neg_sp_o_adjacency_list_bit_index_sblocks: &'static str,
+
+    pub neg_o_ps_adjacency_list_nums: &'static str,
+    pub neg_o_ps_adjacency_list_bits: &'static str,
+    pub neg_o_ps_adjacency_list_bit_index_blocks: &'static str,
+    pub neg_o_ps_adjacency_list_bit_index_sblocks: &'static str,
 
     pub parent: &'static str,
 }
@@ -76,6 +88,7 @@ pub const FILENAMES: Filenames = Filenames {
     base_o_ps_adjacency_list_bit_index_sblocks: "base_o_ps_adjacency_list_bit_index_sblocks.logarray",
 
     pos_subjects: "child_pos_subjects.logarray",
+    pos_objects: "child_pos_objects.logarray",
 
     pos_s_p_adjacency_list_nums: "pos_s_p_adjacency_list_nums.logarray",
     pos_s_p_adjacency_list_bits: "pos_s_p_adjacency_list_bits.bitarray",
@@ -87,7 +100,13 @@ pub const FILENAMES: Filenames = Filenames {
     pos_sp_o_adjacency_list_bit_index_blocks: "pos_sp_o_adjacency_list_bit_index_blocks.logarray",
     pos_sp_o_adjacency_list_bit_index_sblocks: "pos_sp_o_adjacency_list_bit_index_sblocks.logarray",
 
+    pos_o_ps_adjacency_list_nums: "pos_o_ps_adjacency_list_nums.logarray",
+    pos_o_ps_adjacency_list_bits: "pos_o_ps_adjacency_list_bits.bitarray",
+    pos_o_ps_adjacency_list_bit_index_blocks: "pos_o_ps_adjacency_list_bit_index_blocks.logarray",
+    pos_o_ps_adjacency_list_bit_index_sblocks: "pos_o_ps_adjacency_list_bit_index_sblocks.logarray",
+
     neg_subjects: "child_neg_subjects.logarray",
+    neg_objects: "child_neg_objects.logarray",
 
     neg_s_p_adjacency_list_nums: "neg_s_p_adjacency_list_nums.logarray",
     neg_s_p_adjacency_list_bits: "neg_s_p_adjacency_list_bits.bitarray",
@@ -98,6 +117,11 @@ pub const FILENAMES: Filenames = Filenames {
     neg_sp_o_adjacency_list_bits: "neg_sp_o_adjacency_list_bits.bitarray",
     neg_sp_o_adjacency_list_bit_index_blocks: "neg_sp_o_adjacency_list_bit_index_blocks.logarray",
     neg_sp_o_adjacency_list_bit_index_sblocks: "neg_sp_o_adjacency_list_bit_index_sblocks.logarray",
+
+    neg_o_ps_adjacency_list_nums: "neg_o_ps_adjacency_list_nums.logarray",
+    neg_o_ps_adjacency_list_bits: "neg_o_ps_adjacency_list_bits.bitarray",
+    neg_o_ps_adjacency_list_bit_index_blocks: "neg_o_ps_adjacency_list_bit_index_blocks.logarray",
+    neg_o_ps_adjacency_list_bit_index_sblocks: "neg_o_ps_adjacency_list_bit_index_sblocks.logarray",
 
     parent: "parent.hex"
 };

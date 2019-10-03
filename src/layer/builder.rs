@@ -306,7 +306,7 @@ mod tests {
     }
 
     fn new_child_files() -> ChildLayerFiles<MemoryBackedStore> {
-        let files: Vec<_> = (0..24).map(|_| MemoryBackedStore::new()).collect();
+        let files: Vec<_> = (0..34).map(|_| MemoryBackedStore::new()).collect();
         ChildLayerFiles {
             node_dictionary_files: DictionaryFiles {
                 blocks_file: files[0].clone(),
@@ -322,31 +322,45 @@ mod tests {
             },
 
             pos_subjects_file: files[6].clone(),
-            neg_subjects_file: files[7].clone(),
+            pos_objects_file: files[7].clone(),
+            neg_subjects_file: files[8].clone(),
+            neg_objects_file: files[9].clone(),
 
             pos_s_p_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[8].clone(),
-                blocks_file: files[9].clone(),
-                sblocks_file: files[10].clone(),
-                nums_file: files[11].clone()
+                bits_file: files[10].clone(),
+                blocks_file: files[11].clone(),
+                sblocks_file: files[12].clone(),
+                nums_file: files[13].clone()
             },
             pos_sp_o_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[12].clone(),
-                blocks_file: files[13].clone(),
-                sblocks_file: files[14].clone(),
-                nums_file: files[15].clone()
+                bits_file: files[14].clone(),
+                blocks_file: files[15].clone(),
+                sblocks_file: files[16].clone(),
+                nums_file: files[17].clone()
+            },
+            pos_o_ps_adjacency_list_files: AdjacencyListFiles {
+                bits_file: files[18].clone(),
+                blocks_file: files[19].clone(),
+                sblocks_file: files[20].clone(),
+                nums_file: files[21].clone()
             },
             neg_s_p_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[16].clone(),
-                blocks_file: files[17].clone(),
-                sblocks_file: files[18].clone(),
-                nums_file: files[19].clone()
+                bits_file: files[22].clone(),
+                blocks_file: files[23].clone(),
+                sblocks_file: files[24].clone(),
+                nums_file: files[25].clone()
             },
             neg_sp_o_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[20].clone(),
-                blocks_file: files[21].clone(),
-                sblocks_file: files[22].clone(),
-                nums_file: files[23].clone()
+                bits_file: files[26].clone(),
+                blocks_file: files[27].clone(),
+                sblocks_file: files[28].clone(),
+                nums_file: files[29].clone()
+            },
+            neg_o_ps_adjacency_list_files: AdjacencyListFiles {
+                bits_file: files[30].clone(),
+                blocks_file: files[31].clone(),
+                sblocks_file: files[32].clone(),
+                nums_file: files[33].clone()
             },
         }
     }

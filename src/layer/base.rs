@@ -676,7 +676,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
                       }))
             .and_then(move |tuples| {
                 let (greatest_left,_) = tuples.iter().next_back().unwrap_or(&(0,0));
-                let width = (*greatest_left as f32).log2().ceil() as u8;
+                let width = ((*greatest_left+1) as f32).log2().ceil() as u8;
 
                 let o_ps_adjacency_list_builder = AdjacencyListBuilder::new(o_ps_adjacency_list_files.bits_file,
                                                                             o_ps_adjacency_list_files.blocks_file.open_write(),
