@@ -241,6 +241,7 @@ pub trait ObjectLookup {
     /// clone this instance of ObjectLookup into a dyn Box
     fn clone_box(&self) -> Box<dyn ObjectLookup>;
 
+    /// Returns true if the object this lookup is for is connected to the given subject and predicater
     fn has_subject_predicate_pair(&self, subject: u64, predicate: u64) -> bool {
         for (s, p) in self.subject_predicate_pairs() {
             if s == subject && p == predicate {
@@ -255,6 +256,7 @@ pub trait ObjectLookup {
         false
     }
 
+    /// Returns the triple consisting of the given subject and predicate, and the object this lookup is for, if it exists. None is returned otherwise
     fn triple(&self, subject: u64, predicate: u64) -> Option<IdTriple> {
         if self.has_subject_predicate_pair(subject, predicate) {
             Some(IdTriple::new(subject, predicate, self.object()))
@@ -264,6 +266,7 @@ pub trait ObjectLookup {
         }
     }
     
+    /// Returns an iterator over all triples with the object of this lookup
     fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
         let object = self.object();
         Box::new(self.subject_predicate_pairs()
