@@ -220,6 +220,29 @@ pub trait ObjectLookup {
 
     /// Returns an iterator over the subject-predicate pairs pointing at this object
     fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=(u64, u64)>>;
+
+    /// clone this instance of ObjectLookup into a dyn Box
+    fn clone_box(&self) -> Box<dyn ObjectLookup>;
+
+    fn triple(&self, subject: u64, predicate: u64) -> bool {
+        for (s, p) in self.subject_predicate_pairs() {
+            if s == subject && p == predicate {
+                return true;
+            }
+            if s > subject || (s == subject && p > predicate) {
+                // we went past our search, so it's not going to appear anymore
+                return false;
+            }
+        }
+
+        false
+    }
+
+    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
+        let object = self.object();
+        Box::new(self.subject_predicate_pairs()
+                 .map(move |(s,p)| IdTriple::new(s,p,object)))
+    }
 }
 
 /// A triple, stored as numerical ids

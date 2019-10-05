@@ -13,6 +13,7 @@ use futures::stream;
 use std::cmp::Ordering;
 use std::sync::Arc;
 use std::collections::BTreeSet;
+use std::iter::Peekable;
 
 #[derive(Clone)]
 pub struct ChildLayerFiles<F:'static+FileLoad+FileStore+Clone+Send+Sync> {
@@ -354,11 +355,36 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
     }
 
     fn objects(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
-        unimplemented!();
+        // todo: there might be a more efficient method than doing
+        // this lookup over and over, due to sequentiality of the
+        // underlying data structures
+        let cloned = self.clone();
+        Box::new((0..self.node_and_value_count())
+                 .map(move |object| cloned.lookup_object((object+1) as u64).unwrap()))
     }
 
     fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
-        unimplemented!();
+        let pos = self.pos_objects.index_of(object)
+            .map(|index| self.pos_o_ps_adjacency_list.get((index as u64)+1))
+            .map(|pos_sp_slice| ChildObjectLookupAdjacency {
+                subjects: self.pos_subjects.clone(),
+                sp_slice: pos_sp_slice,
+                s_p_adjacency_list: self.pos_s_p_adjacency_list.clone()
+            });
+        let parent = self.parent.lookup_object(object);
+        if pos.is_none() && parent.is_none() {
+            return None;
+        }
+
+        let neg = self.neg_objects.index_of(object)
+            .map(|index| self.neg_o_ps_adjacency_list.get((index as u64)+1))
+            .map(|neg_sp_slice| ChildObjectLookupAdjacency {
+                subjects: self.neg_subjects.clone(),
+                sp_slice: neg_sp_slice,
+                s_p_adjacency_list: self.neg_s_p_adjacency_list.clone()
+            });
+
+        Some(Box::new(ChildObjectLookup::new(object, parent, pos, neg)))
     }
 }
 
@@ -728,6 +754,146 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildObjectIterator<M> {
             predicate: self.predicate,
             object
         })
+    }
+}
+
+#[derive(Clone)]
+struct ChildObjectLookupAdjacency<M:AsRef<[u8]>+Clone> {
+    sp_slice: LogArraySlice<M>,
+    s_p_adjacency_list: AdjacencyList<M>,
+    subjects: MonotonicLogArray<M>,
+}
+
+impl<M:'static+AsRef<[u8]>+Clone> ChildObjectLookupAdjacency<M> {
+    fn iter(&self) -> impl Iterator<Item=(u64,u64)> {
+        let sp_slice = self.sp_slice.clone();
+        let s_p_adjacency_list = self.s_p_adjacency_list.clone();
+        let subjects = self.subjects.clone();
+        sp_slice.into_iter()
+            .map(move |index| s_p_adjacency_list.pair_at_pos(index-1))
+            .map(move |(mapped_subject, predicate)| (subjects.entry((mapped_subject as usize)-1), predicate))
+    }
+}
+
+//#[derive(Clone)]
+pub struct ChildObjectLookup<M:AsRef<[u8]>+Clone> {
+    object: u64,
+    parent: Option<Box<dyn ObjectLookup>>,
+
+    pos: Option<ChildObjectLookupAdjacency<M>>,
+    neg: Option<ChildObjectLookupAdjacency<M>>,
+}
+
+impl<M:AsRef<[u8]>+Clone> ChildObjectLookup<M> {
+    fn new(object: u64,
+           parent: Option<Box<dyn ObjectLookup>>,
+           pos: Option<ChildObjectLookupAdjacency<M>>,
+           neg: Option<ChildObjectLookupAdjacency<M>>) -> Self {
+        Self {
+            object,
+            parent,
+            pos,
+            neg,
+        }
+    }
+}
+
+impl<M:AsRef<[u8]>+Clone> Clone for ChildObjectLookup<M> {
+    fn clone(&self) -> Self {
+        ChildObjectLookup {
+            object: self.object,
+            parent: self.parent.as_ref().map(|p|p.clone_box()),
+            pos: self.pos.clone(),
+            neg: self.neg.clone()
+        }
+    }
+}
+
+impl<M:'static+AsRef<[u8]>+Clone> ObjectLookup for ChildObjectLookup<M> {
+    fn object(&self) -> u64 {
+        self.object
+    }
+
+    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=(u64, u64)>> {
+        Box::new(ChildSubjectPredicatePairsIterator::new(self.parent.as_ref().map(|p|p.clone_box()), self.pos.clone(), self.neg.clone()))
+    }
+
+    fn clone_box(&self) -> Box<dyn ObjectLookup> {
+        Box::new(self.clone())
+    }
+}
+
+struct ChildSubjectPredicatePairsIterator {
+    parent: Option<Peekable<Box<dyn Iterator<Item=(u64,u64)>>>>,
+
+    pos: Option<Peekable<Box<dyn Iterator<Item=(u64,u64)>>>>,
+    neg: Option<Peekable<Box<dyn Iterator<Item=(u64, u64)>>>>
+}
+
+impl ChildSubjectPredicatePairsIterator {
+    fn new<M:'static+AsRef<[u8]>+Clone>(parent: Option<Box<dyn ObjectLookup>>,
+                                        pos: Option<ChildObjectLookupAdjacency<M>>,
+                                        neg: Option<ChildObjectLookupAdjacency<M>>) -> Self {
+        Self {
+            parent: parent.map(|p|p.subject_predicate_pairs().peekable()),
+            pos: pos.map(|p| (Box::new(p.iter()) as Box<dyn Iterator<Item=(u64,u64)>>).peekable()),
+            neg: neg.map(|n| (Box::new(n.iter()) as Box<dyn Iterator<Item=(u64,u64)>>).peekable()),
+        }
+    }
+}
+
+impl Iterator for ChildSubjectPredicatePairsIterator {
+    type Item = (u64,u64);
+
+    fn next(&mut self) -> Option<(u64,u64)> {
+        let parent = self.parent.as_mut().and_then(|p|p.peek()).map(|p|*p);
+        let pos = self.pos.as_mut().and_then(|p|p.peek()).map(|p|*p);
+        let neg = self.neg.as_mut().and_then(|n|n.peek()).map(|n|*n);
+        if parent.is_none() {
+            self.parent = None;
+        }
+        if pos.is_none() {
+            self.pos = None;
+        }
+        if neg.is_none() {
+            self.neg = None;
+        }
+
+        if parent.is_some() {
+            let parent = parent.unwrap();
+            if pos.is_none() || parent < pos.unwrap() {
+                // pick parent result (after checking neg)
+                let read_parent = self.parent.as_mut().unwrap().next().unwrap();
+                let mut read_neg: Option<(u64,u64)> = neg;
+                while self.neg.as_mut().and_then(|n|n.peek().map(|n|*n <= parent)).unwrap_or(false) {
+                    // next result on neg stream is less than or equal to parent, so we need to read it.
+                    read_neg = self.neg.as_mut().unwrap().next();
+                }
+
+                if read_neg.is_some() && read_neg.unwrap() == read_parent {
+                    // parent entry was found in neg, so skip to next entry
+                    return self.next();
+                }
+                else {
+                    return Some(read_parent);
+                }
+            }
+            else if parent == pos.unwrap() {
+                // this should not happen, as pos layer should not
+                // contain anything that is also in the parent
+                // layer. Panic as something must have gone terribly wrong.
+                panic!("unexpectedly found equal value in parent and child layers");
+            }
+        }
+
+        // no parent, or earlier pos
+        if pos.is_some() {
+            // just child
+            Some(self.pos.as_mut().unwrap().next().unwrap())
+        }
+        else {
+            None
+        }
     }
 }
 
@@ -1525,6 +1691,38 @@ mod tests {
                         (2,3,6),
                         (3,3,6),
                         (4,3,6)], subjects);
+    }
+
+    #[test]
+    fn iterate_child_layer_triples_by_object() {
+        let base_layer = example_base_layer();
+        let parent = Arc::new(base_layer);
+
+        let child_files = example_child_files();
+
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
+        child_builder.into_phase2()
+            .and_then(|b| b.add_triple(1,2,3))
+            .and_then(|b| b.add_triple(2,3,4))
+            .and_then(|b| b.remove_triple(3,2,5))
+            .and_then(|b|b.finalize()).wait().unwrap();
+
+        let child_layer = ChildLayer::load_from_files([5,4,3,2,1], parent, &child_files).wait().unwrap();
+
+        let triples: Vec<_> = child_layer.objects()
+            .map(|o|o.triples())
+            .flatten()
+            .map(|t|(t.subject, t.predicate, t.object))
+            .collect();
+
+        assert_eq!(vec![(1,1,1),
+                        (2,1,1),
+                        (1,2,3),
+                        (2,1,3),
+                        (2,3,4),
+                        (2,3,6),
+                        (3,3,6),
+                        (4,3,6)], triples);
     }
 
     #[test]

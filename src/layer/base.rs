@@ -202,6 +202,9 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
     }
 
     fn objects(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
+        // todo: there might be a more efficient method than doing
+        // this lookup over and over, due to sequentiality of the
+        // underlying data structures
         let cloned = self.clone();
         Box::new((0..self.node_and_value_count())
                  .map(move |object| cloned.lookup_object((object+1) as u64).unwrap()))
@@ -423,6 +426,10 @@ impl<M:'static+AsRef<[u8]>+Clone> ObjectLookup for BaseObjectLookup<M> {
                          Some(cloned.s_p_adjacency_list.pair_at_pos(i-1))
                      }
                  }))
+    }
+
+    fn clone_box(&self) -> Box<dyn ObjectLookup> {
+        Box::new(self.clone())
     }
 }
 
