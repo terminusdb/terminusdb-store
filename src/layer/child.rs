@@ -654,11 +654,9 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for ChildSubjectPredica
         self.predicate
     }
     
-    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
+    fn objects(&self) -> Box<dyn Iterator<Item=u64>> {
         Box::new(ChildObjectIterator {
             parent: self.parent.as_ref().map(|p|p.triples()),
-            subject: self.subject,
-            predicate: self.predicate,
             pos_objects: self.pos_objects.clone(),
             neg_objects: self.neg_objects.clone(),
 
@@ -668,31 +666,29 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for ChildSubjectPredica
         })
     }
 
-    fn triple(&self, object: u64) -> Option<IdTriple> {
+    fn has_object(&self, object: u64) -> bool {
         if object == 0 {
-            return None;
+            return false;
         }
         // this should check pos (if it is there), then neg (if it is there), and finally parent.
         // if it is in neg, return None. otherwise return the triple (if in pos) or whatever comes out of parent.
         self.pos_objects.as_ref()
-            .and_then(|po|po.iter().position(|o|o == object))
-            .map(|_| IdTriple { subject: self.subject, predicate: self.predicate, object: object })
+            .and_then(|po|po.iter().position(|o|o == object).map(|_|true))
             .or_else(|| {
                 if self.neg_objects.as_ref().and_then(|no|no.iter().position(|o|o == object)).is_some() {
-                    None
+                    Some(false)
                 }
                 else {
-                    self.parent.as_ref().and_then(|p|p.triple(object))
+                    self.parent.as_ref().map(|p|p.has_object(object))
                 }
             })
+            .unwrap_or(false)
     }
 }
 
 pub struct ChildObjectIterator<M:'static+AsRef<[u8]>+Clone> {
     parent: Option<Box<dyn Iterator<Item=IdTriple>>>,
     next_parent_object: Option<u64>,
-    subject: u64,
-    predicate: u64,
     pos_objects: Option<LogArraySlice<M>>,
     neg_objects: Option<LogArraySlice<M>>,
     pos_pos: usize,
@@ -700,9 +696,9 @@ pub struct ChildObjectIterator<M:'static+AsRef<[u8]>+Clone> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildObjectIterator<M> {
-    type Item = IdTriple;
+    type Item = u64;
 
-    fn next(&mut self) -> Option<IdTriple> {
+    fn next(&mut self) -> Option<u64> {
         // first iterate through all the pos objects
         // then, iterate through the parent, and filter out the next objects
         if self.parent.is_some() && self.next_parent_object.is_none() {
@@ -722,7 +718,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildObjectIterator<M> {
                     if parent_object == neg_object.unwrap_or(0) {
                         // skip this one, since it has been removed
                         self.neg_pos += 1;
-                        self.next().map(|triple| triple.object)
+                        self.next()
                     }
                     else {
                         Some(parent_object)
@@ -738,7 +734,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildObjectIterator<M> {
                 if parent_object == neg_object.unwrap_or(0) {
                     // skip this one, since it has been removed
                     self.neg_pos += 1;
-                    self.next().map(|triple| triple.object)
+                    self.next()
                 }
                 else {
                     Some(parent_object)
@@ -749,11 +745,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildObjectIterator<M> {
                 Some(own_object)
             },
             (None, None, _) => None
-        }.map(|object| IdTriple {
-            subject: self.subject,
-            predicate: self.predicate,
-            object
-        })
+        }
     }
 }
 

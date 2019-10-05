@@ -347,7 +347,7 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for BaseSubjectPredicat
         self.predicate
     }
 
-    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
+    fn objects(&self) -> Box<dyn Iterator<Item=u64>> {
         Box::new(BaseObjectIterator {
             subject: self.subject,
             predicate: self.predicate,
@@ -356,17 +356,9 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for BaseSubjectPredicat
         })
     }
 
-    fn triple(&self, object: u64) -> Option<IdTriple> {
-        if self.objects.iter().find(|&o|o==object).is_some() {
-            Some(IdTriple {
-                subject: self.subject,
-                predicate: self.predicate,
-                object: object
-            })
-        }
-        else {
-            None
-        }
+    fn has_object(&self, object: u64) -> bool {
+        // todo: use monotoniclogarray here to find object quicker
+        self.objects.iter().find(|&o|o==object).is_some()
     }
 }
 
@@ -379,9 +371,9 @@ pub struct BaseObjectIterator<M:'static+AsRef<[u8]>+Clone> {
 }
 
 impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseObjectIterator<M> {
-    type Item = IdTriple;
+    type Item = u64;
 
-    fn next(&mut self) -> Option<IdTriple> {
+    fn next(&mut self) -> Option<u64> {
         if self.pos >= self.objects.len() {
             None
         }
@@ -393,11 +385,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseObjectIterator<M> {
                 None
             }
             else {
-                Some(IdTriple {
-                    subject: self.subject,
-                    predicate: self.predicate,
-                    object
-                })
+                Some(object)
             }
         }
     }

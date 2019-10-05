@@ -206,11 +206,28 @@ pub trait SubjectPredicateLookup {
     /// The predicate that this lookup is based on
     fn predicate(&self) -> u64;
 
+    /// Returns an iterator over all objects that can be found by this lookup
+    fn objects(&self) -> Box<dyn Iterator<Item=u64>>; 
+
+    /// Returns true if the given object exists, and false otherwise
+    fn has_object(&self, object: u64) -> bool;
+
     /// Returns an iterator over all triples that can be found by this lookup
-    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>>;
+    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
+        let subject = self.subject();
+        let predicate = self.predicate();
+        Box::new(self.objects().map(move |o| IdTriple::new(subject, predicate, o)))
+    }
 
     /// Returns a triple for the given object, or None if it doesn't exist
-    fn triple(&self, object: u64) -> Option<IdTriple>;
+    fn triple(&self, object: u64) -> Option<IdTriple> {
+        if self.has_object(object) {
+            Some(IdTriple::new(self.subject(), self.predicate(), object))
+        }
+        else {
+            None
+        }
+    }
 }
 
 /// a trait that caches a lookup in a layer by object
@@ -224,7 +241,7 @@ pub trait ObjectLookup {
     /// clone this instance of ObjectLookup into a dyn Box
     fn clone_box(&self) -> Box<dyn ObjectLookup>;
 
-    fn triple(&self, subject: u64, predicate: u64) -> bool {
+    fn has_subject_predicate_pair(&self, subject: u64, predicate: u64) -> bool {
         for (s, p) in self.subject_predicate_pairs() {
             if s == subject && p == predicate {
                 return true;
@@ -238,6 +255,15 @@ pub trait ObjectLookup {
         false
     }
 
+    fn triple(&self, subject: u64, predicate: u64) -> Option<IdTriple> {
+        if self.has_subject_predicate_pair(subject, predicate) {
+            Some(IdTriple::new(subject, predicate, self.object()))
+        }
+        else {
+            None
+        }
+    }
+    
     fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
         let object = self.object();
         Box::new(self.subject_predicate_pairs()
