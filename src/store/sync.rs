@@ -14,6 +14,10 @@ use std::sync::Arc;
 use crate::layer::{Layer,ObjectType,StringTriple,IdTriple,SubjectLookup,ObjectLookup};
 use crate::store::{Store, Database, DatabaseLayer, DatabaseLayerBuilder, open_memory_store, open_directory_store};
 
+lazy_static! {
+    static ref RUNTIME: Runtime = Runtime::new().unwrap();
+}
+
 /// A wrapper over a SimpleLayerBuilder, providing a thread-safe sharable interface
 ///
 /// The SimpleLayerBuilder requires one to have a mutable reference to
@@ -185,14 +189,24 @@ impl SyncDatabase {
 /// A store, storing a set of layers and database labels pointing to these layers
 pub struct SyncStore {
     inner: Store,
-    runtime: Runtime
+    executor: TaskExecutor
 }
 
 impl SyncStore {
-    /// wrap an asynchronous `Store`, running all futures on the given tokio runtime
-    pub fn wrap(inner: Store, runtime: Runtime) -> Self {
+    /// wrap an asynchronous `Store`, running all futures on a lazily-constructed tokio runtime
+    ///
+    /// The runtime will be constructed on the first call to wrap. Any
+    /// subsequent SyncStore will reuse the same runtime.
+    pub fn wrap(inner: Store) -> Self {
         Self {
-            inner, runtime
+            inner,
+            executor: RUNTIME.executor()
+        }
+    }
+    /// wrap an asynchronous `Store`, running all futures on the given tokio TaskExecutor
+    pub fn wrap_with_executor(inner: Store, executor: TaskExecutor) -> Self {
+        Self {
+            inner, executor
         }
     }
 
@@ -200,25 +214,25 @@ impl SyncStore {
     ///
     /// If the database already exists, this will return an error
     pub fn create(&self, label: &str) -> Result<SyncDatabase,io::Error> {
-        let inner = oneshot::spawn(self.inner.create(label), &self.runtime.executor()).wait();
+        let inner = oneshot::spawn(self.inner.create(label), &self.executor).wait();
 
-        inner.map(|i| SyncDatabase::wrap(i, self.runtime.executor()))
+        inner.map(|i| SyncDatabase::wrap(i, self.executor.clone()))
     }
 
     /// Open an existing database with the given name, or None if it does not exist
     pub fn open(&self, label: &str) -> Result<Option<SyncDatabase>,io::Error> {
-        let inner = oneshot::spawn(self.inner.open(label), &self.runtime.executor()).wait();
+        let inner = oneshot::spawn(self.inner.open(label), &self.executor).wait();
 
-        inner.map(|i| i.map(|i|SyncDatabase::wrap(i, self.runtime.executor())))
+        inner.map(|i| i.map(|i|SyncDatabase::wrap(i, self.executor.clone())))
     }
 
     /// Create a base layer builder, unattached to any database label
     ///
     /// After having committed it, use `set_head` on a `Database` to attach it.
     pub fn create_base_layer(&self) -> Result<SyncDatabaseLayerBuilder,io::Error> {
-        let inner = oneshot::spawn(self.inner.create_base_layer(), &self.runtime.executor()).wait();
+        let inner = oneshot::spawn(self.inner.create_base_layer(), &self.executor).wait();
 
-        inner.map(|i| SyncDatabaseLayerBuilder::wrap(i, self.runtime.executor()))
+        inner.map(|i| SyncDatabaseLayerBuilder::wrap(i, self.executor.clone()))
     }
 }
 
@@ -226,12 +240,12 @@ impl SyncStore {
 ///
 /// This is useful for testing purposes, or if the database is only going to be used for caching purposes
 pub fn open_sync_memory_store() -> SyncStore {
-    SyncStore::wrap(open_memory_store(), Runtime::new().unwrap())
+    SyncStore::wrap(open_memory_store())
 }
 
 /// Open a store that stores its data in the given directory
 pub fn open_sync_directory_store<P:Into<PathBuf>>(path: P) -> SyncStore {
-    SyncStore::wrap(open_directory_store(path), Runtime::new().unwrap())
+    SyncStore::wrap(open_directory_store(path))
 }
 
 #[cfg(test)]

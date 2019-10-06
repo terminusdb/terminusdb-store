@@ -17,6 +17,8 @@
 //! wish to use tokio, there's a small sync wrapper in `store::sync`
 //! which embeds its own tokio runtime, exposing a purely synchronous
 //! API.
+#[macro_use]
+extern crate lazy_static;
 
 pub mod structure;
 pub mod layer;
