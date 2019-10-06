@@ -32,7 +32,7 @@ impl<M:AsRef<[u8]>+Clone> AdjacencyList<M> {
             0
         }
         else {
-            self.bits.rank((self.bits.len() as u64)-1) as usize
+            self.bits.rank1((self.bits.len() as u64)-1) as usize
         }
     }
 
@@ -45,12 +45,12 @@ impl<M:AsRef<[u8]>+Clone> AdjacencyList<M> {
             0
         }
         else {
-            self.bits.select(index-1)+1
+            self.bits.select1(index-1)+1
         }
     }
 
     pub fn pair_at_pos(&self, pos: u64) -> (u64, u64) {
-        let left = if pos == 0 { 0 } else { self.bits.rank(pos-1) } + 1;
+        let left = if pos == 0 { 0 } else { self.bits.rank1(pos-1) } + 1;
         let right = self.nums.entry(pos as usize);
 
         (left, right)
@@ -62,7 +62,7 @@ impl<M:AsRef<[u8]>+Clone> AdjacencyList<M> {
         }
 
         let start = self.offset_for(index);
-        let end = self.bits.select(index);
+        let end = self.bits.select1(index);
         let length = end - start + 1;
 
         self.nums.slice(start as usize, length as usize)

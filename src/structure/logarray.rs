@@ -350,7 +350,7 @@ impl Decoder for LogArrayDecoder {
     }
 }
 
-pub fn logarray_stream_entries<F:FileLoad>(f: F) -> impl Stream<Item=u64,Error=std::io::Error> {
+pub fn logarray_file_get_length_and_width<F:FileLoad>(f: &F) -> impl Future<Item=(u32,u8),Error=std::io::Error> {
     let end_offset = f.size() - 8;
     // read the length and width
     tokio::io::read_exact(f.open_read_from(end_offset), vec![0;8])
@@ -358,8 +358,13 @@ pub fn logarray_stream_entries<F:FileLoad>(f: F) -> impl Stream<Item=u64,Error=s
             let len = BigEndian::read_u32(&buf);
             let width = buf[4];
 
-            FramedRead::new(f.open_read(), LogArrayDecoder { current: 0, width, offset: 64, remaining: len })
+            (len, width)
         })
+}
+
+pub fn logarray_stream_entries<F:FileLoad>(f: F) -> impl Stream<Item=u64,Error=std::io::Error> {
+    logarray_file_get_length_and_width(&f)
+        .map(move |(len, width)| FramedRead::new(f.open_read(), LogArrayDecoder { current: 0, width, offset: 64, remaining: len }))
         .into_stream()
         .flatten()
 }
