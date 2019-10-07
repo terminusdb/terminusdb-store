@@ -71,7 +71,7 @@ impl<M:AsRef<[u8]>+Clone> BitIndex<M> {
     }
 
     /// Returns the amount of 1-bits in the given range (up to but excluding end).
-    pub fn rank1_range(&self, start: u64, end: u64) -> u64 {
+    pub fn rank1_from_range(&self, start: u64, end: u64) -> u64 {
         let mut rank = self.rank1(end-1);
         if start != 0 {
             rank -= self.rank1(start-1);
@@ -189,7 +189,7 @@ impl<M:AsRef<[u8]>+Clone> BitIndex<M> {
     }
 
     /// Returns the amount of 0-bits in the given range (up to but excluding end).
-    pub fn rank0_range(&self, start: u64, end: u64) -> u64 {
+    pub fn rank0_from_range(&self, start: u64, end: u64) -> u64 {
         let mut rank = self.rank0(end-1);
         if start != 0 {
             rank -= self.rank0(start-1);
@@ -404,11 +404,11 @@ mod tests {
                                         index_blocks.map().wait().unwrap(),
                                         index_sblocks.map().wait().unwrap());
 
-        assert_eq!(0, index.rank1_range(6, 6));
-        assert_eq!(1, index.rank1_range(6, 7));
-        assert_eq!(1, index.rank1_range(6, 8));
-        assert_eq!(2, index.rank1_range(6, 12));
-        assert_eq!(2, index.rank1_range(4, 12));
+        assert_eq!(0, index.rank1_from_range(6, 6));
+        assert_eq!(1, index.rank1_from_range(6, 7));
+        assert_eq!(1, index.rank1_from_range(6, 8));
+        assert_eq!(2, index.rank1_from_range(6, 12));
+        assert_eq!(2, index.rank1_from_range(4, 12));
     }
 
     #[test]
@@ -511,12 +511,12 @@ mod tests {
                                         index_blocks.map().wait().unwrap(),
                                         index_sblocks.map().wait().unwrap());
 
-        assert_eq!(0, index.rank0_range(5, 5));
-        assert_eq!(1, index.rank0_range(5, 6));
-        assert_eq!(0, index.rank0_range(6, 6));
-        assert_eq!(2, index.rank0_range(5, 8));
-        assert_eq!(4, index.rank0_range(6, 12));
-        assert_eq!(6, index.rank0_range(4, 12));
+        assert_eq!(0, index.rank0_from_range(5, 5));
+        assert_eq!(1, index.rank0_from_range(5, 6));
+        assert_eq!(0, index.rank0_from_range(6, 6));
+        assert_eq!(2, index.rank0_from_range(5, 8));
+        assert_eq!(4, index.rank0_from_range(6, 12));
+        assert_eq!(6, index.rank0_from_range(4, 12));
     }
 
     #[test]
