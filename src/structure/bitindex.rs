@@ -169,9 +169,7 @@ impl<M:AsRef<[u8]>+Clone> BitIndex<M> {
         // todo this is a dumb implementation. we can actually do a much faster select by making sblock/block lookup ranged. for now this will work.
         let rank_offset = if start == 0 { 0 } else { self.rank1(start-1) };
 
-        let result = self.select1(rank_offset + subrank);
-        println!("subrank {} start {} end {} rank_offset {} result {:?}", subrank, start, end, rank_offset, result);
-        let result = result?;
+        let result = self.select1(rank_offset + subrank)?;
 
         if result < start && start < end && subrank == 0 && !self.get(start) {
             Some(start)
