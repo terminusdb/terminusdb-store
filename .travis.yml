@@ -1,7 +1,19 @@
 language: rust
-
+sudo: required
+addons:
+    apt:
+        packages:
+            - libssl-dev
 rust:
   - stable
+cache: cargo
+
+before_cache: cargo install cargo-tarpaulin -f
+
+after_success: |
+  cargo tarpaulin --ciserver travis-ci --coveralls $TRAVIS_JOB_ID
+  cargo tarpaulin --out Xml
+  bash <(curl -s https://codecov.io/bash)
 
 notifications:
   irc:
