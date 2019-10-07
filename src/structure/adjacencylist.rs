@@ -45,7 +45,7 @@ impl<M:AsRef<[u8]>+Clone> AdjacencyList<M> {
             0
         }
         else {
-            self.bits.select1(index-1)+1
+            self.bits.select1(index-1).unwrap()+1
         }
     }
 
@@ -62,7 +62,7 @@ impl<M:AsRef<[u8]>+Clone> AdjacencyList<M> {
         }
 
         let start = self.offset_for(index);
-        let end = self.bits.select1(index);
+        let end = self.bits.select1(index).unwrap();
         let length = end - start + 1;
 
         self.nums.slice(start as usize, length as usize)

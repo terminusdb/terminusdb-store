@@ -135,9 +135,13 @@ impl<M:AsRef<[u8]>+Clone> BitIndex<M> {
     }
 
     /// Returns the index of the 1-bit in the bitarray corresponding with the given rank.
-    pub fn select1(&self, rank: u64) -> u64 {
+    pub fn select1(&self, rank: u64) -> Option<u64> {
         let sblock = self.select1_sblock(rank);
         let sblock_rank = self.sblocks.entry(sblock);
+        if sblock_rank < rank {
+            return None;
+        }
+
         let block = self.select1_block(sblock, sblock_rank - rank);
         let block_subrank = self.blocks.entry(block);
         let rank_in_block = rank - (sblock_rank - block_subrank);
@@ -151,14 +155,14 @@ impl<M:AsRef<[u8]>+Clone> BitIndex<M> {
                 tally -= 1;
 
                 if tally == 0 {
-                    return block as u64 * 64 + i;
+                    return Some(block as u64 * 64 + i);
                 }
             }
 
             bits_num <<= 1;
         }
 
-        panic!("reached end of select function without a result");
+        None
     }
 
     pub fn select1_from_range(&self, subrank: u64, start: u64, end: u64) -> Option<u64> {
@@ -166,6 +170,8 @@ impl<M:AsRef<[u8]>+Clone> BitIndex<M> {
         let rank_offset = if start == 0 { 0 } else { self.rank1(start-1) };
 
         let result = self.select1(rank_offset + subrank);
+        println!("subrank {} start {} end {} rank_offset {} result {:?}", subrank, start, end, rank_offset, result);
+        let result = result?;
 
         if result < start && start < end && subrank == 0 && !self.get(start) {
             Some(start)
@@ -250,9 +256,14 @@ impl<M:AsRef<[u8]>+Clone> BitIndex<M> {
     }
 
     /// Returns the index of the 0-bit in the bitarray corresponding with the given rank.
-    pub fn select0(&self, rank: u64) -> u64 {
+    pub fn select0(&self, rank: u64) -> Option<u64> {
         let sblock = self.select0_sblock(rank);
         let sblock_rank = ((1+sblock)*SBLOCK_SIZE*64) as u64 - self.sblocks.entry(sblock);
+
+        if sblock_rank < rank {
+            return None;
+        }
+
         let block = self.select0_block(sblock, sblock_rank - rank);
         let block_subrank = (SBLOCK_SIZE-block%SBLOCK_SIZE) as u64 *64 - self.blocks.entry(block);
         let rank_in_block = rank - (sblock_rank - block_subrank);
@@ -266,21 +277,21 @@ impl<M:AsRef<[u8]>+Clone> BitIndex<M> {
                 tally -= 1;
 
                 if tally == 0 {
-                    return block as u64 * 64 + i;
+                    return Some(block as u64 * 64 + i);
                 }
             }
 
             bits_num <<= 1;
         }
 
-        panic!("reached end of select function without a result");
+        None
     }
 
     pub fn select0_from_range(&self, subrank: u64, start: u64, end: u64) -> Option<u64> {
         // todo this is a dumb implementation. we can actually do a much faster select by making sblock/block lookup ranged. for now this will work.
         let rank_offset = if start == 0 { 0 } else { self.rank0(start-1) };
 
-        let result = self.select0(rank_offset + subrank);
+        let result = self.select0(rank_offset + subrank)?;
 
         if result < start && start < end && subrank == 0 && self.get(start) {
             Some(start)
@@ -324,7 +335,7 @@ mod tests {
     use super::*;
     use crate::storage::*;
     #[test]
-    pub fn rank1_and_select1_work() {
+    pub fn rank1_works() {
         let bits = MemoryBackedStore::new();
         let ba_builder = BitArrayFileBuilder::new(bits.open_write());
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
@@ -346,10 +357,33 @@ mod tests {
         for i in 0..123456 {
             assert_eq!(i/3 + 1, index.rank1(i));
         }
+    }
+
+    #[test]
+    pub fn select1_works() {
+        let bits = MemoryBackedStore::new();
+        let ba_builder = BitArrayFileBuilder::new(bits.open_write());
+        let contents = (0..).map(|n| n % 3 == 0).take(123456);
+        ba_builder.push_all(stream::iter_ok(contents))
+            .and_then(|b|b.finalize())
+            .wait()
+            .unwrap();
+
+        let index_blocks = MemoryBackedStore::new();
+        let index_sblocks = MemoryBackedStore::new();
+        build_bitindex(bits.open_read(), index_blocks.open_write(), index_sblocks.open_write())
+            .wait()
+            .unwrap();
+
+        let index = BitIndex::from_maps(bits.map().wait().unwrap(),
+                                        index_blocks.map().wait().unwrap(),
+                                        index_sblocks.map().wait().unwrap());
 
         for i in 1..(123456/3) {
-            assert_eq!((i-1)*3,index.select1(i));
+            assert_eq!((i-1)*3,index.select1(i).unwrap());
         }
+
+        assert!(index.select1(123456*2/3).is_none());
     }
 
     #[test]
@@ -404,10 +438,11 @@ mod tests {
         assert_eq!(Some(6), index.select1_from_range(1, 6, 7));
         assert_eq!(Some(7), index.select1_from_range(0, 7, 8));
         assert_eq!(Some(9), index.select1_from_range(2, 5, 11));
+        assert_eq!(None, index.select1_from_range(123456, 5, 10));
     }
 
     #[test]
-    pub fn rank0_and_select0_work() {
+    pub fn rank0_works() {
         let bits = MemoryBackedStore::new();
         let ba_builder = BitArrayFileBuilder::new(bits.open_write());
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
@@ -429,10 +464,33 @@ mod tests {
         for i in 0..123456 {
             assert_eq!(1+i - (i/3 + 1), index.rank0(i));
         }
+    }
 
-        for i in 1..(123456*2/3) {
-            assert_eq!(i + (i - 1) / 2,index.select0(i));
+    #[test]
+    pub fn select0_works() {
+        let bits = MemoryBackedStore::new();
+        let ba_builder = BitArrayFileBuilder::new(bits.open_write());
+        let contents = (0..).map(|n| n % 3 == 0).take(123456);
+        ba_builder.push_all(stream::iter_ok(contents))
+            .and_then(|b|b.finalize())
+            .wait()
+            .unwrap();
+
+        let index_blocks = MemoryBackedStore::new();
+        let index_sblocks = MemoryBackedStore::new();
+        build_bitindex(bits.open_read(), index_blocks.open_write(), index_sblocks.open_write())
+            .wait()
+            .unwrap();
+
+        let index = BitIndex::from_maps(bits.map().wait().unwrap(),
+                                        index_blocks.map().wait().unwrap(),
+                                        index_sblocks.map().wait().unwrap());
+
+        for i in 1..=(123456*2/3) {
+            assert_eq!(i + (i - 1) / 2,index.select0(i).unwrap());
         }
+
+        assert_eq!(None, index.select0(123456*2/3+1));
     }
 
     #[test]
@@ -489,5 +547,6 @@ mod tests {
         assert_eq!(Some(7), index.select0_from_range(1, 6, 8));
         assert_eq!(None, index.select0_from_range(0, 7, 8));
         assert_eq!(Some(10), index.select0_from_range(4, 5, 11));
+        assert_eq!(None, index.select0_from_range(123456, 5, 10));
     }
 }
