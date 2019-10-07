@@ -11,6 +11,7 @@ use tokio::prelude::*;
 /// The amount of 64-bit blocks that go into a superblock.
 const SBLOCK_SIZE: usize = 52;
 
+/// A bitarray with an index, supporting rank and select queries.
 #[derive(Clone)]
 pub struct BitIndex<M:AsRef<[u8]>+Clone> {
     array: BitArray<M>,
@@ -19,6 +20,14 @@ pub struct BitIndex<M:AsRef<[u8]>+Clone> {
 }
 
 impl<M:AsRef<[u8]>+Clone> BitIndex<M> {
+    pub fn from_maps(bitarray_map: M, blocks_map: M, sblocks_map: M) -> BitIndex<M> {
+        let bitarray = BitArray::from_bits(bitarray_map);
+        let blocks_logarray = LogArray::parse(blocks_map).unwrap();
+        let sblocks_logarray = LogArray::parse(sblocks_map).unwrap();
+
+        BitIndex::from_parts(bitarray, blocks_logarray, sblocks_logarray)
+    }
+
     pub fn from_parts(array: BitArray<M>, blocks: LogArray<M>, sblocks: LogArray<M>) -> BitIndex<M> {
         assert!(sblocks.len() == (blocks.len() + SBLOCK_SIZE - 1) / SBLOCK_SIZE);
         assert!(blocks.len() == (array.len() + 63) / 64);
@@ -34,14 +43,17 @@ impl<M:AsRef<[u8]>+Clone> BitIndex<M> {
         &self.array.bits()[bit_index..bit_index+8]
     }
 
+    /// Returns the length of the underlying bitarray.
     pub fn len(&self) -> usize {
         self.array.len()
     }
 
+    /// Returns the bit at the given index.
     pub fn get(&self, index: u64) -> bool {
         self.array.get(index as usize)
     }
 
+    /// Returns the amount of 1-bits in the bitarray up to and including the given index.
     pub fn rank1(&self, index: u64) -> u64 {
         let block_index = index / 64;
         let sblock_index = block_index / SBLOCK_SIZE as u64;
@@ -58,6 +70,7 @@ impl<M:AsRef<[u8]>+Clone> BitIndex<M> {
         sblock_rank - block_rank + bits_rank
     }
 
+    /// Returns the amount of 1-bits in the given range (up to but excluding end).
     pub fn rank1_range(&self, start: u64, end: u64) -> u64 {
         let mut rank = self.rank1(end-1);
         if start != 0 {
@@ -121,6 +134,7 @@ impl<M:AsRef<[u8]>+Clone> BitIndex<M> {
         mid
     }
 
+    /// Returns the index of the 1-bit in the bitarray corresponding with the given rank.
     pub fn select1(&self, rank: u64) -> u64 {
         let sblock = self.select1_sblock(rank);
         let sblock_rank = self.sblocks.entry(sblock);
@@ -154,11 +168,13 @@ impl<M:AsRef<[u8]>+Clone> BitIndex<M> {
         self.select1(rank_offset + subrank)
     }
 
+    /// Returns the amount of 0-bits in the bitarray up to and including the given index.
     pub fn rank0(&self, index: u64) -> u64 {
         let r0 = self.rank1(index);
         1+index - r0
     }
 
+    /// Returns the amount of 0-bits in the given range (up to but excluding end).
     pub fn rank0_range(&self, start: u64, end: u64) -> u64 {
         let mut rank = self.rank0(end-1);
         if start != 0 {
@@ -223,6 +239,7 @@ impl<M:AsRef<[u8]>+Clone> BitIndex<M> {
         mid
     }
 
+    /// Returns the index of the 0-bit in the bitarray corresponding with the given rank.
     pub fn select0(&self, rank: u64) -> u64 {
         let sblock = self.select0_sblock(rank);
         let sblock_rank = ((1+sblock)*SBLOCK_SIZE*64) as u64 - self.sblocks.entry(sblock);
@@ -302,11 +319,9 @@ mod tests {
             .wait()
             .unwrap();
 
-        let ba = BitArray::from_bits(bits.map().wait().unwrap());
-        let blocks_logarray = LogArray::parse(index_blocks.map().wait().unwrap()).unwrap();
-        let sblocks_logarray = LogArray::parse(index_sblocks.map().wait().unwrap()).unwrap();
-
-        let index = BitIndex::from_parts(ba, blocks_logarray, sblocks_logarray);
+        let index = BitIndex::from_maps(bits.map().wait().unwrap(),
+                                        index_blocks.map().wait().unwrap(),
+                                        index_sblocks.map().wait().unwrap());
 
         for i in 0..123456 {
             assert_eq!(i/3 + 1, index.rank1(i));
@@ -333,11 +348,9 @@ mod tests {
             .wait()
             .unwrap();
 
-        let ba = BitArray::from_bits(bits.map().wait().unwrap());
-        let blocks_logarray = LogArray::parse(index_blocks.map().wait().unwrap()).unwrap();
-        let sblocks_logarray = LogArray::parse(index_sblocks.map().wait().unwrap()).unwrap();
-
-        let index = BitIndex::from_parts(ba, blocks_logarray, sblocks_logarray);
+        let index = BitIndex::from_maps(bits.map().wait().unwrap(),
+                                        index_blocks.map().wait().unwrap(),
+                                        index_sblocks.map().wait().unwrap());
 
         for i in 0..123456 {
             assert_eq!(1+i - (i/3 + 1), index.rank0(i));
