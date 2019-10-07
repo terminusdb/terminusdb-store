@@ -114,7 +114,7 @@ impl<M:AsRef<[u8]>+Clone> WaveletTree<M> {
         alphabet_start
     }
 
-    pub fn slice(&self, entry: u64) -> Option<WaveletSlice<M>> {
+    pub fn lookup(&self, entry: u64) -> Option<WaveletSlice<M>> {
         let width = self.len() as u64;
         let mut slices = Vec::with_capacity(self.num_layers);
         let mut alphabet_start = 0;
@@ -242,13 +242,13 @@ mod tests {
         let wavelet_bitindex = BitIndex::from_maps(wavelet_bits, wavelet_blocks, wavelet_sblocks);
         let wavelet_tree = WaveletTree::from_parts(wavelet_bitindex, 4);
 
-        let slice = wavelet_tree.slice(8).unwrap();
+        let slice = wavelet_tree.lookup(8).unwrap();
         assert_eq!(vec![0, 2, 3, 8, 16], slice.iter().collect::<Vec<_>>());
-        let slice = wavelet_tree.slice(3).unwrap();
+        let slice = wavelet_tree.lookup(3).unwrap();
         assert_eq!(vec![1, 6, 10, 11, 18], slice.iter().collect::<Vec<_>>());
-        let slice = wavelet_tree.slice(0).unwrap();
+        let slice = wavelet_tree.lookup(0).unwrap();
         assert_eq!(vec![14], slice.iter().collect::<Vec<_>>());
-        let slice = wavelet_tree.slice(5);
+        let slice = wavelet_tree.lookup(5);
         assert!(slice.is_none());
     }
 }
