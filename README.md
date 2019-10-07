@@ -3,6 +3,7 @@
 [![Build Status](https://travis-ci.com/terminusdb/terminus-store.svg?branch=master)](https://travis-ci.com/terminusdb/terminus-store)
 [![Crate](https://img.shields.io/crates/v/terminus-store.svg)](https://crates.io/crates/terminus-store")
 [![Documentation](https://docs.rs/terminus-store/badge.svg)](https://docs.rs/terminus-store/)
+[![codecov](https://codecov.io/gh/terminusdb/terminus-store/branch/master/graph/badge.svg)](https://codecov.io/gh/terminusdb/terminus-store)
 
 ## Overview
 This library implements a way to store triple data - data that
