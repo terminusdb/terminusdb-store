@@ -285,29 +285,26 @@ pub fn build_bitindex<R:'static+AsyncRead+Send+Sync,W1:'static+AsyncWrite+Send+S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio_io::io::AllowStdIo;
-    use std::io::Cursor;
+    use crate::storage::*;
     #[test]
     pub fn rank_and_select_work() {
-        let ba_builder = BitArrayFileBuilder::new(AllowStdIo::new(Vec::new()));
+        let bits = MemoryBackedStore::new();
+        let ba_builder = BitArrayFileBuilder::new(bits.open_write());
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
-        let ba_stored = ba_builder.push_all(stream::iter_ok(contents))
+        ba_builder.push_all(stream::iter_ok(contents))
             .and_then(|b|b.finalize())
-            .wait()
-            .unwrap()
-            .into_inner();
-
-        let c = Cursor::new(ba_stored.clone());
-        let index_blocks = AllowStdIo::new(Vec::new());
-        let index_sblocks = AllowStdIo::new(Vec::new());
-        let (blocks, sblocks) = build_bitindex(c, index_blocks, index_sblocks)
-            .map(|(b,s)|(b.into_inner(),s.into_inner()))
             .wait()
             .unwrap();
 
-        let ba = BitArray::from_bits(&ba_stored[..]);
-        let blocks_logarray = LogArray::parse(&blocks[..]).unwrap();
-        let sblocks_logarray = LogArray::parse(&sblocks[..]).unwrap();
+        let index_blocks = MemoryBackedStore::new();
+        let index_sblocks = MemoryBackedStore::new();
+        build_bitindex(bits.open_read(), index_blocks.open_write(), index_sblocks.open_write())
+            .wait()
+            .unwrap();
+
+        let ba = BitArray::from_bits(bits.map().wait().unwrap());
+        let blocks_logarray = LogArray::parse(index_blocks.map().wait().unwrap()).unwrap();
+        let sblocks_logarray = LogArray::parse(index_sblocks.map().wait().unwrap()).unwrap();
 
         let index = BitIndex::from_parts(ba, blocks_logarray, sblocks_logarray);
 
@@ -318,30 +315,27 @@ mod tests {
         for i in 1..(123456/3) {
             assert_eq!((i-1)*3,index.select1(i));
         }
-
     }
 
     #[test]
     pub fn rank0_and_select0_work() {
-        let ba_builder = BitArrayFileBuilder::new(AllowStdIo::new(Vec::new()));
+        let bits = MemoryBackedStore::new();
+        let ba_builder = BitArrayFileBuilder::new(bits.open_write());
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
-        let ba_stored = ba_builder.push_all(stream::iter_ok(contents))
+        ba_builder.push_all(stream::iter_ok(contents))
             .and_then(|b|b.finalize())
-            .wait()
-            .unwrap()
-            .into_inner();
-
-        let c = Cursor::new(ba_stored.clone());
-        let index_blocks = AllowStdIo::new(Vec::new());
-        let index_sblocks = AllowStdIo::new(Vec::new());
-        let (blocks, sblocks) = build_bitindex(c, index_blocks, index_sblocks)
-            .map(|(b,s)|(b.into_inner(),s.into_inner()))
             .wait()
             .unwrap();
 
-        let ba = BitArray::from_bits(&ba_stored);
-        let blocks_logarray = LogArray::parse(&blocks).unwrap();
-        let sblocks_logarray = LogArray::parse(&sblocks).unwrap();
+        let index_blocks = MemoryBackedStore::new();
+        let index_sblocks = MemoryBackedStore::new();
+        build_bitindex(bits.open_read(), index_blocks.open_write(), index_sblocks.open_write())
+            .wait()
+            .unwrap();
+
+        let ba = BitArray::from_bits(bits.map().wait().unwrap());
+        let blocks_logarray = LogArray::parse(index_blocks.map().wait().unwrap()).unwrap();
+        let sblocks_logarray = LogArray::parse(index_sblocks.map().wait().unwrap()).unwrap();
 
         let index = BitIndex::from_parts(ba, blocks_logarray, sblocks_logarray);
 
