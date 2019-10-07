@@ -1,20 +1,21 @@
 language: rust
-sudo: required
-addons:
-    apt:
-        packages:
-            - libssl-dev
+
 rust:
   - stable
-cache: cargo
 
-before_cache: cargo install cargo-tarpaulin -f
+before_install:
+  - curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x86_64.tar.bz2 | tar jxf -
 
-after_success: |
-  cargo tarpaulin --ciserver travis-ci --coveralls $TRAVIS_JOB_ID
-  cargo tarpaulin --out Xml
-  bash <(curl -s https://codecov.io/bash)
-
+script:
+    - export CARGO_INCREMENTAL=0
+    - export RUSTFLAGS="-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads"
+    - cargo clean
+    - cargo build --verbose $CARGO_OPTIONS
+    - cargo test --verbose $CARGO_OPTIONS
+    - |
+      zip -0 ccov.zip `find . \( -name "terminus-store*.gc*" \) -print`;
+      ./grcov ccov.zip -s . -t lcov --llvm --branch --ignore-not-existing --ignore-dir "/*" -o lcov.info;
+      bash <(curl -s https://codecov.io/bash) -f lcov.info;
 notifications:
   irc:
     channels:
