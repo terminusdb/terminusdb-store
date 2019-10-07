@@ -1,7 +1,7 @@
 language: rust
 
 rust:
-  - stable
+  - nightly
 
 before_install:
   - curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x86_64.tar.bz2 | tar jxf -
