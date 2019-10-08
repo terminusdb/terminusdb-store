@@ -1,4 +1,4 @@
-//! Logic for dealing with various storage backends
+//! Logic for dealing with various storage backends.
 //!
 //! Storage in terminus-store is set up in a generic way. Many data
 //! structures simply rely on something that implements `FileLoad` and

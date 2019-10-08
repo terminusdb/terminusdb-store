@@ -17,6 +17,15 @@
 //! wish to use tokio, there's a small sync wrapper in `store::sync`
 //! which embeds its own tokio runtime, exposing a purely synchronous
 //! API.
+//!
+//! Most users will probably only need to use the types and functions
+//! in the `store` module (or `store::sync` for the synchronous
+//! version). This module provides a high-level API which should be
+//! sufficient for creating and querying databases.
+//!
+//! The `structure`, `layer`, and `storage` module expose the inner
+//! workings of terminus-store. They are useful for implementing new
+//! storage backends, or writing analysis and recovery tools.
 #[macro_use]
 extern crate lazy_static;
 
