@@ -5,20 +5,33 @@ use super::bitarray::*;
 use super::bitindex::*;
 use crate::storage::*;
 
+/// A wavelet tree, encoding a u64 array for fast lookup of number positions.
+///
+/// A wavelet tree consists of a layer of bitarrays (stored as one big
+/// bitarray). The amount of layers is the log2 of the alphabet size,
+/// rounded up to make it an integer. Since we're encoding u64 values,
+/// the number of layers can never be larger than 64.
 #[derive(Clone)]
 pub struct WaveletTree<M:AsRef<[u8]>+Clone> {
     bits: BitIndex<M>,
-    num_layers: usize
+    num_layers: u8
 }
 
+/// A lookup for all positions of a particular entry.
+///
+/// This struct caches part of the calculation required to get
+/// positions out of a wavelet tree, allowing for quick iteration over
+/// all positions for a given entry.
 #[derive(Clone)]
 pub struct WaveletLookup<M:AsRef<[u8]>+Clone> {
+    /// the entry this lookup was created for.
     pub entry: u64,
     tree: WaveletTree<M>,
     slices: Vec<(bool,u64,u64)>
 }
 
 impl<M:AsRef<[u8]>+Clone> WaveletLookup<M> {
+    /// Returns the amount of positions found in this lookup.
     pub fn len(&self) -> usize {
         let (b, start, end) = *self.slices.last().unwrap();
 
@@ -30,6 +43,7 @@ impl<M:AsRef<[u8]>+Clone> WaveletLookup<M> {
         }
     }
 
+    /// Returns the position of the index'th entry of this lookup
     pub fn entry(&self, index: usize) -> u64 {
         if index >= self.len() {
             panic!("entry is out of bounds");
@@ -48,6 +62,7 @@ impl<M:AsRef<[u8]>+Clone> WaveletLookup<M> {
         result - 1
     }
 
+    /// Returns an Iterator over all positions for the entry of this lookup
     pub fn iter(&self) -> impl Iterator<Item=u64> {
         let cloned = self.clone();
         (0..self.len()).map(move |i|cloned.entry(i))
@@ -55,28 +70,33 @@ impl<M:AsRef<[u8]>+Clone> WaveletLookup<M> {
 }
 
 impl<M:AsRef<[u8]>+Clone> WaveletTree<M> {
-    pub fn from_parts(bits: BitIndex<M>, num_layers: usize) -> WaveletTree<M> {
+    /// Construct a wavelet tree from a bitindex and a layer count.
+    pub fn from_parts(bits: BitIndex<M>, num_layers: u8) -> WaveletTree<M> {
         assert!(num_layers != 0);
-        if bits.len() % num_layers != 0 {
+        if bits.len() % num_layers as usize != 0 {
             panic!("the bitarray length is not a multiple of the number of layers");
         }
 
         WaveletTree { bits, num_layers }
     }
 
+    /// Returns the length of the encoded array.
     pub fn len(&self) -> usize {
-        self.bits.len() / self.num_layers
+        self.bits.len() / self.num_layers as usize
     }
 
+    /// Returns the amount of layers.
     pub fn num_layers(&self) -> usize {
-        self.num_layers
+        self.num_layers as usize
     }
 
-    pub fn decode(&self) -> Vec<u64> {
+    /// Decode the wavelet tree to the original u64 sequence. This returns an iterator.
+    pub fn decode(&self) -> impl Iterator<Item=u64> {
         let owned = self.clone();
-        (0..self.len()).map(move |i|owned.decode_one(i)).collect()
+        (0..self.len()).map(move |i|owned.decode_one(i))
     }
 
+    /// Decode a single position of the original u64 sequence.
     pub fn decode_one(&self, index: usize) -> u64 {
         let len = self.len() as u64;
         let mut offset = index as u64;
@@ -114,9 +134,10 @@ impl<M:AsRef<[u8]>+Clone> WaveletTree<M> {
         alphabet_start
     }
 
+    /// Lookup the given entry. This returns a `WaveletLookup` which can then be used to find all positions.
     pub fn lookup(&self, entry: u64) -> Option<WaveletLookup<M>> {
         let width = self.len() as u64;
-        let mut slices = Vec::with_capacity(self.num_layers);
+        let mut slices = Vec::with_capacity(self.num_layers as usize);
         let mut alphabet_start = 0;
         let mut alphabet_end = 2_u64.pow(self.num_layers as u32) as u64;
         let mut start_index = 0_u64;
@@ -167,6 +188,12 @@ fn build_wavelet_fragment<S:Stream<Item=u64,Error=std::io::Error>, W:AsyncWrite+
     })
 }
 
+/// Build a wavelet tree from the given width and source stream constructor.
+///
+/// Source stream constructor is a function that returns a new stream
+/// on demand. The wavelet tree constructor will iterate over this
+/// stream multiple time, which is why we need a constructor function
+/// here rather than just the stream itself.
 pub fn build_wavelet_tree_from_stream<SFn: FnMut()->S, S: Stream<Item=u64,Error=std::io::Error>, F: 'static+FileLoad+FileStore>(width: u8, mut source: SFn, destination_bits: F, destination_blocks: F, destination_sblocks: F) -> impl Future<Item=(),Error=std::io::Error> {
     let alphabet_size = 2_usize.pow(width as u32);
     let bits = BitArrayFileBuilder::new(destination_bits.open_write());
@@ -183,6 +210,7 @@ pub fn build_wavelet_tree_from_stream<SFn: FnMut()->S, S: Stream<Item=u64,Error=
         .map(|_|())
 }
 
+/// Build a wavelet tree from a file storing a logarray.
 pub fn build_wavelet_tree_from_logarray<FLoad: 'static+FileLoad+Clone, F: 'static+FileLoad+FileStore>(source: FLoad, destination_bits: F, destination_blocks: F, destination_sblocks: F) -> impl Future<Item=(),Error=std::io::Error> {
     logarray_file_get_length_and_width(&source)
         .and_then(|(_, width)| build_wavelet_tree_from_stream(width,
@@ -218,7 +246,7 @@ mod tests {
 
         assert_eq!(contents_len, wavelet_tree.len());
 
-        assert_eq!(contents, wavelet_tree.decode());
+        assert_eq!(contents, wavelet_tree.decode().collect::<Vec<_>>());
     }
 
     #[test]
@@ -248,7 +276,7 @@ mod tests {
 
         assert_eq!(contents_len, wavelet_tree.len());
 
-        assert_eq!(contents, wavelet_tree.decode());
+        assert_eq!(contents, wavelet_tree.decode().collect::<Vec<_>>());
     }
 
     #[test]
