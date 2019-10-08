@@ -442,6 +442,7 @@ impl<M:AsRef<[u8]>+Clone> MonotonicLogArray<M> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::memory::*;
     use futures::stream;
 
     #[test]

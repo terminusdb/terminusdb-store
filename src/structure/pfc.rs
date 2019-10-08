@@ -422,6 +422,7 @@ impl<W:'static+tokio::io::AsyncWrite+Send+Sync> PfcDictFileBuilder<W> {
 mod tests {
     use super::*;
     use crate::storage::*;
+    use crate::storage::memory::*;
 
     #[test]
     fn can_create_pfc_dict_small() {

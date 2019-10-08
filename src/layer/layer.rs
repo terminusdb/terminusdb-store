@@ -1,10 +1,7 @@
 //! Common data structures and traits for all layer types
-use crate::storage::*;
 use std::hash::Hash;
 use std::collections::HashMap;
 use std::sync::Arc;
-use futures::future;
-use futures::prelude::*;
 
 /// A layer containing dictionary entries and triples
 ///
@@ -399,58 +396,6 @@ impl PartiallyResolvedTriple {
         };
 
         Some(IdTriple { subject, predicate, object })
-    }
-}
-
-#[derive(Clone)]
-pub struct DictionaryMaps<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
-    pub blocks_map: M,
-    pub offsets_map: M
-}
-
-#[derive(Clone)]
-pub struct AdjacencyListMaps<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
-    pub bits_map: M,
-    pub blocks_map: M,
-    pub sblocks_map: M,
-    pub nums_map: M,
-}
-
-#[derive(Clone)]
-pub struct DictionaryFiles<F:'static+FileLoad+FileStore> {
-    pub blocks_file: F,
-    pub offsets_file: F
-}
-
-impl<F:'static+FileLoad+FileStore> DictionaryFiles<F> {
-    pub fn map_all(&self) -> impl Future<Item=DictionaryMaps<F::Map>, Error=std::io::Error> {
-        let futs = vec![self.blocks_file.map(), self.offsets_file.map()];
-        future::join_all(futs)
-            .map(|results| DictionaryMaps {
-                blocks_map: results[0].clone(),
-                offsets_map: results[1].clone()
-            })
-    }
-}
-
-#[derive(Clone)]
-pub struct AdjacencyListFiles<F:'static+FileLoad+FileStore> {
-    pub bits_file: F,
-    pub blocks_file: F,
-    pub sblocks_file: F,
-    pub nums_file: F,
-}
-
-impl<F:'static+FileLoad+FileStore> AdjacencyListFiles<F> {
-    pub fn map_all(&self) -> impl Future<Item=AdjacencyListMaps<F::Map>, Error=std::io::Error> {
-        let futs = vec![self.bits_file.map(), self.blocks_file.map(), self.sblocks_file.map(), self.nums_file.map()];
-        future::join_all(futs)
-            .map(|results| AdjacencyListMaps {
-                bits_map: results[0].clone(),
-                blocks_map: results[1].clone(),
-                sblocks_map: results[2].clone(),
-                nums_map: results[3].clone()
-            })
     }
 }
 

@@ -13,54 +13,6 @@ use std::sync::Arc;
 use std::collections::BTreeSet;
 
 #[derive(Clone)]
-pub struct BaseLayerFiles<F:'static+FileLoad+FileStore> {
-    pub node_dictionary_files: DictionaryFiles<F>,
-    pub predicate_dictionary_files: DictionaryFiles<F>,
-    pub value_dictionary_files: DictionaryFiles<F>,
-
-    pub s_p_adjacency_list_files: AdjacencyListFiles<F>,
-    pub sp_o_adjacency_list_files: AdjacencyListFiles<F>,
-
-    pub o_ps_adjacency_list_files: AdjacencyListFiles<F>
-}
-
-#[derive(Clone)]
-pub struct BaseLayerMaps<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
-    pub node_dictionary_maps: DictionaryMaps<M>,
-    pub predicate_dictionary_maps: DictionaryMaps<M>,
-    pub value_dictionary_maps: DictionaryMaps<M>,
-
-    pub s_p_adjacency_list_maps: AdjacencyListMaps<M>,
-    pub sp_o_adjacency_list_maps: AdjacencyListMaps<M>,
-
-    pub o_ps_adjacency_list_maps: AdjacencyListMaps<M>
-}
-
-impl<F:FileLoad+FileStore> BaseLayerFiles<F> {
-    pub fn map_all(&self) -> impl Future<Item=BaseLayerMaps<F::Map>,Error=std::io::Error> {
-        let dict_futs = vec![self.node_dictionary_files.map_all(),
-                        self.predicate_dictionary_files.map_all(),
-                             self.value_dictionary_files.map_all()];
-
-        let aj_futs = vec![self.s_p_adjacency_list_files.map_all(),
-                           self.sp_o_adjacency_list_files.map_all(),
-                           self.o_ps_adjacency_list_files.map_all()];
-
-        future::join_all(dict_futs).join(future::join_all(aj_futs))
-            .map(|(dict_results, aj_results)| BaseLayerMaps {
-                node_dictionary_maps: dict_results[0].clone(),
-                predicate_dictionary_maps: dict_results[1].clone(),
-                value_dictionary_maps: dict_results[2].clone(),
-
-                s_p_adjacency_list_maps: aj_results[0].clone(),
-                sp_o_adjacency_list_maps: aj_results[1].clone(),
-
-                o_ps_adjacency_list_maps: aj_results[2].clone(),
-            })
-    }
-}
-
-#[derive(Clone)]
 pub struct BaseLayer<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
     name: [u32;5],
     node_dictionary: PfcDict<M>,
@@ -720,6 +672,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::memory::*;
 
     fn example_base_layer() -> BaseLayer<Vec<u8>> {
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];

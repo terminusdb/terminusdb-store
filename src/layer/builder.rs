@@ -243,32 +243,11 @@ impl<F:'static+FileLoad+FileStore+Clone> LayerBuilder for SimpleLayerBuilder<F> 
     }
 }
 
-/// The files required for storing a layer
-#[derive(Clone)]
-pub enum LayerFiles<F:'static+FileLoad+FileStore+Clone> {
-    Base(BaseLayerFiles<F>),
-    Child(ChildLayerFiles<F>)
-}
-
-impl<F:'static+FileLoad+FileStore+Clone> LayerFiles<F> {
-    pub fn into_base(self) -> BaseLayerFiles<F> {
-        match self {
-            Self::Base(b) => b,
-            _ => panic!("layer files are not for base")
-        }
-    }
-
-    pub fn into_child(self) -> ChildLayerFiles<F> {
-        match self {
-            Self::Child(c) => c,
-            _ => panic!("layer files are not for child")
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::memory::*;
+
     fn new_base_files() -> BaseLayerFiles<MemoryBackedStore> {
         let files: Vec<_> = (0..18).map(|_| MemoryBackedStore::new()).collect();
         BaseLayerFiles {

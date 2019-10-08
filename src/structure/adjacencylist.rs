@@ -274,6 +274,8 @@ where F: 'static+FileLoad+FileStore,
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::memory::*;
+
     #[test]
     fn can_build_and_parse_adjacencylist() {
         let bitfile = MemoryBackedStore::new();

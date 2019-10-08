@@ -225,6 +225,8 @@ pub fn build_wavelet_tree_from_logarray<FLoad: 'static+FileLoad+Clone, F: 'stati
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::memory::*;
+
     #[test]
     fn generate_and_decode_wavelet_tree_from_vec() {
         let contents = vec![21,1,30,13,23,21,3,0,21,21,12,11];

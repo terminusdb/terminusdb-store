@@ -16,85 +16,6 @@ use std::collections::BTreeSet;
 use std::iter::Peekable;
 
 #[derive(Clone)]
-pub struct ChildLayerFiles<F:'static+FileLoad+FileStore+Clone+Send+Sync> {
-    pub node_dictionary_files: DictionaryFiles<F>,
-    pub predicate_dictionary_files: DictionaryFiles<F>,
-    pub value_dictionary_files: DictionaryFiles<F>,
-
-    pub pos_subjects_file: F,
-    pub pos_objects_file: F,
-    pub neg_subjects_file: F,
-    pub neg_objects_file: F,
-
-    pub pos_s_p_adjacency_list_files: AdjacencyListFiles<F>,
-    pub pos_sp_o_adjacency_list_files: AdjacencyListFiles<F>,
-    pub pos_o_ps_adjacency_list_files: AdjacencyListFiles<F>,
-    pub neg_s_p_adjacency_list_files: AdjacencyListFiles<F>,
-    pub neg_sp_o_adjacency_list_files: AdjacencyListFiles<F>,
-    pub neg_o_ps_adjacency_list_files: AdjacencyListFiles<F>,
-}
-
-#[derive(Clone)]
-pub struct ChildLayerMaps<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
-    pub node_dictionary_maps: DictionaryMaps<M>,
-    pub predicate_dictionary_maps: DictionaryMaps<M>,
-    pub value_dictionary_maps: DictionaryMaps<M>,
-
-    pub pos_subjects_map: M,
-    pub pos_objects_map: M,
-    pub neg_subjects_map: M,
-    pub neg_objects_map: M,
-
-    pub pos_s_p_adjacency_list_maps: AdjacencyListMaps<M>,
-    pub pos_sp_o_adjacency_list_maps: AdjacencyListMaps<M>,
-    pub pos_o_ps_adjacency_list_maps: AdjacencyListMaps<M>,
-    pub neg_s_p_adjacency_list_maps: AdjacencyListMaps<M>,
-    pub neg_sp_o_adjacency_list_maps: AdjacencyListMaps<M>,
-    pub neg_o_ps_adjacency_list_maps: AdjacencyListMaps<M>,
-}
-
-impl<F:FileLoad+FileStore+Clone> ChildLayerFiles<F> {
-    pub fn map_all(&self) -> impl Future<Item=ChildLayerMaps<F::Map>,Error=std::io::Error> {
-        let dict_futs = vec![self.node_dictionary_files.map_all(),
-                             self.predicate_dictionary_files.map_all(),
-                             self.value_dictionary_files.map_all()];
-
-        let sub_futs = vec![self.pos_subjects_file.map(),
-                            self.pos_objects_file.map(),
-                            self.neg_subjects_file.map(),
-                            self.neg_objects_file.map()];
-
-        let aj_futs = vec![self.pos_s_p_adjacency_list_files.map_all(),
-                           self.pos_sp_o_adjacency_list_files.map_all(),
-                           self.pos_o_ps_adjacency_list_files.map_all(),
-                           self.neg_s_p_adjacency_list_files.map_all(),
-                           self.neg_sp_o_adjacency_list_files.map_all(),
-                           self.neg_o_ps_adjacency_list_files.map_all()];
-
-        future::join_all(dict_futs)
-            .join(future::join_all(sub_futs))
-            .join(future::join_all(aj_futs))
-            .map(|((dict_results, sub_results), aj_results)| ChildLayerMaps {
-                node_dictionary_maps: dict_results[0].clone(),
-                predicate_dictionary_maps: dict_results[1].clone(),
-                value_dictionary_maps: dict_results[2].clone(),
-
-                pos_subjects_map: sub_results[0].clone(),
-                pos_objects_map: sub_results[1].clone(),
-                neg_subjects_map: sub_results[2].clone(),
-                neg_objects_map: sub_results[3].clone(),
-
-                pos_s_p_adjacency_list_maps: aj_results[0].clone(),
-                pos_sp_o_adjacency_list_maps: aj_results[1].clone(),
-                pos_o_ps_adjacency_list_maps: aj_results[2].clone(),
-                neg_s_p_adjacency_list_maps: aj_results[3].clone(),
-                neg_sp_o_adjacency_list_maps: aj_results[4].clone(),
-                neg_o_ps_adjacency_list_maps: aj_results[5].clone(),
-            })
-    }
-}
-
-#[derive(Clone)]
 pub struct ChildLayer<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
     name: [u32;5],
     parent: Arc<dyn Layer>,
@@ -1421,6 +1342,7 @@ fn build_object_index<F:'static+FileLoad+FileStore>(sp_o_files: AdjacencyListFil
 mod tests {
     use crate::layer::base::*;
     use super::*;
+    use crate::storage::memory::*;
 
     fn example_base_layer() -> BaseLayer<Vec<u8>> {
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];

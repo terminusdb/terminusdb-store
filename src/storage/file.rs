@@ -2,11 +2,6 @@
 
 use futures::prelude::*;
 use tokio::prelude::*;
-use tokio::fs::*;
-use std::sync::{Arc,RwLock};
-use std::io::{self,Seek, SeekFrom};
-use std::path::PathBuf;
-use memmap::*;
 
 pub trait FileStore: Clone+Send+Sync {
     type Write: AsyncWrite+Send+Sync;
@@ -28,256 +23,205 @@ pub trait FileLoad: Clone+Send+Sync {
     fn map(&self) -> Box<dyn Future<Item=Self::Map, Error=std::io::Error>+Send+Sync>;
 }
 
-pub struct MemoryBackedStoreWriter {
-    vec: Arc<RwLock<Vec<u8>>>,
-    pos: usize
-}
 
-impl Write for MemoryBackedStoreWriter {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, io::Error> {
-        let mut v = self.vec.write().unwrap();
-        if v.len() - self.pos < buf.len() {
-            v.resize(self.pos + buf.len(), 0);
-        }
-
-        v[self.pos..self.pos+buf.len()].copy_from_slice(buf);
-
-        self.pos += buf.len();
-
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> Result<(), std::io::Error> {
-        Ok(())
-    }
-}
-
-impl AsyncWrite for MemoryBackedStoreWriter {
-    fn shutdown(&mut self) -> Result<Async<()>, io::Error> {
-        Ok(Async::Ready(()))
-    }
-}
-
-pub struct MemoryBackedStoreReader {
-    vec: Arc<RwLock<Vec<u8>>>,
-    pos: usize
-}
-
-impl Read for MemoryBackedStoreReader {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, io::Error> {
-        let v = self.vec.read().unwrap();
-
-        if self.pos >= v.len() {
-            return Ok(0);
-        }
-
-        let slice = &v[self.pos..];
-        if slice.len() >= buf.len() {
-            buf.copy_from_slice(&slice[..buf.len()]);
-            self.pos += buf.len();
-
-            Ok(buf.len())
-        }
-        else {
-            buf[..slice.len()].copy_from_slice(slice);
-            self.pos += slice.len();
-
-            Ok(slice.len())
-        }
-    }
-}
-
-impl AsyncRead for MemoryBackedStoreReader {
-}
-
+/// The files required for storing a layer
 #[derive(Clone)]
-pub struct MemoryBackedStore {
-    vec: Arc<RwLock<Vec<u8>>>
+pub enum LayerFiles<F:'static+FileLoad+FileStore+Clone> {
+    Base(BaseLayerFiles<F>),
+    Child(ChildLayerFiles<F>)
 }
 
-impl MemoryBackedStore {
-    pub fn new() -> MemoryBackedStore {
-        MemoryBackedStore { vec: Default::default() }
-    }
-}
-
-impl FileStore for MemoryBackedStore {
-    type Write = MemoryBackedStoreWriter;
-
-    fn open_write_from(&self, pos: usize) -> MemoryBackedStoreWriter {
-        MemoryBackedStoreWriter { vec: self.vec.clone(), pos }
-    }
-}
-
-impl FileLoad for MemoryBackedStore {
-    type Read = MemoryBackedStoreReader;
-    type Map = Vec<u8>;
-
-    fn size(&self) -> usize {
-        self.vec.read().unwrap().len()
+impl<F:'static+FileLoad+FileStore+Clone> LayerFiles<F> {
+    pub fn into_base(self) -> BaseLayerFiles<F> {
+        match self {
+            Self::Base(b) => b,
+            _ => panic!("layer files are not for base")
+        }
     }
 
-    fn open_read_from(&self, offset: usize) -> MemoryBackedStoreReader {
-        MemoryBackedStoreReader { vec: self.vec.clone(), pos: offset }
-    }
-
-    fn map(&self) -> Box<dyn Future<Item=Vec<u8>,Error=std::io::Error>+Send+Sync> {
-        let vec = self.vec.clone();
-        Box::new(future::lazy(move ||future::ok(vec.read().unwrap().clone())))
+    pub fn into_child(self) -> ChildLayerFiles<F> {
+        match self {
+            Self::Child(c) => c,
+            _ => panic!("layer files are not for child")
+        }
     }
 }
 
 #[derive(Clone)]
-pub struct FileBackedStore {
-    path: PathBuf
-}
+pub struct BaseLayerFiles<F:'static+FileLoad+FileStore> {
+    pub node_dictionary_files: DictionaryFiles<F>,
+    pub predicate_dictionary_files: DictionaryFiles<F>,
+    pub value_dictionary_files: DictionaryFiles<F>,
 
-impl FileBackedStore {
-    pub fn new<P:Into<PathBuf>>(path: P) -> FileBackedStore {
-        FileBackedStore { path: path.into() }
-    }
+    pub s_p_adjacency_list_files: AdjacencyListFiles<F>,
+    pub sp_o_adjacency_list_files: AdjacencyListFiles<F>,
 
-    fn open_read_from_std(&self, offset: usize) -> std::fs::File {
-        let mut options = std::fs::OpenOptions::new();
-        options.read(true);
-        let mut file = options.open(&self.path).unwrap();
-
-        file.seek(SeekFrom::Start(offset as u64)).unwrap();
-
-        file
-    }
-
+    pub o_ps_adjacency_list_files: AdjacencyListFiles<F>
 }
 
 #[derive(Clone)]
-pub struct SharedMmap(Option<Arc<Mmap>>);
+pub struct BaseLayerMaps<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
+    pub node_dictionary_maps: DictionaryMaps<M>,
+    pub predicate_dictionary_maps: DictionaryMaps<M>,
+    pub value_dictionary_maps: DictionaryMaps<M>,
 
-impl AsRef<[u8]> for SharedMmap {
-    fn as_ref(&self) -> &[u8] {
-        match &self.0 {
-            None => &[],
-            Some(map) => &*map
-        }
+    pub s_p_adjacency_list_maps: AdjacencyListMaps<M>,
+    pub sp_o_adjacency_list_maps: AdjacencyListMaps<M>,
+
+    pub o_ps_adjacency_list_maps: AdjacencyListMaps<M>
+}
+
+impl<F:FileLoad+FileStore> BaseLayerFiles<F> {
+    pub fn map_all(&self) -> impl Future<Item=BaseLayerMaps<F::Map>,Error=std::io::Error> {
+        let dict_futs = vec![self.node_dictionary_files.map_all(),
+                        self.predicate_dictionary_files.map_all(),
+                             self.value_dictionary_files.map_all()];
+
+        let aj_futs = vec![self.s_p_adjacency_list_files.map_all(),
+                           self.sp_o_adjacency_list_files.map_all(),
+                           self.o_ps_adjacency_list_files.map_all()];
+
+        future::join_all(dict_futs).join(future::join_all(aj_futs))
+            .map(|(dict_results, aj_results)| BaseLayerMaps {
+                node_dictionary_maps: dict_results[0].clone(),
+                predicate_dictionary_maps: dict_results[1].clone(),
+                value_dictionary_maps: dict_results[2].clone(),
+
+                s_p_adjacency_list_maps: aj_results[0].clone(),
+                sp_o_adjacency_list_maps: aj_results[1].clone(),
+
+                o_ps_adjacency_list_maps: aj_results[2].clone(),
+            })
     }
 }
 
+#[derive(Clone)]
+pub struct ChildLayerFiles<F:'static+FileLoad+FileStore+Clone+Send+Sync> {
+    pub node_dictionary_files: DictionaryFiles<F>,
+    pub predicate_dictionary_files: DictionaryFiles<F>,
+    pub value_dictionary_files: DictionaryFiles<F>,
 
-impl FileLoad for FileBackedStore {
-    type Read = File;
-    type Map = SharedMmap;
+    pub pos_subjects_file: F,
+    pub pos_objects_file: F,
+    pub neg_subjects_file: F,
+    pub neg_objects_file: F,
 
-    fn size(&self) -> usize {
-        let m = std::fs::metadata(&self.path).unwrap();
-        m.len() as usize
-    }
+    pub pos_s_p_adjacency_list_files: AdjacencyListFiles<F>,
+    pub pos_sp_o_adjacency_list_files: AdjacencyListFiles<F>,
+    pub pos_o_ps_adjacency_list_files: AdjacencyListFiles<F>,
+    pub neg_s_p_adjacency_list_files: AdjacencyListFiles<F>,
+    pub neg_sp_o_adjacency_list_files: AdjacencyListFiles<F>,
+    pub neg_o_ps_adjacency_list_files: AdjacencyListFiles<F>,
+}
 
-    fn open_read_from(&self, offset: usize) -> File {
-        let f = self.open_read_from_std(offset);
+#[derive(Clone)]
+pub struct ChildLayerMaps<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
+    pub node_dictionary_maps: DictionaryMaps<M>,
+    pub predicate_dictionary_maps: DictionaryMaps<M>,
+    pub value_dictionary_maps: DictionaryMaps<M>,
 
-        File::from_std(f)
-    }
+    pub pos_subjects_map: M,
+    pub pos_objects_map: M,
+    pub neg_subjects_map: M,
+    pub neg_objects_map: M,
 
-    fn map(&self) -> Box<dyn Future<Item=SharedMmap,Error=std::io::Error>+Send+Sync> {
-        let file = self.clone();
-        Box::new(future::lazy(move || {
-            if file.size() == 0 {
-                future::ok(SharedMmap(None))
-            }
-            else {
-                let f = file.open_read_from_std(0);
-                // unsafe justification: we opened this file specifically to do memory mapping, and will do nothing else with it.
-                future::ok(SharedMmap(Some(Arc::new(unsafe { Mmap::map(&f) }.unwrap()))))
-            }
-        }))
+    pub pos_s_p_adjacency_list_maps: AdjacencyListMaps<M>,
+    pub pos_sp_o_adjacency_list_maps: AdjacencyListMaps<M>,
+    pub pos_o_ps_adjacency_list_maps: AdjacencyListMaps<M>,
+    pub neg_s_p_adjacency_list_maps: AdjacencyListMaps<M>,
+    pub neg_sp_o_adjacency_list_maps: AdjacencyListMaps<M>,
+    pub neg_o_ps_adjacency_list_maps: AdjacencyListMaps<M>,
+}
+
+impl<F:FileLoad+FileStore+Clone> ChildLayerFiles<F> {
+    pub fn map_all(&self) -> impl Future<Item=ChildLayerMaps<F::Map>,Error=std::io::Error> {
+        let dict_futs = vec![self.node_dictionary_files.map_all(),
+                             self.predicate_dictionary_files.map_all(),
+                             self.value_dictionary_files.map_all()];
+
+        let sub_futs = vec![self.pos_subjects_file.map(),
+                            self.pos_objects_file.map(),
+                            self.neg_subjects_file.map(),
+                            self.neg_objects_file.map()];
+
+        let aj_futs = vec![self.pos_s_p_adjacency_list_files.map_all(),
+                           self.pos_sp_o_adjacency_list_files.map_all(),
+                           self.pos_o_ps_adjacency_list_files.map_all(),
+                           self.neg_s_p_adjacency_list_files.map_all(),
+                           self.neg_sp_o_adjacency_list_files.map_all(),
+                           self.neg_o_ps_adjacency_list_files.map_all()];
+
+        future::join_all(dict_futs)
+            .join(future::join_all(sub_futs))
+            .join(future::join_all(aj_futs))
+            .map(|((dict_results, sub_results), aj_results)| ChildLayerMaps {
+                node_dictionary_maps: dict_results[0].clone(),
+                predicate_dictionary_maps: dict_results[1].clone(),
+                value_dictionary_maps: dict_results[2].clone(),
+
+                pos_subjects_map: sub_results[0].clone(),
+                pos_objects_map: sub_results[1].clone(),
+                neg_subjects_map: sub_results[2].clone(),
+                neg_objects_map: sub_results[3].clone(),
+
+                pos_s_p_adjacency_list_maps: aj_results[0].clone(),
+                pos_sp_o_adjacency_list_maps: aj_results[1].clone(),
+                pos_o_ps_adjacency_list_maps: aj_results[2].clone(),
+                neg_s_p_adjacency_list_maps: aj_results[3].clone(),
+                neg_sp_o_adjacency_list_maps: aj_results[4].clone(),
+                neg_o_ps_adjacency_list_maps: aj_results[5].clone(),
+            })
     }
 }
 
-impl FileStore for FileBackedStore {
-    type Write = File;
+#[derive(Clone)]
+pub struct DictionaryMaps<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
+    pub blocks_map: M,
+    pub offsets_map: M
+}
 
-    fn open_write_from(&self, offset: usize) -> File {
-        let mut options = std::fs::OpenOptions::new();
-        options.read(true).write(true).create(true);
-        let mut file = options.open(&self.path).unwrap();
+#[derive(Clone)]
+pub struct AdjacencyListMaps<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
+    pub bits_map: M,
+    pub blocks_map: M,
+    pub sblocks_map: M,
+    pub nums_map: M,
+}
 
-        file.seek(SeekFrom::Start(offset as u64)).unwrap();
+#[derive(Clone)]
+pub struct DictionaryFiles<F:'static+FileLoad+FileStore> {
+    pub blocks_file: F,
+    pub offsets_file: F
+}
 
-        File::from_std(file)
+impl<F:'static+FileLoad+FileStore> DictionaryFiles<F> {
+    pub fn map_all(&self) -> impl Future<Item=DictionaryMaps<F::Map>, Error=std::io::Error> {
+        let futs = vec![self.blocks_file.map(), self.offsets_file.map()];
+        future::join_all(futs)
+            .map(|results| DictionaryMaps {
+                blocks_map: results[0].clone(),
+                offsets_map: results[1].clone()
+            })
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::tempdir;
-    use tokio::sync::oneshot::channel;
+#[derive(Clone)]
+pub struct AdjacencyListFiles<F:'static+FileLoad+FileStore> {
+    pub bits_file: F,
+    pub blocks_file: F,
+    pub sblocks_file: F,
+    pub nums_file: F,
+}
 
-    #[test]
-    fn write_and_read_memory_backed() {
-        let file = MemoryBackedStore::new();
-
-        let w = file.open_write();
-        let buf = tokio::io::write_all(w,[1,2,3])
-            .and_then(move |_| tokio::io::read_to_end(file.open_read(), Vec::new()))
-            .map(|(_,buf)| buf)
-            .wait()
-            .unwrap();
-
-        assert_eq!(vec![1,2,3], buf);
-    }
-
-    #[test]
-    fn write_and_map_memory_backed() {
-        let file = MemoryBackedStore::new();
-
-        let w = file.open_write();
-        tokio::io::write_all(w,[1,2,3])
-            .wait()
-            .unwrap();
-
-        assert_eq!(vec![1,2,3], file.map().wait().unwrap());
-    }
-
-    #[test]
-    fn write_and_read_file_backed() {
-        let (tx,rx) = channel::<Result<Vec<u8>, std::io::Error>>();
-
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("foo");
-        let file = FileBackedStore::new(file_path);
-
-        let w = file.open_write();
-        let task = tokio::io::write_all(w,[1,2,3])
-            .and_then(move |_| tokio::io::read_to_end(file.open_read(), Vec::new()))
-            .map(move |(_,buf)| buf)
-            .then(|x| tx.send(x))
-            .map(|_|())
-            .map_err(|_|());
-
-        tokio::run(task);
-        let buf = rx.wait().unwrap();
-
-        assert_eq!(vec![1,2,3], buf.unwrap());
-    }
-
-    #[test]
-    fn write_and_map_file_backed() {
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("foo");
-        let file = FileBackedStore::new(file_path);
-        let (tx,rx) = channel::<Result<SharedMmap,std::io::Error>>();
-
-        let w = file.open_write();
-        let task = tokio::io::write_all(w,[1,2,3])
-            .and_then(move |_| file.map())
-            .then(|map:Result<SharedMmap, std::io::Error>| tx.send(map))
-            .map(|_|())
-            .map_err(|_|());
-
-        tokio::run(task);
-
-        let map = rx.wait().unwrap().unwrap();
-
-        assert_eq!(&vec![1,2,3][..], &map.as_ref()[..]);
+impl<F:'static+FileLoad+FileStore> AdjacencyListFiles<F> {
+    pub fn map_all(&self) -> impl Future<Item=AdjacencyListMaps<F::Map>, Error=std::io::Error> {
+        let futs = vec![self.bits_file.map(), self.blocks_file.map(), self.sblocks_file.map(), self.nums_file.map()];
+        future::join_all(futs)
+            .map(|results| AdjacencyListMaps {
+                bits_map: results[0].clone(),
+                blocks_map: results[1].clone(),
+                sblocks_map: results[2].clone(),
+                nums_map: results[3].clone()
+            })
     }
 }

@@ -333,6 +333,8 @@ pub fn build_bitindex<R:'static+AsyncRead+Send+Sync,W1:'static+AsyncWrite+Send+S
 mod tests {
     use super::*;
     use crate::storage::*;
+    use crate::storage::memory::*;
+
     #[test]
     pub fn rank1_works() {
         let bits = MemoryBackedStore::new();
