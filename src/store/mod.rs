@@ -13,7 +13,7 @@ use futures_locks::RwLock;
 use crate::storage::{LabelStore, LayerStore, CachedLayerStore};
 use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
 use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore};
-use crate::layer::{Layer,LayerBuilder,ObjectType,StringTriple,IdTriple,SubjectLookup,ObjectLookup};
+use crate::layer::{Layer,LayerBuilder,ObjectType,StringTriple,IdTriple,SubjectLookup,ObjectLookup, PredicateLookup};
 
 use std::io;
 
@@ -193,6 +193,10 @@ impl Layer for DatabaseLayer {
 
     fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
         self.layer.lookup_object(object)
+    }
+
+    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+        self.layer.lookup_predicate(predicate)
     }
 }
 

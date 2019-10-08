@@ -11,7 +11,7 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::layer::{Layer,ObjectType,StringTriple,IdTriple,SubjectLookup,ObjectLookup};
+use crate::layer::{Layer,ObjectType,StringTriple,IdTriple,SubjectLookup,ObjectLookup, PredicateLookup};
 use crate::store::{Store, Database, DatabaseLayer, DatabaseLayerBuilder, open_memory_store, open_directory_store};
 
 lazy_static! {
@@ -152,6 +152,10 @@ impl Layer for SyncDatabaseLayer {
 
     fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
         self.inner.lookup_object(object)
+    }
+
+    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+        self.inner.lookup_predicate(predicate)
     }
 }
 

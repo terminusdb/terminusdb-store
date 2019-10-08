@@ -71,6 +71,12 @@ pub trait Layer: Send+Sync {
     /// layers may have then removed every triple involving this
     /// object.
     fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>>;
+
+    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>>;
+
+    //fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
+    //    Box::new((1..=self.predicate_count()).map(|p|cloned.lookup_predicate(p as u64)).flatten())
+    //}
     
     /// Returns true if the given triple exists, and false otherwise
     fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
@@ -269,6 +275,11 @@ pub trait ObjectLookup {
         Box::new(self.subject_predicate_pairs()
                  .map(move |(s,p)| IdTriple::new(s,p,object)))
     }
+}
+
+pub trait PredicateLookup {
+    fn predicate(&self) -> u64;
+    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>>;
 }
 
 /// A triple, stored as numerical ids

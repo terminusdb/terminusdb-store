@@ -334,6 +334,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
 
         Some(Box::new(ChildObjectLookup::new(object, parent, pos, neg)))
     }
+
+    fn lookup_predicate(&self, _predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+        unimplemented!();
+    }
 }
 
 struct ChildSubjectIterator<M:'static+AsRef<[u8]>+Clone> {

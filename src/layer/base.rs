@@ -185,6 +185,17 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
             }))
         }
     }
+
+    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+        let s_p_adjacency_list = self.s_p_adjacency_list.clone();
+        let sp_o_adjacency_list = self.sp_o_adjacency_list.clone();
+        self.predicate_wavelet_tree.lookup(predicate)
+            .map(|lookup| Box::new(BasePredicateLookup {
+                lookup,
+                s_p_adjacency_list,
+                sp_o_adjacency_list
+            }) as Box<dyn PredicateLookup>)
+    }
 }
 
 #[derive(Clone)]
@@ -380,6 +391,35 @@ impl<M:'static+AsRef<[u8]>+Clone> ObjectLookup for BaseObjectLookup<M> {
 
     fn clone_box(&self) -> Box<dyn ObjectLookup> {
         Box::new(self.clone())
+    }
+}
+
+struct BasePredicateLookup<M:'static+AsRef<[u8]>+Clone> {
+    lookup: WaveletLookup<M>,
+    s_p_adjacency_list: AdjacencyList<M>,
+    sp_o_adjacency_list: AdjacencyList<M>
+}
+
+impl<M:'static+AsRef<[u8]>+Clone> PredicateLookup for BasePredicateLookup<M> {
+    fn predicate(&self) -> u64 {
+        self.lookup.entry
+    }
+
+    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
+        let predicate = self.predicate();
+        let s_p_adjacency_list = self.s_p_adjacency_list.clone();
+        let sp_o_adjacency_list = self.sp_o_adjacency_list.clone();
+        Box::new(self.lookup.iter() 
+                 .map(move |pos| {
+                     let (subject, _) = s_p_adjacency_list.pair_at_pos(pos);
+                     let objects = sp_o_adjacency_list.get(pos+1);
+
+                     Box::new(BaseSubjectPredicateLookup {
+                         subject,
+                         predicate,
+                         objects
+                     }) as Box<dyn SubjectPredicateLookup>
+                 }))
     }
 }
 
@@ -864,6 +904,42 @@ mod tests {
         let lookup = layer.lookup_object(6).unwrap();
         let pairs: Vec<_> = lookup.subject_predicate_pairs().collect();
         assert_eq!(vec![(2,3), (3,3), (4,3)], pairs);
+    }
+
+    #[test]
+    fn lookup_by_predicate() {
+        let layer = example_base_layer();
+
+        let lookup = layer.lookup_predicate(1).unwrap();
+        let pairs: Vec<_> = lookup.subject_predicate_pairs()
+            .map(|sp|sp.triples())
+            .flatten()
+            .map(|t|(t.subject,t.predicate,t.object))
+            .collect();
+
+        assert_eq!(vec![(1,1,1), (2,1,1), (2,1,3)], pairs);
+
+        let lookup = layer.lookup_predicate(2).unwrap();
+        let pairs: Vec<_> = lookup.subject_predicate_pairs()
+            .map(|sp|sp.triples())
+            .flatten()
+            .map(|t|(t.subject,t.predicate,t.object))
+            .collect();
+
+        assert_eq!(vec![(3,2,5)], pairs);
+
+        let lookup = layer.lookup_predicate(3).unwrap();
+        let pairs: Vec<_> = lookup.subject_predicate_pairs()
+            .map(|sp|sp.triples())
+            .flatten()
+            .map(|t|(t.subject,t.predicate,t.object))
+            .collect();
+
+        assert_eq!(vec![(2,3,6),(3,3,6),(4,3,6)], pairs);
+
+        let lookup = layer.lookup_predicate(4);
+
+        assert!(lookup.is_none());
     }
 
     #[test]
