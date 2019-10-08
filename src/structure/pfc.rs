@@ -420,7 +420,7 @@ impl<W:'static+tokio::io::AsyncWrite+Send+Sync> PfcDictFileBuilder<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::file::*;
+    use crate::storage::*;
 
     #[test]
     fn can_create_pfc_dict_small() {

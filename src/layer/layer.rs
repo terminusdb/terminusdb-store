@@ -1,5 +1,5 @@
 //! Common data structures and traits for all layer types
-use crate::storage::file::*;
+use crate::storage::*;
 use std::hash::Hash;
 use std::collections::HashMap;
 use std::sync::Arc;

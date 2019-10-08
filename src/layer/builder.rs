@@ -12,7 +12,7 @@
 use super::layer::*;
 use super::base::*;
 use super::child::*;
-use crate::storage::file::*;
+use crate::storage::*;
 use futures::prelude::*;
 use std::collections::{HashMap,BTreeSet};
 use std::sync::Arc;

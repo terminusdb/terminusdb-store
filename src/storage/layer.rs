@@ -1,7 +1,7 @@
-use crate::layer::layer::{Layer,LayerType,DictionaryFiles,AdjacencyListFiles};
-use crate::layer::builder::{LayerBuilder,SimpleLayerBuilder, LayerFiles};
-use crate::layer::base::{BaseLayer,BaseLayerFiles};
-use crate::layer::child::{ChildLayer,ChildLayerFiles};
+use crate::layer::{Layer,LayerType,DictionaryFiles,AdjacencyListFiles,
+                   LayerBuilder,SimpleLayerBuilder, LayerFiles,
+                   BaseLayer,BaseLayerFiles,
+                   ChildLayer,ChildLayerFiles};
 use super::file::*;
 use super::consts::FILENAMES;
 use tokio::fs;

@@ -5,7 +5,7 @@
 //! this layer needs for its additions.
 use super::layer::*;
 use crate::structure::*;
-use crate::storage::file::*;
+use crate::storage::*;
 use futures::prelude::*;
 use futures::future;
 use futures::stream;
@@ -388,7 +388,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
     }
 }
 
-pub struct ChildSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
+struct ChildSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
     parent: Option<Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>>,
     pos_subjects: MonotonicLogArray<M>,
     pos_s_p_adjacency_list: AdjacencyList<M>,
@@ -473,7 +473,7 @@ struct AdjacencyStuff<M:'static+AsRef<[u8]>+Clone> {
 }
 
 
-pub struct ChildSubjectLookup<M:'static+AsRef<[u8]>+Clone> {
+struct ChildSubjectLookup<M:'static+AsRef<[u8]>+Clone> {
     parent: Option<Box<dyn SubjectLookup>>,
     subject: u64,
 
@@ -529,7 +529,7 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for ChildSubjectLookup<M> {
     }
 }
 
-pub struct ChildPredicateIterator<M:'static+AsRef<[u8]>+Clone> {
+struct ChildPredicateIterator<M:'static+AsRef<[u8]>+Clone> {
     parent: Option<Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>>>,
     subject: u64,
     pos_adjacencies: Option<AdjacencyStuff<M>>,
@@ -637,7 +637,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateIterator<M> {
     }
 }
 
-pub struct ChildSubjectPredicateLookup<M:'static+AsRef<[u8]>+Clone> {
+struct ChildSubjectPredicateLookup<M:'static+AsRef<[u8]>+Clone> {
     parent: Option<Box<dyn SubjectPredicateLookup>>,
     subject: u64,
     predicate: u64,
@@ -686,7 +686,7 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for ChildSubjectPredica
     }
 }
 
-pub struct ChildObjectIterator<M:'static+AsRef<[u8]>+Clone> {
+struct ChildObjectIterator<M:'static+AsRef<[u8]>+Clone> {
     parent: Option<Box<dyn Iterator<Item=IdTriple>>>,
     next_parent_object: Option<u64>,
     pos_objects: Option<LogArraySlice<M>>,
@@ -768,7 +768,7 @@ impl<M:'static+AsRef<[u8]>+Clone> ChildObjectLookupAdjacency<M> {
 }
 
 //#[derive(Clone)]
-pub struct ChildObjectLookup<M:AsRef<[u8]>+Clone> {
+struct ChildObjectLookup<M:AsRef<[u8]>+Clone> {
     object: u64,
     parent: Option<Box<dyn ObjectLookup>>,
 

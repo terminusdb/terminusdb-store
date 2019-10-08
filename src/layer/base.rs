@@ -6,7 +6,7 @@ use futures::future;
 use futures::stream;
 
 use crate::structure::*;
-use crate::storage::file::*;
+use crate::storage::*;
 use super::layer::*;
 
 use std::sync::Arc;
@@ -226,7 +226,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
 }
 
 #[derive(Clone)]
-pub struct BaseSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
+struct BaseSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
     s_p_adjacency_list: AdjacencyList<M>,
     sp_o_adjacency_list: AdjacencyList<M>,
     pos: u64,
@@ -260,7 +260,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseSubjectIterator<M> {
 }
 
 #[derive(Clone)]
-pub struct BaseSubjectLookup<M:'static+AsRef<[u8]>+Clone> {
+struct BaseSubjectLookup<M:'static+AsRef<[u8]>+Clone> {
     subject: u64,
     predicates: LogArraySlice<M>,
     sp_offset: u64,
@@ -296,7 +296,7 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for BaseSubjectLookup<M> {
 }
 
 #[derive(Clone)]
-pub struct BasePredicateIterator<M:'static+AsRef<[u8]>+Clone> {
+struct BasePredicateIterator<M:'static+AsRef<[u8]>+Clone> {
     subject: u64,
     pos: usize,
     predicates: LogArraySlice<M>,
@@ -332,7 +332,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for BasePredicateIterator<M> {
 }
 
 #[derive(Clone)]
-pub struct BaseSubjectPredicateLookup<M:'static+AsRef<[u8]>+Clone> {
+struct BaseSubjectPredicateLookup<M:'static+AsRef<[u8]>+Clone> {
     subject: u64,
     predicate: u64,
     objects: LogArraySlice<M>
@@ -363,7 +363,7 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for BaseSubjectPredicat
 }
 
 #[derive(Clone)]
-pub struct BaseObjectIterator<M:'static+AsRef<[u8]>+Clone> {
+struct BaseObjectIterator<M:'static+AsRef<[u8]>+Clone> {
     pub subject: u64,
     pub predicate: u64,
     objects: LogArraySlice<M>,
@@ -392,7 +392,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseObjectIterator<M> {
 }
 
 #[derive(Clone)]
-pub struct BaseObjectLookup<M:AsRef<[u8]>+Clone> {
+struct BaseObjectLookup<M:AsRef<[u8]>+Clone> {
     object: u64,
     sp_slice: LogArraySlice<M>,
     s_p_adjacency_list: AdjacencyList<M>,
@@ -503,62 +503,38 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
 
     pub fn add_nodes<I:'static+IntoIterator<Item=String>+Send+Sync>(self, nodes: I) -> impl Future<Item=(Vec<u64>, Self), Error=std::io::Error>
     where <I as std::iter::IntoIterator>::IntoIter: Send+Sync {
-        let BaseLayerFileBuilder {
-            files,
+        stream::iter_ok(nodes.into_iter())
+            .fold((Vec::new(), self), |(mut result, builder), node|
+                  builder.add_node(&node)
+                  .map(|(id, builder)| {
+                      result.push(id);
 
-            node_dictionary_builder,
-            predicate_dictionary_builder,
-            value_dictionary_builder
-        } = self;
-
-        node_dictionary_builder.add_all(nodes.into_iter())
-            .map(move|(result, node_dictionary_builder)| (result, BaseLayerFileBuilder {
-                files,
-
-                node_dictionary_builder,
-                predicate_dictionary_builder,
-                value_dictionary_builder
-            }))
+                      (result, builder)
+                  }))
     }
 
     pub fn add_predicates<I:'static+IntoIterator<Item=String>+Send+Sync>(self, predicates: I) -> impl Future<Item=(Vec<u64>, Self), Error=std::io::Error>
     where <I as std::iter::IntoIterator>::IntoIter: Send+Sync {
-        let BaseLayerFileBuilder {
-            files,
+        stream::iter_ok(predicates.into_iter())
+            .fold((Vec::new(), self), |(mut result, builder), predicate|
+                  builder.add_predicate(&predicate)
+                  .map(|(id, builder)| {
+                      result.push(id);
 
-            node_dictionary_builder,
-            predicate_dictionary_builder,
-            value_dictionary_builder
-        } = self;
-
-        predicate_dictionary_builder.add_all(predicates.into_iter())
-            .map(move|(result, predicate_dictionary_builder)| (result, BaseLayerFileBuilder {
-                files,
-
-                node_dictionary_builder,
-                predicate_dictionary_builder,
-                value_dictionary_builder
-            }))
+                      (result, builder)
+                  }))
     }
 
     pub fn add_values<I:'static+IntoIterator<Item=String>+Send+Sync>(self, values: I) -> impl Future<Item=(Vec<u64>, Self), Error=std::io::Error>
     where <I as std::iter::IntoIterator>::IntoIter: Send+Sync {
-        let BaseLayerFileBuilder {
-            files,
+        stream::iter_ok(values.into_iter())
+            .fold((Vec::new(), self), |(mut result, builder), value|
+                  builder.add_value(&value)
+                  .map(|(id, builder)| {
+                      result.push(id);
 
-            node_dictionary_builder,
-            predicate_dictionary_builder,
-            value_dictionary_builder
-        } = self;
-
-        value_dictionary_builder.add_all(values.into_iter())
-            .map(move|(result, value_dictionary_builder)| (result, BaseLayerFileBuilder {
-                files,
-
-                node_dictionary_builder,
-                predicate_dictionary_builder,
-                value_dictionary_builder
-            }))
+                      (result, builder)
+                  }))
     }
 
     pub fn into_phase2(self) -> impl Future<Item=BaseLayerFileBuilderPhase2<F>,Error=std::io::Error> {

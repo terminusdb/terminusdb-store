@@ -3,7 +3,7 @@ use byteorder::{ByteOrder,BigEndian};
 use bytes::BytesMut;
 use futures::prelude::*;
 use futures::future;
-use crate::storage::file::*;
+use crate::storage::*;
 use std::cmp::Ordering;
 
 #[derive(Clone)]

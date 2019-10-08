@@ -22,11 +22,11 @@
 //! A label store is a set of files. The file name is of the format
 //! `foo.label`, for database `foo`. This file contains the name of
 //! the layer this label is pointing at.
-pub mod consts;
-pub mod file;
-pub mod layer;
-pub mod label;
+mod consts;
+mod file;
+mod layer;
+mod label;
 
-pub use file::{FileLoad,FileStore,MemoryBackedStore,FileBackedStore};
-pub use layer::{LayerRetriever,LayerStore,PersistentLayerStore,MemoryLayerStore,DirectoryLayerStore,CachedLayerStore};
-pub use label::{Label, LabelStore, MemoryLabelStore, DirectoryLabelStore};
+pub use file::*;
+pub use layer::*;
+pub use label::*;

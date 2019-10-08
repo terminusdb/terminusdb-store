@@ -179,7 +179,6 @@ pub fn bitarray_stream_bits<F:FileLoad+Clone>(f: F) -> impl Stream<Item=bool, Er
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::file::*;
     
     #[test]
     pub fn construct_and_parse_small_bitarray() {

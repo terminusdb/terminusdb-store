@@ -1,3 +1,5 @@
+//! A succinct data structure for quick lookup of entry positions in a sequence.
+
 use futures::prelude::*;
 use tokio::prelude::*;
 use super::logarray::*;
@@ -192,7 +194,7 @@ fn build_wavelet_fragment<S:Stream<Item=u64,Error=std::io::Error>, W:AsyncWrite+
 ///
 /// Source stream constructor is a function that returns a new stream
 /// on demand. The wavelet tree constructor will iterate over this
-/// stream multiple time, which is why we need a constructor function
+/// stream multiple times, which is why we need a constructor function
 /// here rather than just the stream itself.
 pub fn build_wavelet_tree_from_stream<SFn: FnMut()->S, S: Stream<Item=u64,Error=std::io::Error>, F: 'static+FileLoad+FileStore>(width: u8, mut source: SFn, destination_bits: F, destination_blocks: F, destination_sblocks: F) -> impl Future<Item=(),Error=std::io::Error> {
     let alphabet_size = 2_usize.pow(width as u32);
