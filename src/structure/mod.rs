@@ -2,7 +2,7 @@
 //!
 //! This module contains various succinct data structures, as well as
 //! the logic to load, parse and store them.
-pub mod util;
+mod util;
 pub mod vbyte;
 pub mod logarray;
 pub mod bitarray;

@@ -1,3 +1,14 @@
+//! Logic for storing, loading and using adjacency lists.
+//!
+//! An adjacency list conceptually stores pairs of u64. the numbers on
+//! the left-hand-side of this pair form a continuous range from 1 up
+//! to some maximum, while the right-hand-side can be anything.
+//!
+//! Internally, this is stored as a `LogArray` and a `BitIndex` of equal length, where the
+//! LogArray stores all the right-hand-sides, while the BitIndex
+//! stores the boundaries between left-hand-sides (storing a 0 if this
+//! left-hand-side has more pairs to follow, or 1 if this was the last
+//! pair).
 use tokio::prelude::*;
 
 use super::bitarray::*;

@@ -1,19 +1,6 @@
 use futures::prelude::*;
 use byteorder::{ByteOrder,BigEndian};
 
-pub enum UtilError {
-    InvalidCoding
-}
-pub fn cstring_from_slice(s: &[u8]) -> Result<&[u8],UtilError> {
-    for i in 0..s.len() {
-        if s[i] == 0 {
-            return Ok(&s[0..i]);
-        }
-    }
-
-    Err(UtilError::InvalidCoding)
-}
-
 pub fn find_common_prefix(b1: &[u8], b2: &[u8]) -> usize {
     let mut common = 0;
     while common < b1.len() && common < b2.len() {

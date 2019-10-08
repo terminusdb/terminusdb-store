@@ -1,3 +1,4 @@
+//! Implementation for a Plain Front-Coding (PFC) dictionary.
 use byteorder::{ByteOrder,BigEndian};
 use futures::prelude::*;
 use futures::future;

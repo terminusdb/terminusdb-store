@@ -1,3 +1,4 @@
+//! Logic for building and using an index over a bitarray which provides rank and select.
 use byteorder::{ByteOrder,BigEndian};
 
 use super::bitarray::*;

@@ -1,3 +1,9 @@
+//! Logic for storing, loading and using logarrays, arrays of
+//! integers, with configurable bit width per entry.
+//!
+//! By using the minimal width necessary to store the largest value of
+//! the array, the byte representation of the array can be compressed
+//! significantly compared to using an array of u64.
 use tokio::codec::{FramedRead,Decoder};
 use byteorder::{ByteOrder,BigEndian};
 use bytes::BytesMut;

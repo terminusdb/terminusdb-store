@@ -1,3 +1,4 @@
+//! A compressed integer implementation.
 use std::io::Write;
 use futures::prelude::*;
 use tokio::io::{write_all,AsyncWrite};

@@ -1,3 +1,4 @@
+//! Logic for storing, loading and using arrays of bits.
 use byteorder::{ByteOrder,BigEndian};
 use futures::prelude::*;
 use tokio::prelude::*;
