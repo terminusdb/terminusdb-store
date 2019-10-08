@@ -59,6 +59,10 @@ pub struct Filenames {
     pub neg_o_ps_adjacency_list_bit_index_blocks: &'static str,
     pub neg_o_ps_adjacency_list_bit_index_sblocks: &'static str,
 
+    pub predicate_wavelet_tree_bits: &'static str,
+    pub predicate_wavelet_tree_bit_index_blocks: &'static str,
+    pub predicate_wavelet_tree_bit_index_sblocks: &'static str,
+
     pub parent: &'static str,
 }
 
@@ -122,6 +126,10 @@ pub const FILENAMES: Filenames = Filenames {
     neg_o_ps_adjacency_list_bits: "neg_o_ps_adjacency_list_bits.bitarray",
     neg_o_ps_adjacency_list_bit_index_blocks: "neg_o_ps_adjacency_list_bit_index_blocks.logarray",
     neg_o_ps_adjacency_list_bit_index_sblocks: "neg_o_ps_adjacency_list_bit_index_sblocks.logarray",
+
+    predicate_wavelet_tree_bits: "predicate_wavelet_tree_bits.bitarray",
+    predicate_wavelet_tree_bit_index_blocks: "predicate_wavelet_tree_bit_index_blocks.logarray",
+    predicate_wavelet_tree_bit_index_sblocks: "predicate_wavelet_tree_bit_index_sblocks.logarray",
 
     parent: "parent.hex"
 };

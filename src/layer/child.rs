@@ -1366,7 +1366,7 @@ mod tests {
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
 
-        let files: Vec<_> = (0..18).map(|_| MemoryBackedStore::new()).collect();
+        let files: Vec<_> = (0..21).map(|_| MemoryBackedStore::new()).collect();
         let base_layer_files = BaseLayerFiles {
             node_dictionary_files: DictionaryFiles {
                 blocks_file: files[0].clone(),
@@ -1403,6 +1403,11 @@ mod tests {
                     sblocks_file: files[16].clone(),
                 },
                 nums_file: files[17].clone()
+            },
+            predicate_wavelet_tree_files: BitIndexFiles {
+                bits_file: files[18].clone(),
+                blocks_file: files[19].clone(),
+                sblocks_file: files[20].clone(),
             },
         };
 

@@ -639,8 +639,10 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
     }
 
     pub fn finalize(self) -> impl Future<Item=(), Error=std::io::Error> {
+        let s_p_adjacency_list_files = self.files.s_p_adjacency_list_files;
         let sp_o_adjacency_list_files = self.files.sp_o_adjacency_list_files;
         let o_ps_adjacency_list_files = self.files.o_ps_adjacency_list_files;
+        let predicate_wavelet_tree_files = self.files.predicate_wavelet_tree_files;
         let object_count = self.object_count;
         future::join_all(vec![self.s_p_adjacency_list_builder.finalize(), self.sp_o_adjacency_list_builder.finalize()])
             .and_then(move |_| adjacency_list_stream_pairs(sp_o_adjacency_list_files.bitindex_files.bits_file, sp_o_adjacency_list_files.nums_file)
@@ -662,8 +664,14 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
                                                                             o_ps_adjacency_list_files.nums_file.open_write(),
                                                                             width);
 
-                o_ps_adjacency_list_builder.push_all(stream::iter_ok(tuples))
-                    .and_then(|builder| builder.finalize())
+                let build_o_ps_index = o_ps_adjacency_list_builder.push_all(stream::iter_ok(tuples))
+                    .and_then(|builder| builder.finalize());
+                let build_predicate_index = build_wavelet_tree_from_logarray(s_p_adjacency_list_files.nums_file,
+                                                                             predicate_wavelet_tree_files.bits_file,
+                                                                             predicate_wavelet_tree_files.blocks_file,
+                                                                             predicate_wavelet_tree_files.sblocks_file);
+
+                build_o_ps_index.join(build_predicate_index)
             })
             .map(|_|())
     }
@@ -679,7 +687,7 @@ mod tests {
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
 
-        let files: Vec<_> = (0..18).map(|_| MemoryBackedStore::new()).collect();
+        let files: Vec<_> = (0..21).map(|_| MemoryBackedStore::new()).collect();
         let base_layer_files = BaseLayerFiles {
             node_dictionary_files: DictionaryFiles {
                 blocks_file: files[0].clone(),
@@ -716,6 +724,11 @@ mod tests {
                     sblocks_file: files[16].clone(),
                 },
                 nums_file: files[17].clone()
+            },
+            predicate_wavelet_tree_files: BitIndexFiles {
+                bits_file: files[18].clone(),
+                blocks_file: files[19].clone(),
+                sblocks_file: files[20].clone(),
             },
         };
 

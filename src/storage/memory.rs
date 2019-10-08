@@ -169,7 +169,7 @@ impl LayerStore for MemoryLayerStore {
     fn create_base_layer(&self) -> Box<dyn Future<Item=Box<dyn LayerBuilder>,Error=io::Error>+Send+Sync> {
         let name = rand::random();
 
-        let files: Vec<_> = (0..18).map(|_| MemoryBackedStore::new()).collect();
+        let files: Vec<_> = (0..21).map(|_| MemoryBackedStore::new()).collect();
         let blf = BaseLayerFiles {
             node_dictionary_files: DictionaryFiles {
                 blocks_file: files[0].clone(),
@@ -206,6 +206,11 @@ impl LayerStore for MemoryLayerStore {
                     sblocks_file: files[16].clone(),
                 },
                 nums_file: files[17].clone()
+            },
+            predicate_wavelet_tree_files: BitIndexFiles {
+                bits_file: files[18].clone(),
+                blocks_file: files[19].clone(),
+                sblocks_file: files[20].clone(),
             },
         };
 

@@ -56,6 +56,8 @@ pub struct BaseLayerFiles<F:'static+FileLoad+FileStore> {
     pub sp_o_adjacency_list_files: AdjacencyListFiles<F>,
 
     pub o_ps_adjacency_list_files: AdjacencyListFiles<F>,
+
+    pub predicate_wavelet_tree_files: BitIndexFiles<F>,
 }
 
 #[derive(Clone)]
@@ -68,6 +70,8 @@ pub struct BaseLayerMaps<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
     pub sp_o_adjacency_list_maps: AdjacencyListMaps<M>,
 
     pub o_ps_adjacency_list_maps: AdjacencyListMaps<M>,
+
+    pub predicate_wavelet_tree_maps: BitIndexMaps<M>,
 }
 
 impl<F:FileLoad+FileStore> BaseLayerFiles<F> {
@@ -80,8 +84,8 @@ impl<F:FileLoad+FileStore> BaseLayerFiles<F> {
                            self.sp_o_adjacency_list_files.map_all(),
                            self.o_ps_adjacency_list_files.map_all()];
 
-        future::join_all(dict_futs).join(future::join_all(aj_futs))
-            .map(|(dict_results, aj_results)| BaseLayerMaps {
+        future::join_all(dict_futs).join(future::join_all(aj_futs)).join(self.predicate_wavelet_tree_files.map_all())
+            .map(|((dict_results, aj_results), predicate_wavelet_tree_maps)| BaseLayerMaps {
                 node_dictionary_maps: dict_results[0].clone(),
                 predicate_dictionary_maps: dict_results[1].clone(),
                 value_dictionary_maps: dict_results[2].clone(),
@@ -90,6 +94,8 @@ impl<F:FileLoad+FileStore> BaseLayerFiles<F> {
                 sp_o_adjacency_list_maps: aj_results[1].clone(),
 
                 o_ps_adjacency_list_maps: aj_results[2].clone(),
+
+                predicate_wavelet_tree_maps
             })
     }
 }
