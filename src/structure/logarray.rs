@@ -85,6 +85,10 @@ impl<M:AsRef<[u8]>+Clone> LogArray<M> {
         self.len as usize
     }
 
+    pub fn width(&self) -> u8 {
+        self.width
+    }
+
     pub fn len_bytes(&self) -> usize {
         self.len_bytes
     }

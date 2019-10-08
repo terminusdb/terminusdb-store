@@ -164,7 +164,11 @@ pub trait PersistentLayerStore : 'static+Send+Sync+Clone {
                              FILENAMES.neg_o_ps_adjacency_list_bits,
                              FILENAMES.neg_o_ps_adjacency_list_bit_index_blocks,
                              FILENAMES.neg_o_ps_adjacency_list_bit_index_sblocks,
-                             FILENAMES.neg_o_ps_adjacency_list_nums];
+                             FILENAMES.neg_o_ps_adjacency_list_nums,
+
+                             FILENAMES.predicate_wavelet_tree_bits,
+                             FILENAMES.predicate_wavelet_tree_bit_index_blocks,
+                             FILENAMES.predicate_wavelet_tree_bit_index_sblocks];
 
         let cloned = self.clone();
 
@@ -236,11 +240,11 @@ pub trait PersistentLayerStore : 'static+Send+Sync+Clone {
                          },
                          nums_file: files[33].clone()
                      },
-                     //predicate_wavelet_tree_files: BitIndexFiles {
-                     //    bits_file: files[33].clone(),
-                     //    blocks_file: files[34].clone(),
-                     //    sblocks_file: files[35].clone()
-                     //},
+                     predicate_wavelet_tree_files: BitIndexFiles {
+                         bits_file: files[34].clone(),
+                         blocks_file: files[35].clone(),
+                         sblocks_file: files[36].clone()
+                     },
                  }))
     }
 

@@ -117,6 +117,8 @@ pub struct ChildLayerFiles<F:'static+FileLoad+FileStore+Clone+Send+Sync> {
     pub neg_s_p_adjacency_list_files: AdjacencyListFiles<F>,
     pub neg_sp_o_adjacency_list_files: AdjacencyListFiles<F>,
     pub neg_o_ps_adjacency_list_files: AdjacencyListFiles<F>,
+
+    pub predicate_wavelet_tree_files: BitIndexFiles<F>,
 }
 
 #[derive(Clone)]
@@ -136,6 +138,8 @@ pub struct ChildLayerMaps<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
     pub neg_s_p_adjacency_list_maps: AdjacencyListMaps<M>,
     pub neg_sp_o_adjacency_list_maps: AdjacencyListMaps<M>,
     pub neg_o_ps_adjacency_list_maps: AdjacencyListMaps<M>,
+
+    pub predicate_wavelet_tree_maps: BitIndexMaps<M>,
 }
 
 impl<F:FileLoad+FileStore+Clone> ChildLayerFiles<F> {
@@ -159,7 +163,8 @@ impl<F:FileLoad+FileStore+Clone> ChildLayerFiles<F> {
         future::join_all(dict_futs)
             .join(future::join_all(sub_futs))
             .join(future::join_all(aj_futs))
-            .map(|((dict_results, sub_results), aj_results)| ChildLayerMaps {
+            .join(self.predicate_wavelet_tree_files.map_all())
+            .map(|(((dict_results, sub_results), aj_results), predicate_wavelet_tree_maps)| ChildLayerMaps {
                 node_dictionary_maps: dict_results[0].clone(),
                 predicate_dictionary_maps: dict_results[1].clone(),
                 value_dictionary_maps: dict_results[2].clone(),
@@ -175,6 +180,8 @@ impl<F:FileLoad+FileStore+Clone> ChildLayerFiles<F> {
                 neg_s_p_adjacency_list_maps: aj_results[3].clone(),
                 neg_sp_o_adjacency_list_maps: aj_results[4].clone(),
                 neg_o_ps_adjacency_list_maps: aj_results[5].clone(),
+
+                predicate_wavelet_tree_maps,
             })
     }
 }

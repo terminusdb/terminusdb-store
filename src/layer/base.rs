@@ -21,6 +21,8 @@ pub struct BaseLayer<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
     s_p_adjacency_list: AdjacencyList<M>,
     sp_o_adjacency_list: AdjacencyList<M>,
     o_ps_adjacency_list: AdjacencyList<M>,
+
+    predicate_wavelet_tree: WaveletTree<M>,
 }
 
 impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> BaseLayer<M> {
@@ -39,6 +41,12 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> BaseLayer<M> {
         let sp_o_adjacency_list = AdjacencyList::parse(maps.sp_o_adjacency_list_maps.nums_map, maps.sp_o_adjacency_list_maps.bitindex_maps.bits_map, maps.sp_o_adjacency_list_maps.bitindex_maps.blocks_map, maps.sp_o_adjacency_list_maps.bitindex_maps.sblocks_map);
         let o_ps_adjacency_list = AdjacencyList::parse(maps.o_ps_adjacency_list_maps.nums_map, maps.o_ps_adjacency_list_maps.bitindex_maps.bits_map, maps.o_ps_adjacency_list_maps.bitindex_maps.blocks_map, maps.o_ps_adjacency_list_maps.bitindex_maps.sblocks_map);
 
+        let predicate_wavelet_tree_width = s_p_adjacency_list.nums().width();
+        let predicate_wavelet_tree = WaveletTree::from_parts(BitIndex::from_maps(maps.predicate_wavelet_tree_maps.bits_map,
+                                                                                 maps.predicate_wavelet_tree_maps.blocks_map,
+                                                                                 maps.predicate_wavelet_tree_maps.sblocks_map),
+                                                             predicate_wavelet_tree_width);
+
         BaseLayer {
             name,
             node_dictionary,
@@ -49,6 +57,8 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> BaseLayer<M> {
             sp_o_adjacency_list,
 
             o_ps_adjacency_list,
+
+            predicate_wavelet_tree,
         }
     }
 }
