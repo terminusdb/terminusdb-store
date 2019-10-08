@@ -167,29 +167,62 @@ fn build_wavelet_fragment<S:Stream<Item=u64,Error=std::io::Error>, W:AsyncWrite+
     })
 }
 
-pub fn build_wavelet_tree<FLoad: 'static+FileLoad+Clone, F1: 'static+FileLoad+FileStore, F2: 'static+FileStore, F3: 'static+FileStore>(source: FLoad, destination_bits: F1, destination_blocks: F2, destination_sblocks: F3) -> impl Future<Item=(),Error=std::io::Error> {
+pub fn build_wavelet_tree_from_stream<SFn: FnMut()->S, S: Stream<Item=u64,Error=std::io::Error>, F: 'static+FileLoad+FileStore>(width: u8, mut source: SFn, destination_bits: F, destination_blocks: F, destination_sblocks: F) -> impl Future<Item=(),Error=std::io::Error> {
+    let alphabet_size = 2_usize.pow(width as u32);
     let bits = BitArrayFileBuilder::new(destination_bits.open_write());
+    stream::iter_ok::<_,std::io::Error>((0..width as usize)
+                                        .map(|layer| (0..2_usize.pow(layer as u32))
+                                             .map(move |fragment| (layer, fragment)))
+                                        .flatten())
+        .fold(bits, move |b, (layer, fragment)| {
+            let stream = source();
+            build_wavelet_fragment(stream, b, alphabet_size, layer, fragment)
+        })
+        .and_then(|b| b.finalize())
+        .and_then(move |_| build_bitindex(destination_bits.open_read(), destination_blocks.open_write(), destination_sblocks.open_write()))
+        .map(|_|())
+}
 
+pub fn build_wavelet_tree_from_logarray<FLoad: 'static+FileLoad+Clone, F: 'static+FileLoad+FileStore>(source: FLoad, destination_bits: F, destination_blocks: F, destination_sblocks: F) -> impl Future<Item=(),Error=std::io::Error> {
     logarray_file_get_length_and_width(&source)
-        .map(|(_, width)| (width as usize, 2_usize.pow(width as u32)))
-        .and_then(|(num_layers, alphabet_size)| stream::iter_ok::<_,std::io::Error>((0..num_layers)
-                                                                                    .map(|layer| (0..2_usize.pow(layer as u32))
-                                                                                         .map(move |fragment| (layer, fragment)))
-                                                                                    .flatten())
-                  .fold(bits, move |b, (layer, fragment)| {
-                      let stream = logarray_stream_entries(source.clone());
-                      build_wavelet_fragment(stream, b, alphabet_size, layer, fragment)
-                  })
-                  .and_then(|b| b.finalize())
-                  .and_then(move |_| build_bitindex(destination_bits.open_read(), destination_blocks.open_write(), destination_sblocks.open_write()))
-                  .map(|_|()))
+        .and_then(|(_, width)| build_wavelet_tree_from_stream(width,
+                                                              move ||logarray_stream_entries(source.clone()),
+                                                              destination_bits,
+                                                              destination_blocks,
+                                                              destination_sblocks))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn generate_and_decode_wavelet_tree() {
+    fn generate_and_decode_wavelet_tree_from_vec() {
+        let contents = vec![21,1,30,13,23,21,3,0,21,21,12,11];
+        let contents_closure = contents.clone();
+        let contents_len = contents.len();
+
+        let wavelet_bits_file = MemoryBackedStore::new();
+        let wavelet_blocks_file = MemoryBackedStore::new();
+        let wavelet_sblocks_file = MemoryBackedStore::new();
+
+        build_wavelet_tree_from_stream(5, move ||stream::iter_ok(contents_closure.clone()), wavelet_bits_file.clone(), wavelet_blocks_file.clone(), wavelet_sblocks_file.clone())
+            .wait()
+            .unwrap();
+
+        let wavelet_bits = wavelet_bits_file.map().wait().unwrap();
+        let wavelet_blocks = wavelet_blocks_file.map().wait().unwrap();
+        let wavelet_sblocks = wavelet_sblocks_file.map().wait().unwrap();
+
+        let wavelet_bitindex = BitIndex::from_maps(wavelet_bits, wavelet_blocks, wavelet_sblocks);
+        let wavelet_tree = WaveletTree::from_parts(wavelet_bitindex, 5);
+
+        assert_eq!(contents_len, wavelet_tree.len());
+
+        assert_eq!(contents, wavelet_tree.decode());
+    }
+
+    #[test]
+    fn generate_and_decode_wavelet_tree_from_logarray() {
         let logarray_file = MemoryBackedStore::new();
         let logarray_builder = LogArrayFileBuilder::new(logarray_file.open_write(), 5);
         let contents = vec![21,1,30,13,23,21,3,0,21,21,12,11];
@@ -202,7 +235,7 @@ mod tests {
         let wavelet_blocks_file = MemoryBackedStore::new();
         let wavelet_sblocks_file = MemoryBackedStore::new();
 
-        build_wavelet_tree(logarray_file, wavelet_bits_file.clone(), wavelet_blocks_file.clone(), wavelet_sblocks_file.clone())
+        build_wavelet_tree_from_logarray(logarray_file, wavelet_bits_file.clone(), wavelet_blocks_file.clone(), wavelet_sblocks_file.clone())
             .wait()
             .unwrap();
 
@@ -220,18 +253,14 @@ mod tests {
 
     #[test]
     fn slice_wavelet_tree() {
-        let logarray_file = MemoryBackedStore::new();
-        let logarray_builder = LogArrayFileBuilder::new(logarray_file.open_write(), 4);
         let contents = vec![8,3,8,8,1,2,3,2,8,9,3,3,6,7,0,4,8,7,3];
-        logarray_builder.push_all(stream::iter_ok(contents.clone()))
-            .and_then(|b|b.finalize())
-            .wait().unwrap();
+        let contents_closure = contents.clone();
 
         let wavelet_bits_file = MemoryBackedStore::new();
         let wavelet_blocks_file = MemoryBackedStore::new();
         let wavelet_sblocks_file = MemoryBackedStore::new();
 
-        build_wavelet_tree(logarray_file, wavelet_bits_file.clone(), wavelet_blocks_file.clone(), wavelet_sblocks_file.clone())
+        build_wavelet_tree_from_stream(4, move ||stream::iter_ok(contents_closure.clone()), wavelet_bits_file.clone(), wavelet_blocks_file.clone(), wavelet_sblocks_file.clone())
             .wait()
             .unwrap();
 
