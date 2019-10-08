@@ -12,13 +12,13 @@ pub struct WaveletTree<M:AsRef<[u8]>+Clone> {
 }
 
 #[derive(Clone)]
-pub struct WaveletSlice<M:AsRef<[u8]>+Clone> {
+pub struct WaveletLookup<M:AsRef<[u8]>+Clone> {
     pub entry: u64,
     tree: WaveletTree<M>,
     slices: Vec<(bool,u64,u64)>
 }
 
-impl<M:AsRef<[u8]>+Clone> WaveletSlice<M> {
+impl<M:AsRef<[u8]>+Clone> WaveletLookup<M> {
     pub fn len(&self) -> usize {
         let (b, start, end) = *self.slices.last().unwrap();
 
@@ -114,7 +114,7 @@ impl<M:AsRef<[u8]>+Clone> WaveletTree<M> {
         alphabet_start
     }
 
-    pub fn lookup(&self, entry: u64) -> Option<WaveletSlice<M>> {
+    pub fn lookup(&self, entry: u64) -> Option<WaveletLookup<M>> {
         let width = self.len() as u64;
         let mut slices = Vec::with_capacity(self.num_layers);
         let mut alphabet_start = 0;
@@ -140,7 +140,7 @@ impl<M:AsRef<[u8]>+Clone> WaveletTree<M> {
             }
         }
 
-        Some(WaveletSlice {
+        Some(WaveletLookup {
             entry,
             slices,
             tree: self.clone()
