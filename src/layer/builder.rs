@@ -264,21 +264,27 @@ mod tests {
                 offsets_file: files[5].clone()
             },
             s_p_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[6].clone(),
-                blocks_file: files[7].clone(),
-                sblocks_file: files[8].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[6].clone(),
+                    blocks_file: files[7].clone(),
+                    sblocks_file: files[8].clone(),
+                },
                 nums_file: files[9].clone()
             },
             sp_o_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[10].clone(),
-                blocks_file: files[11].clone(),
-                sblocks_file: files[12].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[10].clone(),
+                    blocks_file: files[11].clone(),
+                    sblocks_file: files[12].clone(),
+                },
                 nums_file: files[13].clone()
             },
             o_ps_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[14].clone(),
-                blocks_file: files[15].clone(),
-                sblocks_file: files[16].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[14].clone(),
+                    blocks_file: files[15].clone(),
+                    sblocks_file: files[16].clone(),
+                },
                 nums_file: files[17].clone()
             },
        }
@@ -306,39 +312,51 @@ mod tests {
             neg_objects_file: files[9].clone(),
 
             pos_s_p_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[10].clone(),
-                blocks_file: files[11].clone(),
-                sblocks_file: files[12].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[10].clone(),
+                    blocks_file: files[11].clone(),
+                    sblocks_file: files[12].clone(),
+                },
                 nums_file: files[13].clone()
             },
             pos_sp_o_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[14].clone(),
-                blocks_file: files[15].clone(),
-                sblocks_file: files[16].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[14].clone(),
+                    blocks_file: files[15].clone(),
+                    sblocks_file: files[16].clone(),
+                },
                 nums_file: files[17].clone()
             },
             pos_o_ps_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[18].clone(),
-                blocks_file: files[19].clone(),
-                sblocks_file: files[20].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[18].clone(),
+                    blocks_file: files[19].clone(),
+                    sblocks_file: files[20].clone(),
+                },
                 nums_file: files[21].clone()
             },
             neg_s_p_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[22].clone(),
-                blocks_file: files[23].clone(),
-                sblocks_file: files[24].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[22].clone(),
+                    blocks_file: files[23].clone(),
+                    sblocks_file: files[24].clone(),
+                },
                 nums_file: files[25].clone()
             },
             neg_sp_o_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[26].clone(),
-                blocks_file: files[27].clone(),
-                sblocks_file: files[28].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[26].clone(),
+                    blocks_file: files[27].clone(),
+                    sblocks_file: files[28].clone(),
+                },
                 nums_file: files[29].clone()
             },
             neg_o_ps_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[30].clone(),
-                blocks_file: files[31].clone(),
-                sblocks_file: files[32].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[30].clone(),
+                    blocks_file: files[31].clone(),
+                    sblocks_file: files[32].clone(),
+                },
                 nums_file: files[33].clone()
             },
         }

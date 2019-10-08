@@ -20,7 +20,7 @@ pub struct BaseLayer<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
     value_dictionary: PfcDict<M>,
     s_p_adjacency_list: AdjacencyList<M>,
     sp_o_adjacency_list: AdjacencyList<M>,
-    o_ps_adjacency_list: AdjacencyList<M>
+    o_ps_adjacency_list: AdjacencyList<M>,
 }
 
 impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> BaseLayer<M> {
@@ -35,9 +35,9 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> BaseLayer<M> {
         let predicate_dictionary = PfcDict::parse(maps.predicate_dictionary_maps.blocks_map, maps.predicate_dictionary_maps.offsets_map).unwrap();
         let value_dictionary = PfcDict::parse(maps.value_dictionary_maps.blocks_map, maps.value_dictionary_maps.offsets_map).unwrap();
 
-        let s_p_adjacency_list = AdjacencyList::parse(maps.s_p_adjacency_list_maps.nums_map, maps.s_p_adjacency_list_maps.bits_map, maps.s_p_adjacency_list_maps.blocks_map, maps.s_p_adjacency_list_maps.sblocks_map);
-        let sp_o_adjacency_list = AdjacencyList::parse(maps.sp_o_adjacency_list_maps.nums_map, maps.sp_o_adjacency_list_maps.bits_map, maps.sp_o_adjacency_list_maps.blocks_map, maps.sp_o_adjacency_list_maps.sblocks_map);
-        let o_ps_adjacency_list = AdjacencyList::parse(maps.o_ps_adjacency_list_maps.nums_map, maps.o_ps_adjacency_list_maps.bits_map, maps.o_ps_adjacency_list_maps.blocks_map, maps.o_ps_adjacency_list_maps.sblocks_map);
+        let s_p_adjacency_list = AdjacencyList::parse(maps.s_p_adjacency_list_maps.nums_map, maps.s_p_adjacency_list_maps.bitindex_maps.bits_map, maps.s_p_adjacency_list_maps.bitindex_maps.blocks_map, maps.s_p_adjacency_list_maps.bitindex_maps.sblocks_map);
+        let sp_o_adjacency_list = AdjacencyList::parse(maps.sp_o_adjacency_list_maps.nums_map, maps.sp_o_adjacency_list_maps.bitindex_maps.bits_map, maps.sp_o_adjacency_list_maps.bitindex_maps.blocks_map, maps.sp_o_adjacency_list_maps.bitindex_maps.sblocks_map);
+        let o_ps_adjacency_list = AdjacencyList::parse(maps.o_ps_adjacency_list_maps.nums_map, maps.o_ps_adjacency_list_maps.bitindex_maps.bits_map, maps.o_ps_adjacency_list_maps.bitindex_maps.blocks_map, maps.o_ps_adjacency_list_maps.bitindex_maps.sblocks_map);
 
         BaseLayer {
             name,
@@ -48,7 +48,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> BaseLayer<M> {
             s_p_adjacency_list,
             sp_o_adjacency_list,
 
-            o_ps_adjacency_list
+            o_ps_adjacency_list,
         }
     }
 }
@@ -565,15 +565,15 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
         let s_p_width = ((num_predicates + 1) as f32).log2().ceil() as u8;
         let sp_o_width = ((num_nodes + num_values + 1) as f32).log2().ceil() as u8;
         let f = files.clone();
-        let s_p_adjacency_list_builder = AdjacencyListBuilder::new(files.s_p_adjacency_list_files.bits_file,
-                                                                   files.s_p_adjacency_list_files.blocks_file.open_write(),
-                                                                   files.s_p_adjacency_list_files.sblocks_file.open_write(),
+        let s_p_adjacency_list_builder = AdjacencyListBuilder::new(files.s_p_adjacency_list_files.bitindex_files.bits_file,
+                                                                   files.s_p_adjacency_list_files.bitindex_files.blocks_file.open_write(),
+                                                                   files.s_p_adjacency_list_files.bitindex_files.sblocks_file.open_write(),
                                                                    files.s_p_adjacency_list_files.nums_file.open_write(),
                                                                    s_p_width);
 
-        let sp_o_adjacency_list_builder = AdjacencyListBuilder::new(files.sp_o_adjacency_list_files.bits_file,
-                                                                    files.sp_o_adjacency_list_files.blocks_file.open_write(),
-                                                                    files.sp_o_adjacency_list_files.sblocks_file.open_write(),
+        let sp_o_adjacency_list_builder = AdjacencyListBuilder::new(files.sp_o_adjacency_list_files.bitindex_files.bits_file,
+                                                                    files.sp_o_adjacency_list_files.bitindex_files.blocks_file.open_write(),
+                                                                    files.sp_o_adjacency_list_files.bitindex_files.sblocks_file.open_write(),
                                                                     files.sp_o_adjacency_list_files.nums_file.open_write(),
                                                                     sp_o_width);
 
@@ -643,7 +643,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
         let o_ps_adjacency_list_files = self.files.o_ps_adjacency_list_files;
         let object_count = self.object_count;
         future::join_all(vec![self.s_p_adjacency_list_builder.finalize(), self.sp_o_adjacency_list_builder.finalize()])
-            .and_then(move |_| adjacency_list_stream_pairs(sp_o_adjacency_list_files.bits_file, sp_o_adjacency_list_files.nums_file)
+            .and_then(move |_| adjacency_list_stream_pairs(sp_o_adjacency_list_files.bitindex_files.bits_file, sp_o_adjacency_list_files.nums_file)
                       .map(|(left, right)| (right, left))
                       .fold(BTreeSet::new(), |mut set, (left, right)| {
                           set.insert((left, right));
@@ -656,9 +656,9 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
                 }
                 let width = ((object_count+1) as f32).log2().ceil() as u8;
 
-                let o_ps_adjacency_list_builder = AdjacencyListBuilder::new(o_ps_adjacency_list_files.bits_file,
-                                                                            o_ps_adjacency_list_files.blocks_file.open_write(),
-                                                                            o_ps_adjacency_list_files.sblocks_file.open_write(),
+                let o_ps_adjacency_list_builder = AdjacencyListBuilder::new(o_ps_adjacency_list_files.bitindex_files.bits_file,
+                                                                            o_ps_adjacency_list_files.bitindex_files.blocks_file.open_write(),
+                                                                            o_ps_adjacency_list_files.bitindex_files.sblocks_file.open_write(),
                                                                             o_ps_adjacency_list_files.nums_file.open_write(),
                                                                             width);
 
@@ -694,21 +694,27 @@ mod tests {
                 offsets_file: files[5].clone()
             },
             s_p_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[6].clone(),
-                blocks_file: files[7].clone(),
-                sblocks_file: files[8].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[6].clone(),
+                    blocks_file: files[7].clone(),
+                    sblocks_file: files[8].clone(),
+                },
                 nums_file: files[9].clone()
             },
             sp_o_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[10].clone(),
-                blocks_file: files[11].clone(),
-                sblocks_file: files[12].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[10].clone(),
+                    blocks_file: files[11].clone(),
+                    sblocks_file: files[12].clone(),
+                },
                 nums_file: files[13].clone()
             },
             o_ps_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[14].clone(),
-                blocks_file: files[15].clone(),
-                sblocks_file: files[16].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[14].clone(),
+                    blocks_file: files[15].clone(),
+                    sblocks_file: files[16].clone(),
+                },
                 nums_file: files[17].clone()
             },
         };

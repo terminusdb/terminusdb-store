@@ -55,13 +55,30 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> ChildLayer<M> {
         let neg_subjects = MonotonicLogArray::from_logarray(LogArray::parse(maps.neg_subjects_map).unwrap());
         let neg_objects = MonotonicLogArray::from_logarray(LogArray::parse(maps.neg_objects_map).unwrap());
 
-        let pos_s_p_adjacency_list = AdjacencyList::parse(maps.pos_s_p_adjacency_list_maps.nums_map, maps.pos_s_p_adjacency_list_maps.bits_map, maps.pos_s_p_adjacency_list_maps.blocks_map, maps.pos_s_p_adjacency_list_maps.sblocks_map);
-        let pos_sp_o_adjacency_list = AdjacencyList::parse(maps.pos_sp_o_adjacency_list_maps.nums_map, maps.pos_sp_o_adjacency_list_maps.bits_map, maps.pos_sp_o_adjacency_list_maps.blocks_map, maps.pos_sp_o_adjacency_list_maps.sblocks_map);
-        let pos_o_ps_adjacency_list = AdjacencyList::parse(maps.pos_o_ps_adjacency_list_maps.nums_map, maps.pos_o_ps_adjacency_list_maps.bits_map, maps.pos_o_ps_adjacency_list_maps.blocks_map, maps.pos_o_ps_adjacency_list_maps.sblocks_map);
-
-        let neg_s_p_adjacency_list = AdjacencyList::parse(maps.neg_s_p_adjacency_list_maps.nums_map, maps.neg_s_p_adjacency_list_maps.bits_map, maps.neg_s_p_adjacency_list_maps.blocks_map, maps.neg_s_p_adjacency_list_maps.sblocks_map);
-        let neg_sp_o_adjacency_list = AdjacencyList::parse(maps.neg_sp_o_adjacency_list_maps.nums_map, maps.neg_sp_o_adjacency_list_maps.bits_map, maps.neg_sp_o_adjacency_list_maps.blocks_map, maps.neg_sp_o_adjacency_list_maps.sblocks_map);
-        let neg_o_ps_adjacency_list = AdjacencyList::parse(maps.neg_o_ps_adjacency_list_maps.nums_map, maps.neg_o_ps_adjacency_list_maps.bits_map, maps.neg_o_ps_adjacency_list_maps.blocks_map, maps.neg_o_ps_adjacency_list_maps.sblocks_map);
+        let pos_s_p_adjacency_list = AdjacencyList::parse(maps.pos_s_p_adjacency_list_maps.nums_map,
+                                                          maps.pos_s_p_adjacency_list_maps.bitindex_maps.bits_map,
+                                                          maps.pos_s_p_adjacency_list_maps.bitindex_maps.blocks_map,
+                                                          maps.pos_s_p_adjacency_list_maps.bitindex_maps.sblocks_map);
+        let pos_sp_o_adjacency_list = AdjacencyList::parse(maps.pos_sp_o_adjacency_list_maps.nums_map,
+                                                          maps.pos_sp_o_adjacency_list_maps.bitindex_maps.bits_map,
+                                                          maps.pos_sp_o_adjacency_list_maps.bitindex_maps.blocks_map,
+                                                          maps.pos_sp_o_adjacency_list_maps.bitindex_maps.sblocks_map);
+        let pos_o_ps_adjacency_list = AdjacencyList::parse(maps.pos_o_ps_adjacency_list_maps.nums_map,
+                                                          maps.pos_o_ps_adjacency_list_maps.bitindex_maps.bits_map,
+                                                          maps.pos_o_ps_adjacency_list_maps.bitindex_maps.blocks_map,
+                                                          maps.pos_o_ps_adjacency_list_maps.bitindex_maps.sblocks_map);
+        let neg_s_p_adjacency_list = AdjacencyList::parse(maps.neg_s_p_adjacency_list_maps.nums_map,
+                                                          maps.neg_s_p_adjacency_list_maps.bitindex_maps.bits_map,
+                                                          maps.neg_s_p_adjacency_list_maps.bitindex_maps.blocks_map,
+                                                          maps.neg_s_p_adjacency_list_maps.bitindex_maps.sblocks_map);
+        let neg_sp_o_adjacency_list = AdjacencyList::parse(maps.neg_sp_o_adjacency_list_maps.nums_map,
+                                                          maps.neg_sp_o_adjacency_list_maps.bitindex_maps.bits_map,
+                                                          maps.neg_sp_o_adjacency_list_maps.bitindex_maps.blocks_map,
+                                                          maps.neg_sp_o_adjacency_list_maps.bitindex_maps.sblocks_map);
+        let neg_o_ps_adjacency_list = AdjacencyList::parse(maps.neg_o_ps_adjacency_list_maps.nums_map,
+                                                          maps.neg_o_ps_adjacency_list_maps.bitindex_maps.bits_map,
+                                                          maps.neg_o_ps_adjacency_list_maps.bitindex_maps.blocks_map,
+                                                          maps.neg_o_ps_adjacency_list_maps.bitindex_maps.sblocks_map);
 
         ChildLayer {
             name,
@@ -1037,27 +1054,27 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
 
         let f = files.clone();
 
-        let pos_s_p_adjacency_list_builder = AdjacencyListBuilder::new(files.pos_s_p_adjacency_list_files.bits_file,
-                                                                       files.pos_s_p_adjacency_list_files.blocks_file.open_write(),
-                                                                       files.pos_s_p_adjacency_list_files.sblocks_file.open_write(),
+        let pos_s_p_adjacency_list_builder = AdjacencyListBuilder::new(files.pos_s_p_adjacency_list_files.bitindex_files.bits_file,
+                                                                       files.pos_s_p_adjacency_list_files.bitindex_files.blocks_file.open_write(),
+                                                                       files.pos_s_p_adjacency_list_files.bitindex_files.sblocks_file.open_write(),
                                                                        files.pos_s_p_adjacency_list_files.nums_file.open_write(),
                                                                        s_p_width);
 
-        let pos_sp_o_adjacency_list_builder = AdjacencyListBuilder::new(files.pos_sp_o_adjacency_list_files.bits_file,
-                                                                        files.pos_sp_o_adjacency_list_files.blocks_file.open_write(),
-                                                                        files.pos_sp_o_adjacency_list_files.sblocks_file.open_write(),
+        let pos_sp_o_adjacency_list_builder = AdjacencyListBuilder::new(files.pos_sp_o_adjacency_list_files.bitindex_files.bits_file,
+                                                                        files.pos_sp_o_adjacency_list_files.bitindex_files.blocks_file.open_write(),
+                                                                        files.pos_sp_o_adjacency_list_files.bitindex_files.sblocks_file.open_write(),
                                                                         files.pos_sp_o_adjacency_list_files.nums_file.open_write(),
                                                                         sp_o_width);
 
-        let neg_s_p_adjacency_list_builder = AdjacencyListBuilder::new(files.neg_s_p_adjacency_list_files.bits_file,
-                                                                       files.neg_s_p_adjacency_list_files.blocks_file.open_write(),
-                                                                       files.neg_s_p_adjacency_list_files.sblocks_file.open_write(),
+        let neg_s_p_adjacency_list_builder = AdjacencyListBuilder::new(files.neg_s_p_adjacency_list_files.bitindex_files.bits_file,
+                                                                       files.neg_s_p_adjacency_list_files.bitindex_files.blocks_file.open_write(),
+                                                                       files.neg_s_p_adjacency_list_files.bitindex_files.sblocks_file.open_write(),
                                                                        files.neg_s_p_adjacency_list_files.nums_file.open_write(),
                                                                        s_p_width);
 
-        let neg_sp_o_adjacency_list_builder = AdjacencyListBuilder::new(files.neg_sp_o_adjacency_list_files.bits_file,
-                                                                        files.neg_sp_o_adjacency_list_files.blocks_file.open_write(),
-                                                                        files.neg_sp_o_adjacency_list_files.sblocks_file.open_write(),
+        let neg_sp_o_adjacency_list_builder = AdjacencyListBuilder::new(files.neg_sp_o_adjacency_list_files.bitindex_files.bits_file,
+                                                                        files.neg_sp_o_adjacency_list_files.bitindex_files.blocks_file.open_write(),
+                                                                        files.neg_sp_o_adjacency_list_files.bitindex_files.sblocks_file.open_write(),
                                                                         files.neg_sp_o_adjacency_list_files.nums_file.open_write(),
                                                                         sp_o_width);
 
@@ -1299,7 +1316,7 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
 }
 
 fn build_object_index<F:'static+FileLoad+FileStore>(sp_o_files: AdjacencyListFiles<F>, o_ps_files: AdjacencyListFiles<F>, objects_file: F) -> impl Future<Item=(),Error=std::io::Error> {
-    adjacency_list_stream_pairs(sp_o_files.bits_file, sp_o_files.nums_file)
+    adjacency_list_stream_pairs(sp_o_files.bitindex_files.bits_file, sp_o_files.nums_file)
         .map(|(left, right)| (right, left))
         .fold((BTreeSet::new(),BTreeSet::new(), 0), |(mut pairs_set, mut objects_set, _), (left, right)| {
             pairs_set.insert((left, right));
@@ -1311,9 +1328,9 @@ fn build_object_index<F:'static+FileLoad+FileStore>(sp_o_files: AdjacencyListFil
             let objects_width = ((*greatest_object+1) as f32).log2().ceil() as u8;
             let aj_width = ((greatest_sp+1) as f32).log2().ceil() as u8;
 
-            let o_ps_adjacency_list_builder = AdjacencyListBuilder::new(o_ps_files.bits_file,
-                                                                        o_ps_files.blocks_file.open_write(),
-                                                                        o_ps_files.sblocks_file.open_write(),
+            let o_ps_adjacency_list_builder = AdjacencyListBuilder::new(o_ps_files.bitindex_files.bits_file,
+                                                                        o_ps_files.bitindex_files.blocks_file.open_write(),
+                                                                        o_ps_files.bitindex_files.sblocks_file.open_write(),
                                                                         o_ps_files.nums_file.open_write(),
                                                                         aj_width);
             let objects_builder = LogArrayFileBuilder::new(objects_file.open_write(), objects_width);
@@ -1364,21 +1381,27 @@ mod tests {
                 offsets_file: files[5].clone()
             },
             s_p_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[6].clone(),
-                blocks_file: files[7].clone(),
-                sblocks_file: files[8].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[6].clone(),
+                    blocks_file: files[7].clone(),
+                    sblocks_file: files[8].clone(),
+                },
                 nums_file: files[9].clone()
             },
             sp_o_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[10].clone(),
-                blocks_file: files[11].clone(),
-                sblocks_file: files[12].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[10].clone(),
+                    blocks_file: files[11].clone(),
+                    sblocks_file: files[12].clone(),
+                },
                 nums_file: files[13].clone()
             },
             o_ps_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[14].clone(),
-                blocks_file: files[15].clone(),
-                sblocks_file: files[16].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[14].clone(),
+                    blocks_file: files[15].clone(),
+                    sblocks_file: files[16].clone(),
+                },
                 nums_file: files[17].clone()
             },
         };
@@ -1429,39 +1452,51 @@ mod tests {
             neg_objects_file: files[9].clone(),
 
             pos_s_p_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[10].clone(),
-                blocks_file: files[11].clone(),
-                sblocks_file: files[12].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[10].clone(),
+                    blocks_file: files[11].clone(),
+                    sblocks_file: files[12].clone(),
+                },
                 nums_file: files[13].clone()
             },
             pos_sp_o_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[14].clone(),
-                blocks_file: files[15].clone(),
-                sblocks_file: files[16].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[14].clone(),
+                    blocks_file: files[15].clone(),
+                    sblocks_file: files[16].clone(),
+                },
                 nums_file: files[17].clone()
             },
             pos_o_ps_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[18].clone(),
-                blocks_file: files[19].clone(),
-                sblocks_file: files[20].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[18].clone(),
+                    blocks_file: files[19].clone(),
+                    sblocks_file: files[20].clone(),
+                },
                 nums_file: files[21].clone()
             },
             neg_s_p_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[22].clone(),
-                blocks_file: files[23].clone(),
-                sblocks_file: files[24].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[22].clone(),
+                    blocks_file: files[23].clone(),
+                    sblocks_file: files[24].clone(),
+                },
                 nums_file: files[25].clone()
             },
             neg_sp_o_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[26].clone(),
-                blocks_file: files[27].clone(),
-                sblocks_file: files[28].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[26].clone(),
+                    blocks_file: files[27].clone(),
+                    sblocks_file: files[28].clone(),
+                },
                 nums_file: files[29].clone()
             },
             neg_o_ps_adjacency_list_files: AdjacencyListFiles {
-                bits_file: files[30].clone(),
-                blocks_file: files[31].clone(),
-                sblocks_file: files[32].clone(),
+                bitindex_files: BitIndexFiles {
+                    bits_file: files[30].clone(),
+                    blocks_file: files[31].clone(),
+                    sblocks_file: files[32].clone(),
+                },
                 nums_file: files[33].clone()
             },
         }
