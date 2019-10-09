@@ -25,13 +25,13 @@ use std::io;
 /// to synchronize access to it between threads. Also, rather than
 /// consuming itself on commit, this wrapper will simply mark itself
 /// as having committed, returning errors on further calls.
-pub struct DatabaseLayerBuilder {
+pub struct StoreLayerBuilder {
     builder: RwLock<Option<Box<dyn LayerBuilder>>>,
     name: [u32;5],
     store: Store
 }
 
-impl DatabaseLayerBuilder {
+impl StoreLayerBuilder {
     fn new(store: Store) -> impl Future<Item=Self,Error=io::Error>+Send+Sync {
         store.layer_store.create_base_layer()
             .map(|builder|
@@ -43,7 +43,7 @@ impl DatabaseLayerBuilder {
     }
 
     fn wrap(builder: Box<dyn LayerBuilder>, store: Store) -> Self {
-        DatabaseLayerBuilder {
+        StoreLayerBuilder {
             name: builder.name(),
             builder: RwLock::new(Some(builder)),
             store
@@ -89,7 +89,7 @@ impl DatabaseLayerBuilder {
     }
 
     /// Commit the layer to storage
-    pub fn commit(&self) -> impl Future<Item=DatabaseLayer, Error=std::io::Error>+Send+Sync {
+    pub fn commit(&self) -> impl Future<Item=StoreLayer, Error=std::io::Error>+Send+Sync {
         let store = self.store.clone();
         let name = self.name;
         self.builder.write()
@@ -105,7 +105,7 @@ impl DatabaseLayerBuilder {
                         Some(builder) => Box::new( 
                             builder.commit_boxed()
                                 .and_then(move |_| store.layer_store.get_layer(name)
-                                          .map(move |layer| DatabaseLayer::wrap(layer.expect("layer that was just created was not found in store"), store))))
+                                          .map(move |layer| StoreLayer::wrap(layer.expect("layer that was just created was not found in store"), store))))
                     };
 
                 result
@@ -115,27 +115,27 @@ impl DatabaseLayerBuilder {
 
 /// A layer that keeps track of the store it came out of, allowing the creation of a layer builder on top of this layer
 #[derive(Clone)]
-pub struct DatabaseLayer {
+pub struct StoreLayer {
     layer: Arc<dyn Layer>,
     store: Store
 }
 
-impl DatabaseLayer {
+impl StoreLayer {
     fn wrap(layer: Arc<dyn Layer>, store: Store) -> Self {
-        DatabaseLayer {
+        StoreLayer {
             layer, store
         }
     }
 
     /// Create a layer builder based on this layer
-    pub fn open_write(&self) -> impl Future<Item=DatabaseLayerBuilder,Error=io::Error>+Send+Sync {
+    pub fn open_write(&self) -> impl Future<Item=StoreLayerBuilder,Error=io::Error>+Send+Sync {
         let store = self.store.clone();
         self.store.layer_store.create_child_layer(self.layer.name())
-            .map(move |layer|DatabaseLayerBuilder::wrap(layer, store))
+            .map(move |layer|StoreLayerBuilder::wrap(layer, store))
     }
 }
 
-impl Layer for DatabaseLayer {
+impl Layer for StoreLayer {
     fn name(&self) -> [u32;5] {
         self.layer.name()
     }
@@ -206,27 +206,28 @@ impl Layer for DatabaseLayer {
 }
 
 
-/// A database in terminus-store
+/// A named graph in terminus-store.
 ///
-/// Databases in terminus-store are basically just a label pointing to
-/// a layer. Opening a read transaction to a database is just getting
-/// hold of the layer it points at, as layers are read-only. Writing
-/// to a database is just making it point to a new layer.
-pub struct Database {
+/// Named graphs in terminus-store are basically just a label pointing
+/// to a layer. Opening a read transaction to a named graph is just
+/// getting hold of the layer it points at, as layers are
+/// read-only. Writing to a named graph is just making it point to a
+/// new layer.
+pub struct NamedGraph {
     label: String,
     store: Store
 }
 
-impl Database {
+impl NamedGraph {
     fn new(label: String, store: Store) -> Self {
-        Database {
+        NamedGraph {
             label,
             store
         }
     }
 
     /// Returns the layer this database points at
-    pub fn head(&self) -> impl Future<Item=Option<DatabaseLayer>,Error=io::Error>+Send+Sync {
+    pub fn head(&self) -> impl Future<Item=Option<StoreLayer>,Error=io::Error>+Send+Sync {
         let store = self.store.clone();
         store.label_store.get_label(&self.label)
             .and_then(move |new_label| {
@@ -237,7 +238,7 @@ impl Database {
                             match new_label.layer {
                                 None => Box::new(future::ok(None)),
                                 Some(layer) => Box::new(store.layer_store.get_layer(layer)
-                                                        .map(move |layer| layer.map(move |layer|DatabaseLayer::wrap(layer, store))))
+                                                        .map(move |layer| layer.map(move |layer|StoreLayer::wrap(layer, store))))
                             };
                         result
                     }
@@ -246,7 +247,7 @@ impl Database {
     }
     
     /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise
-    pub fn set_head(&self, layer: &DatabaseLayer) -> impl Future<Item=bool,Error=io::Error>+Send+Sync {
+    pub fn set_head(&self, layer: &StoreLayer) -> impl Future<Item=bool,Error=io::Error>+Send+Sync {
         let store = self.store.clone();
         let layer_name = layer.name();
         let cloned_layer = layer.layer.clone();
@@ -300,24 +301,24 @@ impl Store {
     /// Create a new database with the given name
     ///
     /// If the database already exists, this will return an error
-    pub fn create(&self, label: &str) -> impl Future<Item=Database,Error=std::io::Error>+Send+Sync {
+    pub fn create(&self, label: &str) -> impl Future<Item=NamedGraph,Error=std::io::Error>+Send+Sync {
         let store = self.clone();
         self.label_store.create_label(label)
-            .map(move |label| Database::new(label.name, store))
+            .map(move |label| NamedGraph::new(label.name, store))
     }
 
     /// Open an existing database with the given name, or None if it does not exist
-    pub fn open(&self, label: &str) -> impl Future<Item=Option<Database>,Error=std::io::Error> {
+    pub fn open(&self, label: &str) -> impl Future<Item=Option<NamedGraph>,Error=std::io::Error> {
         let store = self.clone();
         self.label_store.get_label(label)
-            .map(move |label| label.map(|label|Database::new(label.name, store)))
+            .map(move |label| label.map(|label|NamedGraph::new(label.name, store)))
     }
 
     /// Create a base layer builder, unattached to any database label
     ///
-    /// After having committed it, use `set_head` on a `Database` to attach it.
-    pub fn create_base_layer(&self) -> impl Future<Item=DatabaseLayerBuilder,Error=io::Error>+Send+Sync {
-        DatabaseLayerBuilder::new(self.clone())
+    /// After having committed it, use `set_head` on a `NamedGraph` to attach it.
+    pub fn create_base_layer(&self) -> impl Future<Item=StoreLayerBuilder,Error=io::Error>+Send+Sync {
+        StoreLayerBuilder::new(self.clone())
     }
 }
 
