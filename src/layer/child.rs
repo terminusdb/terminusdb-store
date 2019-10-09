@@ -15,6 +15,9 @@ use std::sync::Arc;
 use std::collections::BTreeSet;
 use std::iter::Peekable;
 
+/// A child layer.
+///
+/// This layer type has a parent. It stores triple additions and removals.
 #[derive(Clone)]
 pub struct ChildLayer<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
     name: [u32;5],
@@ -970,7 +973,7 @@ impl<M:AsRef<[u8]>+Clone> ChildPredicateLookupSubjectPredicatePairsIteratorChild
 }
 
 
-pub struct ChildPredicateLookupSubjectPredicatePairsIterator<M:AsRef<[u8]>+Clone> {
+struct ChildPredicateLookupSubjectPredicatePairsIterator<M:AsRef<[u8]>+Clone> {
     predicate: u64,
     parent: Option<ChildPredicateLookupSubjectPredicatePairsIteratorParentData<M>>,
     child: Option<ChildPredicateLookupSubjectPredicatePairsIteratorChildData<M>>
@@ -1033,6 +1036,12 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateLookupSubjectPredic
 }
 
 
+/// A builder for a child layer.
+///
+/// This builder takes node, predicate and value strings in lexical
+/// order through the corresponding `add_<thing>` methods. When
+/// they're all added, `into_phase2()` is to be called to turn this
+/// builder into a second builder that takes triple data.
 pub struct ChildLayerFileBuilder<F:'static+FileLoad+FileStore+Clone+Send+Sync> {
     parent: Arc<dyn Layer>,
     files: ChildLayerFiles<F>,
@@ -1043,6 +1052,7 @@ pub struct ChildLayerFileBuilder<F:'static+FileLoad+FileStore+Clone+Send+Sync> {
 }
 
 impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilder<F> {
+    /// Create the builder from the given files.
     pub fn from_files(parent: Arc<dyn Layer>, files: &ChildLayerFiles<F>) -> Self {
         let node_dictionary_builder = PfcDictFileBuilder::new(files.node_dictionary_files.blocks_file.open_write(), files.node_dictionary_files.offsets_file.open_write());
         let predicate_dictionary_builder = PfcDictFileBuilder::new(files.predicate_dictionary_files.blocks_file.open_write(), files.predicate_dictionary_files.offsets_file.open_write());
@@ -1059,6 +1069,11 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilder<F> {
         }
     }
 
+    /// Add a node string.
+    ///
+    /// Does nothing if the node already exists in the paretn, and
+    /// panics if the given node string is not a lexical successor of
+    /// the previous node string.
     pub fn add_node(self, node: &str) -> Box<dyn Future<Item=(u64, Self), Error=std::io::Error>+Send+Sync> {
         match self.parent.subject_id(node) {
             None => {
@@ -1084,6 +1099,11 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilder<F> {
         }
     }
     
+    /// Add a predicate string.
+    ///
+    /// Does nothing if the predicate already exists in the paretn, and
+    /// panics if the given predicate string is not a lexical successor of
+    /// the previous predicate string.
     pub fn add_predicate(self, predicate: &str) -> Box<dyn Future<Item=(u64, Self), Error=std::io::Error>+Send+Sync> {
         match self.parent.predicate_id(predicate) {
             None => {
@@ -1110,6 +1130,11 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilder<F> {
         }
     }
 
+    /// Add a value string.
+    ///
+    /// Does nothing if the value already exists in the paretn, and
+    /// panics if the given value string is not a lexical successor of
+    /// the previous value string.
     pub fn add_value(self, value: &str) -> Box<dyn Future<Item=(u64, Self), Error=std::io::Error>+Send+Sync> {
         match self.parent.object_value_id(value) {
             None => {
@@ -1135,6 +1160,12 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilder<F> {
         }
     }
 
+    /// Add nodes from an iterable.
+    ///
+    /// Panics if the nodes are not in lexical order, or if previous
+    /// added nodes are a lexical succesor of any of these
+    /// nodes. Skips any nodes that are already part of the base
+    /// layer.
     pub fn add_nodes<I:'static+IntoIterator<Item=String>>(self, nodes: I) -> impl Future<Item=(Vec<u64>, Self), Error=std::io::Error> {
         stream::iter_ok(nodes.into_iter())
             .fold((Vec::new(), self), |(mut result, builder), node|
@@ -1146,6 +1177,12 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilder<F> {
                   }))
     }
 
+    /// Add predicates from an iterable.
+    ///
+    /// Panics if the predicates are not in lexical order, or if
+    /// previous added predicates are a lexical succesor of any of
+    /// these predicates. Skips any predicates that are already part
+    /// of the base layer.
     pub fn add_predicates<I:'static+IntoIterator<Item=String>>(self, predicates: I) -> impl Future<Item=(Vec<u64>, Self), Error=std::io::Error> {
         stream::iter_ok(predicates.into_iter())
             .fold((Vec::new(), self), |(mut result, builder), predicate|
@@ -1157,6 +1194,12 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilder<F> {
                   }))
     }
 
+    /// Add values from an iterable.
+    ///
+    /// Panics if the values are not in lexical order, or if previous
+    /// added values are a lexical succesor of any of these
+    /// values. Skips any nodes that are already part of the base
+    /// layer.
     pub fn add_values<I:'static+IntoIterator<Item=String>>(self, values: I) -> impl Future<Item=(Vec<u64>, Self), Error=std::io::Error> {
         stream::iter_ok(values.into_iter())
             .fold((Vec::new(), self), |(mut result, builder), value|
@@ -1168,6 +1211,7 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilder<F> {
                   }))
     }
 
+    /// Turn this builder into a phase 2 builder that will take triple data.
     pub fn into_phase2(self) -> impl Future<Item=ChildLayerFileBuilderPhase2<F>,Error=std::io::Error> {
         let ChildLayerFileBuilder {
             parent,
@@ -1227,6 +1271,10 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilder<F> {
     }
 }
 
+/// Second phase of child layer building.
+///
+/// This builder takes ordered triple additions and removals. When all
+/// data has been added, `finalize()` will build a layer.
 pub struct ChildLayerFileBuilderPhase2<F:'static+FileLoad+FileStore+Clone+Send+Sync> {
     parent: Arc<dyn Layer>,
 
@@ -1302,6 +1350,10 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
         }
     }
 
+    /// Add the given subject, predicate and object.
+    ///
+    /// This will panic if a greater triple has already been added,
+    /// and do nothing if the triple is already part of the parent.
     pub fn add_triple(self, subject: u64, predicate: u64, object: u64) -> Box<dyn Future<Item=Self, Error=std::io::Error>+Send+Sync> {
         if self.parent.triple_exists(subject, predicate, object) {
             // no need to do anything
@@ -1387,6 +1439,10 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
         }
     }
 
+    /// Remove the given subject, predicate and object.
+    ///
+    /// This will panic if a greater triple has already been removed,
+    /// and do nothing if the parent doesn't know aobut this triple.
     pub fn remove_triple(self, subject: u64, predicate: u64, object: u64) -> Box<dyn Future<Item=Self, Error=std::io::Error>+Send+Sync> {
         if !self.parent.triple_exists(subject, predicate, object) {
             // no need to do anything
@@ -1472,16 +1528,25 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
         }
     }
 
+    /// Add the given triple.
+    ///
+    /// This will panic if a greater triple has already been added,
+    /// and do nothing if the parent already contains this triple.
     pub fn add_id_triples<I:'static+IntoIterator<Item=IdTriple>>(self, triples: I) -> impl Future<Item=Self, Error=std::io::Error> {
         stream::iter_ok(triples)
                  .fold(self, |b, triple| b.add_triple(triple.subject, triple.predicate, triple.object))
     }
 
+    /// Remove the given triple.
+    ///
+    /// This will panic if a greater triple has already been removed,
+    /// and do nothing if the parent doesn't know aobut this triple.
     pub fn remove_id_triples<I:'static+IntoIterator<Item=IdTriple>>(self, triples: I) -> impl Future<Item=Self, Error=std::io::Error> {
         stream::iter_ok(triples)
                  .fold(self, |b, triple| b.remove_triple(triple.subject, triple.predicate, triple.object))
     }
 
+    /// Write the layer data to storage.
     pub fn finalize(self) -> impl Future<Item=(), Error=std::io::Error> {
         let max_pos_subject = if self.pos_subjects.len() == 0 { 0 } else { self.pos_subjects[self.pos_subjects.len() - 1] };
         let max_neg_subject = if self.neg_subjects.len() == 0 { 0 } else { self.neg_subjects[self.neg_subjects.len() - 1] };

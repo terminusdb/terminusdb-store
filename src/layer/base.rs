@@ -1,4 +1,4 @@
-//! Base layer implementation
+//! Base layer implementation.
 //!
 //! A base layer stores triple data without referring to a parent.
 use futures::prelude::*;
@@ -12,6 +12,11 @@ use super::layer::*;
 use std::sync::Arc;
 use std::collections::BTreeSet;
 
+/// A base layer.
+///
+/// This layer type has no parent, and therefore does not store any
+/// additions or removals. It stores all its triples plus indexes
+/// directly.
 #[derive(Clone)]
 pub struct BaseLayer<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
     name: [u32;5],
@@ -427,6 +432,12 @@ impl<M:'static+AsRef<[u8]>+Clone> PredicateLookup for BasePredicateLookup<M> {
     }
 }
 
+/// A builder for a base layer.
+///
+/// This builder takes node, predicate and value strings in lexical
+/// order through the corresponding `add_<thing>` methods. When
+/// they're all added, `into_phase2()` is to be called to turn this
+/// builder into a second builder that takes triple data.
 pub struct BaseLayerFileBuilder<F:'static+FileLoad+FileStore> {
     files: BaseLayerFiles<F>,
 
@@ -436,6 +447,7 @@ pub struct BaseLayerFileBuilder<F:'static+FileLoad+FileStore> {
 }
 
 impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
+    /// Create the builder from the given files.
     pub fn from_files(files: &BaseLayerFiles<F>) -> Self {
         let node_dictionary_builder = PfcDictFileBuilder::new(files.node_dictionary_files.blocks_file.open_write(), files.node_dictionary_files.offsets_file.open_write());
         let predicate_dictionary_builder = PfcDictFileBuilder::new(files.predicate_dictionary_files.blocks_file.open_write(), files.predicate_dictionary_files.offsets_file.open_write());
@@ -450,6 +462,9 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
         }
     }
 
+    /// Add a node string.
+    ///
+    /// Panics if the given node string is not a lexical successor of the previous node string.
     pub fn add_node(self, node: &str) -> impl Future<Item=(u64, Self), Error=std::io::Error> {
         let BaseLayerFileBuilder {
             files,
@@ -469,6 +484,9 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
             }))
     }
     
+    /// Add a predicate string.
+    ///
+    /// Panics if the given predicate string is not a lexical successor of the previous node string.
     pub fn add_predicate(self, predicate: &str) -> impl Future<Item=(u64, Self), Error=std::io::Error> {
         let BaseLayerFileBuilder {
             files,
@@ -488,6 +506,9 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
             }))
     }
 
+    /// Add a value string.
+    ///
+    /// Panics if the given value string is not a lexical successor of the previous value string.
     pub fn add_value(self, value: &str) -> impl Future<Item=(u64, Self), Error=std::io::Error> {
         let BaseLayerFileBuilder {
             files,
@@ -507,6 +528,9 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
             }))
     }
 
+    /// Add nodes from an iterable.
+    ///
+    /// Panics if the nodes are not in lexical order, or if previous added nodes are a lexical succesor of any of these nodes.
     pub fn add_nodes<I:'static+IntoIterator<Item=String>+Send+Sync>(self, nodes: I) -> impl Future<Item=(Vec<u64>, Self), Error=std::io::Error>
     where <I as std::iter::IntoIterator>::IntoIter: Send+Sync {
         stream::iter_ok(nodes.into_iter())
@@ -519,6 +543,9 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
                   }))
     }
 
+    /// Add predicates from an iterable.
+    ///
+    /// Panics if the predicates are not in lexical order, or if previous added predicates are a lexical succesor of any of these predicates.
     pub fn add_predicates<I:'static+IntoIterator<Item=String>+Send+Sync>(self, predicates: I) -> impl Future<Item=(Vec<u64>, Self), Error=std::io::Error>
     where <I as std::iter::IntoIterator>::IntoIter: Send+Sync {
         stream::iter_ok(predicates.into_iter())
@@ -531,6 +558,9 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
                   }))
     }
 
+    /// Add values from an iterable.
+    ///
+    /// Panics if the values are not in lexical order, or if previous added values are a lexical succesor of any of these values.
     pub fn add_values<I:'static+IntoIterator<Item=String>+Send+Sync>(self, values: I) -> impl Future<Item=(Vec<u64>, Self), Error=std::io::Error>
     where <I as std::iter::IntoIterator>::IntoIter: Send+Sync {
         stream::iter_ok(values.into_iter())
@@ -543,6 +573,7 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
                   }))
     }
 
+    /// Turn this builder into a phase 2 builder that will take triple data.
     pub fn into_phase2(self) -> impl Future<Item=BaseLayerFileBuilderPhase2<F>,Error=std::io::Error> {
         let BaseLayerFileBuilder {
             files,
@@ -600,6 +631,10 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
     }
 }
 
+/// Second phase of base layer building.
+///
+/// This builder takes ordered triple data. When all data has been
+/// added, `finalize()` will build a layer.
 pub struct BaseLayerFileBuilderPhase2<F:'static+FileLoad+FileStore> {
     files: BaseLayerFiles<F>,
     s_p_adjacency_list_builder: AdjacencyListBuilder<F, F::Write, F::Write, F::Write>,
@@ -641,6 +676,9 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
         }
     }
 
+    /// Add the given subject, predicate and object.
+    ///
+    /// This will panic if a greater triple has already been added.
     pub fn add_triple(self, subject: u64, predicate: u64, object: u64) -> Box<dyn Future<Item=Self, Error=std::io::Error>+Send+Sync> {
         let BaseLayerFileBuilderPhase2 {
             files,
@@ -687,6 +725,9 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
         }
     }
 
+    /// Add the given triple.
+    ///
+    /// This will panic if a greater triple has already been added.
     pub fn add_id_triples<I:'static+IntoIterator<Item=IdTriple>>(self, triples: I) -> impl Future<Item=Self, Error=std::io::Error> {
         stream::iter_ok(triples)
                  .fold(self, |b, triple| b.add_triple(triple.subject, triple.predicate, triple.object))
