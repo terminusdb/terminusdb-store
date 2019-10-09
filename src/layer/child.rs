@@ -335,8 +335,32 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         Some(Box::new(ChildObjectLookup::new(object, parent, pos, neg)))
     }
 
-    fn lookup_predicate(&self, _predicate: u64) -> Option<Box<dyn PredicateLookup>> {
-        unimplemented!();
+    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+        let parent = self.parent.lookup_predicate(predicate)
+            .map(|parent| ChildPredicateLookupParentData {
+                parent,
+                neg_subjects: self.neg_subjects.clone(),
+                neg_s_p_adjacency_list: self.neg_s_p_adjacency_list.clone(),
+                neg_sp_o_adjacency_list: self.neg_sp_o_adjacency_list.clone()
+            });
+        let child = self.predicate_wavelet_tree.lookup(predicate)
+            .map(|lookup| ChildPredicateLookupChildData {
+                lookup,
+                pos_subjects: self.pos_subjects.clone(),
+                pos_s_p_adjacency_list: self.pos_s_p_adjacency_list.clone(),
+                pos_sp_o_adjacency_list: self.pos_sp_o_adjacency_list.clone()
+            });
+
+        if parent.is_none() && child.is_none() {
+            None
+        }
+        else {
+            Some(Box::new(ChildPredicateLookup {
+                predicate,
+                parent,
+                child
+            }))
+        }
     }
 }
 
@@ -841,6 +865,170 @@ impl Iterator for ChildSubjectPredicatePairsIterator {
     }
 }
 
+struct ChildPredicateLookupParentData<M:AsRef<[u8]>+Clone> {
+    parent: Box<dyn PredicateLookup>,
+    neg_subjects: MonotonicLogArray<M>,
+    neg_s_p_adjacency_list: AdjacencyList<M>,
+    neg_sp_o_adjacency_list: AdjacencyList<M>,
+}
+
+struct ChildPredicateLookupChildData<M:AsRef<[u8]>+Clone> {
+    lookup: WaveletLookup<M>,
+    pos_subjects: MonotonicLogArray<M>,
+    pos_s_p_adjacency_list: AdjacencyList<M>,
+    pos_sp_o_adjacency_list: AdjacencyList<M>,
+}
+
+struct ChildPredicateLookup<M:AsRef<[u8]>+Clone> {
+    predicate: u64,
+    parent: Option<ChildPredicateLookupParentData<M>>,
+    child: Option<ChildPredicateLookupChildData<M>>
+}
+
+impl<M:'static+AsRef<[u8]>+Clone> PredicateLookup for ChildPredicateLookup<M> {
+    fn predicate(&self) -> u64 {
+        self.predicate
+    }
+
+    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
+        Box::new(ChildPredicateLookupSubjectPredicatePairsIterator {
+            predicate: self.predicate,
+            parent: self.parent.as_ref().map(|p|ChildPredicateLookupSubjectPredicatePairsIteratorParentData {
+                parent_pairs: p.parent.subject_predicate_pairs().peekable(),
+                neg_subjects: p.neg_subjects.clone(),
+                neg_s_p_adjacency_list: p.neg_s_p_adjacency_list.clone(),
+                neg_sp_o_adjacency_list: p.neg_sp_o_adjacency_list.clone()
+            }),
+            child: self.child.as_ref().map(|child| ChildPredicateLookupSubjectPredicatePairsIteratorChildData {
+                lookup_positions: (Box::new(child.lookup.iter()) as Box<dyn Iterator<Item=u64>>).peekable(),
+                pos_subjects: child.pos_subjects.clone(),
+                pos_s_p_adjacency_list: child.pos_s_p_adjacency_list.clone(),
+                pos_sp_o_adjacency_list: child.pos_sp_o_adjacency_list.clone(),
+            })
+        })
+    }
+}
+
+struct ChildPredicateLookupSubjectPredicatePairsIteratorParentData<M:AsRef<[u8]>+Clone> {
+    parent_pairs: Peekable<Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>>>,
+
+    neg_subjects: MonotonicLogArray<M>,
+    neg_s_p_adjacency_list: AdjacencyList<M>,
+    neg_sp_o_adjacency_list: AdjacencyList<M>,
+}
+
+struct ChildPredicateLookupSubjectPredicatePairsIteratorChildData<M:AsRef<[u8]>+Clone> {
+    lookup_positions: Peekable<Box<dyn Iterator<Item=u64>>>,
+
+    pos_subjects: MonotonicLogArray<M>,
+    pos_s_p_adjacency_list: AdjacencyList<M>,
+    pos_sp_o_adjacency_list: AdjacencyList<M>,
+}
+
+impl<M:AsRef<[u8]>+Clone> ChildPredicateLookupSubjectPredicatePairsIteratorParentData<M> {
+    fn peek_next_subject(&mut self) -> Option<u64> {
+        self.parent_pairs.peek().map(|sp| sp.subject())
+    }
+
+    fn next(&mut self) -> (Option<Box<dyn SubjectPredicateLookup>>, Option<LogArraySlice<M>>) {
+        let pair = self.parent_pairs.next().unwrap();
+        let subject = pair.subject();
+
+        let mapped_subject = self.neg_subjects.index_of(subject).map(|s|s + 1);
+        let entry_in_sp_o = mapped_subject.and_then(|mapped_subject| {
+            let offset = self.neg_s_p_adjacency_list.offset_for(mapped_subject as u64);
+            let s_p_slice = self.neg_s_p_adjacency_list.get(mapped_subject as u64);
+            s_p_slice.iter().position(|p|p == pair.predicate())
+                .map(|pos_in_slice| offset + (pos_in_slice as u64) + 1)
+        });
+        let slice = entry_in_sp_o.map(|entry_in_sp_o|self.neg_sp_o_adjacency_list.get(entry_in_sp_o));
+
+        (Some(pair), slice)
+    }
+}
+
+impl<M:AsRef<[u8]>+Clone> ChildPredicateLookupSubjectPredicatePairsIteratorChildData<M> {
+    fn peek_next_subject(&mut self) -> Option<u64> {
+        self.lookup_positions.peek()
+            .map(|&pos| pos)
+            .map(|pos| {
+                let mapped_subject = self.pos_s_p_adjacency_list.pair_at_pos(pos).0 as usize;
+                self.pos_subjects.entry(mapped_subject-1)
+            })
+    }
+
+    fn next(&mut self) -> Option<LogArraySlice<M>> {
+        let pos = self.lookup_positions.next().unwrap();
+        let slice = self.pos_sp_o_adjacency_list.get(pos+1);
+
+        Some(slice)
+    }
+}
+
+
+pub struct ChildPredicateLookupSubjectPredicatePairsIterator<M:AsRef<[u8]>+Clone> {
+    predicate: u64,
+    parent: Option<ChildPredicateLookupSubjectPredicatePairsIteratorParentData<M>>,
+    child: Option<ChildPredicateLookupSubjectPredicatePairsIteratorChildData<M>>
+}
+
+impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateLookupSubjectPredicatePairsIterator<M> {
+    type Item = Box<dyn SubjectPredicateLookup>;
+
+    fn next(&mut self) -> Option<Box<dyn SubjectPredicateLookup>> {
+        let next_parent_subject = self.parent.as_mut().and_then(|p|p.peek_next_subject());
+        let next_child_subject = self.child.as_mut().and_then(|c|c.peek_next_subject());
+
+        let mut parent: Option<Box<dyn SubjectPredicateLookup>> = None;
+        let subject: u64;
+        let predicate = self.predicate;
+        let mut pos_objects: Option<LogArraySlice<M>> = None;
+        let mut neg_objects: Option<LogArraySlice<M>> = None;
+
+        match (next_parent_subject, next_child_subject) {
+            (Some(next_parent_subject), Some(next_child_subject)) => {
+                if next_parent_subject == next_child_subject {
+                    let result = self.parent.as_mut().unwrap().next();
+                    parent = result.0;
+                    neg_objects = result.1;
+                    subject = next_parent_subject;
+                    pos_objects = self.child.as_mut().unwrap().next();
+                }
+                else if next_parent_subject < next_child_subject {
+                    let result = self.parent.as_mut().unwrap().next();
+                    parent = result.0;
+                    neg_objects = result.1;
+                    subject = next_parent_subject;
+                }
+                else {
+                    pos_objects = self.child.as_mut().unwrap().next();
+                    subject = next_child_subject;
+                }
+            },
+            (Some(next_parent_subject), None) => {
+                let result = self.parent.as_mut().unwrap().next();
+                parent = result.0;
+                neg_objects = result.1;
+                subject = next_parent_subject;
+            },
+            (None, Some(next_child_subject)) => {
+                pos_objects = self.child.as_mut().unwrap().next();
+                subject = next_child_subject;
+            },
+            (None, None) => return None
+        }
+
+        Some(Box::new(ChildSubjectPredicateLookup {
+            parent,
+            subject,
+            predicate,
+            pos_objects,
+            neg_objects
+        }))
+    }
+}
+
+
 pub struct ChildLayerFileBuilder<F:'static+FileLoad+FileStore+Clone+Send+Sync> {
     parent: Arc<dyn Layer>,
     files: ChildLayerFiles<F>,
@@ -1262,7 +1450,7 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
                                 ChildLayerFileBuilderPhase2 {
                                     parent,
                                     files,
-                                    pos_subjects,
+                                   pos_subjects,
                                     neg_subjects,
                                     
                                     pos_s_p_adjacency_list_builder,
@@ -1703,6 +1891,54 @@ mod tests {
                         (2,3,6),
                         (3,3,6),
                         (4,3,6)], triples);
+    }
+
+    #[test]
+    fn lookup_child_layer_triples_by_predicate() {
+        let base_layer = example_base_layer();
+        let parent = Arc::new(base_layer);
+
+        let child_files = example_child_files();
+
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
+        child_builder.into_phase2()
+            .and_then(|b| b.add_triple(1,2,3))
+            .and_then(|b| b.add_triple(2,3,4))
+            .and_then(|b| b.remove_triple(3,2,5))
+            .and_then(|b|b.finalize()).wait().unwrap();
+
+        let child_layer = ChildLayer::load_from_files([5,4,3,2,1], parent, &child_files).wait().unwrap();
+
+        let lookup = child_layer.lookup_predicate(1).unwrap();
+        let pairs: Vec<_> = lookup.subject_predicate_pairs()
+            .map(|sp|sp.triples())
+            .flatten()
+            .map(|t|(t.subject,t.predicate,t.object))
+            .collect();
+
+        assert_eq!(vec![(1,1,1), (2,1,1), (2,1,3)], pairs);
+
+        let lookup = child_layer.lookup_predicate(2).unwrap();
+        let pairs: Vec<_> = lookup.subject_predicate_pairs()
+            .map(|sp|sp.triples())
+            .flatten()
+            .map(|t|(t.subject,t.predicate,t.object))
+            .collect();
+
+        assert_eq!(vec![(1,2,3)], pairs);
+
+        let lookup = child_layer.lookup_predicate(3).unwrap();
+        let pairs: Vec<_> = lookup.subject_predicate_pairs()
+            .map(|sp|sp.triples())
+            .flatten()
+            .map(|t|(t.subject,t.predicate,t.object))
+            .collect();
+
+        assert_eq!(vec![(2,3,4),(2,3,6),(3,3,6),(4,3,6)], pairs);
+
+        let lookup = child_layer.lookup_predicate(4);
+
+        assert!(lookup.is_none());
     }
 
     #[test]

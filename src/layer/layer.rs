@@ -277,6 +277,7 @@ pub trait ObjectLookup {
     }
 }
 
+/// A trait that caches a lookup in a layer by predicate.
 pub trait PredicateLookup {
     fn predicate(&self) -> u64;
     fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>>;
@@ -347,6 +348,7 @@ impl StringTriple {
     }
 }
 
+/// Either a resolved id or an unresolved inner type.
 #[derive(Debug,Clone,PartialEq,Eq,PartialOrd,Ord,Hash)]
 pub enum PossiblyResolved<T:Clone+PartialEq+Eq+PartialOrd+Ord+Hash> {
     Unresolved(T),
@@ -383,6 +385,7 @@ impl<T:Clone+PartialEq+Eq+PartialOrd+Ord+Hash> PossiblyResolved<T> {
     }
 }
 
+/// A triple where the subject, predicate and object can all either be fully resolved to an id, or unresolved.
 #[derive(Debug,Clone,PartialEq,Eq,PartialOrd,Ord,Hash)]
 pub struct PartiallyResolvedTriple {
     pub subject: PossiblyResolved<String>,
