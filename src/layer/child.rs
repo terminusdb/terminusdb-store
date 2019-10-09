@@ -362,6 +362,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             }))
         }
     }
+
+    fn clone_boxed(&self) -> Box<dyn Layer> {
+        Box::new(self.clone())
+    }
 }
 
 struct ChildSubjectIterator<M:'static+AsRef<[u8]>+Clone> {

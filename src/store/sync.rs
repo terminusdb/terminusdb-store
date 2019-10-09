@@ -73,6 +73,7 @@ impl SyncDatabaseLayerBuilder {
 }
 
 /// A layer that keeps track of the store it came out of, allowing the creation of a layer builder on top of this layer
+#[derive(Clone)]
 pub struct SyncDatabaseLayer {
     inner: DatabaseLayer,
     executor: TaskExecutor
@@ -156,6 +157,10 @@ impl Layer for SyncDatabaseLayer {
 
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
         self.inner.lookup_predicate(predicate)
+    }
+
+    fn clone_boxed(&self) -> Box<dyn Layer> {
+        Box::new(self.clone())
     }
 }
 

@@ -196,6 +196,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
                 sp_o_adjacency_list
             }) as Box<dyn PredicateLookup>)
     }
+
+    fn clone_boxed(&self) -> Box<dyn Layer> {
+        Box::new(self.clone())
+    }
 }
 
 #[derive(Clone)]
