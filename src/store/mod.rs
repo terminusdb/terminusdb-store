@@ -32,7 +32,7 @@ pub struct StoreLayerBuilder {
 }
 
 impl StoreLayerBuilder {
-    fn new(store: Store) -> impl Future<Item=Self,Error=io::Error>+Send+Sync {
+    fn new(store: Store) -> impl Future<Item=Self,Error=io::Error>+Send {
         store.layer_store.create_base_layer()
             .map(|builder|
                  Self {
@@ -50,7 +50,7 @@ impl StoreLayerBuilder {
         }
     }
 
-    fn with_builder<R:Send+Sync,F: FnOnce(&mut Box<dyn LayerBuilder>)->R+Send+Sync>(&self, f: F) -> impl Future<Item=R,Error=io::Error>+Send+Sync {
+    fn with_builder<R:Send+Sync,F: FnOnce(&mut Box<dyn LayerBuilder>)->R+Send+Sync>(&self, f: F) -> impl Future<Item=R,Error=io::Error>+Send {
         self.builder.write()
             .then(|b| {
                 let mut builder = b.expect("rwlock write should always succeed");
@@ -67,29 +67,29 @@ impl StoreLayerBuilder {
     }
 
     /// Add a string triple
-    pub fn add_string_triple(&self, triple: &StringTriple) -> impl Future<Item=(),Error=io::Error>+Send+Sync {
+    pub fn add_string_triple(&self, triple: &StringTriple) -> impl Future<Item=(),Error=io::Error>+Send {
         let triple = triple.clone();
         self.with_builder(move |b|b.add_string_triple(&triple))
     }
 
     /// Add an id triple
-    pub fn add_id_triple(&self, triple: IdTriple) -> impl Future<Item=bool,Error=io::Error>+Send+Sync {
+    pub fn add_id_triple(&self, triple: IdTriple) -> impl Future<Item=bool,Error=io::Error>+Send {
         self.with_builder(move |b|b.add_id_triple(triple))
     }
 
     /// Remove a string triple
-    pub fn remove_string_triple(&self, triple: &StringTriple) -> impl Future<Item=bool,Error=io::Error>+Send+Sync {
+    pub fn remove_string_triple(&self, triple: &StringTriple) -> impl Future<Item=bool,Error=io::Error>+Send {
         let triple = triple.clone();
         self.with_builder(move |b|b.remove_string_triple(&triple))
     }
 
     /// Remove an id triple
-    pub fn remove_id_triple(&self, triple: IdTriple) -> impl Future<Item=bool,Error=io::Error>+Send+Sync {
+    pub fn remove_id_triple(&self, triple: IdTriple) -> impl Future<Item=bool,Error=io::Error>+Send {
         self.with_builder(move |b|b.remove_id_triple(triple))
     }
 
     /// Commit the layer to storage
-    pub fn commit(&self) -> impl Future<Item=StoreLayer, Error=std::io::Error>+Send+Sync {
+    pub fn commit(&self) -> impl Future<Item=StoreLayer, Error=std::io::Error>+Send {
         let store = self.store.clone();
         let name = self.name;
         self.builder.write()
@@ -99,7 +99,7 @@ impl StoreLayerBuilder {
 
                 std::mem::swap(&mut builder, &mut swap);
 
-                let result: Box<dyn Future<Item=_,Error=_>+Send+Sync> =
+                let result: Box<dyn Future<Item=_,Error=_>+Send> =
                     match builder {
                         None => Box::new(future::err(io::Error::new(io::ErrorKind::InvalidData, "builder has already been committed"))),
                         Some(builder) => Box::new( 
@@ -128,7 +128,7 @@ impl StoreLayer {
     }
 
     /// Create a layer builder based on this layer
-    pub fn open_write(&self) -> impl Future<Item=StoreLayerBuilder,Error=io::Error>+Send+Sync {
+    pub fn open_write(&self) -> impl Future<Item=StoreLayerBuilder,Error=io::Error>+Send {
         let store = self.store.clone();
         self.store.layer_store.create_child_layer(self.layer.name())
             .map(move |layer|StoreLayerBuilder::wrap(layer, store))
@@ -227,14 +227,14 @@ impl NamedGraph {
     }
 
     /// Returns the layer this database points at
-    pub fn head(&self) -> impl Future<Item=Option<StoreLayer>,Error=io::Error>+Send+Sync {
+    pub fn head(&self) -> impl Future<Item=Option<StoreLayer>,Error=io::Error>+Send {
         let store = self.store.clone();
         store.label_store.get_label(&self.label)
             .and_then(move |new_label| {
                 match new_label {
                     None => Box::new(future::err(io::Error::new(io::ErrorKind::NotFound, "database not found"))),
                     Some(new_label) => {
-                        let result: Box<dyn Future<Item=_,Error=_>+Send+Sync> =
+                        let result: Box<dyn Future<Item=_,Error=_>+Send> =
                             match new_label.layer {
                                 None => Box::new(future::ok(None)),
                                 Some(layer) => Box::new(store.layer_store.get_layer(layer)
@@ -247,17 +247,17 @@ impl NamedGraph {
     }
     
     /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise
-    pub fn set_head(&self, layer: &StoreLayer) -> impl Future<Item=bool,Error=io::Error>+Send+Sync {
+    pub fn set_head(&self, layer: &StoreLayer) -> impl Future<Item=bool,Error=io::Error>+Send {
         let store = self.store.clone();
         let layer_name = layer.name();
         let cloned_layer = layer.layer.clone();
         store.label_store.get_label(&self.label)
             .and_then(move |label| {
-                let result: Box<dyn Future<Item=_,Error=_>+Send+Sync> = 
+                let result: Box<dyn Future<Item=_,Error=_>+Send> = 
                     match label {
                         None => Box::new(future::err(io::Error::new(io::ErrorKind::NotFound, "label not found"))),
                         Some(label) => Box::new({
-                            let result: Box<dyn Future<Item=_,Error=_>+Send+Sync> =
+                            let result: Box<dyn Future<Item=_,Error=_>+Send> =
                                 match label.layer {
                                     None => Box::new(future::ok(true)),
                                     Some(layer_name) => Box::new(store.layer_store.get_layer(layer_name)
@@ -266,7 +266,7 @@ impl NamedGraph {
 
                             result
                         }.and_then(move |b| {
-                            let result: Box<dyn Future<Item=_,Error=_>+Send+Sync> =
+                            let result: Box<dyn Future<Item=_,Error=_>+Send> =
                                 if b {
                                     Box::new(store.label_store.set_label(&label, layer_name).map(|_|true))
                                 } else {
@@ -301,7 +301,7 @@ impl Store {
     /// Create a new database with the given name
     ///
     /// If the database already exists, this will return an error
-    pub fn create(&self, label: &str) -> impl Future<Item=NamedGraph,Error=std::io::Error>+Send+Sync {
+    pub fn create(&self, label: &str) -> impl Future<Item=NamedGraph,Error=std::io::Error>+Send {
         let store = self.clone();
         self.label_store.create_label(label)
             .map(move |label| NamedGraph::new(label.name, store))
@@ -317,7 +317,7 @@ impl Store {
     /// Create a base layer builder, unattached to any database label
     ///
     /// After having committed it, use `set_head` on a `NamedGraph` to attach it.
-    pub fn create_base_layer(&self) -> impl Future<Item=StoreLayerBuilder,Error=io::Error>+Send+Sync {
+    pub fn create_base_layer(&self) -> impl Future<Item=StoreLayerBuilder,Error=io::Error>+Send {
         StoreLayerBuilder::new(self.clone())
     }
 }

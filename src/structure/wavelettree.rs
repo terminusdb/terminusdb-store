@@ -171,14 +171,14 @@ impl<M:AsRef<[u8]>+Clone> WaveletTree<M> {
     }
 }
 
-fn build_wavelet_fragment<S:Stream<Item=u64,Error=std::io::Error>+Send+Sync, W:AsyncWrite+Send+Sync>(stream: S, write: BitArrayFileBuilder<W>, alphabet: usize, layer: usize, fragment: usize) -> impl Future<Item=BitArrayFileBuilder<W>,Error=std::io::Error>+Send+Sync {
+fn build_wavelet_fragment<S:Stream<Item=u64,Error=std::io::Error>+Send, W:AsyncWrite+Send>(stream: S, write: BitArrayFileBuilder<W>, alphabet: usize, layer: usize, fragment: usize) -> impl Future<Item=BitArrayFileBuilder<W>,Error=std::io::Error>+Send {
     let step = (alphabet / 2_usize.pow(layer as u32)) as u64;
     let alphabet_start = step * fragment as u64;
     let alphabet_end = step * (fragment+1) as u64;
     let alphabet_mid = ((alphabet_start+alphabet_end)/2) as u64;
 
     stream.fold(write, move |w, num| {
-        let result: Box<dyn Future<Item=BitArrayFileBuilder<W>,Error=std::io::Error>+Send+Sync> =
+        let result: Box<dyn Future<Item=BitArrayFileBuilder<W>,Error=std::io::Error>+Send> =
         if num >= alphabet_start && num < alphabet_end {
             Box::new(w.push(num >= alphabet_mid))
         }
@@ -196,7 +196,7 @@ fn build_wavelet_fragment<S:Stream<Item=u64,Error=std::io::Error>+Send+Sync, W:A
 /// on demand. The wavelet tree constructor will iterate over this
 /// stream multiple times, which is why we need a constructor function
 /// here rather than just the stream itself.
-pub fn build_wavelet_tree_from_stream<SFn: FnMut()->S+Send+Sync, S: Stream<Item=u64,Error=std::io::Error>+Send+Sync, F: 'static+FileLoad+FileStore>(width: u8, mut source: SFn, destination_bits: F, destination_blocks: F, destination_sblocks: F) -> impl Future<Item=(),Error=std::io::Error>+Send+Sync {
+pub fn build_wavelet_tree_from_stream<SFn: FnMut()->S+Send, S: Stream<Item=u64,Error=std::io::Error>+Send, F: 'static+FileLoad+FileStore>(width: u8, mut source: SFn, destination_bits: F, destination_blocks: F, destination_sblocks: F) -> impl Future<Item=(),Error=std::io::Error>+Send {
     let alphabet_size = 2_usize.pow(width as u32);
     let bits = BitArrayFileBuilder::new(destination_bits.open_write());
     stream::iter_ok::<_,std::io::Error>((0..width as usize)
@@ -213,7 +213,7 @@ pub fn build_wavelet_tree_from_stream<SFn: FnMut()->S+Send+Sync, S: Stream<Item=
 }
 
 /// Build a wavelet tree from a file storing a logarray.
-pub fn build_wavelet_tree_from_logarray<FLoad: 'static+FileLoad+Clone, F: 'static+FileLoad+FileStore>(source: FLoad, destination_bits: F, destination_blocks: F, destination_sblocks: F) -> impl Future<Item=(),Error=std::io::Error>+Send+Sync {
+pub fn build_wavelet_tree_from_logarray<FLoad: 'static+FileLoad+Clone, F: 'static+FileLoad+FileStore>(source: FLoad, destination_bits: F, destination_blocks: F, destination_sblocks: F) -> impl Future<Item=(),Error=std::io::Error>+Send {
     logarray_file_get_length_and_width(&source)
         .and_then(|(_, width)| build_wavelet_tree_from_stream(width,
                                                               move ||logarray_stream_entries(source.clone()),

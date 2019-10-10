@@ -679,7 +679,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
     /// Add the given subject, predicate and object.
     ///
     /// This will panic if a greater triple has already been added.
-    pub fn add_triple(self, subject: u64, predicate: u64, object: u64) -> Box<dyn Future<Item=Self, Error=std::io::Error>+Send+Sync> {
+    pub fn add_triple(self, subject: u64, predicate: u64, object: u64) -> Box<dyn Future<Item=Self, Error=std::io::Error>+Send> {
         let BaseLayerFileBuilderPhase2 {
             files,
             s_p_adjacency_list_builder,

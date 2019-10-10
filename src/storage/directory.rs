@@ -59,7 +59,7 @@ impl FileLoad for FileBackedStore {
         File::from_std(f)
     }
 
-    fn map(&self) -> Box<dyn Future<Item=SharedMmap,Error=std::io::Error>+Send+Sync> {
+    fn map(&self) -> Box<dyn Future<Item=SharedMmap,Error=std::io::Error>+Send> {
         let file = self.clone();
         Box::new(future::lazy(move || {
             if file.size() == 0 {
@@ -103,7 +103,7 @@ impl DirectoryLayerStore {
 
 impl PersistentLayerStore for DirectoryLayerStore {
     type File = FileBackedStore;
-    fn directories(&self) -> Box<dyn Future<Item=Vec<[u32; 5]>, Error=std::io::Error>+Send+Sync> {
+    fn directories(&self) -> Box<dyn Future<Item=Vec<[u32; 5]>, Error=std::io::Error>+Send> {
         Box::new(fs::read_dir(self.path.clone()).flatten_stream()
                  .map(|direntry| (direntry.file_name(), direntry))
                  .and_then(|(dir_name, direntry)| future::poll_fn(move || direntry.poll_file_type())
@@ -117,7 +117,7 @@ impl PersistentLayerStore for DirectoryLayerStore {
                  .collect())
     }
 
-    fn create_directory(&self) -> Box<dyn Future<Item=[u32;5], Error=io::Error>+Send+Sync> {
+    fn create_directory(&self) -> Box<dyn Future<Item=[u32;5], Error=io::Error>+Send> {
         let name = rand::random();
         let mut p = self.path.clone();
         p.push(name_to_string(name));
@@ -126,7 +126,7 @@ impl PersistentLayerStore for DirectoryLayerStore {
                  .map(move |_| name))
     }
 
-    fn directory_exists(&self, name: [u32; 5]) -> Box<dyn Future<Item=bool,Error=io::Error>+Send+Sync> {
+    fn directory_exists(&self, name: [u32; 5]) -> Box<dyn Future<Item=bool,Error=io::Error>+Send> {
         let mut p = self.path.clone();
         p.push(name_to_string(name));
 
@@ -137,14 +137,14 @@ impl PersistentLayerStore for DirectoryLayerStore {
                  }))
     }
 
-    fn get_file(&self, directory: [u32;5], name: &str) -> Box<dyn Future<Item=Self::File, Error=io::Error>+Send+Sync> {
+    fn get_file(&self, directory: [u32;5], name: &str) -> Box<dyn Future<Item=Self::File, Error=io::Error>+Send> {
         let mut p = self.path.clone();
         p.push(name_to_string(directory));
         p.push(name);
         Box::new(future::ok(FileBackedStore::new(p)))
     }
     
-    fn file_exists(&self, directory: [u32;5], file: &str) -> Box<dyn Future<Item=bool,Error=io::Error>+Send+Sync> {
+    fn file_exists(&self, directory: [u32;5], file: &str) -> Box<dyn Future<Item=bool,Error=io::Error>+Send> {
         let mut p = self.path.clone();
         p.push(name_to_string(directory));
         p.push(file);
@@ -169,7 +169,7 @@ impl DirectoryLabelStore {
     }
 }
 
-fn get_label_from_file(path: PathBuf) -> impl Future<Item=Label,Error=std::io::Error>+Send+Sync {
+fn get_label_from_file(path: PathBuf) -> impl Future<Item=Label,Error=std::io::Error>+Send {
     let label = path.file_stem().unwrap().to_str().unwrap().to_owned();
 
     fs::read(path)
@@ -177,7 +177,7 @@ fn get_label_from_file(path: PathBuf) -> impl Future<Item=Label,Error=std::io::E
             let s = String::from_utf8_lossy(&data);
             let lines: Vec<&str> = s.lines().collect();
             if lines.len() != 2 {
-                let result: Box<dyn Future<Item=_,Error=_>+Send+Sync> = 
+                let result: Box<dyn Future<Item=_,Error=_>+Send> = 
                     Box::new(future::err(io::Error::new(io::ErrorKind::InvalidData, format!("expected label file to have two lines. contents were ({:?})",lines))));
                 return result;
             }
@@ -210,7 +210,7 @@ fn get_label_from_file(path: PathBuf) -> impl Future<Item=Label,Error=std::io::E
 }
 
 impl LabelStore for DirectoryLabelStore {
-    fn labels(&self) -> Box<dyn Future<Item=Vec<Label>,Error=std::io::Error>+Send+Sync> {
+    fn labels(&self) -> Box<dyn Future<Item=Vec<Label>,Error=std::io::Error>+Send> {
         Box::new(fs::read_dir(self.path.clone()).flatten_stream()
                  .map(|direntry| (direntry.file_name(), direntry))
                  .and_then(|(dir_name, direntry)| future::poll_fn(move || direntry.poll_file_type())
@@ -220,7 +220,7 @@ impl LabelStore for DirectoryLabelStore {
                  .collect())
     }
 
-    fn create_label(&self, label: &str) -> Box<dyn Future<Item=Label, Error=std::io::Error>+Send+Sync> {
+    fn create_label(&self, label: &str) -> Box<dyn Future<Item=Label, Error=std::io::Error>+Send> {
         let mut p = self.path.clone();
         let label = label.to_owned();
         p.push(format!("{}.label", label));
@@ -237,7 +237,7 @@ impl LabelStore for DirectoryLabelStore {
                            .map(move |_| Label::new_empty(&label))))
     }
 
-    fn get_label(&self, label: &str) -> Box<dyn Future<Item=Option<Label>,Error=std::io::Error>+Send+Sync> {
+    fn get_label(&self, label: &str) -> Box<dyn Future<Item=Option<Label>,Error=std::io::Error>+Send> {
         let label = label.to_owned();
         let mut p = self.path.clone();
         p.push(format!("{}.label", label));
@@ -254,7 +254,7 @@ impl LabelStore for DirectoryLabelStore {
                  }))
     }
 
-    fn set_label_option(&self, label: &Label, layer: Option<[u32;5]>) -> Box<dyn Future<Item=Option<Label>, Error=std::io::Error>+Send+Sync> {
+    fn set_label_option(&self, label: &Label, layer: Option<[u32;5]>) -> Box<dyn Future<Item=Option<Label>, Error=std::io::Error>+Send> {
         let mut p = self.path.clone();
         p.push(format!("{}.label", label.name));
 
@@ -268,7 +268,7 @@ impl LabelStore for DirectoryLabelStore {
         Box::new(self.get_label(&label.name)
                  .and_then(move |l| if l == Some(old_label) {
                      // all good, let's a go
-                     let result: Box<dyn Future<Item=_,Error=_>+Send+Sync> = Box::new(
+                     let result: Box<dyn Future<Item=_,Error=_>+Send> = Box::new(
                          fs::write(p, contents)
                              .map(|_| Some(new_label)));
                      result

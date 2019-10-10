@@ -1074,7 +1074,7 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilder<F> {
     /// Does nothing if the node already exists in the paretn, and
     /// panics if the given node string is not a lexical successor of
     /// the previous node string.
-    pub fn add_node(self, node: &str) -> Box<dyn Future<Item=(u64, Self), Error=std::io::Error>+Send+Sync> {
+    pub fn add_node(self, node: &str) -> Box<dyn Future<Item=(u64, Self), Error=std::io::Error>+Send> {
         match self.parent.subject_id(node) {
             None => {
                 let ChildLayerFileBuilder {
@@ -1104,7 +1104,7 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilder<F> {
     /// Does nothing if the predicate already exists in the paretn, and
     /// panics if the given predicate string is not a lexical successor of
     /// the previous predicate string.
-    pub fn add_predicate(self, predicate: &str) -> Box<dyn Future<Item=(u64, Self), Error=std::io::Error>+Send+Sync> {
+    pub fn add_predicate(self, predicate: &str) -> Box<dyn Future<Item=(u64, Self), Error=std::io::Error>+Send> {
         match self.parent.predicate_id(predicate) {
             None => {
                 let ChildLayerFileBuilder {
@@ -1135,7 +1135,7 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilder<F> {
     /// Does nothing if the value already exists in the paretn, and
     /// panics if the given value string is not a lexical successor of
     /// the previous value string.
-    pub fn add_value(self, value: &str) -> Box<dyn Future<Item=(u64, Self), Error=std::io::Error>+Send+Sync> {
+    pub fn add_value(self, value: &str) -> Box<dyn Future<Item=(u64, Self), Error=std::io::Error>+Send> {
         match self.parent.object_value_id(value) {
             None => {
                 let ChildLayerFileBuilder {
@@ -1222,9 +1222,9 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilder<F> {
             value_dictionary_builder
         } = self;
 
-        let finalize_nodedict: Box<dyn Future<Item=(),Error=std::io::Error>+Send+Sync> = Box::new(node_dictionary_builder.finalize());
-        let finalize_preddict: Box<dyn Future<Item=(),Error=std::io::Error>+Send+Sync> = Box::new(predicate_dictionary_builder.finalize());
-        let finalize_valdict: Box<dyn Future<Item=(),Error=std::io::Error>+Send+Sync> = Box::new(value_dictionary_builder.finalize());
+        let finalize_nodedict: Box<dyn Future<Item=(),Error=std::io::Error>+Send> = Box::new(node_dictionary_builder.finalize());
+        let finalize_preddict: Box<dyn Future<Item=(),Error=std::io::Error>+Send> = Box::new(predicate_dictionary_builder.finalize());
+        let finalize_valdict: Box<dyn Future<Item=(),Error=std::io::Error>+Send> = Box::new(value_dictionary_builder.finalize());
 
         let dict_maps_fut = vec![files.node_dictionary_files.blocks_file.map(),
                                  files.node_dictionary_files.offsets_file.map(),
@@ -1354,7 +1354,7 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
     ///
     /// This will panic if a greater triple has already been added,
     /// and do nothing if the triple is already part of the parent.
-    pub fn add_triple(self, subject: u64, predicate: u64, object: u64) -> Box<dyn Future<Item=Self, Error=std::io::Error>+Send+Sync> {
+    pub fn add_triple(self, subject: u64, predicate: u64, object: u64) -> Box<dyn Future<Item=Self, Error=std::io::Error>+Send> {
         if self.parent.triple_exists(subject, predicate, object) {
             // no need to do anything
             // TODO maybe return an error instead?
@@ -1443,7 +1443,7 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
     ///
     /// This will panic if a greater triple has already been removed,
     /// and do nothing if the parent doesn't know aobut this triple.
-    pub fn remove_triple(self, subject: u64, predicate: u64, object: u64) -> Box<dyn Future<Item=Self, Error=std::io::Error>+Send+Sync> {
+    pub fn remove_triple(self, subject: u64, predicate: u64, object: u64) -> Box<dyn Future<Item=Self, Error=std::io::Error>+Send> {
         if !self.parent.triple_exists(subject, predicate, object) {
             // no need to do anything
             // TODO maybe return an error instead?
@@ -1555,15 +1555,15 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
         let pos_subjects_logarray_builder = LogArrayFileBuilder::new(self.files.pos_subjects_file.open_write(), pos_subjects_width);
         let neg_subjects_logarray_builder = LogArrayFileBuilder::new(self.files.neg_subjects_file.open_write(), neg_subjects_width);
 
-        let build_pos_s_p_adjacency_list: Box<dyn Future<Item=(),Error=std::io::Error>+Send+Sync> = Box::new(self.pos_s_p_adjacency_list_builder.finalize());
-        let build_pos_sp_o_adjacency_list: Box<dyn Future<Item=(),Error=std::io::Error>+Send+Sync> = Box::new(self.pos_sp_o_adjacency_list_builder.finalize());
-        let build_neg_s_p_adjacency_list: Box<dyn Future<Item=(),Error=std::io::Error>+Send+Sync> = Box::new(self.neg_s_p_adjacency_list_builder.finalize());
-        let build_neg_sp_o_adjacency_list: Box<dyn Future<Item=(),Error=std::io::Error>+Send+Sync> = Box::new(self.neg_sp_o_adjacency_list_builder.finalize());
+        let build_pos_s_p_adjacency_list: Box<dyn Future<Item=(),Error=std::io::Error>+Send> = Box::new(self.pos_s_p_adjacency_list_builder.finalize());
+        let build_pos_sp_o_adjacency_list: Box<dyn Future<Item=(),Error=std::io::Error>+Send> = Box::new(self.pos_sp_o_adjacency_list_builder.finalize());
+        let build_neg_s_p_adjacency_list: Box<dyn Future<Item=(),Error=std::io::Error>+Send> = Box::new(self.neg_s_p_adjacency_list_builder.finalize());
+        let build_neg_sp_o_adjacency_list: Box<dyn Future<Item=(),Error=std::io::Error>+Send> = Box::new(self.neg_sp_o_adjacency_list_builder.finalize());
 
-        let build_pos_subjects: Box<dyn Future<Item=(),Error=std::io::Error>+Send+Sync> = Box::new(pos_subjects_logarray_builder.push_all(stream::iter_ok(self.pos_subjects))
+        let build_pos_subjects: Box<dyn Future<Item=(),Error=std::io::Error>+Send> = Box::new(pos_subjects_logarray_builder.push_all(stream::iter_ok(self.pos_subjects))
                                                                                          .and_then(|b|b.finalize())
                                                                                          .map(|_|()));
-        let build_neg_subjects: Box<dyn Future<Item=(), Error=std::io::Error>+Send+Sync> = Box::new(neg_subjects_logarray_builder.push_all(stream::iter_ok(self.neg_subjects))
+        let build_neg_subjects: Box<dyn Future<Item=(), Error=std::io::Error>+Send> = Box::new(neg_subjects_logarray_builder.push_all(stream::iter_ok(self.neg_subjects))
                                                                                           .and_then(|b|b.finalize())
                                                                                           .map(|_|()));
 

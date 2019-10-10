@@ -176,9 +176,9 @@ pub fn adjacency_list_stream_pairs<F:FileLoad+Clone>(bits_file: F, nums_file: F)
 
 pub struct AdjacencyListBuilder<F,W1,W2,W3>
 where F: 'static+FileLoad+FileStore,
-      W1: 'static+AsyncWrite+Send+Sync,
-      W2: 'static+AsyncWrite+Send+Sync,
-      W3: 'static+AsyncWrite+Send+Sync {
+      W1: 'static+AsyncWrite+Send,
+      W2: 'static+AsyncWrite+Send,
+      W3: 'static+AsyncWrite+Send {
     bitfile: F,
     bitarray: BitArrayFileBuilder<F::Write>,
     bitindex_blocks: W1,
@@ -190,9 +190,9 @@ where F: 'static+FileLoad+FileStore,
 
 impl<F,W1,W2,W3> AdjacencyListBuilder<F,W1,W2,W3>
 where F: 'static+FileLoad+FileStore,
-      W1: 'static+AsyncWrite+Send+Sync,
-      W2: 'static+AsyncWrite+Send+Sync,
-      W3: 'static+AsyncWrite+Send+Sync {
+      W1: 'static+AsyncWrite+Send,
+      W2: 'static+AsyncWrite+Send,
+      W3: 'static+AsyncWrite+Send {
     pub fn new(bitfile: F, bitindex_blocks: W1, bitindex_sblocks: W2, nums_writer: W3, width: u8) -> AdjacencyListBuilder<F,W1,W2,W3> {
         let bitarray = BitArrayFileBuilder::new(bitfile.open_write());
 
@@ -216,7 +216,7 @@ where F: 'static+FileLoad+FileStore,
         // (which is otherwise an invalid right-hand side) and pushing a 1 onto the bitarray to immediately close the segment.
         let skip = left - self.last_left;
         
-        let f1: Box<dyn Future<Item=(BitArrayFileBuilder<F::Write>, LogArrayFileBuilder<W3>), Error=std::io::Error>+Send+Sync> = 
+        let f1: Box<dyn Future<Item=(BitArrayFileBuilder<F::Write>, LogArrayFileBuilder<W3>), Error=std::io::Error>+Send> = 
             if last_left == 0 && skip == 1 {
                 // this is the first entry. we can't push a bit yet
                 Box::new(future::ok((bitarray, nums)))
@@ -253,7 +253,7 @@ where F: 'static+FileLoad+FileStore,
 
     pub fn finalize(self) -> impl Future<Item=(), Error=std::io::Error> {
         let AdjacencyListBuilder { bitfile, bitarray, bitindex_blocks, bitindex_sblocks, nums, last_left: _, last_right: _ } = self;
-        let fut: Box<dyn Future<Item=BitArrayFileBuilder<_>, Error=std::io::Error>+Send+Sync> =
+        let fut: Box<dyn Future<Item=BitArrayFileBuilder<_>, Error=std::io::Error>+Send> =
             if nums.count == 0 {
                 Box::new(future::ok(bitarray))
             } else {

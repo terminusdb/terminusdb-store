@@ -33,9 +33,9 @@ pub trait LayerBuilder: Send+Sync {
     /// Remove an id triple
     fn remove_id_triple(&mut self, triple: IdTriple) -> bool;
     /// Commit the layer to storage
-    fn commit(self) -> Box<dyn Future<Item=(), Error=std::io::Error>+Send+Sync>;
+    fn commit(self) -> Box<dyn Future<Item=(), Error=std::io::Error>+Send>;
     /// Commit a boxed layer to storage
-    fn commit_boxed(self: Box<Self>) -> Box<dyn Future<Item=(), Error=std::io::Error>+Send+Sync>;
+    fn commit_boxed(self: Box<Self>) -> Box<dyn Future<Item=(), Error=std::io::Error>+Send>;
     
 }
 
@@ -159,7 +159,7 @@ impl<F:'static+FileLoad+FileStore+Clone> LayerBuilder for SimpleLayerBuilder<F> 
         }
     }
 
-    fn commit(self) -> Box<dyn Future<Item=(), Error=std::io::Error>+Send+Sync> {
+    fn commit(self) -> Box<dyn Future<Item=(), Error=std::io::Error>+Send> {
         let (unresolved_nodes, unresolved_predicates, unresolved_values) = self.unresolved_strings();
         let additions = self.additions;
         let removals = self.removals;
@@ -237,7 +237,7 @@ impl<F:'static+FileLoad+FileStore+Clone> LayerBuilder for SimpleLayerBuilder<F> 
         }
     }
 
-    fn commit_boxed(self: Box<Self>) -> Box<dyn Future<Item=(), Error=std::io::Error>+Send+Sync> {
+    fn commit_boxed(self: Box<Self>) -> Box<dyn Future<Item=(), Error=std::io::Error>+Send> {
         let builder = *self;
         builder.commit()
     }

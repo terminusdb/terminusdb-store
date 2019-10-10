@@ -4,7 +4,7 @@ use futures::prelude::*;
 use tokio::prelude::*;
 
 pub trait FileStore: Clone+Send+Sync {
-    type Write: AsyncWrite+Send+Sync;
+    type Write: AsyncWrite+Send;
     fn open_write(&self) -> Self::Write {
         self.open_write_from(0)
     }
@@ -12,7 +12,7 @@ pub trait FileStore: Clone+Send+Sync {
 }
 
 pub trait FileLoad: Clone+Send+Sync {
-    type Read: AsyncRead+Send+Sync;
+    type Read: AsyncRead+Send;
     type Map: AsRef<[u8]>+Clone+Send+Sync;
     
     fn size(&self) -> usize;
@@ -20,7 +20,7 @@ pub trait FileLoad: Clone+Send+Sync {
         self.open_read_from(0)
     }
     fn open_read_from(&self, offset: usize) -> Self::Read;
-    fn map(&self) -> Box<dyn Future<Item=Self::Map, Error=std::io::Error>+Send+Sync>;
+    fn map(&self) -> Box<dyn Future<Item=Self::Map, Error=std::io::Error>+Send>;
 }
 
 /// The files required for storing a layer
