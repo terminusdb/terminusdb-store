@@ -184,20 +184,40 @@ impl Layer for StoreLayer {
         self.layer.subjects()
     }
 
+    fn subject_additions(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+        self.layer.subject_additions()
+    }
+
     fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
         self.layer.lookup_subject(subject)
+    }
+
+    fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
+        self.layer.lookup_subject_addition(subject)
     }
 
     fn objects(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
         self.layer.objects()
     }
 
+    fn object_additions(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
+        self.layer.object_additions()
+    }
+
     fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
         self.layer.lookup_object(object)
     }
 
+    fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+        self.layer.lookup_object_addition(object)
+    }
+
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
         self.layer.lookup_predicate(predicate)
+    }
+
+    fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+        self.layer.lookup_predicate_addition(predicate)
     }
 
     fn clone_boxed(&self) -> Box<dyn Layer> {

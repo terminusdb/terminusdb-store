@@ -85,6 +85,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         })
     }
 
+    fn subject_additions(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+        self.subjects()
+    }
+
     fn node_and_value_count(&self) -> usize {
         self.node_dictionary.len() + self.value_dictionary.len()
     }
@@ -168,6 +172,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         }
     }
 
+    fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
+        self.lookup_subject(subject)
+    }
+
     fn objects(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
         // todo: there might be a more efficient method than doing
         // this lookup over and over, due to sequentiality of the
@@ -175,6 +183,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         let cloned = self.clone();
         Box::new((0..self.node_and_value_count())
                  .map(move |object| cloned.lookup_object((object+1) as u64).unwrap()))
+    }
+
+    fn object_additions(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
+        self.objects()
     }
 
     fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
@@ -191,6 +203,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         }
     }
 
+    fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+        self.lookup_object(object)
+    }
+
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
         let s_p_adjacency_list = self.s_p_adjacency_list.clone();
         let sp_o_adjacency_list = self.sp_o_adjacency_list.clone();
@@ -200,6 +216,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
                 s_p_adjacency_list,
                 sp_o_adjacency_list
             }) as Box<dyn PredicateLookup>)
+    }
+
+    fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+        self.lookup_predicate(predicate)
     }
 
     fn clone_boxed(&self) -> Box<dyn Layer> {

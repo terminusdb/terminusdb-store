@@ -143,20 +143,40 @@ impl Layer for SyncStoreLayer {
         self.inner.subjects()
     }
 
+    fn subject_additions(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+        self.inner.subject_additions()
+    }
+
     fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
         self.inner.lookup_subject(subject)
+    }
+
+    fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
+        self.inner.lookup_subject_addition(subject)
     }
 
     fn objects(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
         self.inner.objects()
     }
 
+    fn object_additions(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
+        self.inner.object_additions()
+    }
+
     fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
         self.inner.lookup_object(object)
     }
 
+    fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+        self.inner.lookup_object_addition(object)
+    }
+
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
         self.inner.lookup_predicate(predicate)
+    }
+
+    fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+        self.inner.lookup_predicate_addition(predicate)
     }
 
     fn clone_boxed(&self) -> Box<dyn Layer> {

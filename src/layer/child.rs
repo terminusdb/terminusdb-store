@@ -115,6 +115,24 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> ChildLayer<M> {
             predicate_wavelet_tree,
         }
     }
+
+    fn lookup_object_addition_mapped(&self, mapped_object: u64) -> impl ObjectLookup {
+        if mapped_object == 0 || mapped_object as usize > self.pos_objects.len() {
+            panic!("unknown mapped object requested");
+        }
+        let object = self.pos_objects.entry((mapped_object-1) as usize);
+
+        let pos_sp_slice = self.pos_o_ps_adjacency_list.get(mapped_object);
+        let pos = ChildObjectLookupAdjacency {
+            subjects: self.pos_subjects.clone(),
+            sp_slice: pos_sp_slice,
+            s_p_adjacency_list: self.pos_s_p_adjacency_list.clone()
+        };
+
+
+        ChildObjectLookup::new(object, None, Some(pos), None)
+    }
+
 }
 
 impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
@@ -254,6 +272,24 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         })
     }
 
+    fn subject_additions(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+        Box::new(ChildSubjectIterator {
+            parent: None,
+
+            pos_subjects: self.pos_subjects.clone(),
+            pos_s_p_adjacency_list: self.pos_s_p_adjacency_list.clone(),
+            pos_sp_o_adjacency_list: self.pos_sp_o_adjacency_list.clone(),
+
+            neg_subjects: self.neg_subjects.clone(),
+            neg_s_p_adjacency_list: self.neg_s_p_adjacency_list.clone(),
+            neg_sp_o_adjacency_list: self.neg_sp_o_adjacency_list.clone(),
+
+            next_parent_subject: None,
+            pos_pos: 0,
+            neg_pos: 0
+        })
+    }
+
     fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
         if subject == 0 {
             return None;
@@ -305,6 +341,39 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         }))
     }
 
+    fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
+        if subject == 0 {
+            return None;
+        }
+
+        let mut pos: Option<AdjacencyStuff<M>> = None;
+
+        // first determine where we should be looking.
+        let pos_index = self.pos_subjects.index_of(subject);
+        if pos_index.is_none() {
+            return None;
+        }
+
+        // subject is mentioned in this layer (as an insert), and might be in the parent layer as well
+        let pos_mapped_subject = pos_index.unwrap() as u64 + 1;
+        if pos_mapped_subject <= self.pos_s_p_adjacency_list.left_count() as u64 {
+            let pos_predicates = self.pos_s_p_adjacency_list.get(pos_mapped_subject);
+            let pos_sp_offset = self.pos_s_p_adjacency_list.offset_for(pos_mapped_subject);
+            pos = Some(AdjacencyStuff {
+                predicates: pos_predicates,
+                sp_offset: pos_sp_offset,
+                sp_o_adjacency_list: self.pos_sp_o_adjacency_list.clone()
+            });
+        }
+
+        Some(Box::new(ChildSubjectLookup {
+            parent: None,
+            subject,
+            pos,
+            neg: None
+        }))
+    }
+
     fn objects(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
         // todo: there might be a more efficient method than doing
         // this lookup over and over, due to sequentiality of the
@@ -312,6 +381,12 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         let cloned = self.clone();
         Box::new((0..self.node_and_value_count())
                  .map(move |object| cloned.lookup_object((object+1) as u64).unwrap()))
+    }
+
+    fn object_additions(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
+        let cloned = self.clone();
+        Box::new((0..self.pos_objects.len())
+                 .map(move |mapped_object| Box::new(cloned.lookup_object_addition_mapped((mapped_object+1) as u64)) as Box<dyn ObjectLookup>))
     }
 
     fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
@@ -338,6 +413,22 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         Some(Box::new(ChildObjectLookup::new(object, parent, pos, neg)))
     }
 
+    fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+        let pos = self.pos_objects.index_of(object)
+            .map(|index| self.pos_o_ps_adjacency_list.get((index as u64)+1))
+            .map(|pos_sp_slice| ChildObjectLookupAdjacency {
+                subjects: self.pos_subjects.clone(),
+                sp_slice: pos_sp_slice,
+                s_p_adjacency_list: self.pos_s_p_adjacency_list.clone()
+            });
+
+        if pos.is_none() {
+            return None;
+        }
+
+        Some(Box::new(ChildObjectLookup::new(object, None, pos, None)))
+    }
+
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
         let parent = self.parent.lookup_predicate(predicate)
             .map(|parent| ChildPredicateLookupParentData {
@@ -361,6 +452,27 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             Some(Box::new(ChildPredicateLookup {
                 predicate,
                 parent,
+                child
+            }))
+        }
+    }
+
+    fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+        let child = self.predicate_wavelet_tree.lookup(predicate)
+            .map(|lookup| ChildPredicateLookupChildData {
+                lookup,
+                pos_subjects: self.pos_subjects.clone(),
+                pos_s_p_adjacency_list: self.pos_s_p_adjacency_list.clone(),
+                pos_sp_o_adjacency_list: self.pos_sp_o_adjacency_list.clone()
+            });
+
+        if child.is_none() {
+            None
+        }
+        else {
+            Some(Box::new(ChildPredicateLookup {
+                predicate,
+                parent: None,
                 child
             }))
         }
@@ -2083,5 +2195,92 @@ mod tests {
         assert_eq!("bar", child_layer.id_predicate(5).unwrap());
         assert_eq!(ObjectType::Node("foo".to_string()), child_layer.id_object(11).unwrap());
         assert_eq!(ObjectType::Value("baz".to_string()), child_layer.id_object(12).unwrap());
+    }
+
+    #[test]
+    fn lookup_additions_by_subject() {
+        let base_layer = example_base_layer();
+        let parent = Arc::new(base_layer);
+
+        let child_files = example_child_files();
+
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
+        child_builder.into_phase2()
+            .and_then(|b| b.add_triple(1,3,4))
+            .and_then(|b| b.add_triple(2,2,2))
+            .and_then(|b| b.add_triple(3,4,5))
+            .and_then(|b| b.remove_triple(3,2,5))
+            .and_then(|b|b.finalize()).wait().unwrap();
+
+        let child_layer = ChildLayer::load_from_files([5,4,3,2,1], parent, &child_files).wait().unwrap();
+
+        let result: Vec<_> = child_layer.subject_additions()
+            .map(|s|s.triples())
+            .flatten()
+            .map(|t| (t.subject,t.predicate,t.object))
+            .collect();
+
+        assert_eq!(vec![(1,3,4),
+                        (2,2,2),
+                        (3,4,5)],
+                   result);
+    }
+
+    #[test]
+    fn lookup_additions_by_predicate() {
+        let base_layer = example_base_layer();
+        let parent = Arc::new(base_layer);
+
+        let child_files = example_child_files();
+
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
+        child_builder.into_phase2()
+            .and_then(|b| b.add_triple(1,3,4))
+            .and_then(|b| b.add_triple(2,2,2))
+            .and_then(|b| b.add_triple(3,4,5))
+            .and_then(|b| b.remove_triple(3,2,5))
+            .and_then(|b|b.finalize()).wait().unwrap();
+
+        let child_layer = ChildLayer::load_from_files([5,4,3,2,1], parent, &child_files).wait().unwrap();
+
+        let result: Vec<_> = child_layer.predicate_additions()
+            .map(|s|s.triples())
+            .flatten()
+            .map(|t| (t.subject,t.predicate,t.object))
+            .collect();
+
+        assert_eq!(vec![(2,2,2),
+                        (1,3,4),
+                        (3,4,5)],
+                   result);
+    }
+
+    #[test]
+    fn lookup_additions_by_object() {
+        let base_layer = example_base_layer();
+        let parent = Arc::new(base_layer);
+
+        let child_files = example_child_files();
+
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
+        child_builder.into_phase2()
+            .and_then(|b| b.add_triple(1,3,4))
+            .and_then(|b| b.add_triple(2,2,2))
+            .and_then(|b| b.add_triple(3,4,5))
+            .and_then(|b| b.remove_triple(3,2,5))
+            .and_then(|b|b.finalize()).wait().unwrap();
+
+        let child_layer = ChildLayer::load_from_files([5,4,3,2,1], parent, &child_files).wait().unwrap();
+
+        let result: Vec<_> = child_layer.object_additions()
+            .map(|s|s.triples())
+            .flatten()
+            .map(|t| (t.subject,t.predicate,t.object))
+            .collect();
+
+        assert_eq!(vec![(2,2,2),
+                        (1,3,4),
+                        (3,4,5)],
+                   result);
     }
 }
