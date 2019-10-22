@@ -73,6 +73,9 @@ impl<M:AsRef<[u8]>+Clone> BitIndex<M> {
 
     /// Returns the amount of 1-bits in the given range (up to but excluding end).
     pub fn rank1_from_range(&self, start: u64, end: u64) -> u64 {
+        if start == end {
+            return 0;
+        }
         let mut rank = self.rank1(end-1);
         if start != 0 {
             rank -= self.rank1(start-1);
@@ -191,6 +194,9 @@ impl<M:AsRef<[u8]>+Clone> BitIndex<M> {
 
     /// Returns the amount of 0-bits in the given range (up to but excluding end).
     pub fn rank0_from_range(&self, start: u64, end: u64) -> u64 {
+        if start == end {
+            return 0;
+        }
         let mut rank = self.rank0(end-1);
         if start != 0 {
             rank -= self.rank0(start-1);
