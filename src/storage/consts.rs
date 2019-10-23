@@ -59,9 +59,17 @@ pub struct Filenames {
     pub neg_o_ps_adjacency_list_bit_index_blocks: &'static str,
     pub neg_o_ps_adjacency_list_bit_index_sblocks: &'static str,
 
-    pub predicate_wavelet_tree_bits: &'static str,
-    pub predicate_wavelet_tree_bit_index_blocks: &'static str,
-    pub predicate_wavelet_tree_bit_index_sblocks: &'static str,
+    pub base_predicate_wavelet_tree_bits: &'static str,
+    pub base_predicate_wavelet_tree_bit_index_blocks: &'static str,
+    pub base_predicate_wavelet_tree_bit_index_sblocks: &'static str,
+
+    pub pos_predicate_wavelet_tree_bits: &'static str,
+    pub pos_predicate_wavelet_tree_bit_index_blocks: &'static str,
+    pub pos_predicate_wavelet_tree_bit_index_sblocks: &'static str,
+
+    pub neg_predicate_wavelet_tree_bits: &'static str,
+    pub neg_predicate_wavelet_tree_bit_index_blocks: &'static str,
+    pub neg_predicate_wavelet_tree_bit_index_sblocks: &'static str,
 
     pub parent: &'static str,
 }
@@ -127,9 +135,17 @@ pub const FILENAMES: Filenames = Filenames {
     neg_o_ps_adjacency_list_bit_index_blocks: "neg_o_ps_adjacency_list_bit_index_blocks.logarray",
     neg_o_ps_adjacency_list_bit_index_sblocks: "neg_o_ps_adjacency_list_bit_index_sblocks.logarray",
 
-    predicate_wavelet_tree_bits: "predicate_wavelet_tree_bits.bitarray",
-    predicate_wavelet_tree_bit_index_blocks: "predicate_wavelet_tree_bit_index_blocks.logarray",
-    predicate_wavelet_tree_bit_index_sblocks: "predicate_wavelet_tree_bit_index_sblocks.logarray",
+    base_predicate_wavelet_tree_bits: "base_predicate_wavelet_tree_bits.bitarray",
+    base_predicate_wavelet_tree_bit_index_blocks: "base_predicate_wavelet_tree_bit_index_blocks.logarray",
+    base_predicate_wavelet_tree_bit_index_sblocks: "base_predicate_wavelet_tree_bit_index_sblocks.logarray",
+
+    pos_predicate_wavelet_tree_bits: "pos_predicate_wavelet_tree_bits.bitarray",
+    pos_predicate_wavelet_tree_bit_index_blocks: "pos_predicate_wavelet_tree_bit_index_blocks.logarray",
+    pos_predicate_wavelet_tree_bit_index_sblocks: "pos_predicate_wavelet_tree_bit_index_sblocks.logarray",
+
+    neg_predicate_wavelet_tree_bits: "neg_predicate_wavelet_tree_bits.bitarray",
+    neg_predicate_wavelet_tree_bit_index_blocks: "neg_predicate_wavelet_tree_bit_index_blocks.logarray",
+    neg_predicate_wavelet_tree_bit_index_sblocks: "neg_predicate_wavelet_tree_bit_index_sblocks.logarray",
 
     parent: "parent.hex"
 };

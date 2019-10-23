@@ -39,7 +39,8 @@ pub struct ChildLayer<M:'static+AsRef<[u8]>+Clone+Send+Sync> {
     neg_sp_o_adjacency_list: AdjacencyList<M>,
     neg_o_ps_adjacency_list: AdjacencyList<M>,
 
-    predicate_wavelet_tree: WaveletTree<M>,
+    pos_predicate_wavelet_tree: WaveletTree<M>,
+    neg_predicate_wavelet_tree: WaveletTree<M>,
 }
 
 impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> ChildLayer<M> {
@@ -85,11 +86,17 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> ChildLayer<M> {
                                                           maps.neg_o_ps_adjacency_list_maps.bitindex_maps.blocks_map,
                                                           maps.neg_o_ps_adjacency_list_maps.bitindex_maps.sblocks_map);
 
-        let predicate_wavelet_tree_width = pos_s_p_adjacency_list.nums().width();
-        let predicate_wavelet_tree = WaveletTree::from_parts(BitIndex::from_maps(maps.predicate_wavelet_tree_maps.bits_map,
-                                                                                 maps.predicate_wavelet_tree_maps.blocks_map,
-                                                                                 maps.predicate_wavelet_tree_maps.sblocks_map),
-                                                             predicate_wavelet_tree_width);
+        let pos_predicate_wavelet_tree_width = pos_s_p_adjacency_list.nums().width();
+        let pos_predicate_wavelet_tree = WaveletTree::from_parts(BitIndex::from_maps(maps.pos_predicate_wavelet_tree_maps.bits_map,
+                                                                                     maps.pos_predicate_wavelet_tree_maps.blocks_map,
+                                                                                     maps.pos_predicate_wavelet_tree_maps.sblocks_map),
+                                                                 pos_predicate_wavelet_tree_width);
+
+        let neg_predicate_wavelet_tree_width = neg_s_p_adjacency_list.nums().width();
+        let neg_predicate_wavelet_tree = WaveletTree::from_parts(BitIndex::from_maps(maps.neg_predicate_wavelet_tree_maps.bits_map,
+                                                                                     maps.neg_predicate_wavelet_tree_maps.blocks_map,
+                                                                                     maps.neg_predicate_wavelet_tree_maps.sblocks_map),
+                                                                 neg_predicate_wavelet_tree_width);
 
         ChildLayer {
             name,
@@ -112,7 +119,8 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> ChildLayer<M> {
             neg_sp_o_adjacency_list,
             neg_o_ps_adjacency_list,
 
-            predicate_wavelet_tree,
+            pos_predicate_wavelet_tree,
+            neg_predicate_wavelet_tree,
         }
     }
 
@@ -498,7 +506,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
                 neg_s_p_adjacency_list: self.neg_s_p_adjacency_list.clone(),
                 neg_sp_o_adjacency_list: self.neg_sp_o_adjacency_list.clone()
             });
-        let child = self.predicate_wavelet_tree.lookup(predicate)
+        let child = self.pos_predicate_wavelet_tree.lookup(predicate)
             .map(|lookup| ChildPredicateLookupChildData {
                 lookup,
                 pos_subjects: self.pos_subjects.clone(),
@@ -519,7 +527,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
     }
 
     fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
-        let child = self.predicate_wavelet_tree.lookup(predicate)
+        let child = self.pos_predicate_wavelet_tree.lookup(predicate)
             .map(|lookup| ChildPredicateLookupChildData {
                 lookup,
                 pos_subjects: self.pos_subjects.clone(),
@@ -1746,11 +1754,13 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
         let pos_sp_o_files = self.files.pos_sp_o_adjacency_list_files;
         let pos_o_ps_files = self.files.pos_o_ps_adjacency_list_files;
         let pos_objects_file = self.files.pos_objects_file;
+        let neg_s_p_files = self.files.neg_s_p_adjacency_list_files;
         let neg_sp_o_files = self.files.neg_sp_o_adjacency_list_files;
         let neg_o_ps_files = self.files.neg_o_ps_adjacency_list_files;
         let neg_objects_file = self.files.neg_objects_file;
 
-        let predicate_wavelet_tree_files = self.files.predicate_wavelet_tree_files;
+        let pos_predicate_wavelet_tree_files = self.files.pos_predicate_wavelet_tree_files;
+        let neg_predicate_wavelet_tree_files = self.files.neg_predicate_wavelet_tree_files;
 
         future::join_all(vec![build_pos_s_p_adjacency_list,
                               build_pos_sp_o_adjacency_list,
@@ -1761,9 +1771,13 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
             .and_then(|_| build_object_index(pos_sp_o_files, pos_o_ps_files, pos_objects_file)
                       .join(build_object_index(neg_sp_o_files, neg_o_ps_files, neg_objects_file))
                       .join(build_wavelet_tree_from_logarray(pos_s_p_files.nums_file,
-                                                             predicate_wavelet_tree_files.bits_file,
-                                                             predicate_wavelet_tree_files.blocks_file,
-                                                             predicate_wavelet_tree_files.sblocks_file)))
+                                                             pos_predicate_wavelet_tree_files.bits_file,
+                                                             pos_predicate_wavelet_tree_files.blocks_file,
+                                                             pos_predicate_wavelet_tree_files.sblocks_file))
+                      .join(build_wavelet_tree_from_logarray(neg_s_p_files.nums_file,
+                                                             neg_predicate_wavelet_tree_files.bits_file,
+                                                             neg_predicate_wavelet_tree_files.blocks_file,
+                                                             neg_predicate_wavelet_tree_files.sblocks_file)))
             .map(|_|())
     }
 }
@@ -1888,7 +1902,7 @@ mod tests {
     }
 
     fn example_child_files() -> ChildLayerFiles<MemoryBackedStore> {
-        let files: Vec<_> = (0..37).map(|_| MemoryBackedStore::new()).collect();
+        let files: Vec<_> = (0..40).map(|_| MemoryBackedStore::new()).collect();
 
         ChildLayerFiles {
             node_dictionary_files: DictionaryFiles {
@@ -1957,10 +1971,15 @@ mod tests {
                 },
                 nums_file: files[33].clone()
             },
-            predicate_wavelet_tree_files: BitIndexFiles {
+            pos_predicate_wavelet_tree_files: BitIndexFiles {
                 bits_file: files[34].clone(),
                 blocks_file: files[35].clone(),
                 sblocks_file: files[36].clone()
+            },
+            neg_predicate_wavelet_tree_files: BitIndexFiles {
+                bits_file: files[37].clone(),
+                blocks_file: files[38].clone(),
+                sblocks_file: files[39].clone()
             },
         }
     }

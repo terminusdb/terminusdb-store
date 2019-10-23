@@ -230,7 +230,7 @@ impl LayerStore for MemoryLayerStore {
                  })
                  .and_then(move |parent_layer| {
                      let name = rand::random();
-                     let files: Vec<_> = (0..37).map(|_| MemoryBackedStore::new()).collect();
+                     let files: Vec<_> = (0..40).map(|_| MemoryBackedStore::new()).collect();
                      
                      let clf = ChildLayerFiles {
                          node_dictionary_files: DictionaryFiles {
@@ -299,10 +299,15 @@ impl LayerStore for MemoryLayerStore {
                              },
                              nums_file: files[33].clone()
                          },
-                         predicate_wavelet_tree_files: BitIndexFiles {
+                         pos_predicate_wavelet_tree_files: BitIndexFiles {
                              bits_file: files[34].clone(),
                              blocks_file: files[35].clone(),
                              sblocks_file: files[36].clone()
+                         },
+                         neg_predicate_wavelet_tree_files: BitIndexFiles {
+                             bits_file: files[37].clone(),
+                             blocks_file: files[38].clone(),
+                             sblocks_file: files[39].clone()
                          },
                      };
 
