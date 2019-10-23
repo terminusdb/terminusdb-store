@@ -280,7 +280,7 @@ impl<W:'static+tokio::io::AsyncWrite+Send> LogArrayFileBuilder<W> {
         } = self;
         
 
-        let write_last_bits: Box<dyn Future<Item=W, Error=std::io::Error>+Send> = if count % 8 == 0 {
+        let write_last_bits: Box<dyn Future<Item=W, Error=std::io::Error>+Send> = if (count as u64)*(width as u64) % 64 == 0 {
             Box::new(future::ok(file))
         }
         else {
@@ -588,4 +588,21 @@ mod tests {
 
         assert_eq!(None, monotonic.index_of(12));
     }
+
+    #[test]
+    fn writing_64_bits_of_data() {
+        let store = MemoryBackedStore::new();
+        let original = vec![1,2,3,4,5,6,7,8,1,2,3,4,5,6,7,8];
+        let builder = LogArrayFileBuilder::new(store.open_write(), 4);
+        builder.push_all(stream::iter_ok(original.clone()))
+            .and_then(|b|b.finalize())
+            .wait()
+            .unwrap();
+
+        let content = store.map().wait().unwrap();
+        let logarray = LogArray::parse(&content).unwrap();
+        assert_eq!(original, logarray.iter().collect::<Vec<_>>());
+        assert_eq!(16, logarray.data.len());
+    }
+
 }
