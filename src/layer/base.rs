@@ -238,11 +238,9 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         self.lookup_predicate(predicate)
     }
 
-    /*
-    fn lookup_predicate_removal(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+    fn lookup_predicate_removal(&self, _predicate: u64) -> Option<Box<dyn PredicateLookup>> {
         None
     }
-    */
 
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())

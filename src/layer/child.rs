@@ -527,24 +527,31 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
     }
 
     fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
-        let child = self.pos_predicate_wavelet_tree.lookup(predicate)
-            .map(|lookup| ChildPredicateLookupChildData {
-                lookup,
-                pos_subjects: self.pos_subjects.clone(),
-                pos_s_p_adjacency_list: self.pos_s_p_adjacency_list.clone(),
-                pos_sp_o_adjacency_list: self.pos_sp_o_adjacency_list.clone()
-            });
-
-        if child.is_none() {
-            None
-        }
-        else {
-            Some(Box::new(ChildPredicateLookup {
+        self.pos_predicate_wavelet_tree.lookup(predicate)
+            .map(|lookup| Box::new(ChildPredicateLookup {
                 predicate,
                 parent: None,
-                child
-            }))
-        }
+                child: Some(ChildPredicateLookupChildData {
+                    lookup,
+                    pos_subjects: self.pos_subjects.clone(),
+                    pos_s_p_adjacency_list: self.pos_s_p_adjacency_list.clone(),
+                    pos_sp_o_adjacency_list: self.pos_sp_o_adjacency_list.clone()
+                })
+            }) as Box<dyn PredicateLookup>)
+    }
+
+    fn lookup_predicate_removal(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+        self.neg_predicate_wavelet_tree.lookup(predicate)
+            .map(|lookup| Box::new(ChildPredicateLookup {
+                predicate,
+                parent: None,
+                child: Some(ChildPredicateLookupChildData {
+                    lookup,
+                    pos_subjects: self.neg_subjects.clone(),
+                    pos_s_p_adjacency_list: self.neg_s_p_adjacency_list.clone(),
+                    pos_sp_o_adjacency_list: self.neg_sp_o_adjacency_list.clone()
+                })
+            }) as Box<dyn PredicateLookup>)
     }
 
     fn clone_boxed(&self) -> Box<dyn Layer> {
@@ -2392,6 +2399,35 @@ mod tests {
         assert_eq!(vec![(2,1,1),
                         (3,2,5),
                         (4,3,6)],
+                   result);
+    }
+
+    #[test]
+    fn lookup_removals_by_predicate() {
+        let base_layer = example_base_layer();
+        let parent = Arc::new(base_layer);
+
+        let child_files = example_child_files();
+
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
+        child_builder.into_phase2()
+            .and_then(|b| b.add_triple(1,3,4))
+            .and_then(|b| b.remove_triple(2,1,1))
+            .and_then(|b| b.remove_triple(2,3,6))
+            .and_then(|b| b.remove_triple(3,2,5))
+            .and_then(|b|b.finalize()).wait().unwrap();
+
+        let child_layer = ChildLayer::load_from_files([5,4,3,2,1], parent, &child_files).wait().unwrap();
+
+        let result: Vec<_> = child_layer.predicate_removals()
+            .map(|s|s.triples())
+            .flatten()
+            .map(|t| (t.subject,t.predicate,t.object))
+            .collect();
+
+        assert_eq!(vec![(2,1,1),
+                        (3,2,5),
+                        (2,3,6)],
                    result);
     }
 

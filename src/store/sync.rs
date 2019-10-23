@@ -195,11 +195,9 @@ impl Layer for SyncStoreLayer {
         self.inner.lookup_predicate_addition(predicate)
     }
 
-    /*
     fn lookup_predicate_removal(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
         self.inner.lookup_predicate_removal(predicate)
     }
-    */
 
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())

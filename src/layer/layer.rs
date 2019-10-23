@@ -83,12 +83,7 @@ pub trait Layer: Send+Sync {
     fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn SubjectLookup>>;
     /// Returns a `SubjectLookup` object for the given subject, or None if it cannot be constructed.
     ///
-    /// Note that even if a value is returned here, that doesn't
-    /// necessarily mean that there will be triples for the given
-    /// subject. All it means is that this layer or a parent layer has
-    /// registered an addition involving this subject. However, later
-    /// layers may have then removed every triple involving this
-    /// subject.
+    /// This will only lookup in the current layer.
     fn lookup_subject_removal(&self, subject: u64) -> Option<Box<dyn SubjectLookup>>;
 
     /// Returns an iterator over all objects known to this layer.
@@ -114,6 +109,7 @@ pub trait Layer: Send+Sync {
 
     /// Returns an `ObjectLookup` for the given object, or None if it could not be constructed.
     ///
+    /// This will only lookup in the current layer.
     /// Note that even if a value is returned here, that doesn't
     /// necessarily mean that there will be triples for the given
     /// object. All it means is that this layer or a parent layer has
@@ -124,22 +120,12 @@ pub trait Layer: Send+Sync {
 
     /// Returns an `ObjectLookup` for the given object, or None if it could not be constructed.
     ///
-    /// Note that even if a value is returned here, that doesn't
-    /// necessarily mean that there will be triples for the given
-    /// object. All it means is that this layer or a parent layer has
-    /// registered an addition involving this object. However, later
-    /// layers may have then removed every triple involving this
-    /// object.
+    /// This will only lookup in the current layer.
     fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn ObjectLookup>>;
 
     /// Returns an `ObjectLookup` for the given object, or None if it could not be constructed.
     ///
-    /// Note that even if a value is returned here, that doesn't
-    /// necessarily mean that there will be triples for the given
-    /// object. All it means is that this layer or a parent layer has
-    /// registered an addition involving this object. However, later
-    /// layers may have then removed every triple involving this
-    /// object.
+    /// This will only lookup in the current layer.
     fn lookup_object_removal(&self, object: u64) -> Option<Box<dyn ObjectLookup>>;
 
     /// Returns a `PredicateLookup` for the given predicate, or None if it could not be constructed.
@@ -154,25 +140,13 @@ pub trait Layer: Send+Sync {
 
     /// Returns a `PredicateLookup` for the given predicate, or None if it could not be constructed.
     ///
-    /// Note that even if a value is returned here, that doesn't
-    /// necessarily mean that there will be triples for the given
-    /// predicate. All it means is that this layer or a parent layer
-    /// has registered an addition involving this predicate. However,
-    /// later layers may have then removed every triple involving this
-    /// predicate.
+    /// This will only lookup in the current layer.
     fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>>;
 
-    /*
     /// Returns a `PredicateLookup` for the given predicate, or None if it could not be constructed.
     ///
-    /// Note that even if a value is returned here, that doesn't
-    /// necessarily mean that there will be triples for the given
-    /// predicate. All it means is that this layer or a parent layer
-    /// has registered an addition involving this predicate. However,
-    /// later layers may have then removed every triple involving this
-    /// predicate.
+    /// This will only lookup in the current layer.
     fn lookup_predicate_removal(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>>;
-    */
 
     fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn PredicateLookup>>> {
         let cloned = self.clone_boxed();
@@ -184,13 +158,10 @@ pub trait Layer: Send+Sync {
         Box::new((1..=self.predicate_count()).map(move |p|cloned.lookup_predicate_addition(p as u64)).flatten())
     }
 
-
-    /*
     fn predicate_removals(&self) -> Box<dyn Iterator<Item=Box<dyn PredicateLookup>>> {
         let cloned = self.clone_boxed();
         Box::new((1..=self.predicate_count()).map(move |p|cloned.lookup_predicate_removal(p as u64)).flatten())
     }
-    */
 
     /// Return a clone of this layer in a box.
     fn clone_boxed(&self) -> Box<dyn Layer>;

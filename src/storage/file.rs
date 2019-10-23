@@ -163,7 +163,7 @@ impl<F:FileLoad+FileStore+Clone> ChildLayerFiles<F> {
                            self.neg_o_ps_adjacency_list_files.map_all()];
 
         let wt_futs = vec![self.pos_predicate_wavelet_tree_files.map_all(),
-                           self.pos_predicate_wavelet_tree_files.map_all()];
+                           self.neg_predicate_wavelet_tree_files.map_all()];
 
         future::join_all(dict_futs)
             .join(future::join_all(sub_futs))

@@ -236,11 +236,9 @@ impl Layer for StoreLayer {
         self.layer.lookup_predicate_addition(predicate)
     }
 
-    /*
     fn lookup_predicate_removal(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
         self.layer.lookup_predicate_removal(predicate)
     }
-    */
 
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())
