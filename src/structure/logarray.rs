@@ -73,6 +73,8 @@ impl<M:AsRef<[u8]>+Clone> LogArray<M> {
         let width = data.as_ref()[data.as_ref().len()-4];
         let len_bytes = (len as usize * width as usize + 7) / 8 as usize;
 
+        assert_eq!((len_bytes+15)/8*8, data.as_ref().len(), "logarray data is of wrong length");
+
         Ok(LogArray {
             len,
             width,
