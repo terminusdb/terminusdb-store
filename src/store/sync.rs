@@ -147,12 +147,20 @@ impl Layer for SyncStoreLayer {
         self.inner.subject_additions()
     }
 
+    fn subject_removals(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+        self.inner.subject_removals()
+    }
+
     fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
         self.inner.lookup_subject(subject)
     }
 
     fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
         self.inner.lookup_subject_addition(subject)
+    }
+
+    fn lookup_subject_removal(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
+        self.inner.lookup_subject_removal(subject)
     }
 
     fn objects(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
@@ -163,12 +171,20 @@ impl Layer for SyncStoreLayer {
         self.inner.object_additions()
     }
 
+    fn object_removals(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
+        self.inner.object_removals()
+    }
+
     fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
         self.inner.lookup_object(object)
     }
 
     fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
         self.inner.lookup_object_addition(object)
+    }
+
+    fn lookup_object_removal(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+        self.inner.lookup_object_removal(object)
     }
 
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
@@ -178,6 +194,12 @@ impl Layer for SyncStoreLayer {
     fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
         self.inner.lookup_predicate_addition(predicate)
     }
+
+    /*
+    fn lookup_predicate_removal(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+        self.inner.lookup_predicate_removal(predicate)
+    }
+    */
 
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())

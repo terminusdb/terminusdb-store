@@ -89,6 +89,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         self.subjects()
     }
 
+    fn subject_removals(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+        Box::new(std::iter::empty())
+    }
+
     fn node_and_value_count(&self) -> usize {
         self.node_dictionary.len() + self.value_dictionary.len()
     }
@@ -176,6 +180,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         self.lookup_subject(subject)
     }
 
+    fn lookup_subject_removal(&self, _subject: u64) -> Option<Box<dyn SubjectLookup>> {
+        None
+    }
+
     fn objects(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
         // todo: there might be a more efficient method than doing
         // this lookup over and over, due to sequentiality of the
@@ -187,6 +195,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
 
     fn object_additions(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
         self.objects()
+    }
+
+    fn object_removals(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
+        Box::new(std::iter::empty())
     }
 
     fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
@@ -207,6 +219,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         self.lookup_object(object)
     }
 
+    fn lookup_object_removal(&self, _object: u64) -> Option<Box<dyn ObjectLookup>> {
+        None
+    }
+
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
         let s_p_adjacency_list = self.s_p_adjacency_list.clone();
         let sp_o_adjacency_list = self.sp_o_adjacency_list.clone();
@@ -221,6 +237,12 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
     fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
         self.lookup_predicate(predicate)
     }
+
+    /*
+    fn lookup_predicate_removal(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+        None
+    }
+    */
 
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())
