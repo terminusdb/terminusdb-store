@@ -133,6 +133,15 @@ impl StoreLayer {
         self.store.layer_store.create_child_layer(self.layer.name())
             .map(move |layer|StoreLayerBuilder::wrap(layer, store))
     }
+
+    pub fn parent(&self) -> Option<StoreLayer> {
+        let parent = self.layer.parent();
+
+        parent.map(|p| StoreLayer {
+            layer: p,
+            store: self.store.clone()
+        })
+    }
 }
 
 impl Layer for StoreLayer {

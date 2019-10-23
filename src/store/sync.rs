@@ -92,6 +92,14 @@ impl SyncStoreLayer {
 
         inner.map(|i|SyncStoreLayerBuilder::wrap(i, self.executor.clone()))
     }
+
+    pub fn parent(&self) -> Option<SyncStoreLayer> {
+        self.inner.parent()
+            .map(|p| SyncStoreLayer {
+                inner: p,
+                executor: self.executor.clone()
+            })
+    }
 }
 
 impl Layer for SyncStoreLayer {
@@ -100,7 +108,7 @@ impl Layer for SyncStoreLayer {
     }
 
     fn parent(&self) -> Option<Arc<dyn Layer>> {
-        self.inner.parent()
+        (&self.inner as &dyn Layer).parent()
     }
 
     fn node_and_value_count(&self) -> usize {
