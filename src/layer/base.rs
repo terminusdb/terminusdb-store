@@ -788,7 +788,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
                       }))
             .and_then(move |mut tuples| {
                 let (greatest_left,_) = tuples.iter().next_back().unwrap_or(&(0,0));
-                for pad_object in *greatest_left..(object_count as u64)+1 {
+                for pad_object in (*greatest_left+1)..(object_count as u64)+1 {
                     tuples.insert((pad_object, 0));
                 }
                 let width = ((object_count+1) as f32).log2().ceil() as u8;
@@ -817,13 +817,9 @@ mod tests {
     use super::*;
     use crate::storage::memory::*;
 
-    fn example_base_layer() -> BaseLayer<Vec<u8>> {
-        let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
-        let predicates = vec!["abcde", "fghij", "klmno", "lll"];
-        let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
-
+    fn base_layer_files() -> BaseLayerFiles<MemoryBackedStore> {
         let files: Vec<_> = (0..21).map(|_| MemoryBackedStore::new()).collect();
-        let base_layer_files = BaseLayerFiles {
+        BaseLayerFiles {
             node_dictionary_files: DictionaryFiles {
                 blocks_file: files[0].clone(),
                 offsets_file: files[1].clone()
@@ -865,7 +861,15 @@ mod tests {
                 blocks_file: files[19].clone(),
                 sblocks_file: files[20].clone(),
             },
-        };
+        }
+    }
+
+    fn example_base_layer() -> BaseLayer<Vec<u8>> {
+        let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
+        let predicates = vec!["abcde", "fghij", "klmno", "lll"];
+        let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
+
+        let base_layer_files = base_layer_files();
 
         let builder = BaseLayerFileBuilder::from_files(&base_layer_files);
 
@@ -1045,5 +1049,21 @@ mod tests {
                         (3,3,6),
                         (4,3,6)],
                    triples_by_object);
+    }
+
+    #[test]
+    fn create_empty_base_layer() {
+        let base_layer_files = base_layer_files();
+        let builder = BaseLayerFileBuilder::from_files(&base_layer_files);
+
+        let future = builder.into_phase2()
+            .and_then(|b| b.finalize());
+
+
+        future.wait().unwrap();
+
+        let layer = BaseLayer::load_from_files([1,2,3,4,5], &base_layer_files).wait().unwrap();
+        assert_eq!(0, layer.node_and_value_count());
+        assert_eq!(0, layer.predicate_count());
     }
 }

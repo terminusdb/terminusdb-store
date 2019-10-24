@@ -2459,4 +2459,25 @@ mod tests {
                         (2,3,6)],
                    result);
     }
+
+    #[test]
+    fn create_empty_child_layer() {
+        let base_layer = example_base_layer();
+        let parent = Arc::new(base_layer);
+
+        let child_files = example_child_files();
+
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
+        child_builder.into_phase2()
+            .and_then(|b| b.add_triple(1,3,4))
+            .and_then(|b| b.remove_triple(2,1,1))
+            .and_then(|b| b.remove_triple(2,3,6))
+            .and_then(|b| b.remove_triple(3,2,5))
+            .and_then(|b|b.finalize()).wait().unwrap();
+
+        let child_layer = ChildLayer::load_from_files([5,4,3,2,1], parent.clone(), &child_files).wait().unwrap();
+
+        assert_eq!(parent.node_and_value_count(), child_layer.node_and_value_count());
+        assert_eq!(parent.predicate_count(), child_layer.predicate_count());
+    }
 }

@@ -74,8 +74,7 @@ impl<M:AsRef<[u8]>+Clone> WaveletLookup<M> {
 impl<M:AsRef<[u8]>+Clone> WaveletTree<M> {
     /// Construct a wavelet tree from a bitindex and a layer count.
     pub fn from_parts(bits: BitIndex<M>, num_layers: u8) -> WaveletTree<M> {
-        assert!(num_layers != 0);
-        if bits.len() % num_layers as usize != 0 {
+        if num_layers != 0 && bits.len() % num_layers as usize != 0 {
             panic!("the bitarray length is not a multiple of the number of layers");
         }
 
@@ -84,7 +83,12 @@ impl<M:AsRef<[u8]>+Clone> WaveletTree<M> {
 
     /// Returns the length of the encoded array.
     pub fn len(&self) -> usize {
-        self.bits.len() / self.num_layers as usize
+        if self.num_layers == 0 {
+            0
+        }
+        else {
+            self.bits.len() / self.num_layers as usize
+        }
     }
 
     /// Returns the amount of layers.
