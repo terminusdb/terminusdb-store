@@ -1575,8 +1575,6 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
             Ordering::Greater => pos_subjects.push(subject)
         };
 
-        let mapped_subject = pos_subjects.len() as u64;
-        
         if pos_last_subject == subject && pos_last_predicate == predicate {
             // only the second adjacency list has to be pushed to
             let count = pos_s_p_adjacency_list_builder.count() + 1;
@@ -1590,7 +1588,7 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
                              
                              pos_s_p_adjacency_list_builder,
                              pos_sp_o_adjacency_list_builder,
-                             pos_last_subject: mapped_subject,
+                             pos_last_subject: subject,
                              pos_last_predicate: predicate,
 
                              neg_s_p_adjacency_list_builder,
@@ -1602,6 +1600,8 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
         }
         else {
             // both list have to be pushed to
+            let mapped_subject = pos_subjects.len() as u64;
+
             Box::new(
                 pos_s_p_adjacency_list_builder.push(mapped_subject, predicate)
                     .and_then(move |pos_s_p_adjacency_list_builder| {
@@ -1664,8 +1664,6 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
             Ordering::Greater => neg_subjects.push(subject)
         }
 
-        let mapped_subject = neg_subjects.len() as u64;
-        
         if neg_last_subject == subject && neg_last_predicate == predicate {
             // only the second adjacency list has to be pushed to
             let count = neg_s_p_adjacency_list_builder.count() + 1;
@@ -1684,13 +1682,15 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
 
                              neg_s_p_adjacency_list_builder,
                              neg_sp_o_adjacency_list_builder,
-                             neg_last_subject: mapped_subject,
+                             neg_last_subject: subject,
                              neg_last_predicate: predicate,
                          }
                      }))
         }
         else {
             // both list have to be pushed to
+            let mapped_subject = neg_subjects.len() as u64;
+
             Box::new(
                 neg_s_p_adjacency_list_builder.push(mapped_subject, predicate)
                     .and_then(move |neg_s_p_adjacency_list_builder| {
@@ -1815,6 +1815,8 @@ fn build_object_index<F:'static+FileLoad+FileStore>(sp_o_files: AdjacencyListFil
                         *compressed += 1;
                     }
 
+                    *last = left;
+
                     Some((*compressed, right))
                 }).collect::<Vec<_>>();
 
@@ -1834,14 +1836,9 @@ mod tests {
     use crate::layer::base::*;
     use super::*;
     use crate::storage::memory::*;
-
-    fn example_base_layer() -> BaseLayer<Vec<u8>> {
-        let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
-        let predicates = vec!["abcde", "fghij", "klmno", "lll"];
-        let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
-
+    fn base_layer_files() -> BaseLayerFiles<MemoryBackedStore> {
         let files: Vec<_> = (0..21).map(|_| MemoryBackedStore::new()).collect();
-        let base_layer_files = BaseLayerFiles {
+        BaseLayerFiles {
             node_dictionary_files: DictionaryFiles {
                 blocks_file: files[0].clone(),
                 offsets_file: files[1].clone()
@@ -1883,9 +1880,25 @@ mod tests {
                 blocks_file: files[19].clone(),
                 sblocks_file: files[20].clone(),
             },
-        };
+        }
+    }
 
-        let base_builder = BaseLayerFileBuilder::from_files(&base_layer_files);
+    fn empty_base_layer() -> BaseLayer<Vec<u8>> {
+        let files = base_layer_files();
+        let base_builder = BaseLayerFileBuilder::from_files(&files);
+        base_builder.into_phase2().and_then(|b|b.finalize()).wait().unwrap();
+
+        BaseLayer::load_from_files([1,2,3,4,5], &files).wait().unwrap()
+    }
+
+    fn example_base_layer() -> BaseLayer<Vec<u8>> {
+        let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
+        let predicates = vec!["abcde", "fghij", "klmno", "lll"];
+        let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
+
+
+        let files = base_layer_files();
+        let base_builder = BaseLayerFileBuilder::from_files(&files);
 
         let future = base_builder.add_nodes(nodes.into_iter().map(|s|s.to_string()))
             .and_then(move |(_,b)| b.add_predicates(predicates.into_iter().map(|s|s.to_string())))
@@ -1903,7 +1916,7 @@ mod tests {
 
         future.wait().unwrap();
 
-        let base_layer = BaseLayer::load_from_files([1,2,3,4,5], &base_layer_files).wait().unwrap();
+        let base_layer = BaseLayer::load_from_files([1,2,3,4,5], &files).wait().unwrap();
 
         base_layer
     }
@@ -2161,6 +2174,44 @@ mod tests {
                         (2,3,6),
                         (3,3,6),
                         (4,3,6)], triples);
+    }
+
+    #[test]
+    fn iterate_child_layer_triples_by_objects_with_equal_predicates() {
+        let base_layer = empty_base_layer();
+        let parent = Arc::new(base_layer);
+
+        let child_files = example_child_files();
+
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
+        child_builder
+            .add_node("a")
+            .and_then(|(_,b)|b.add_predicate("b"))
+            .and_then(|(_,b)|b.add_predicate("c"))
+            .and_then(|(_,b)|b.add_value("d"))
+
+            .and_then(|(_,b)|b.into_phase2())
+
+            .and_then(|b| b.add_triple(1,1,1))
+            .and_then(|b| b.add_triple(1,1,2))
+            .and_then(|b| b.add_triple(1,2,1))
+            .and_then(|b| b.add_triple(2,1,1))
+            .and_then(|b| b.add_triple(2,2,1))
+            .and_then(|b|b.finalize()).wait().unwrap();
+
+        let child_layer = ChildLayer::load_from_files([5,4,3,2,1], parent, &child_files).wait().unwrap();
+
+        let triples: Vec<_> = child_layer.objects()
+            .map(|o|o.triples())
+            .flatten()
+            .map(|t|(t.subject, t.predicate, t.object))
+            .collect();
+
+        assert_eq!(vec![(1,1,1),
+                        (1,2,1),
+                        (2,1,1),
+                        (2,2,1),
+                        (1,1,2)], triples);
     }
 
     #[test]
