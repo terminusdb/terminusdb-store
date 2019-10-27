@@ -61,3 +61,4 @@ For more information, [visit the documentation on docs.rs](https://docs.rs/termi
 ## See also
 - The Terminus database, for which this library was written: [Website](https://terminusdb.com) - [GitHub](https://github.com/terminusdb/)
 - Our prolog bindings for this library: [terminus_store_prolog](https://github.com/terminusdb/)
+- The HDT format, which the terminus-store layer format is based on: [Website](http://www.rdfhdt.org/)
