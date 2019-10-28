@@ -31,18 +31,25 @@ impl FileBackedStore {
 
 }
 
+enum FileBacking {
+    Mmap(Mmap),
+    Vec(Vec<u8>)
+}
+
 #[derive(Clone)]
-pub struct SharedMmap(Option<Arc<Mmap>>);
+pub struct SharedMmap(Option<Arc<FileBacking>>);
 
 impl AsRef<[u8]> for SharedMmap {
     fn as_ref(&self) -> &[u8] {
-        match &self.0 {
+        match &self.0.as_ref().map(|a|a.as_ref()) {
             None => &[],
-            Some(map) => &*map
+            Some(FileBacking::Mmap(map)) => map.as_ref(),
+            Some(FileBacking::Vec(vec)) => vec.as_ref()
         }
     }
 }
 
+const MMAP_TRESHOLD: usize = 4096*16;
 
 impl FileLoad for FileBackedStore {
     type Read = File;
@@ -63,12 +70,17 @@ impl FileLoad for FileBackedStore {
         let file = self.clone();
         Box::new(future::lazy(move || {
             if file.size() == 0 {
-                future::ok(SharedMmap(None))
+                future::Either::A(future::ok(SharedMmap(None)))
+            }
+            else if file.size() < MMAP_TRESHOLD {
+                let f = file.open_read_from(0);
+                future::Either::B(tokio::io::read_to_end(f, Vec::with_capacity(file.size()))
+                                  .map(|(_, vec)| SharedMmap(Some(Arc::new(FileBacking::Vec(vec))))))
             }
             else {
                 let f = file.open_read_from_std(0);
                 // unsafe justification: we opened this file specifically to do memory mapping, and will do nothing else with it.
-                future::ok(SharedMmap(Some(Arc::new(unsafe { Mmap::map(&f) }.unwrap()))))
+                future::Either::A(future::ok(SharedMmap(Some(Arc::new(FileBacking::Mmap(unsafe { Mmap::map(&f) }.unwrap()))))))
             }
         }))
     }
@@ -320,6 +332,70 @@ mod tests {
         runtime.shutdown_now();
 
         assert_eq!(&vec![1,2,3][..], &map.as_ref()[..]);
+    }
+
+    #[test]
+    fn write_and_map_small_file_backed() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("foo");
+        let file = FileBackedStore::new(file_path);
+        let runtime = Runtime::new().unwrap();
+
+        let w = file.open_write();
+        let mut contents = vec![0u8;MMAP_TRESHOLD-1];
+        for i in 0..MMAP_TRESHOLD-1 {
+            contents[i] = (i as usize % 256) as u8;
+        }
+
+        let task = tokio::io::write_all(w,contents.clone())
+            .and_then(move |_| file.map());
+
+        let map = oneshot::spawn(task, &runtime.executor()).wait().unwrap();
+        runtime.shutdown_now();
+
+        if let SharedMmap(Some(filebacking)) = map {
+            if let FileBacking::Vec(vec) = &*filebacking {
+                assert_eq!(contents, &vec[..]);
+            }
+            else {
+                panic!("expected small file to be read rather than mmapped");
+            }
+        }
+        else {
+            panic!("expected file to have some backing");
+        }
+    }
+
+    #[test]
+    fn write_and_map_large_file_backed() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("foo");
+        let file = FileBackedStore::new(file_path);
+        let runtime = Runtime::new().unwrap();
+
+        let w = file.open_write();
+        let mut contents = vec![0u8;MMAP_TRESHOLD];
+        for i in 0..MMAP_TRESHOLD {
+            contents[i] = (i as usize % 256) as u8;
+        }
+
+        let task = tokio::io::write_all(w,contents.clone())
+            .and_then(move |_| file.map());
+
+        let map = oneshot::spawn(task, &runtime.executor()).wait().unwrap();
+        runtime.shutdown_now();
+
+        if let SharedMmap(Some(filebacking)) = map {
+            if let FileBacking::Mmap(mmap) = &*filebacking {
+                assert_eq!(contents, mmap.as_ref());
+            }
+            else {
+                panic!("expected file of sufficient size to be mmapped rather than read");
+            }
+        }
+        else {
+            panic!("expected file to have some backing");
+        }
     }
 
     #[test]
