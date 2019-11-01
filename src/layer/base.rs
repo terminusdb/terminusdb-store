@@ -782,16 +782,19 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
         future::join_all(vec![self.s_p_adjacency_list_builder.finalize(), self.sp_o_adjacency_list_builder.finalize()])
             .and_then(move |_| adjacency_list_stream_pairs(sp_o_adjacency_list_files.bitindex_files.bits_file, sp_o_adjacency_list_files.nums_file)
                       .map(|(left, right)| (right, left))
-                      .fold(BTreeSet::new(), |mut set, (left, right)| {
+                      .fold((BTreeSet::new(),0), |(mut set, mut greatest_right), (left, right)| {
                           set.insert((left, right));
-                          future::ok::<_,std::io::Error>(set)
+                          if right > greatest_right {
+                              greatest_right = right;
+                          }
+                          future::ok::<_,std::io::Error>((set, greatest_right))
                       }))
-            .and_then(move |mut tuples| {
+            .and_then(move |(mut tuples, greatest_right)| {
                 let (greatest_left,_) = tuples.iter().next_back().unwrap_or(&(0,0));
                 for pad_object in (*greatest_left+1)..(object_count as u64)+1 {
                     tuples.insert((pad_object, 0));
                 }
-                let width = ((object_count+1) as f32).log2().ceil() as u8;
+                let width = ((greatest_right+1) as f32).log2().ceil() as u8;
 
                 let o_ps_adjacency_list_builder = AdjacencyListBuilder::new(o_ps_adjacency_list_files.bitindex_files.bits_file,
                                                                             o_ps_adjacency_list_files.bitindex_files.blocks_file.open_write(),
@@ -1065,5 +1068,38 @@ mod tests {
         let layer = BaseLayer::load_from_files([1,2,3,4,5], &base_layer_files).wait().unwrap();
         assert_eq!(0, layer.node_and_value_count());
         assert_eq!(0, layer.predicate_count());
+    }
+
+    #[test]
+    fn base_layer_with_multiple_pairs_pointing_at_same_object() {
+        let base_layer_files = base_layer_files();
+        let builder = BaseLayerFileBuilder::from_files(&base_layer_files);
+
+        let future = builder.add_nodes(vec!["a","b"].into_iter().map(|x|x.to_string()))
+            .and_then(|(_,b)| b.add_predicates(vec!["c","d"].into_iter().map(|x|x.to_string())))
+            .and_then(|(_,b)| b.add_values(vec!["e"].into_iter().map(|x|x.to_string())))
+            .and_then(|(_,b)| b.into_phase2())
+            .and_then(|b| b.add_triple(1,1,1))
+            .and_then(|b| b.add_triple(1,2,1))
+            .and_then(|b| b.add_triple(2,1,1))
+            .and_then(|b| b.add_triple(2,2,1))
+            .and_then(|b| b.finalize());
+
+
+        future.wait().unwrap();
+
+        let layer = BaseLayer::load_from_files([1,2,3,4,5], &base_layer_files).wait().unwrap();
+
+        let triples_by_object: Vec<_> = layer.objects()
+            .map(|o|o.subject_predicate_pairs()
+                 .map(move |(s,p)|(s,p,o.object())))
+            .flatten()
+            .collect();
+
+        assert_eq!(vec![(1,1,1),
+                        (1,2,1),
+                        (2,1,1),
+                        (2,2,1)],
+                   triples_by_object);
     }
 }
