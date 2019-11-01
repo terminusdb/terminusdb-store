@@ -449,7 +449,8 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         // underlying data structures
         let cloned = self.clone();
         Box::new((0..self.node_and_value_count())
-                 .map(move |object| cloned.lookup_object((object+1) as u64).unwrap()))
+                 .map(move |object| cloned.lookup_object((object+1) as u64))
+                 .flatten())
     }
 
     fn object_additions(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
@@ -2530,5 +2531,41 @@ mod tests {
 
         assert_eq!(parent.node_and_value_count(), child_layer.node_and_value_count());
         assert_eq!(parent.predicate_count(), child_layer.predicate_count());
+    }
+
+    #[test]
+    fn child_layer_with_multiple_pairs_pointing_at_same_object_lookup_by_objects() {
+        let base_layer = empty_base_layer();
+        let parent = Arc::new(base_layer);
+
+        let child_files = example_child_files();
+        let builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
+
+        let future = builder.add_nodes(vec!["a","b"].into_iter().map(|x|x.to_string()))
+            .and_then(|(_,b)| b.add_predicates(vec!["c","d"].into_iter().map(|x|x.to_string())))
+            .and_then(|(_,b)| b.add_values(vec!["e"].into_iter().map(|x|x.to_string())))
+            .and_then(|(_,b)| b.into_phase2())
+            .and_then(|b| b.add_triple(1,1,1))
+            .and_then(|b| b.add_triple(1,2,1))
+            .and_then(|b| b.add_triple(2,1,1))
+            .and_then(|b| b.add_triple(2,2,1))
+            .and_then(|b| b.finalize());
+
+
+        future.wait().unwrap();
+
+        let child_layer = ChildLayer::load_from_files([5,4,3,2,1], parent.clone(), &child_files).wait().unwrap();
+
+        let triples_by_object: Vec<_> = child_layer.objects()
+            .map(|o|o.subject_predicate_pairs()
+                 .map(move |(s,p)|(s,p,o.object())))
+            .flatten()
+            .collect();
+
+        assert_eq!(vec![(1,1,1),
+                        (1,2,1),
+                        (2,1,1),
+                        (2,2,1)],
+                   triples_by_object);
     }
 }
