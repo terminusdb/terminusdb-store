@@ -1,6 +1,6 @@
 [package]
 name = "terminus-store"
-version = "0.7.5"
+version = "0.7.6"
 authors = ["Matthijs van Otterdijk <matthijs@datachemist.com>"]
 edition = "2018"
 license = "GPL-3.0-only"
