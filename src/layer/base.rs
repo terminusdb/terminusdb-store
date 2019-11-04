@@ -867,7 +867,7 @@ mod tests {
         }
     }
 
-    fn example_base_layer() -> BaseLayer<Vec<u8>> {
+    fn example_base_layer() -> BaseLayer<SharedVec> {
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];

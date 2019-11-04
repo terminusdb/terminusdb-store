@@ -1884,7 +1884,7 @@ mod tests {
         }
     }
 
-    fn empty_base_layer() -> BaseLayer<Vec<u8>> {
+    fn empty_base_layer() -> BaseLayer<SharedVec> {
         let files = base_layer_files();
         let base_builder = BaseLayerFileBuilder::from_files(&files);
         base_builder.into_phase2().and_then(|b|b.finalize()).wait().unwrap();
@@ -1892,7 +1892,7 @@ mod tests {
         BaseLayer::load_from_files([1,2,3,4,5], &files).wait().unwrap()
     }
 
-    fn example_base_layer() -> BaseLayer<Vec<u8>> {
+    fn example_base_layer() -> BaseLayer<SharedVec> {
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];

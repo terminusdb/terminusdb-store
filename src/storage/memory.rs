@@ -71,6 +71,15 @@ impl Read for MemoryBackedStoreReader {
 impl AsyncRead for MemoryBackedStoreReader {
 }
 
+#[derive(Clone,Debug)]
+pub struct SharedVec(pub Arc<Vec<u8>>);
+
+impl AsRef<[u8]> for SharedVec {
+    fn as_ref(&self) -> &[u8] {
+        &*self.0
+    }
+}
+
 #[derive(Clone)]
 pub struct MemoryBackedStore {
     vec: Arc<sync::RwLock<Vec<u8>>>
@@ -92,7 +101,7 @@ impl FileStore for MemoryBackedStore {
 
 impl FileLoad for MemoryBackedStore {
     type Read = MemoryBackedStoreReader;
-    type Map = Vec<u8>;
+    type Map = SharedVec;
 
     fn size(&self) -> usize {
         self.vec.read().unwrap().len()
@@ -102,9 +111,9 @@ impl FileLoad for MemoryBackedStore {
         MemoryBackedStoreReader { vec: self.vec.clone(), pos: offset }
     }
 
-    fn map(&self) -> Box<dyn Future<Item=Vec<u8>,Error=std::io::Error>+Send> {
+    fn map(&self) -> Box<dyn Future<Item=SharedVec,Error=std::io::Error>+Send> {
         let vec = self.vec.clone();
-        Box::new(future::lazy(move ||future::ok(vec.read().unwrap().clone())))
+        Box::new(future::lazy(move ||future::ok(SharedVec(Arc::new(vec.read().unwrap().clone())))))
     }
 }
 
@@ -415,7 +424,7 @@ mod tests {
             .wait()
             .unwrap();
 
-        assert_eq!(vec![1,2,3], file.map().wait().unwrap());
+        assert_eq!(vec![1,2,3], *file.map().wait().unwrap().0);
     }
 
     #[test]
