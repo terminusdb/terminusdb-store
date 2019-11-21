@@ -231,6 +231,10 @@ impl SyncNamedGraph {
         }
     }
 
+    pub fn name(&self) -> &str {
+        self.inner.name()
+    }
+
     /// Returns the layer this database points at
     pub fn head(&self) -> Result<Option<SyncStoreLayer>,io::Error> {
         let inner = oneshot::spawn(self.inner.head(), &self.executor).wait();

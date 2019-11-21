@@ -275,6 +275,10 @@ impl NamedGraph {
         }
     }
 
+    pub fn name(&self) -> &str {
+        &self.label
+    }
+
     /// Returns the layer this database points at
     pub fn head(&self) -> impl Future<Item=Option<StoreLayer>,Error=io::Error>+Send {
         let store = self.store.clone();
