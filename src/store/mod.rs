@@ -38,7 +38,7 @@ impl StoreLayerBuilder {
                  Self {
                      name: builder.name(),
                      builder: RwLock::new(Some(builder)),
-                     store 
+                     store
                  })
     }
 

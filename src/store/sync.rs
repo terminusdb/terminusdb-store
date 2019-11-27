@@ -3,8 +3,9 @@
 //! Since not everyone likes tokio, or dealing with async code, this
 //! module exposes the same API as the asynchronous store API, only
 //! without any futures.
-use tokio::runtime::{Runtime,TaskExecutor};
+use tokio::runtime::Runtime;
 use futures::prelude::*;
+use futures::future;
 use futures::sync::oneshot;
 
 use std::io;
@@ -18,6 +19,26 @@ lazy_static! {
     static ref RUNTIME: Runtime = Runtime::new().unwrap();
 }
 
+/// Trampoline function for calling the async api in a sync way.
+///
+/// This convoluted mess was implemented because doing oneshot::spawn
+/// directly on the async api functions resulted in a memory leak in
+/// tokio_threadpool. Spawning the future indirectly appears to work
+/// without memory leak.
+fn task_sync<T:'static+Send,F:'static+Future<Item=T,Error=io::Error>+Send>(future: F) -> Result<T,io::Error> {
+    let (tx, rx) = oneshot::channel();
+    let wrapped_future = future::lazy(|| {
+        tokio::spawn(future.then(|r|tx.send(r)).map(|_|()).map_err(|_|()));
+        future::ok::<(),io::Error>(())
+    });
+
+    let receiver_future = rx
+        .map_err(|_|io::Error::new(io::ErrorKind::Other, "canceled"))
+        .and_then(|r|r);
+
+    oneshot::spawn(wrapped_future.and_then(|_|receiver_future), &RUNTIME.executor()).wait()
+}
+
 /// A wrapper over a SimpleLayerBuilder, providing a thread-safe sharable interface
 ///
 /// The SimpleLayerBuilder requires one to have a mutable reference to
@@ -28,13 +49,12 @@ lazy_static! {
 /// as having committed, returning errors on further calls.
 pub struct SyncStoreLayerBuilder {
     inner: StoreLayerBuilder,
-    executor: TaskExecutor
 }
 
 impl SyncStoreLayerBuilder {
-    fn wrap(inner: StoreLayerBuilder, executor: TaskExecutor) -> Self {
+    fn wrap(inner: StoreLayerBuilder) -> Self {
         SyncStoreLayerBuilder {
-            inner, executor
+            inner
         }
     }
 
@@ -45,30 +65,29 @@ impl SyncStoreLayerBuilder {
 
     /// Add a string triple
     pub fn add_string_triple(&self, triple: &StringTriple) -> Result<(), io::Error> {
-        oneshot::spawn(self.inner.add_string_triple(triple), &self.executor).wait()
+        task_sync(self.inner.add_string_triple(triple))
     }
 
     /// Add an id triple
     pub fn add_id_triple(&self, triple: IdTriple) -> Result<bool, io::Error> {
-        oneshot::spawn(self.inner.add_id_triple(triple), &self.executor).wait()
+        task_sync(self.inner.add_id_triple(triple))
     }
 
     /// Remove a string triple
     pub fn remove_string_triple(&self, triple: &StringTriple) -> Result<bool, io::Error> {
-        oneshot::spawn(self.inner.remove_string_triple(triple), &self.executor).wait()
+        task_sync(self.inner.remove_string_triple(triple))
     }
 
     /// Remove an id triple
     pub fn remove_id_triple(&self, triple: IdTriple) -> Result<bool, io::Error> {
-        oneshot::spawn(self.inner.remove_id_triple(triple), &self.executor).wait()
+        task_sync(self.inner.remove_id_triple(triple))
     }
 
     /// Commit the layer to storage
     pub fn commit(&self) -> Result<SyncStoreLayer,io::Error> {
-        let executor = self.executor.clone();
-        let inner = oneshot::spawn(self.inner.commit(), &self.executor).wait();
+        let inner = task_sync(self.inner.commit());
 
-        inner.map(|i|SyncStoreLayer::wrap(i, executor))
+        inner.map(|i|SyncStoreLayer::wrap(i))
     }
 }
 
@@ -76,28 +95,26 @@ impl SyncStoreLayerBuilder {
 #[derive(Clone)]
 pub struct SyncStoreLayer {
     inner: StoreLayer,
-    executor: TaskExecutor
 }
 
 impl SyncStoreLayer {
-    fn wrap(inner: StoreLayer, executor: TaskExecutor) -> Self {
+    fn wrap(inner: StoreLayer) -> Self {
         Self {
-            inner, executor
+            inner
         }
     }
 
     /// Create a layer builder based on this layer
     pub fn open_write(&self) -> Result<SyncStoreLayerBuilder,io::Error> {
-        let inner = oneshot::spawn(self.inner.open_write(), &self.executor).wait();
+        let inner = task_sync(self.inner.open_write());
 
-        inner.map(|i|SyncStoreLayerBuilder::wrap(i, self.executor.clone()))
+        inner.map(|i|SyncStoreLayerBuilder::wrap(i))
     }
 
     pub fn parent(&self) -> Option<SyncStoreLayer> {
         self.inner.parent()
             .map(|p| SyncStoreLayer {
-                inner: p,
-                executor: self.executor.clone()
+                inner: p
             })
     }
 }
@@ -221,13 +238,12 @@ impl Layer for SyncStoreLayer {
 /// new layer.
 pub struct SyncNamedGraph {
     inner: NamedGraph,
-    executor: TaskExecutor
 }
 
 impl SyncNamedGraph {
-    fn wrap(inner: NamedGraph, executor: TaskExecutor) -> Self {
+    fn wrap(inner: NamedGraph) -> Self {
         Self {
-            inner, executor
+            inner
         }
     }
 
@@ -237,21 +253,20 @@ impl SyncNamedGraph {
 
     /// Returns the layer this database points at
     pub fn head(&self) -> Result<Option<SyncStoreLayer>,io::Error> {
-        let inner = oneshot::spawn(self.inner.head(), &self.executor).wait();
+        let inner = task_sync(self.inner.head());
 
-        inner.map(|i|i.map(|i|SyncStoreLayer::wrap(i, self.executor.clone())))
+        inner.map(|i|i.map(|i|SyncStoreLayer::wrap(i)))
     }
 
     /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise
     pub fn set_head(&self, layer: &SyncStoreLayer) -> Result<bool, io::Error> {
-        oneshot::spawn(self.inner.set_head(&layer.inner), &self.executor).wait()
+        task_sync(self.inner.set_head(&layer.inner))
     }
 }
 
 /// A store, storing a set of layers and database labels pointing to these layers
 pub struct SyncStore {
-    inner: Store,
-    executor: TaskExecutor
+    inner: Store
 }
 
 impl SyncStore {
@@ -262,13 +277,6 @@ impl SyncStore {
     pub fn wrap(inner: Store) -> Self {
         Self {
             inner,
-            executor: RUNTIME.executor()
-        }
-    }
-    /// wrap an asynchronous `Store`, running all futures on the given tokio TaskExecutor
-    pub fn wrap_with_executor(inner: Store, executor: TaskExecutor) -> Self {
-        Self {
-            inner, executor
         }
     }
 
@@ -276,25 +284,25 @@ impl SyncStore {
     ///
     /// If the database already exists, this will return an error
     pub fn create(&self, label: &str) -> Result<SyncNamedGraph,io::Error> {
-        let inner = oneshot::spawn(self.inner.create(label), &self.executor).wait();
+        let inner = task_sync(self.inner.create(label));
 
-        inner.map(|i| SyncNamedGraph::wrap(i, self.executor.clone()))
+        inner.map(|i| SyncNamedGraph::wrap(i))
     }
 
     /// Open an existing database with the given name, or None if it does not exist
     pub fn open(&self, label: &str) -> Result<Option<SyncNamedGraph>,io::Error> {
-        let inner = oneshot::spawn(self.inner.open(label), &self.executor).wait();
+        let inner = task_sync(self.inner.open(label));
 
-        inner.map(|i| i.map(|i|SyncNamedGraph::wrap(i, self.executor.clone())))
+        inner.map(|i| i.map(|i|SyncNamedGraph::wrap(i)))
     }
 
     /// Create a base layer builder, unattached to any database label
     ///
     /// After having committed it, use `set_head` on a `NamedGraph` to attach it.
     pub fn create_base_layer(&self) -> Result<SyncStoreLayerBuilder,io::Error> {
-        let inner = oneshot::spawn(self.inner.create_base_layer(), &self.executor).wait();
+        let inner = task_sync(self.inner.create_base_layer());
 
-        inner.map(|i| SyncStoreLayerBuilder::wrap(i, self.executor.clone()))
+        inner.map(|i| SyncStoreLayerBuilder::wrap(i))
     }
 }
 
