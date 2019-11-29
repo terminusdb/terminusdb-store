@@ -28,6 +28,7 @@ mod layer;
 mod label;
 pub mod memory;
 pub mod directory;
+mod locking;
 
 pub use file::*;
 pub use layer::*;

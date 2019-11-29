@@ -6,6 +6,7 @@ use std::io::{self,Seek, SeekFrom};
 use std::sync::Arc;
 use std::path::PathBuf;
 use memmap::*;
+use locking::*;
 
 use super::*;
 
@@ -184,8 +185,9 @@ impl DirectoryLabelStore {
 fn get_label_from_file(path: PathBuf) -> impl Future<Item=Label,Error=std::io::Error>+Send {
     let label = path.file_stem().unwrap().to_str().unwrap().to_owned();
 
-    fs::read(path)
-        .and_then(move |data| {
+    LockedFile::open(path)
+        .and_then(|f| tokio::io::read_to_end(f, Vec::new()))
+        .and_then(move |(_f, data)| {
             let s = String::from_utf8_lossy(&data);
             let lines: Vec<&str> = s.lines().collect();
             if lines.len() != 2 {
@@ -245,7 +247,8 @@ impl LabelStore for DirectoryLabelStore {
                          _ => future::err(e)
                      }
                  })
-                 .and_then(|p| fs::write(p, contents)
+                 .and_then(|p| ExclusiveLockedFile::create_and_open(p)
+                           .and_then(|f| tokio::io::write_all(f, contents))
                            .map(move |_| Label::new_empty(&label))))
     }
 
@@ -280,8 +283,10 @@ impl LabelStore for DirectoryLabelStore {
         Box::new(self.get_label(&label.name)
                  .and_then(move |l| if l == Some(old_label) {
                      // all good, let's a go
+                     // TODO: this box should not be necessary here
                      let result: Box<dyn Future<Item=_,Error=_>+Send> = Box::new(
-                         fs::write(p, contents)
+                         ExclusiveLockedFile::open(p)
+                             .and_then(|f|tokio::io::write_all(f, contents))
                              .map(|_| Some(new_label)));
                      result
                  } else {

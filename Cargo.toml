@@ -15,10 +15,12 @@ futures = "0.1.29"
 futures-locks = "0.4"
 tokio = "0.1.22"
 tokio-io = "0.1.12"
+tokio-threadpool = "0.1.16"
 bytes = "0.4.12"
 memmap = "0.7"
 rand = "0.7"
 lazy_static = "1.4"
+fs2 = "0.4.3"
 
 [dev-dependencies]
 tempfile = "3.1"
