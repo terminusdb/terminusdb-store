@@ -50,7 +50,7 @@ impl<M:AsRef<[u8]>+Clone> WaveletLookup<M> {
         if index >= self.len() {
             panic!("entry is out of bounds");
         }
-        
+
         let mut result = (index+1) as u64;
         for &(b, start_index, end_index) in self.slices.iter().rev() {
             if b {

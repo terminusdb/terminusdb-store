@@ -146,7 +146,7 @@ impl LayerRetriever for MemoryLayerStore {
                          Some(saved) => Box::new(
                              future::ok(saved)
                                  .and_then(move |(parent_name, files)| {
-                                     let fut: Box<dyn Future<Item=_,Error=_>+Send> = 
+                                     let fut: Box<dyn Future<Item=_,Error=_>+Send> =
                                          if parent_name.is_some() {
                                              let files = files.clone().into_child();
                                              Box::new(retriever.get_layer(parent_name.unwrap())
@@ -240,7 +240,7 @@ impl LayerStore for MemoryLayerStore {
                  .and_then(move |parent_layer| {
                      let name = rand::random();
                      let files: Vec<_> = (0..40).map(|_| MemoryBackedStore::new()).collect();
-                     
+
                      let clf = ChildLayerFiles {
                          node_dictionary_files: DictionaryFiles {
                              blocks_file: files[0].clone(),
@@ -454,7 +454,7 @@ mod tests {
         assert!(layer.string_triple_exists(&StringTriple::new_node("cow", "likes", "pig")));
         assert!(!layer.string_triple_exists(&StringTriple::new_value("duck", "says", "quack")));
     }
-    
+
     #[test]
     fn memory_create_and_retrieve_equal_label() {
         let store = MemoryLabelStore::new();

@@ -136,7 +136,7 @@ impl Decoder for BitArrayBlockDecoder {
 
         let read_buf = src.split_to(8);
         let read = BigEndian::read_u64(&read_buf);
-        
+
         let current = self.readahead;
         self.readahead = Some(read);
         match current {
@@ -181,12 +181,12 @@ pub fn bitarray_stream_bits<F:FileLoad+Clone>(f: F) -> impl Stream<Item=bool, Er
 mod tests {
     use super::*;
     use crate::storage::memory::*;
-    
+
     #[test]
     pub fn construct_and_parse_small_bitarray() {
         let x = MemoryBackedStore::new();
         let contents = vec![true,true,false,false,true];
-        
+
         let builder = BitArrayFileBuilder::new(x.open_write());
         let _written = builder.push_all(stream::iter_ok(contents))
             .and_then(|b|b.finalize())

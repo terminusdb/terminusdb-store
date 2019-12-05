@@ -156,7 +156,7 @@ impl PersistentLayerStore for DirectoryLayerStore {
         p.push(name);
         Box::new(future::ok(FileBackedStore::new(p)))
     }
-    
+
     fn file_exists(&self, directory: [u32;5], file: &str) -> Box<dyn Future<Item=bool,Error=io::Error>+Send> {
         let mut p = self.path.clone();
         p.push(name_to_string(directory));
@@ -191,7 +191,7 @@ fn get_label_from_file(path: PathBuf) -> impl Future<Item=Label,Error=std::io::E
             let s = String::from_utf8_lossy(&data);
             let lines: Vec<&str> = s.lines().collect();
             if lines.len() != 2 {
-                let result: Box<dyn Future<Item=_,Error=_>+Send> = 
+                let result: Box<dyn Future<Item=_,Error=_>+Send> =
                     Box::new(future::err(io::Error::new(io::ErrorKind::InvalidData, format!("expected label file to have two lines. contents were ({:?})",lines))));
                 return result;
             }

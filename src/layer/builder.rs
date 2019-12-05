@@ -36,7 +36,7 @@ pub trait LayerBuilder: Send+Sync {
     fn commit(self) -> Box<dyn Future<Item=(), Error=std::io::Error>+Send>;
     /// Commit a boxed layer to storage
     fn commit_boxed(self: Box<Self>) -> Box<dyn Future<Item=(), Error=std::io::Error>+Send>;
-    
+
 }
 
 /// A layer builder
@@ -172,7 +172,7 @@ impl<F:'static+FileLoad+FileStore+Clone> LayerBuilder for SimpleLayerBuilder<F> 
             Some(parent) => {
                 let files = self.files.into_child();
                 let builder = ChildLayerFileBuilder::from_files(parent.clone(), &files);
-                
+
                 Box::new(builder.add_nodes(unresolved_nodes)
                          .and_then(|(nodes,b)|b.add_predicates(unresolved_predicates)
                                    .and_then(|(predicates,b)|b.add_values(unresolved_values)

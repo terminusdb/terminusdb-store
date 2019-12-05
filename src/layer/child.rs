@@ -101,7 +101,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> ChildLayer<M> {
         ChildLayer {
             name,
             parent: parent,
-            
+
             node_dictionary: node_dictionary,
             predicate_dictionary: predicate_dictionary,
             value_dictionary: value_dictionary,
@@ -339,7 +339,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
 
         let mut pos: Option<AdjacencyStuff<M>> = None;
         let mut neg: Option<AdjacencyStuff<M>> = None;
-        
+
         // first determine where we should be looking.
         let pos_index = self.pos_subjects.index_of(subject);
         let neg_index = self.neg_subjects.index_of(subject);
@@ -780,7 +780,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateIterator<M> {
                 };
 
                 let predicate = parent.predicate();
-                
+
                 Some(ChildSubjectPredicateLookup {
                     parent: Some(parent),
                     subject: self.subject,
@@ -827,7 +827,7 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for ChildSubjectPredica
     fn predicate(&self) -> u64 {
         self.predicate
     }
-    
+
     fn objects(&self) -> Box<dyn Iterator<Item=u64>> {
         Box::new(ChildObjectIterator {
             parent: self.parent.as_ref().map(|p|p.triples()),
@@ -1271,7 +1271,7 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilder<F> {
                 let ChildLayerFileBuilder {
                     parent,
                     files,
-                    
+
                     node_dictionary_builder,
                     predicate_dictionary_builder,
                     value_dictionary_builder
@@ -1289,7 +1289,7 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilder<F> {
             Some(id) => Box::new(future::ok((id,self)))
         }
     }
-    
+
     /// Add a predicate string.
     ///
     /// Does nothing if the predicate already exists in the paretn, and
@@ -1586,7 +1586,7 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
                              files,
                              pos_subjects,
                              neg_subjects,
-                             
+
                              pos_s_p_adjacency_list_builder,
                              pos_sp_o_adjacency_list_builder,
                              pos_last_subject: subject,
@@ -1614,7 +1614,7 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
                                     files,
                                     pos_subjects,
                                     neg_subjects,
-                                    
+
                                     pos_s_p_adjacency_list_builder,
                                     pos_sp_o_adjacency_list_builder,
                                     pos_last_subject: subject,
@@ -1675,7 +1675,7 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
                              files,
                              pos_subjects,
                              neg_subjects,
-                             
+
                              pos_s_p_adjacency_list_builder,
                              pos_sp_o_adjacency_list_builder,
                              pos_last_subject,
@@ -1703,7 +1703,7 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
                                     files,
                                    pos_subjects,
                                     neg_subjects,
-                                    
+
                                     pos_s_p_adjacency_list_builder,
                                     pos_sp_o_adjacency_list_builder,
                                     pos_last_subject,
@@ -2004,7 +2004,7 @@ mod tests {
             },
         }
     }
-    
+
     #[test]
     fn empty_child_layer_equivalent_to_parent() {
         let base_layer = example_base_layer();
@@ -2029,7 +2029,7 @@ mod tests {
 
         assert!(!child_layer.triple_exists(2,2,0));
     }
-    
+
     #[test]
     fn child_layer_can_have_inserts() {
         let base_layer = example_base_layer();
@@ -2058,7 +2058,7 @@ mod tests {
 
         assert!(!child_layer.triple_exists(2,2,0));
     }
-    
+
     #[test]
     fn child_layer_can_have_deletes() {
         let base_layer = example_base_layer();
@@ -2085,7 +2085,7 @@ mod tests {
 
         assert!(!child_layer.triple_exists(2,2,0));
     }
-    
+
     #[test]
     fn child_layer_can_have_inserts_and_deletes() {
         let base_layer = example_base_layer();

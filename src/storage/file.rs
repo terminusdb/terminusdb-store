@@ -14,7 +14,7 @@ pub trait FileStore: Clone+Send+Sync {
 pub trait FileLoad: Clone+Send+Sync {
     type Read: AsyncRead+Send;
     type Map: AsRef<[u8]>+Clone+Send+Sync;
-    
+
     fn size(&self) -> usize;
     fn open_read(&self) -> Self::Read {
         self.open_read_from(0)

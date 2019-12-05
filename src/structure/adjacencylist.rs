@@ -134,7 +134,7 @@ impl<M:AsRef<[u8]>+Clone> Iterator for AdjacencyListIterator<M> {
 
 pub struct AdjacencyBitCountStream<S:Stream<Item=bool,Error=std::io::Error>> {
     stream: S,
-    count: u64 
+    count: u64
 }
 
 impl<S:Stream<Item=bool,Error=std::io::Error>> AdjacencyBitCountStream<S> {
@@ -215,8 +215,8 @@ where F: 'static+FileLoad+FileStore,
         // but when adding entries, there may be holes. We handle holes by writing a '0' to the logarray
         // (which is otherwise an invalid right-hand side) and pushing a 1 onto the bitarray to immediately close the segment.
         let skip = left - self.last_left;
-        
-        let f1: Box<dyn Future<Item=(BitArrayFileBuilder<F::Write>, LogArrayFileBuilder<W3>), Error=std::io::Error>+Send> = 
+
+        let f1: Box<dyn Future<Item=(BitArrayFileBuilder<F::Write>, LogArrayFileBuilder<W3>), Error=std::io::Error>+Send> =
             if last_left == 0 && skip == 1 {
                 // this is the first entry. we can't push a bit yet
                 Box::new(future::ok((bitarray, nums)))
@@ -422,7 +422,7 @@ mod tests {
 
         assert_eq!(vec![(1,1), (1,3), (2,5), (7,4)], adjacencylist.iter().collect::<Vec<_>>());
     }
-    
+
     #[test]
     fn iterate_over_adjacency_list_files() {
         let bitfile = MemoryBackedStore::new();
@@ -493,5 +493,5 @@ mod tests {
 
         assert_eq!(vec![(1,0), (2,3), (2,4), (2,6), (3,1), (3,3), (3,4), (3,8), (4,0), (5,0), (6,0), (7,4), (8,12), (9,0), (10,0), (11,3)], result);
     }
-    
+
 }

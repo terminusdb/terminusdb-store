@@ -166,7 +166,7 @@ pub trait Layer: Send+Sync {
     /// Return a clone of this layer in a box.
     fn clone_boxed(&self) -> Box<dyn Layer>;
 
-    
+
     /// Returns true if the given triple exists, and false otherwise.
     fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
         self.lookup_subject(subject)
@@ -300,7 +300,7 @@ pub trait SubjectPredicateLookup {
     fn predicate(&self) -> u64;
 
     /// Returns an iterator over all objects that can be found by this lookup.
-    fn objects(&self) -> Box<dyn Iterator<Item=u64>>; 
+    fn objects(&self) -> Box<dyn Iterator<Item=u64>>;
 
     /// Returns true if the given object exists, and false otherwise.
     fn has_object(&self, object: u64) -> bool;
@@ -358,7 +358,7 @@ pub trait ObjectLookup {
             None
         }
     }
-    
+
     /// Returns an iterator over all triples with the object of this lookup.
     fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
         let object = self.object();

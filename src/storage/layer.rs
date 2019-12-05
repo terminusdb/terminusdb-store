@@ -63,7 +63,7 @@ pub trait PersistentLayerStore : 'static+Send+Sync+Clone {
                              FILENAMES.base_sp_o_adjacency_list_bit_index_blocks,
                              FILENAMES.base_sp_o_adjacency_list_bit_index_sblocks,
                              FILENAMES.base_sp_o_adjacency_list_nums,
-                             
+
                              FILENAMES.base_o_ps_adjacency_list_bits,
                              FILENAMES.base_o_ps_adjacency_list_bit_index_blocks,
                              FILENAMES.base_o_ps_adjacency_list_bit_index_sblocks,
@@ -311,7 +311,7 @@ impl<F:'static+FileLoad+FileStore+Clone,T: 'static+PersistentLayerStore<File=F>>
     fn layers(&self) -> Box<dyn Future<Item=Vec<[u32;5]>, Error=io::Error>+Send> {
         self.directories()
     }
-    
+
     fn get_layer_with_retriever(&self, name: [u32;5], retriever: Box<dyn LayerRetriever>) -> Box<dyn Future<Item=Option<Arc<dyn Layer>>,Error=io::Error>+Send> {
         let cloned = self.clone();
         Box::new(self.directory_exists(name)
@@ -456,7 +456,7 @@ pub mod tests {
     use super::*;
     use crate::layer::*;
     use crate::storage::memory::*;
-    
+
     #[test]
     fn cached_layer_store_returns_same_layer_multiple_times() {
         let store = CachedLayerStore::new(MemoryLayerStore::new());

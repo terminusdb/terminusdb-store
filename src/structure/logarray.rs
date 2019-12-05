@@ -105,7 +105,7 @@ impl<M:AsRef<[u8]>+Clone> LogArray<M> {
             let fragment_size = self.len_bytes - start_u64_offset;
             let mut x = vec![0;16];
             x[..fragment_size].copy_from_slice(&self.data.as_ref()[start_u64_offset..self.len_bytes]);
-            
+
             let n1 = BigEndian::read_u64(&x);
             let n2 = BigEndian::read_u64(&x[8..]);
             (n1,n2)
@@ -184,7 +184,7 @@ impl<M:AsRef<[u8]>+Clone> LogArraySlice<M> {
     pub fn len(&self) -> usize {
         self.length
     }
-    
+
     pub fn entry(&self, index: usize) -> u64 {
         if index >= self.length {
             panic!("index too large for slice");
@@ -248,7 +248,7 @@ impl<W:'static+tokio::io::AsyncWrite+Send> LogArrayFileBuilder<W> {
 
             let new_offset = self.current_offset + self.width - 64;
             let remainder = if new_offset == 0 { 0 } else { val << (64 - new_offset) };
-            
+
             let LogArrayFileBuilder {
                 file,
                 width,
@@ -256,7 +256,7 @@ impl<W:'static+tokio::io::AsyncWrite+Send> LogArrayFileBuilder<W> {
                 current: _,
                 current_offset: _
             } = self;
-            
+
             Box::new(tokio::io::write_all(file, buf)
                      .map(move |(file, _)| LogArrayFileBuilder {
                          file: file,
@@ -280,7 +280,7 @@ impl<W:'static+tokio::io::AsyncWrite+Send> LogArrayFileBuilder<W> {
         let LogArrayFileBuilder {
             file, width, count, current, current_offset: _
         } = self;
-        
+
 
         let write_last_bits: Box<dyn Future<Item=W, Error=std::io::Error>+Send> = if (count as u64)*(width as u64) % 64 == 0 {
             Box::new(future::ok(file))

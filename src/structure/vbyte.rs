@@ -72,7 +72,7 @@ impl<'a> VByte<'a> {
             if b & 0x80 != 0 {
                 break;
             }
-            
+
             shift += 7;
         }
 

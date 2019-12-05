@@ -458,7 +458,7 @@ impl<M:'static+AsRef<[u8]>+Clone> PredicateLookup for BasePredicateLookup<M> {
         let predicate = self.predicate();
         let s_p_adjacency_list = self.s_p_adjacency_list.clone();
         let sp_o_adjacency_list = self.sp_o_adjacency_list.clone();
-        Box::new(self.lookup.iter() 
+        Box::new(self.lookup.iter()
                  .map(move |pos| {
                      let (subject, _) = s_p_adjacency_list.pair_at_pos(pos);
                      let objects = sp_o_adjacency_list.get(pos+1);
@@ -498,7 +498,7 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
             node_dictionary_builder,
             predicate_dictionary_builder,
             value_dictionary_builder
-            
+
         }
     }
 
@@ -523,7 +523,7 @@ impl<F:'static+FileLoad+FileStore+Clone> BaseLayerFileBuilder<F> {
                 value_dictionary_builder
             }))
     }
-    
+
     /// Add a predicate string.
     ///
     /// Panics if the given predicate string is not a lexical successor of the previous node string.
@@ -897,7 +897,7 @@ mod tests {
 
         layer
     }
-    
+
     #[test]
     fn build_and_query_base_layer() {
         let layer = example_base_layer();
