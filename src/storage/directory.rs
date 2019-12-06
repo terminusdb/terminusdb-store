@@ -10,6 +10,8 @@ use locking::*;
 
 use super::*;
 
+const PREFIX_DIR_SIZE: usize = 3;
+
 #[derive(Clone)]
 pub struct FileBackedStore {
     path: PathBuf
@@ -133,15 +135,19 @@ impl PersistentLayerStore for DirectoryLayerStore {
     fn create_directory(&self) -> Box<dyn Future<Item=[u32;5], Error=io::Error>+Send> {
         let name = rand::random();
         let mut p = self.path.clone();
-        p.push(name_to_string(name));
+        let name_str = name_to_string(name);
+        p.push(&name_str[0..PREFIX_DIR_SIZE]);
+        p.push(name_str);
 
-        Box::new(fs::create_dir(p)
+        Box::new(fs::create_dir_all(p)
                  .map(move |_| name))
     }
 
     fn directory_exists(&self, name: [u32; 5]) -> Box<dyn Future<Item=bool,Error=io::Error>+Send> {
         let mut p = self.path.clone();
-        p.push(name_to_string(name));
+        let name = name_to_string(name);
+        p.push(&name[0..PREFIX_DIR_SIZE]);
+        p.push(name);
 
         Box::new(fs::metadata(p)
                  .then(|result| match result {
@@ -152,14 +158,18 @@ impl PersistentLayerStore for DirectoryLayerStore {
 
     fn get_file(&self, directory: [u32;5], name: &str) -> Box<dyn Future<Item=Self::File, Error=io::Error>+Send> {
         let mut p = self.path.clone();
-        p.push(name_to_string(directory));
+        let dir_name = name_to_string(directory);
+        p.push(&dir_name[0..PREFIX_DIR_SIZE]);
+        p.push(dir_name);
         p.push(name);
         Box::new(future::ok(FileBackedStore::new(p)))
     }
 
     fn file_exists(&self, directory: [u32;5], file: &str) -> Box<dyn Future<Item=bool,Error=io::Error>+Send> {
         let mut p = self.path.clone();
-        p.push(name_to_string(directory));
+        let dir_name = name_to_string(directory);
+        p.push(&dir_name[0..PREFIX_DIR_SIZE]);
+        p.push(dir_name);
         p.push(file);
         Box::new(fs::metadata(p)
                  .then(|result| match result {
