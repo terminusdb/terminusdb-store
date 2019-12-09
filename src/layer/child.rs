@@ -187,8 +187,18 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         count
     }
 
+    fn predicate_dict_len(&self) -> usize {
+        self.predicate_dictionary.len()
+    }
+
     fn predicate_count(&self) -> usize {
-        self.predicate_dictionary.len() + self.parent.predicate_count()
+        let mut parent_option = self.parent();
+        let mut count = self.predicate_dictionary.len();
+        while let Some(parent) = parent_option {
+            count += parent.predicate_dict_len();
+            parent_option = parent.parent();
+        }
+        count
     }
 
     fn subject_id(&self, subject: &str) -> Option<u64> {

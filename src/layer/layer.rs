@@ -21,6 +21,8 @@ pub trait Layer: Send+Sync {
     /// The amount of predicates known to this layer.
     /// This also counts entries in the parent.
     fn predicate_count(&self) -> usize;
+    /// Predicate dict length of this specific layer
+    fn predicate_dict_len(&self) -> usize;
     /// Node dict length of this specific layer
     fn node_dict_len(&self) -> usize;
     /// Value dict length of this specific layer

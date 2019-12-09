@@ -165,6 +165,10 @@ impl Layer for StoreLayer {
         self.layer.value_dict_len()
     }
 
+    fn predicate_dict_len(&self) -> usize {
+        self.layer.predicate_dict_len()
+    }
+
     fn predicate_count(&self) -> usize {
         self.layer.predicate_count()
     }

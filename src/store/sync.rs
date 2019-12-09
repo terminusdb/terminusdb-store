@@ -140,6 +140,10 @@ impl Layer for SyncStoreLayer {
         self.inner.node_and_value_count()
     }
 
+    fn predicate_dict_len(&self) -> usize {
+        self.inner.predicate_dict_len()
+    }
+
     fn predicate_count(&self) -> usize {
         self.inner.predicate_count()
     }
