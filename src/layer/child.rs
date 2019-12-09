@@ -169,8 +169,23 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         Some(self.parent.clone())
     }
 
+    fn node_dict_len(&self) -> usize {
+        self.node_dictionary.len()
+    }
+
+    fn value_dict_len(&self) -> usize {
+        self.value_dictionary.len()
+    }
+
     fn node_and_value_count(&self) -> usize {
-        self.node_dictionary.len() + self.value_dictionary.len() + self.parent.node_and_value_count()
+        let mut parent = self.parent();
+        let mut count = self.node_dictionary.len() + self.value_dictionary.len();
+        while parent.is_some() {
+            let par_unwrap = parent.unwrap();
+            count += par_unwrap.node_dict_len() + par_unwrap.value_dict_len();
+            parent = par_unwrap.parent();
+        }
+        return count;
     }
 
     fn predicate_count(&self) -> usize {
