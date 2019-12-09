@@ -178,6 +178,12 @@ impl<M:AsRef<[u8]>+Clone> WaveletTree<M> {
             tree: self.clone()
         })
     }
+
+    /// Lookup the given entry. This returns a single result, even if there's multiple.
+    pub fn lookup_one(&self, entry: u64) -> Option<u64> {
+        self.lookup(entry)
+            .map(|l|l.entry(0))
+    }
 }
 
 fn build_wavelet_fragment<S:Stream<Item=u64,Error=std::io::Error>+Send, W:AsyncWrite+Send>(stream: S, write: BitArrayFileBuilder<W>, alphabet: usize, layer: usize, fragment: usize) -> impl Future<Item=BitArrayFileBuilder<W>,Error=std::io::Error>+Send {
@@ -391,5 +397,34 @@ mod tests {
         assert_eq!(vec![0,1,2,3,4,5,6,7,8,9], wavelet_tree.lookup(5).unwrap().iter().collect::<Vec<_>>());
         assert!(wavelet_tree.lookup(4).is_none());
         assert!(wavelet_tree.lookup(6).is_none());
+    }
+
+    #[test]
+    fn wavelet_lookup_one() {
+        let contents = vec![3,6,2,1,8,5,4,7];
+        let contents_closure = contents.clone();
+
+        let wavelet_bits_file = MemoryBackedStore::new();
+        let wavelet_blocks_file = MemoryBackedStore::new();
+        let wavelet_sblocks_file = MemoryBackedStore::new();
+
+        build_wavelet_tree_from_stream(4, move ||stream::iter_ok(contents_closure.clone()), wavelet_bits_file.clone(), wavelet_blocks_file.clone(), wavelet_sblocks_file.clone())
+            .wait()
+            .unwrap();
+
+        let wavelet_bits = wavelet_bits_file.map().wait().unwrap();
+        let wavelet_blocks = wavelet_blocks_file.map().wait().unwrap();
+        let wavelet_sblocks = wavelet_sblocks_file.map().wait().unwrap();
+
+        let wavelet_bitindex = BitIndex::from_maps(wavelet_bits, wavelet_blocks, wavelet_sblocks);
+        let wavelet_tree = WaveletTree::from_parts(wavelet_bitindex, 4);
+
+        assert_eq!(Some(3), wavelet_tree.lookup_one(1));
+        assert_eq!(Some(2), wavelet_tree.lookup_one(2));
+        assert_eq!(Some(6), wavelet_tree.lookup_one(4));
+        assert_eq!(Some(5), wavelet_tree.lookup_one(5));
+        assert_eq!(Some(1), wavelet_tree.lookup_one(6));
+        assert_eq!(Some(7), wavelet_tree.lookup_one(7));
+        assert_eq!(Some(4), wavelet_tree.lookup_one(8));
     }
 }
