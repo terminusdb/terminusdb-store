@@ -178,12 +178,11 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
     }
 
     fn node_and_value_count(&self) -> usize {
-        let mut parent = self.parent();
+        let mut parent_option = self.parent();
         let mut count = self.node_dictionary.len() + self.value_dictionary.len();
-        while parent.is_some() {
-            let par_unwrap = parent.unwrap();
-            count += par_unwrap.node_dict_len() + par_unwrap.value_dict_len();
-            parent = par_unwrap.parent();
+        while let Some(parent) = parent_option {
+            count += parent.node_dict_len() + parent.value_dict_len();
+            parent_option = parent.parent();
         }
         return count;
     }
