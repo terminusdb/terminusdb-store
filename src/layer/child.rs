@@ -169,12 +169,36 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         Some(self.parent.clone())
     }
 
+    fn node_dict_len(&self) -> usize {
+        self.node_dictionary.len()
+    }
+
+    fn value_dict_len(&self) -> usize {
+        self.value_dictionary.len()
+    }
+
     fn node_and_value_count(&self) -> usize {
-        self.node_dictionary.len() + self.value_dictionary.len() + self.parent.node_and_value_count()
+        let mut parent_option = self.parent();
+        let mut count = self.node_dictionary.len() + self.value_dictionary.len();
+        while let Some(parent) = parent_option {
+            count += parent.node_dict_len() + parent.value_dict_len();
+            parent_option = parent.parent();
+        }
+        count
+    }
+
+    fn predicate_dict_len(&self) -> usize {
+        self.predicate_dictionary.len()
     }
 
     fn predicate_count(&self) -> usize {
-        self.predicate_dictionary.len() + self.parent.predicate_count()
+        let mut parent_option = self.parent();
+        let mut count = self.predicate_dictionary.len();
+        while let Some(parent) = parent_option {
+            count += parent.predicate_dict_len();
+            parent_option = parent.parent();
+        }
+        count
     }
 
     fn subject_id(&self, subject: &str) -> Option<u64> {

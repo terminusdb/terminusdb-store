@@ -128,8 +128,20 @@ impl Layer for SyncStoreLayer {
         (&self.inner as &dyn Layer).parent()
     }
 
+    fn node_dict_len(&self) -> usize {
+        self.inner.node_dict_len()
+    }
+
+    fn value_dict_len(&self) -> usize {
+        self.inner.value_dict_len()
+    }
+
     fn node_and_value_count(&self) -> usize {
         self.inner.node_and_value_count()
+    }
+
+    fn predicate_dict_len(&self) -> usize {
+        self.inner.predicate_dict_len()
     }
 
     fn predicate_count(&self) -> usize {

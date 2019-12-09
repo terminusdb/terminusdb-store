@@ -93,6 +93,18 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         Box::new(std::iter::empty())
     }
 
+    fn node_dict_len(&self) -> usize {
+        self.node_dictionary.len()
+    }
+
+    fn predicate_dict_len(&self) -> usize {
+        self.predicate_dictionary.len()
+    }
+
+    fn value_dict_len(&self) -> usize {
+        self.value_dictionary.len()
+    }
+
     fn node_and_value_count(&self) -> usize {
         self.node_dictionary.len() + self.value_dictionary.len()
     }
