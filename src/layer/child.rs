@@ -184,7 +184,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             count += parent.node_dict_len() + parent.value_dict_len();
             parent_option = parent.parent();
         }
-        return count;
+        count
     }
 
     fn predicate_count(&self) -> usize {
