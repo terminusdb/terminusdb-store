@@ -1573,8 +1573,9 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
     ) -> Self {
         let pos_subjects = Vec::new();
         let neg_subjects = Vec::new();
-        let s_p_width = ((parent.predicate_count() + num_predicates + 1) as f32).log2().ceil() as u8;
-        let sp_o_width = ((parent.node_and_value_count() + num_nodes + num_values + 1) as f32).log2().ceil() as u8;
+        let parent_counts = parent.all_counts();
+        let s_p_width = ((parent_counts.predicate_count + num_predicates + 1) as f32).log2().ceil() as u8;
+        let sp_o_width = ((parent_counts.node_count + parent_counts.value_count + num_nodes + num_values + 1) as f32).log2().ceil() as u8;
 
         let f = files.clone();
 

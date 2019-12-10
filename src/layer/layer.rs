@@ -160,6 +160,21 @@ pub trait Layer: Send+Sync {
     /// This will only lookup in the current layer.
     fn lookup_predicate_removal(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>>;
 
+    /// Create a struct with all the counts
+    fn all_counts(&self) -> LayerCounts {
+        let mut node_count = self.node_dict_len();
+        let mut predicate_count = self.predicate_dict_len();
+        let mut value_count = self.value_dict_len();
+        let mut parent_option = self.parent();
+        while let Some(parent) = parent_option {
+            node_count += parent.node_dict_len();
+            predicate_count += parent.predicate_dict_len();
+            value_count += parent.value_dict_len();
+            parent_option = parent.parent();
+        }
+        LayerCounts { node_count, predicate_count, value_count }
+    }
+
     fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn PredicateLookup>>> {
         let cloned = self.clone_boxed();
         Box::new((1..=self.predicate_count()).map(move |p|cloned.lookup_predicate(p as u64)).flatten())
@@ -262,6 +277,12 @@ pub trait Layer: Send+Sync {
             Some(parent) => parent.name() == self.name() || self.is_ancestor_of(&*parent)
         }
     }
+}
+
+pub struct LayerCounts{
+    pub node_count: usize,
+    pub predicate_count: usize,
+    pub value_count: usize
 }
 
 /// The type of a layer - either base or child.
