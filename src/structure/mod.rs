@@ -10,6 +10,7 @@ pub mod pfc;
 pub mod bitindex;
 pub mod adjacencylist;
 pub mod wavelettree;
+pub mod mapped_dict;
 
 pub use logarray::*;
 pub use bitarray::*;
