@@ -97,6 +97,18 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         self.node_dictionary.len()
     }
 
+    fn node_dict_get(&self, id: usize) -> String {
+        self.node_dictionary.get(id)
+    }
+
+    fn predicate_dict_get(&self, id: usize) -> String {
+        self.predicate_dictionary.get(id)
+    }
+
+    fn value_dict_get(&self, id: usize) -> String {
+        self.value_dictionary.get(id)
+    }
+
     fn predicate_dict_len(&self) -> usize {
         self.predicate_dictionary.len()
     }

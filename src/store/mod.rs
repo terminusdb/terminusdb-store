@@ -166,6 +166,10 @@ impl Layer for StoreLayer {
         self.layer.node_dict_len()
     }
 
+    fn node_dict_get(&self, id: usize) -> String {
+        self.layer.node_dict_get(id)
+    }
+
     fn value_dict_len(&self) -> usize {
         self.layer.value_dict_len()
     }
@@ -174,12 +178,20 @@ impl Layer for StoreLayer {
         self.layer.value_dict_id(value)
     }
 
+    fn value_dict_get(&self, id: usize) -> String {
+        self.layer.value_dict_get(id)
+    }
+
     fn predicate_dict_id(&self, predicate: &str) -> Option<u64> {
         self.layer.predicate_dict_id(predicate)
     }
 
     fn predicate_dict_len(&self) -> usize {
         self.layer.predicate_dict_len()
+    }
+
+    fn predicate_dict_get(&self, id: usize) -> String {
+        self.layer.predicate_dict_get(id)
     }
 
     fn predicate_count(&self) -> usize {

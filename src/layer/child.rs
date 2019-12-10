@@ -177,6 +177,15 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         self.node_dictionary.len()
     }
 
+    fn node_dict_get(&self, id: usize) -> String {
+        self.node_dictionary.get(id)
+    }
+
+
+    fn value_dict_get(&self, id: usize) -> String {
+        self.value_dictionary.get(id)
+    }
+
     fn value_dict_id(&self, value: &str) -> Option<u64> {
         self.value_dictionary.id(value)
     }
@@ -201,6 +210,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
 
     fn predicate_dict_id(&self, predicate: &str) -> Option<u64> {
         self.predicate_dictionary.id(predicate)
+    }
+
+    fn predicate_dict_get(&self, id: usize) -> String {
+        self.predicate_dictionary.get(id)
     }
 
     fn predicate_count(&self) -> usize {
@@ -289,23 +302,26 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             return None;
         }
         let mut corrected_id = id - 1;
-        let parent_count = self.parent.node_and_value_count() as u64;
-
-        if corrected_id >= parent_count as u64 {
-            // subject, if it exists, is in this layer
-            corrected_id -= parent_count;
-            if corrected_id >= self.node_dictionary.len() as u64 {
-                None
+        // TODO: Can we do this without cloning self? It is not that efficient
+        let mut current_option: Option<Arc<dyn Layer>> = Some(Arc::new(self.clone()));
+        let mut parent_count = self.node_and_value_count() as u64;
+        while let Some(current_layer) = current_option {
+            parent_count = parent_count - current_layer.node_dict_len() as u64 - current_layer.value_dict_len() as u64;
+            if corrected_id >= parent_count as u64 {
+                // subject, if it exists, is in this layer
+                corrected_id -= parent_count;
+                if corrected_id >= current_layer.node_dict_len() as u64 {
+                    return None
+                }
+                else {
+                    return Some(current_layer.node_dict_get(corrected_id as usize))
+                }
             }
             else {
-                Some(self.node_dictionary.get(corrected_id as usize))
+                current_option = current_layer.parent();
             }
         }
-        else {
-            // subject, if it exists, is in a parent layer
-            // TODO: Eliminate recursion
-            self.parent.id_subject(id)
-        }
+        return None;
     }
 
     fn id_predicate(&self, id: u64) -> Option<String> {
@@ -313,22 +329,30 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             return None;
         }
         let mut corrected_id = id - 1;
-        let parent_count = self.parent.predicate_count() as u64;
-
-        if corrected_id >= parent_count {
-            // predicate, if it exists, is in this layer
-            corrected_id -= parent_count;
-            if corrected_id >= self.predicate_dictionary.len() as u64 {
-                None
+        // TODO: Can we do this without cloning self? It is not that efficient
+        let mut current_option: Option<Arc<dyn Layer>> = Some(Arc::new(self.clone()));
+        let mut parent_count = self.predicate_count() as u64;
+        while let Some(current_layer) = current_option {
+            let parent = current_layer.parent();
+            if parent.is_none() {
+                return current_layer.id_predicate(id);
+            }
+            parent_count = parent_count - current_layer.predicate_dict_len() as u64;
+            if corrected_id >= parent_count as u64 {
+                // subject, if it exists, is in this layer
+                corrected_id -= parent_count;
+                if corrected_id >= current_layer.predicate_dict_len() as u64 {
+                    return None
+                }
+                else {
+                    return Some(current_layer.predicate_dict_get(corrected_id as usize))
+                }
             }
             else {
-                Some(self.predicate_dictionary.get(corrected_id as usize))
+                current_option = current_layer.parent();
             }
         }
-        else {
-            // TODO: Eliminate recursion
-            self.parent.id_predicate(id)
-        }
+        return None;
     }
 
     fn id_object(&self, id: u64) -> Option<ObjectType> {
@@ -336,29 +360,38 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             return None;
         }
         let mut corrected_id = id - 1;
-        let parent_count = self.parent.node_and_value_count() as u64;
+        // TODO: Can we do this without cloning self? It is not that efficient
+        let mut current_option: Option<Arc<dyn Layer>> = Some(Arc::new(self.clone()));
+        let mut parent_count = self.node_and_value_count() as u64;
+        while let Some(current_layer) = current_option {
+            let parent = current_layer.parent();
+            if parent.is_none() {
+                return current_layer.id_object(id);
+            }
+            parent_count = parent_count - current_layer.node_dict_len() as u64 - current_layer.value_dict_len() as u64;
 
-        if corrected_id >= parent_count {
-            // object, if it exists, is in this layer
-            corrected_id -= parent_count;
-            if corrected_id >= self.node_dictionary.len() as u64 {
-                // object, if it exists, must be a value
-                corrected_id -= self.node_dictionary.len() as u64;
-                if corrected_id >= self.value_dictionary.len() as u64 {
-                    None
+            if corrected_id >= parent_count {
+                // object, if it exists, is in this layer
+                corrected_id -= parent_count;
+                if corrected_id >= self.node_dict_len() as u64 {
+                    // object, if it exists, must be a value
+                    corrected_id -= self.node_dict_len() as u64;
+                    if corrected_id >= current_layer.value_dict_len() as u64 {
+                        return None;
+                    }
+                    else {
+                        return Some(ObjectType::Value(current_layer.value_dict_get(corrected_id as usize)));
+                    }
                 }
                 else {
-                    Some(ObjectType::Value(self.value_dictionary.get(corrected_id as usize)))
+                    return Some(ObjectType::Node(current_layer.node_dict_get(corrected_id as usize)));
                 }
             }
             else {
-                Some(ObjectType::Node(self.node_dictionary.get(corrected_id as usize)))
+                current_option = current_layer.parent();
             }
         }
-        else {
-            // TODO: Eliminate recursion
-            self.parent.id_object(id)
-        }
+        return None;
     }
 
     fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {

@@ -21,18 +21,24 @@ pub trait Layer: Send+Sync {
     /// The amount of predicates known to this layer.
     /// This also counts entries in the parent.
     fn predicate_count(&self) -> usize;
+    /// Predicate dictionary get function
+    fn predicate_dict_get(&self, id: usize) -> String;
     /// Predicate dict length of this specific layer
     fn predicate_dict_len(&self) -> usize;
     /// Predicate dict id of current layer
     fn predicate_dict_id(&self, predicate: &str) -> Option<u64>;
     /// Node dict id of current layer
     fn node_dict_id(&self, subject: &str) -> Option<u64>;
+    /// Node dictionary get function
+    fn node_dict_get(&self, id: usize) -> String;
     /// Node dict length of this specific layer
     fn node_dict_len(&self) -> usize;
     /// Value dict id of current layer
     fn value_dict_id(&self, value: &str) -> Option<u64>;
     /// Value dict length of this specific layer
     fn value_dict_len(&self) -> usize;
+    /// Value dictionary get function
+    fn value_dict_get(&self, id: usize) -> String;
 
     /// The numerical id of a subject, or None if the subject cannot be found.
     fn subject_id(&self, subject: &str) -> Option<u64>;
