@@ -303,6 +303,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         }
         else {
             // subject, if it exists, is in a parent layer
+            // TODO: Eliminate recursion
             self.parent.id_subject(id)
         }
     }
@@ -325,6 +326,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             }
         }
         else {
+            // TODO: Eliminate recursion
             self.parent.id_predicate(id)
         }
     }
@@ -354,6 +356,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             }
         }
         else {
+            // TODO: Eliminate recursion
             self.parent.id_object(id)
         }
     }
@@ -422,6 +425,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         // first determine where we should be looking.
         let pos_index = self.pos_subjects.index_of(subject);
         let neg_index = self.neg_subjects.index_of(subject);
+        // TODO: Eliminate recursion
         let parent = self.parent.lookup_subject(subject);
         if pos_index.is_none() && parent.is_none() {
             return None;
@@ -552,6 +556,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
                 sp_slice: pos_sp_slice,
                 s_p_adjacency_list: self.pos_s_p_adjacency_list.clone()
             });
+        // TODO: Eliminate recursion
         let parent = self.parent.lookup_object(object);
         if pos.is_none() && parent.is_none() {
             return None;
@@ -755,7 +760,7 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for ChildSubjectLookup<M> {
         if predicate == 0 {
             return None;
         }
-
+        // TODO: Make non-recursive
         let parent_objects = self.parent.as_ref().and_then(|parent|parent.lookup_predicate(predicate));
 
         if self.pos.is_none() && parent_objects.is_none() {
