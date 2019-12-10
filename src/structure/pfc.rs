@@ -2,13 +2,18 @@
 use byteorder::{ByteOrder,BigEndian};
 use futures::prelude::*;
 use futures::future;
+use tokio::prelude::*;
 use std::error::Error;
 use std::fmt::Display;
 use std::cmp::{Ord, Ordering};
+use std::io;
+use tokio::codec::{FramedRead,Decoder};
+use bytes::BytesMut;
 
 use super::vbyte::*;
 use super::logarray::*;
 use super::util::*;
+use crate::storage::*;
 
 #[derive(Debug)]
 pub enum PfcError {
@@ -416,10 +421,95 @@ impl<W:'static+tokio::io::AsyncWrite+Send> PfcDictFileBuilder<W> {
     }
 }
 
+struct PfcDecoder {
+    last: Option<BytesMut>,
+    index: usize,
+    done: bool
+}
+
+impl PfcDecoder {
+    fn new() -> Self {
+        Self {
+            last: None,
+            index: 0,
+            done: false
+        }
+    }
+}
+
+impl Decoder for PfcDecoder {
+    type Item = String;
+    type Error = io::Error;
+    fn decode(&mut self, bytes: &mut BytesMut) -> Result<Option<String>, io::Error> {
+        if self.done {
+            bytes.clear();
+            return Ok(None);
+        }
+
+        // once bytes contains a 0-byte, enough has been read to actually extract a string.
+        let pos = bytes.iter().position(|&b| b == 0);
+        if pos == Some(0) {
+            self.done = true;
+            bytes.clear();
+            return Ok(None);
+        }
+
+        match pos {
+            None => Ok(None),
+            Some(pos) => match self.index % 8 == 0 {
+                true => {
+                    // this is the start of a block. we expect a 0-delimited cstring
+                    let b = bytes.split_to(pos);
+                    bytes.advance(1);
+                    let s = String::from_utf8(b.to_vec()).expect("expected utf8 string");
+                    self.last = Some(b);
+                    self.index += 1;
+
+                    Ok(Some(s))
+                },
+                false => {
+                    // This is in the middle of some block. we expect a vbyte followed by some 0-delimited cstring
+                    let last = self.last.as_ref().unwrap();
+                    let (vbyte_len, prefix_len) = {
+                        let vbyte = VByte::parse(&bytes).expect("expected vbyte");
+                        (vbyte.len(), vbyte.unpack())
+                    };
+                    bytes.advance(vbyte_len);
+                    let b = bytes.split_to(pos-vbyte_len);
+                    bytes.advance(1);
+                    let mut full = BytesMut::with_capacity(prefix_len as usize + b.len());
+                    full.extend_from_slice(&last[..prefix_len as usize]);
+                    full.extend_from_slice(&b);
+
+                    let s = String::from_utf8(full.to_vec()).expect("expected utf8 string");
+                    self.last = Some(full);
+                    self.index += 1;
+
+                    Ok(Some(s))
+                }
+            }
+        }
+    }
+}
+
+pub fn dict_file_get_count<F:'static+FileLoad>(file: F) -> impl Future<Item=u64, Error=io::Error>+Send {
+    tokio::io::read_exact(file.open_read_from(file.size()-8), vec![0;8])
+        .map(|(_,buf)| BigEndian::read_u64(&buf))
+}
+
+pub fn dict_reader_to_stream<A:'static+AsyncRead+Send>(r: A) -> impl Stream<Item=String,Error=io::Error>+Send {
+    FramedRead::new(r, PfcDecoder::new())
+}
+
+pub fn dict_reader_to_indexed_stream<A:'static+AsyncRead+Send>(r: A, offset: u64) -> impl Stream<Item=(u64,String),Error=io::Error>+Send {
+    let count_stream = futures::stream::unfold(offset, |c| Some(Ok((c+1, c+1))));
+    let dict_stream = dict_reader_to_stream(r);
+    count_stream.zip(dict_stream)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::*;
     use crate::storage::memory::*;
 
     #[test]
@@ -552,5 +642,152 @@ mod tests {
 
         let result: Vec<String> = dict.strings().collect();
         assert_eq!(contents, result);
+    }
+
+    #[test]
+    fn retrieve_all_strings_from_file() {
+        let contents = vec![
+            "aaaaa",
+            "aaaaaaaaaa",
+            "arf",
+            "aaaabbbbbb",
+            "abcdefghijk",
+            "addeeerafa",
+            "bapofsi",
+            "barf",
+            "berf",
+            "boo boo boo boo",
+            "bzwas baraf",
+            "dradsfadfvbbb",
+            "eadfpoicvu",
+            "eeeee ee e eee",
+            "faadsafdfaf sdfasdf",
+            "frumps framps fremps",
+            "gahh",
+            "hai hai hai"
+            ];
+
+        let blocks = MemoryBackedStore::new();
+        let offsets = MemoryBackedStore::new();
+        let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
+
+        builder.add_all(contents.clone().into_iter().map(|s|s.to_string()))
+            .and_then(|(_,b)|b.finalize())
+            .wait().unwrap();
+
+        let stream = dict_reader_to_stream(blocks.open_read());
+
+        let result: Vec<String> = stream.collect().wait().unwrap();
+        assert_eq!(contents, result);
+    }
+
+    #[test]
+    fn retrieve_all_strings_from_file_multiple_of_eight() {
+        let contents = vec![
+            "aaaaa",
+            "aaaaaaaaaa",
+            "arf",
+            "aaaabbbbbb",
+            "abcdefghijk",
+            "addeeerafa",
+            "bapofsi",
+            "barf",
+            "berf",
+            "boo boo boo boo",
+            "bzwas baraf",
+            "dradsfadfvbbb",
+            "eadfpoicvu",
+            "eeeee ee e eee",
+            "faadsafdfaf sdfasdf",
+            "frumps framps fremps",
+            ];
+
+        let blocks = MemoryBackedStore::new();
+        let offsets = MemoryBackedStore::new();
+        let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
+
+        builder.add_all(contents.clone().into_iter().map(|s|s.to_string()))
+            .and_then(|(_,b)|b.finalize())
+            .wait().unwrap();
+
+        let stream = dict_reader_to_stream(blocks.open_read());
+
+        let result: Vec<String> = stream.collect().wait().unwrap();
+        assert_eq!(contents, result);
+    }
+
+    #[test]
+    fn retrieve_all_indexed_strings_from_file() {
+        let contents = vec![
+            "aaaaa",
+            "aaaaaaaaaa",
+            "arf",
+            "aaaabbbbbb",
+            "abcdefghijk",
+            "addeeerafa",
+            "bapofsi",
+            "barf",
+            "berf",
+            "boo boo boo boo",
+            "bzwas baraf",
+            "dradsfadfvbbb",
+            "eadfpoicvu",
+            "eeeee ee e eee",
+            "faadsafdfaf sdfasdf",
+            "frumps framps fremps",
+            "gahh",
+            "hai hai hai"
+            ];
+
+        let blocks = MemoryBackedStore::new();
+        let offsets = MemoryBackedStore::new();
+        let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
+
+        builder.add_all(contents.clone().into_iter().map(|s|s.to_string()))
+            .and_then(|(_,b)|b.finalize())
+            .wait().unwrap();
+
+        let stream = dict_reader_to_indexed_stream(blocks.open_read(), 0);
+
+        let result: Vec<(u64, String)> = stream.collect().wait().unwrap();
+        assert_eq!((1, "aaaaa".to_string()), result[0]);
+        assert_eq!((8, "barf".to_string()), result[7]);
+        assert_eq!((9, "berf".to_string()), result[8]);
+    }
+
+    #[test]
+    fn get_pfc_count_from_file() {
+        let contents = vec![
+            "aaaaa",
+            "aaaaaaaaaa",
+            "arf",
+            "aaaabbbbbb",
+            "abcdefghijk",
+            "addeeerafa",
+            "bapofsi",
+            "barf",
+            "berf",
+            "boo boo boo boo",
+            "bzwas baraf",
+            "dradsfadfvbbb",
+            "eadfpoicvu",
+            "eeeee ee e eee",
+            "faadsafdfaf sdfasdf",
+            "frumps framps fremps",
+            "gahh",
+            "hai hai hai"
+            ];
+
+        let blocks = MemoryBackedStore::new();
+        let offsets = MemoryBackedStore::new();
+        let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
+
+        builder.add_all(contents.clone().into_iter().map(|s|s.to_string()))
+            .and_then(|(_,b)|b.finalize())
+            .wait().unwrap();
+
+        let count = dict_file_get_count(blocks).wait().unwrap();
+
+        assert_eq!(18, count);
     }
 }
