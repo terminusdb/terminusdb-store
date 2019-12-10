@@ -373,9 +373,9 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             if corrected_id >= parent_count {
                 // object, if it exists, is in this layer
                 corrected_id -= parent_count;
-                if corrected_id >= self.node_dict_len() as u64 {
+                if corrected_id >= current_layer.node_dict_len() as u64 {
                     // object, if it exists, must be a value
-                    corrected_id -= self.node_dict_len() as u64;
+                    corrected_id -= current_layer.node_dict_len() as u64;
                     if corrected_id >= current_layer.value_dict_len() as u64 {
                         return None;
                     }
