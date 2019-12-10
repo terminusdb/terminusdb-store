@@ -169,8 +169,16 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         Some(self.parent.clone())
     }
 
+    fn node_dict_id(&self, subject: &str) -> Option<u64> {
+        self.node_dictionary.id(subject)
+    }
+
     fn node_dict_len(&self) -> usize {
         self.node_dictionary.len()
+    }
+
+    fn value_dict_id(&self, value: &str) -> Option<u64> {
+        self.value_dictionary.id(value)
     }
 
     fn value_dict_len(&self) -> usize {
@@ -191,6 +199,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         self.predicate_dictionary.len()
     }
 
+    fn predicate_dict_id(&self, predicate: &str) -> Option<u64> {
+        self.predicate_dictionary.id(predicate)
+    }
+
     fn predicate_count(&self) -> usize {
         let mut parent_option = self.parent();
         let mut count = self.predicate_dictionary.len();
@@ -202,31 +214,74 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
     }
 
     fn subject_id(&self, subject: &str) -> Option<u64> {
-        match self.node_dictionary.id(subject) {
-            Some(id) => Some(self.parent.node_and_value_count() as u64 + id + 1),
-            None => self.parent.subject_id(subject)
+        let mut result: Option<u64> = self.node_dict_id(subject);
+        let mut parent_option = self.parent();
+        while let Some(parent) = parent_option {
+            let next_parent = parent.parent();
+            if result.is_some() {
+                return Some(parent.node_and_value_count() as u64 + result.unwrap() + 1);
+            }
+            result = parent.node_dict_id(subject);
+            if next_parent.is_none() {
+                return parent.subject_id(subject);
+            }
+            parent_option = next_parent;
         }
+        None
     }
 
     fn predicate_id(&self, predicate: &str) -> Option<u64> {
-        match self.predicate_dictionary.id(predicate) {
-            Some(id) => Some(self.parent.predicate_count() as u64 + id + 1),
-            None => self.parent.predicate_id(predicate)
+        let mut result: Option<u64> = self.predicate_dict_id(predicate);
+        let mut parent_option = self.parent();
+        while let Some(parent) = parent_option {
+            let next_parent = parent.parent();
+            if result.is_some() {
+                return Some(parent.predicate_count() as u64 + result.unwrap() + 1);
+            }
+            result = parent.predicate_dict_id(predicate);
+            if next_parent.is_none() {
+                return parent.predicate_id(predicate);
+            }
+            parent_option = next_parent;
         }
+        None
     }
 
     fn object_node_id(&self, node: &str) -> Option<u64> {
-        match self.node_dictionary.id(node) {
-            Some(id) => Some(self.parent.node_and_value_count() as u64 + id + 1),
-            None => self.parent.object_node_id(node)
+        let mut result: Option<u64> = self.node_dict_id(node);
+        let mut parent_option = self.parent();
+        while let Some(parent) = parent_option {
+            let next_parent = parent.parent();
+            if result.is_some() {
+                return Some(parent.node_and_value_count() as u64 + result.unwrap() + 1);
+            }
+            result = parent.node_dict_id(node);
+            if next_parent.is_none() {
+                return parent.object_node_id(node);
+            }
+            parent_option = next_parent;
         }
+        None
     }
 
     fn object_value_id(&self, value: &str) -> Option<u64> {
-        match self.value_dictionary.id(value) {
-            Some(id) => Some(self.parent.node_and_value_count() as u64 + self.node_dictionary.len() as u64 + id + 1),
-            None => self.parent.object_value_id(value)
+        let mut result: Option<u64> = self.value_dict_id(value);
+        if result.is_some() {
+            return Some(self.parent.node_and_value_count() as u64 + self.node_dict_len() as u64 + result.unwrap() + 1);
         }
+        let mut parent_option = self.parent();
+        while let Some(parent) = parent_option {
+            let next_parent = parent.parent();
+            if next_parent.is_none() {
+                return parent.object_value_id(value);
+            }
+            result = parent.value_dict_id(value);
+            if result.is_some() {
+                return Some(next_parent.unwrap().node_and_value_count() as u64 + parent.node_dict_len() as u64 + result.unwrap() + 1);
+            }
+            parent_option = next_parent;
+        }
+        None
     }
 
     fn id_subject(&self, id: u64) -> Option<String> {

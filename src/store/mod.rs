@@ -157,12 +157,25 @@ impl Layer for StoreLayer {
         self.layer.node_and_value_count()
     }
 
+
+    fn node_dict_id(&self, subject: &str) -> Option<u64> {
+        self.layer.node_dict_id(subject)
+    }
+
     fn node_dict_len(&self) -> usize {
         self.layer.node_dict_len()
     }
 
     fn value_dict_len(&self) -> usize {
         self.layer.value_dict_len()
+    }
+
+    fn value_dict_id(&self, value: &str) -> Option<u64> {
+        self.layer.value_dict_id(value)
+    }
+
+    fn predicate_dict_id(&self, predicate: &str) -> Option<u64> {
+        self.layer.predicate_dict_id(predicate)
     }
 
     fn predicate_dict_len(&self) -> usize {

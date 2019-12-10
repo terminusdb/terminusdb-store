@@ -113,6 +113,18 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         self.predicate_dictionary.len()
     }
 
+    fn node_dict_id(&self, subject: &str) -> Option<u64> {
+        self.node_dictionary.id(&subject)
+    }
+
+    fn predicate_dict_id(&self, predicate: &str) -> Option<u64> {
+        self.predicate_dictionary.id(predicate)
+    }
+
+    fn value_dict_id(&self, value: &str) -> Option<u64> {
+        self.value_dictionary.id(value)
+    }
+
     fn subject_id(&self, subject: &str) -> Option<u64> {
         self.node_dictionary.id(subject).map(|id| id + 1)
     }

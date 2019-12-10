@@ -23,8 +23,14 @@ pub trait Layer: Send+Sync {
     fn predicate_count(&self) -> usize;
     /// Predicate dict length of this specific layer
     fn predicate_dict_len(&self) -> usize;
+    /// Predicate dict id of current layer
+    fn predicate_dict_id(&self, predicate: &str) -> Option<u64>;
+    /// Node dict id of current layer
+    fn node_dict_id(&self, subject: &str) -> Option<u64>;
     /// Node dict length of this specific layer
     fn node_dict_len(&self) -> usize;
+    /// Value dict id of current layer
+    fn value_dict_id(&self, value: &str) -> Option<u64>;
     /// Value dict length of this specific layer
     fn value_dict_len(&self) -> usize;
 
