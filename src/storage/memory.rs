@@ -1,7 +1,7 @@
 //! In-memory implementation of storage traits.
 use futures::prelude::*;
 use tokio::prelude::*;
-use std::sync::{self,Arc};
+use std::sync::{self,Arc, RwLock};
 use futures_locks;
 use std::io;
 use std::collections::HashMap;
@@ -82,12 +82,13 @@ impl AsRef<[u8]> for SharedVec {
 
 #[derive(Clone)]
 pub struct MemoryBackedStore {
+    exists: Arc<RwLock<bool>>,
     vec: Arc<sync::RwLock<Vec<u8>>>
 }
 
 impl MemoryBackedStore {
     pub fn new() -> MemoryBackedStore {
-        MemoryBackedStore { vec: Default::default() }
+        MemoryBackedStore { vec: Default::default(), exists: Arc::new(RwLock::new(false)) }
     }
 }
 
@@ -95,6 +96,7 @@ impl FileStore for MemoryBackedStore {
     type Write = MemoryBackedStoreWriter;
 
     fn open_write_from(&self, pos: usize) -> MemoryBackedStoreWriter {
+        *self.exists.write().unwrap() = true;
         MemoryBackedStoreWriter { vec: self.vec.clone(), pos }
     }
 }
@@ -102,6 +104,10 @@ impl FileStore for MemoryBackedStore {
 impl FileLoad for MemoryBackedStore {
     type Read = MemoryBackedStoreReader;
     type Map = SharedVec;
+
+    fn exists(&self) -> bool {
+        return *self.exists.read().unwrap()
+    }
 
     fn size(&self) -> usize {
         self.vec.read().unwrap().len()

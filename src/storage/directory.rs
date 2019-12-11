@@ -58,6 +58,11 @@ impl FileLoad for FileBackedStore {
     type Read = File;
     type Map = SharedMmap;
 
+    fn exists(&self) -> bool {
+        let metadata = std::fs::metadata(&self.path);
+        metadata.is_err() && metadata.err().unwrap().kind() == io::ErrorKind::NotFound
+    }
+
     fn size(&self) -> usize {
         let m = std::fs::metadata(&self.path).unwrap();
         m.len() as usize
