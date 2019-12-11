@@ -288,7 +288,7 @@ pub trait Layer: Send+Sync {
     }
 }
 
-pub struct LayerCounts{
+pub struct LayerCounts {
     pub node_count: usize,
     pub predicate_count: usize,
     pub value_count: usize
