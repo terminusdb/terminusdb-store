@@ -628,8 +628,9 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             .map(|index| Box::new(self.lookup_object_removal_mapped((index as u64)+1)) as Box<dyn ObjectLookup>)
     }
 
-    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
-        let parent = self.parent.lookup_predicate(predicate)
+
+    fn lookup_predicate_current_layer(&self, predicate: u64, parent: Option<Box<dyn PredicateLookup>>) -> Option<Box<dyn PredicateLookup>> {
+        let parent = parent
             .map(|parent| ChildPredicateLookupParentData {
                 parent,
                 neg_subjects: self.neg_subjects.clone(),
@@ -654,6 +655,16 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
                 child
             }))
         }
+    }
+
+    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+        let parents = self.parents();
+        let latest_idx = parents.len();
+        let mut latest_lookup: Option<Box<dyn PredicateLookup>> = None;
+        for index in (0..latest_idx).rev() {
+            latest_lookup = parents[index].lookup_predicate_current_layer(predicate, latest_lookup);
+        }
+        return self.lookup_predicate_current_layer(predicate, latest_lookup);
     }
 
     fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {

@@ -264,6 +264,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         None
     }
 
+    fn lookup_predicate_current_layer(&self, predicate: u64, _parent: Option<Box<dyn PredicateLookup>>) -> Option<Box<dyn PredicateLookup>> {
+        self.lookup_predicate(predicate)
+    }
+
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
         let s_p_adjacency_list = self.s_p_adjacency_list.clone();
         let sp_o_adjacency_list = self.sp_o_adjacency_list.clone();

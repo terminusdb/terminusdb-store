@@ -158,6 +158,8 @@ pub trait Layer: Send+Sync {
     /// later layers may have then removed every triple involving this
     /// predicate.
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>>;
+    /// Only lookup predicate for current layer
+    fn lookup_predicate_current_layer(&self, predicate: u64, parent: Option<Box<dyn PredicateLookup>>) -> Option<Box<dyn PredicateLookup>>;
 
     /// Returns a `PredicateLookup` for the given predicate, or None if it could not be constructed.
     ///
