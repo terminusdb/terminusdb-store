@@ -89,6 +89,9 @@ pub trait Layer: Send+Sync {
     /// subject.
     fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>>;
 
+    /// lookup_subject for only current layer
+    fn lookup_subject_current_layer(&self, subject: u64, parent: Option<Box<dyn SubjectLookup>>) -> Option<Box<dyn SubjectLookup>>;
+
     /// Returns a `SubjectLookup` object for the given subject, or None if it cannot be constructed.
     ///
     /// Note that even if a value is returned here, that doesn't

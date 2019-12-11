@@ -158,6 +158,16 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> ChildLayer<M> {
         ChildObjectLookup::new(object, None, Some(pos), None)
     }
 
+    fn parents(&self) -> Vec<Arc<dyn Layer>> {
+        let mut parents: Vec<Arc<dyn Layer>> = Vec::new();
+        let mut parent_option = self.parent();
+        while let Some(parent) = parent_option {
+            parent_option = parent.parent();
+            parents.push(parent);
+        }
+        parents
+    }
+
 }
 
 impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
@@ -447,22 +457,11 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         })
     }
 
-    fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
-        if subject == 0 {
-            return None;
-        }
-
+    fn lookup_subject_current_layer(&self, subject: u64, parent: Option<Box<dyn SubjectLookup>>) -> Option<Box<dyn SubjectLookup>> {
         let mut pos: Option<AdjacencyStuff<M>> = None;
         let mut neg: Option<AdjacencyStuff<M>> = None;
-
-        // first determine where we should be looking.
         let pos_index = self.pos_subjects.index_of(subject);
         let neg_index = self.neg_subjects.index_of(subject);
-        // TODO: Eliminate recursion
-        let parent = self.parent.lookup_subject(subject);
-        if pos_index.is_none() && parent.is_none() {
-            return None;
-        }
 
         if pos_index.is_some() {
             // subject is mentioned in this layer (as an insert), and might be in the parent layer as well
@@ -490,14 +489,28 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
                 });
             }
         }
-
-        Some(Box::new(ChildSubjectLookup {
+        return Some(Box::new(ChildSubjectLookup {
             parent,
             subject,
             pos,
             neg
-        }))
+        }));
     }
+
+    fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
+        if subject == 0 {
+            return None;
+        }
+        let parents = self.parents();
+        let latest_idx = parents.len();
+        let mut latest_lookup: Option<Box<dyn SubjectLookup>> = None;
+        for index in 0..latest_idx {
+            let real_idx = latest_idx - index - 1;
+            latest_lookup = parents[real_idx].lookup_subject_current_layer(subject, latest_lookup);
+        }
+        return self.lookup_subject_current_layer(subject, latest_lookup);
+    }
+
 
     fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
         if subject == 0 {

@@ -198,6 +198,11 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         }
     }
 
+
+    fn lookup_subject_current_layer(&self, subject: u64, _parent: Option<Box<dyn SubjectLookup>>) -> Option<Box<dyn SubjectLookup>> {
+        self.lookup_subject(subject)
+    }
+
     fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
         if subject == 0 || subject >= (self.s_p_adjacency_list.left_count() + 1) as u64 {
             None

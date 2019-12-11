@@ -250,6 +250,10 @@ impl Layer for StoreLayer {
         self.layer.lookup_subject_removal(subject)
     }
 
+    fn lookup_subject_current_layer(&self, subject: u64, parent: Option<Box<dyn SubjectLookup>>) -> Option<Box<dyn SubjectLookup>> {
+        self.layer.lookup_subject_current_layer(subject, parent)
+    }
+
     fn objects(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
         self.layer.objects()
     }

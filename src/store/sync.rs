@@ -260,6 +260,10 @@ impl Layer for SyncStoreLayer {
         self.inner.lookup_predicate_removal(predicate)
     }
 
+    fn lookup_subject_current_layer(&self, subject: u64, parent: Option<Box<dyn SubjectLookup>>) -> Option<Box<dyn SubjectLookup>> {
+        self.inner.lookup_subject_current_layer(subject, parent)
+    }
+
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())
     }
