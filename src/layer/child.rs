@@ -504,9 +504,8 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         let parents = self.parents();
         let latest_idx = parents.len();
         let mut latest_lookup: Option<Box<dyn SubjectLookup>> = None;
-        for index in 0..latest_idx {
-            let real_idx = latest_idx - index - 1;
-            latest_lookup = parents[real_idx].lookup_subject_current_layer(subject, latest_lookup);
+        for index in (0..latest_idx).rev() {
+            latest_lookup = parents[index].lookup_subject_current_layer(subject, latest_lookup);
         }
         return self.lookup_subject_current_layer(subject, latest_lookup);
     }
