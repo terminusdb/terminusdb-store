@@ -567,10 +567,10 @@ mod tests {
         let contents = vec![
             "aaaaa",
             "aaaaaaaaaa",
-            "arf",
             "aaaabbbbbb",
             "abcdefghijk",
             "addeeerafa",
+            "arf",
             "bapofsi",
             "barf",
             "berf",
@@ -596,7 +596,7 @@ mod tests {
         let dict = PfcDict::parse(blocks.map().wait().unwrap(), offsets.map().wait().unwrap()).unwrap();
 
         assert_eq!(Some(0), dict.id("aaaaa"));
-        assert_eq!(Some(2), dict.id("arf"));
+        assert_eq!(Some(5), dict.id("arf"));
         assert_eq!(Some(7), dict.id("barf"));
         assert_eq!(Some(8), dict.id("berf"));
         assert_eq!(Some(15), dict.id("frumps framps fremps"));
@@ -612,10 +612,10 @@ mod tests {
         let contents = vec![
             "aaaaa",
             "aaaaaaaaaa",
-            "arf",
             "aaaabbbbbb",
             "abcdefghijk",
             "addeeerafa",
+            "arf",
             "bapofsi",
             "barf",
             "berf",
@@ -649,10 +649,10 @@ mod tests {
         let contents = vec![
             "aaaaa",
             "aaaaaaaaaa",
-            "arf",
             "aaaabbbbbb",
             "abcdefghijk",
             "addeeerafa",
+            "arf",
             "bapofsi",
             "barf",
             "berf",
@@ -686,10 +686,10 @@ mod tests {
         let contents = vec![
             "aaaaa",
             "aaaaaaaaaa",
-            "arf",
             "aaaabbbbbb",
             "abcdefghijk",
             "addeeerafa",
+            "arf",
             "bapofsi",
             "barf",
             "berf",
@@ -721,10 +721,10 @@ mod tests {
         let contents = vec![
             "aaaaa",
             "aaaaaaaaaa",
-            "arf",
             "aaaabbbbbb",
             "abcdefghijk",
             "addeeerafa",
+            "arf",
             "bapofsi",
             "barf",
             "berf",
@@ -760,10 +760,10 @@ mod tests {
         let contents = vec![
             "aaaaa",
             "aaaaaaaaaa",
-            "arf",
             "aaaabbbbbb",
             "abcdefghijk",
             "addeeerafa",
+            "arf",
             "bapofsi",
             "barf",
             "berf",
