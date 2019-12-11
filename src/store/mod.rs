@@ -270,6 +270,10 @@ impl Layer for StoreLayer {
         self.layer.object_removals()
     }
 
+    fn lookup_object_current_layer(&self, object: u64, parent: Option<Box<dyn ObjectLookup>>) -> Option<Box<dyn ObjectLookup>> {
+        self.layer.lookup_object_current_layer(object, parent)
+    }
+
     fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
         self.layer.lookup_object(object)
     }

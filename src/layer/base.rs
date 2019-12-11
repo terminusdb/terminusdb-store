@@ -242,6 +242,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         Box::new(std::iter::empty())
     }
 
+    fn lookup_object_current_layer(&self, object: u64, _parent: Option<Box<dyn ObjectLookup>>) -> Option<Box<dyn ObjectLookup>> {
+        self.lookup_object(object)
+    }
+
     fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
         if object == 0 || object > self.node_and_value_count() as u64 {
             None

@@ -138,6 +138,8 @@ pub trait Layer: Send+Sync {
     /// layers may have then removed every triple involving this
     /// object.
     fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>>;
+    /// Only lookup object for current layer
+    fn lookup_object_current_layer(&self, object: u64, parent: Option<Box<dyn ObjectLookup>>) -> Option<Box<dyn ObjectLookup>>;
 
     /// Returns an `ObjectLookup` for the given object, or None if it could not be constructed.
     ///

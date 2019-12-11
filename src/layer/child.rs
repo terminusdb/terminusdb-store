@@ -593,7 +593,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
                  .map(move |mapped_object| Box::new(cloned.lookup_object_removal_mapped((mapped_object+1) as u64)) as Box<dyn ObjectLookup>))
     }
 
-    fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+    fn lookup_object_current_layer(&self, object: u64, parent: Option<Box<dyn ObjectLookup>>) -> Option<Box<dyn ObjectLookup>> {
         let pos = self.pos_objects.index_of(object)
             .map(|index| self.pos_o_ps_adjacency_list.get((index as u64)+1))
             .map(|pos_sp_slice| ChildObjectLookupAdjacency {
@@ -601,8 +601,6 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
                 sp_slice: pos_sp_slice,
                 s_p_adjacency_list: self.pos_s_p_adjacency_list.clone()
             });
-        // TODO: Eliminate recursion
-        let parent = self.parent.lookup_object(object);
         if pos.is_none() && parent.is_none() {
             return None;
         }
@@ -616,6 +614,16 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             });
 
         Some(Box::new(ChildObjectLookup::new(object, parent, pos, neg)))
+    }
+
+    fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+        let parents = self.parents();
+        let latest_idx = parents.len();
+        let mut latest_lookup: Option<Box<dyn ObjectLookup>> = None;
+        for index in (0..latest_idx).rev() {
+            latest_lookup = parents[index].lookup_object_current_layer(object, latest_lookup);
+        }
+        return self.lookup_object_current_layer(object, latest_lookup);
     }
 
     fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {

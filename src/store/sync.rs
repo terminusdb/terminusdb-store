@@ -268,6 +268,10 @@ impl Layer for SyncStoreLayer {
         self.inner.lookup_predicate_current_layer(predicate, parent)
     }
 
+    fn lookup_object_current_layer(&self, object: u64, parent: Option<Box<dyn ObjectLookup>>) -> Option<Box<dyn ObjectLookup>> {
+        self.inner.lookup_object_current_layer(object, parent)
+    }
+
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())
     }
