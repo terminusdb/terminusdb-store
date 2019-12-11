@@ -11,11 +11,11 @@ use super::bitindex::*;
 
 pub struct MappedPfcDict<M:AsRef<[u8]>+Clone> {
     inner: PfcDict<M>,
-    id_wtree: WaveletTree<M>
+    id_wtree: Option<WaveletTree<M>>
 }
 
 impl<M:AsRef<[u8]>+Clone> MappedPfcDict<M> {
-    pub fn from_parts(dict: PfcDict<M>, wtree: WaveletTree<M>) -> MappedPfcDict<M> {
+    pub fn from_parts(dict: PfcDict<M>, wtree: Option<WaveletTree<M>>) -> MappedPfcDict<M> {
         MappedPfcDict {
             inner: dict,
             id_wtree: wtree
@@ -31,13 +31,13 @@ impl<M:AsRef<[u8]>+Clone> MappedPfcDict<M> {
             panic!("index too large for mapped pfc dict");
         }
 
-        let mapped_id = self.id_wtree.lookup_one(ix as u64).unwrap();
+        let mapped_id = self.id_wtree.as_ref().map(|wtree|wtree.lookup_one(ix as u64).unwrap()).unwrap_or(ix as u64);
         self.inner.get(mapped_id as usize)
     }
 
     pub fn id(&self, s: &str) -> Option<u64> {
         self.inner.id(s)
-            .map(|mapped_id| self.id_wtree.decode_one(mapped_id as usize))
+            .map(|mapped_id| self.id_wtree.as_ref().map(|wtree|wtree.decode_one(mapped_id as usize)).unwrap_or(mapped_id))
     }
 }
 
@@ -107,6 +107,40 @@ mod tests {
     use crate::structure::bitindex::*;
 
     #[test]
+    fn mapped_dict_that_wraps_normal_dict_without_mapping() {
+        let contents = vec![
+            "aaaaa",
+            "abcdefghijk",
+            "arf",
+            "bapofsi",
+            "berf",
+            "bzwas baraf",
+            "eadfpoicvu",
+            "faadsafdfaf sdfasdf",
+            "gahh",
+            ];
+
+        let blocks = MemoryBackedStore::new();
+        let offsets = MemoryBackedStore::new();
+        let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
+
+        builder.add_all(contents.clone().into_iter().map(|s|s.to_string()))
+            .and_then(|(_,b)|b.finalize())
+            .wait().unwrap();
+
+        let dict = PfcDict::parse(blocks.map().wait().unwrap(), offsets.map().wait().unwrap()).unwrap();
+
+        let mapped_dict = MappedPfcDict::from_parts(dict, None);
+
+        for i in 0..contents.len() {
+            let s = mapped_dict.get(i);
+            assert_eq!(contents[i], s);
+            let id = mapped_dict.id(&s).unwrap();
+            assert_eq!(i as u64, id);
+        }
+    }
+
+    #[test]
     fn create_and_query_mapped_dict() {
         let contents1 = vec![
             "aaaaa",
@@ -164,13 +198,13 @@ mod tests {
         let wavelet_bitindex = BitIndex::from_maps(wavelet_files.bits_file.map().wait().unwrap(), wavelet_files.blocks_file.map().wait().unwrap(), wavelet_files.sblocks_file.map().wait().unwrap());
         let wavelet_tree = WaveletTree::from_parts(wavelet_bitindex, 5);
 
-        let mapped_dict = MappedPfcDict::from_parts(dict, wavelet_tree);
+        let mapped_dict = MappedPfcDict::from_parts(dict, Some(wavelet_tree));
 
         let mut total_contents = Vec::with_capacity(contents1.len()+contents2.len());
         total_contents.extend(contents1);
         total_contents.extend(contents2);
 
-        for i in 0..18 {
+        for i in 0..total_contents.len() {
             let s = mapped_dict.get(i);
             assert_eq!(total_contents[i], s);
             let id = mapped_dict.id(&s).unwrap();
@@ -263,7 +297,7 @@ mod tests {
         let wavelet_bitindex = BitIndex::from_maps(wavelet5_files.bits_file.map().wait().unwrap(), wavelet5_files.blocks_file.map().wait().unwrap(), wavelet5_files.sblocks_file.map().wait().unwrap());
         let wavelet_tree = WaveletTree::from_parts(wavelet_bitindex, 5);
 
-        let mapped_dict = MappedPfcDict::from_parts(dict, wavelet_tree);
+        let mapped_dict = MappedPfcDict::from_parts(dict, Some(wavelet_tree));
 
         let mut total_contents = Vec::with_capacity(contents1.len()+contents2.len()+contents3.len());
         total_contents.extend(contents1);
