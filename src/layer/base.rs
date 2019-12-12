@@ -93,12 +93,48 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         Box::new(std::iter::empty())
     }
 
+    fn node_dict_len(&self) -> usize {
+        self.node_dictionary.len()
+    }
+
+    fn node_dict_get(&self, id: usize) -> String {
+        self.node_dictionary.get(id)
+    }
+
+    fn predicate_dict_get(&self, id: usize) -> String {
+        self.predicate_dictionary.get(id)
+    }
+
+    fn value_dict_get(&self, id: usize) -> String {
+        self.value_dictionary.get(id)
+    }
+
+    fn predicate_dict_len(&self) -> usize {
+        self.predicate_dictionary.len()
+    }
+
+    fn value_dict_len(&self) -> usize {
+        self.value_dictionary.len()
+    }
+
     fn node_and_value_count(&self) -> usize {
         self.node_dictionary.len() + self.value_dictionary.len()
     }
 
     fn predicate_count(&self) -> usize {
         self.predicate_dictionary.len()
+    }
+
+    fn node_dict_id(&self, subject: &str) -> Option<u64> {
+        self.node_dictionary.id(&subject)
+    }
+
+    fn predicate_dict_id(&self, predicate: &str) -> Option<u64> {
+        self.predicate_dictionary.id(predicate)
+    }
+
+    fn value_dict_id(&self, value: &str) -> Option<u64> {
+        self.value_dictionary.id(value)
     }
 
     fn subject_id(&self, subject: &str) -> Option<u64> {
@@ -162,6 +198,11 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         }
     }
 
+
+    fn lookup_subject_current_layer(&self, subject: u64, _parent: Option<Box<dyn SubjectLookup>>) -> Option<Box<dyn SubjectLookup>> {
+        self.lookup_subject(subject)
+    }
+
     fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
         if subject == 0 || subject >= (self.s_p_adjacency_list.left_count() + 1) as u64 {
             None
@@ -201,6 +242,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         Box::new(std::iter::empty())
     }
 
+    fn lookup_object_current_layer(&self, object: u64, _parent: Option<Box<dyn ObjectLookup>>) -> Option<Box<dyn ObjectLookup>> {
+        self.lookup_object(object)
+    }
+
     fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
         if object == 0 || object > self.node_and_value_count() as u64 {
             None
@@ -221,6 +266,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
 
     fn lookup_object_removal(&self, _object: u64) -> Option<Box<dyn ObjectLookup>> {
         None
+    }
+
+    fn lookup_predicate_current_layer(&self, predicate: u64, _parent: Option<Box<dyn PredicateLookup>>) -> Option<Box<dyn PredicateLookup>> {
+        self.lookup_predicate(predicate)
     }
 
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
@@ -294,6 +343,10 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for BaseSubjectLookup<M> {
         self.subject
     }
 
+    fn parent(&self) -> Option<&dyn SubjectLookup> {
+        None
+    }
+
     fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
         Box::new(BasePredicateIterator {
             subject: self.subject,
@@ -302,6 +355,10 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for BaseSubjectLookup<M> {
             sp_offset: self.sp_offset,
             sp_o_adjacency_list: self.sp_o_adjacency_list.clone()
         })
+    }
+
+    fn lookup_predicate_current(&self, predicate: u64, _parent: Option<Box<dyn SubjectPredicateLookup>>) -> Option<Box<dyn SubjectPredicateLookup>> {
+        self.lookup_predicate(predicate)
     }
 
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn SubjectPredicateLookup>> {
@@ -425,6 +482,10 @@ impl<M:'static+AsRef<[u8]>+Clone> ObjectLookup for BaseObjectLookup<M> {
         self.object
     }
 
+    fn parent(&self) -> Option<&dyn ObjectLookup> {
+        None
+    }
+
     fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=(u64, u64)>> {
         let cloned = self.clone();
         Box::new(self.sp_slice.clone().into_iter()
@@ -436,10 +497,6 @@ impl<M:'static+AsRef<[u8]>+Clone> ObjectLookup for BaseObjectLookup<M> {
                          Some(cloned.s_p_adjacency_list.pair_at_pos(i-1))
                      }
                  }))
-    }
-
-    fn clone_box(&self) -> Box<dyn ObjectLookup> {
-        Box::new(self.clone())
     }
 }
 

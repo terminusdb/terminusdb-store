@@ -157,6 +157,43 @@ impl Layer for StoreLayer {
         self.layer.node_and_value_count()
     }
 
+
+    fn node_dict_id(&self, subject: &str) -> Option<u64> {
+        self.layer.node_dict_id(subject)
+    }
+
+    fn node_dict_len(&self) -> usize {
+        self.layer.node_dict_len()
+    }
+
+    fn node_dict_get(&self, id: usize) -> String {
+        self.layer.node_dict_get(id)
+    }
+
+    fn value_dict_len(&self) -> usize {
+        self.layer.value_dict_len()
+    }
+
+    fn value_dict_id(&self, value: &str) -> Option<u64> {
+        self.layer.value_dict_id(value)
+    }
+
+    fn value_dict_get(&self, id: usize) -> String {
+        self.layer.value_dict_get(id)
+    }
+
+    fn predicate_dict_id(&self, predicate: &str) -> Option<u64> {
+        self.layer.predicate_dict_id(predicate)
+    }
+
+    fn predicate_dict_len(&self) -> usize {
+        self.layer.predicate_dict_len()
+    }
+
+    fn predicate_dict_get(&self, id: usize) -> String {
+        self.layer.predicate_dict_get(id)
+    }
+
     fn predicate_count(&self) -> usize {
         self.layer.predicate_count()
     }
@@ -213,6 +250,14 @@ impl Layer for StoreLayer {
         self.layer.lookup_subject_removal(subject)
     }
 
+    fn lookup_subject_current_layer(&self, subject: u64, parent: Option<Box<dyn SubjectLookup>>) -> Option<Box<dyn SubjectLookup>> {
+        self.layer.lookup_subject_current_layer(subject, parent)
+    }
+
+    fn lookup_predicate_current_layer(&self, predicate: u64, parent: Option<Box<dyn PredicateLookup>>) -> Option<Box<dyn PredicateLookup>> {
+        self.layer.lookup_predicate_current_layer(predicate, parent)
+    }
+
     fn objects(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
         self.layer.objects()
     }
@@ -223,6 +268,10 @@ impl Layer for StoreLayer {
 
     fn object_removals(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
         self.layer.object_removals()
+    }
+
+    fn lookup_object_current_layer(&self, object: u64, parent: Option<Box<dyn ObjectLookup>>) -> Option<Box<dyn ObjectLookup>> {
+        self.layer.lookup_object_current_layer(object, parent)
     }
 
     fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {

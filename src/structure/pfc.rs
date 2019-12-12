@@ -339,7 +339,7 @@ impl<W:'static+tokio::io::AsyncWrite+Send> PfcDictFileBuilder<W> {
             index: Vec::new()
         }
     }
-    pub fn add(self, s: &str) -> Box<dyn Future<Item=(u64, PfcDictFileBuilder<W>),Error=std::io::Error>+Send> {
+    pub fn add(self, s: &str) -> impl Future<Item=(u64, PfcDictFileBuilder<W>),Error=std::io::Error>+Send {
         let count = self.count;
         let size = self.size;
         let mut index = self.index;
@@ -352,7 +352,7 @@ impl<W:'static+tokio::io::AsyncWrite+Send> PfcDictFileBuilder<W> {
                 index.push(size as u64);
             }
             let pfc_block_offsets_file = self.pfc_block_offsets_file;
-            Box::new(write_nul_terminated_bytes(self.pfc_blocks_file, bytes.clone())
+            future::Either::A(write_nul_terminated_bytes(self.pfc_blocks_file, bytes.clone())
                      .and_then(move |(f, len)| future::ok(((count+1) as u64, PfcDictFileBuilder {
                          pfc_blocks_file: f,
                          pfc_block_offsets_file,
@@ -367,7 +367,7 @@ impl<W:'static+tokio::io::AsyncWrite+Send> PfcDictFileBuilder<W> {
             let common = find_common_prefix(&self.last.unwrap(), s_bytes);
             let postfix = s_bytes[common..].to_vec();
             let pfc_block_offsets_file = self.pfc_block_offsets_file;
-            Box::new(VByte::write(common as u64, self.pfc_blocks_file)
+            future::Either::B(VByte::write(common as u64, self.pfc_blocks_file)
                 .and_then(move |(pfc_blocks_file,vbyte_len)| write_nul_terminated_bytes(pfc_blocks_file, postfix)
                           .map(move |(pfc_blocks_file, slice_len)| ((count+1) as u64, PfcDictFileBuilder {
                               pfc_blocks_file,
@@ -380,20 +380,18 @@ impl<W:'static+tokio::io::AsyncWrite+Send> PfcDictFileBuilder<W> {
         }
     }
 
-    fn add_all_1<I:'static+Iterator<Item=String>+Send>(self, mut it:I, mut result: Vec<u64>) -> Box<dyn Future<Item=(Vec<u64>, PfcDictFileBuilder<W>), Error=std::io::Error>+Send> {
-        let next = it.next();
-        match next {
-            None => Box::new(future::ok((result, self))),
-            Some(s) => Box::new(self.add(&s)
-                                .and_then(move |(r,b)| {
-                                    result.push(r);
-                                    b.add_all_1(it, result)
-                                }))
-        }
-    }
-
-    pub fn add_all<I:'static+Iterator<Item=String>+Send>(self, it:I) -> Box<dyn Future<Item=(Vec<u64>, PfcDictFileBuilder<W>), Error=std::io::Error>+Send> {
-        self.add_all_1(it, Vec::new())
+    pub fn add_all<I:'static+Iterator<Item=String>+Send>(self, it:I) -> impl Future<Item=(Vec<u64>, PfcDictFileBuilder<W>), Error=std::io::Error>+Send {
+        future::loop_fn((self, it, Vec::new()), |(builder, mut it, mut result)| {
+            let next = it.next();
+            match next {
+                None => future::Either::A(future::ok(future::Loop::Break((result, builder)))),
+                Some(s) => future::Either::B(builder.add(&s)
+                                             .and_then(move |(r, b)| {
+                                                 result.push(r);
+                                                 future::ok(future::Loop::Continue((b, it, result)))
+                                             }))
+            }
+        })
     }
 
     /// finish the data structure

@@ -128,8 +128,44 @@ impl Layer for SyncStoreLayer {
         (&self.inner as &dyn Layer).parent()
     }
 
+    fn node_dict_id(&self, subject: &str) -> Option<u64> {
+        self.inner.node_dict_id(subject)
+    }
+
+    fn value_dict_id(&self, value: &str) -> Option<u64> {
+        self.inner.value_dict_id(value)
+    }
+
+    fn node_dict_len(&self) -> usize {
+        self.inner.node_dict_len()
+    }
+
+    fn value_dict_len(&self) -> usize {
+        self.inner.value_dict_len()
+    }
+
+    fn value_dict_get(&self, id: usize) -> String {
+        self.inner.value_dict_get(id)
+    }
+
+    fn node_dict_get(&self, id: usize) -> String {
+        self.inner.node_dict_get(id)
+    }
+
     fn node_and_value_count(&self) -> usize {
         self.inner.node_and_value_count()
+    }
+
+    fn predicate_dict_id(&self, predicate: &str) -> Option<u64> {
+        self.inner.predicate_dict_id(predicate)
+    }
+
+    fn predicate_dict_get(&self, id: usize) -> String {
+        self.inner.predicate_dict_get(id)
+    }
+
+    fn predicate_dict_len(&self) -> usize {
+        self.inner.predicate_dict_len()
     }
 
     fn predicate_count(&self) -> usize {
@@ -222,6 +258,18 @@ impl Layer for SyncStoreLayer {
 
     fn lookup_predicate_removal(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
         self.inner.lookup_predicate_removal(predicate)
+    }
+
+    fn lookup_subject_current_layer(&self, subject: u64, parent: Option<Box<dyn SubjectLookup>>) -> Option<Box<dyn SubjectLookup>> {
+        self.inner.lookup_subject_current_layer(subject, parent)
+    }
+
+    fn lookup_predicate_current_layer(&self, predicate: u64, parent: Option<Box<dyn PredicateLookup>>) -> Option<Box<dyn PredicateLookup>> {
+        self.inner.lookup_predicate_current_layer(predicate, parent)
+    }
+
+    fn lookup_object_current_layer(&self, object: u64, parent: Option<Box<dyn ObjectLookup>>) -> Option<Box<dyn ObjectLookup>> {
+        self.inner.lookup_object_current_layer(object, parent)
     }
 
     fn clone_boxed(&self) -> Box<dyn Layer> {

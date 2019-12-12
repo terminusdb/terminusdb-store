@@ -158,6 +158,16 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> ChildLayer<M> {
         ChildObjectLookup::new(object, None, Some(pos), None)
     }
 
+    fn parents(&self) -> Vec<Arc<dyn Layer>> {
+        let mut parents: Vec<Arc<dyn Layer>> = Vec::new();
+        let mut parent_option = self.parent();
+        while let Some(parent) = parent_option {
+            parent_option = parent.parent();
+            parents.push(parent);
+        }
+        parents
+    }
+
 }
 
 impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
@@ -169,40 +179,132 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         Some(self.parent.clone())
     }
 
+    fn node_dict_id(&self, subject: &str) -> Option<u64> {
+        self.node_dictionary.id(subject)
+    }
+
+    fn node_dict_len(&self) -> usize {
+        self.node_dictionary.len()
+    }
+
+    fn node_dict_get(&self, id: usize) -> String {
+        self.node_dictionary.get(id)
+    }
+
+
+    fn value_dict_get(&self, id: usize) -> String {
+        self.value_dictionary.get(id)
+    }
+
+    fn value_dict_id(&self, value: &str) -> Option<u64> {
+        self.value_dictionary.id(value)
+    }
+
+    fn value_dict_len(&self) -> usize {
+        self.value_dictionary.len()
+    }
+
     fn node_and_value_count(&self) -> usize {
-        self.node_dictionary.len() + self.value_dictionary.len() + self.parent.node_and_value_count()
+        let mut parent_option = self.parent();
+        let mut count = self.node_dictionary.len() + self.value_dictionary.len();
+        while let Some(parent) = parent_option {
+            count += parent.node_dict_len() + parent.value_dict_len();
+            parent_option = parent.parent();
+        }
+        count
+    }
+
+    fn predicate_dict_len(&self) -> usize {
+        self.predicate_dictionary.len()
+    }
+
+    fn predicate_dict_id(&self, predicate: &str) -> Option<u64> {
+        self.predicate_dictionary.id(predicate)
+    }
+
+    fn predicate_dict_get(&self, id: usize) -> String {
+        self.predicate_dictionary.get(id)
     }
 
     fn predicate_count(&self) -> usize {
-        self.predicate_dictionary.len() + self.parent.predicate_count()
+        let mut parent_option = self.parent();
+        let mut count = self.predicate_dictionary.len();
+        while let Some(parent) = parent_option {
+            count += parent.predicate_dict_len();
+            parent_option = parent.parent();
+        }
+        count
     }
 
     fn subject_id(&self, subject: &str) -> Option<u64> {
-        match self.node_dictionary.id(subject) {
-            Some(id) => Some(self.parent.node_and_value_count() as u64 + id + 1),
-            None => self.parent.subject_id(subject)
+        let mut result: Option<u64> = self.node_dict_id(subject);
+        let mut parent_option = self.parent();
+        while let Some(parent) = parent_option {
+            let next_parent = parent.parent();
+            if result.is_some() {
+                return Some(parent.node_and_value_count() as u64 + result.unwrap() + 1);
+            }
+            result = parent.node_dict_id(subject);
+            if next_parent.is_none() {
+                return parent.subject_id(subject);
+            }
+            parent_option = next_parent;
         }
+        None
     }
 
     fn predicate_id(&self, predicate: &str) -> Option<u64> {
-        match self.predicate_dictionary.id(predicate) {
-            Some(id) => Some(self.parent.predicate_count() as u64 + id + 1),
-            None => self.parent.predicate_id(predicate)
+        let mut result: Option<u64> = self.predicate_dict_id(predicate);
+        let mut parent_option = self.parent();
+        while let Some(parent) = parent_option {
+            let next_parent = parent.parent();
+            if result.is_some() {
+                return Some(parent.predicate_count() as u64 + result.unwrap() + 1);
+            }
+            result = parent.predicate_dict_id(predicate);
+            if next_parent.is_none() {
+                return parent.predicate_id(predicate);
+            }
+            parent_option = next_parent;
         }
+        None
     }
 
     fn object_node_id(&self, node: &str) -> Option<u64> {
-        match self.node_dictionary.id(node) {
-            Some(id) => Some(self.parent.node_and_value_count() as u64 + id + 1),
-            None => self.parent.object_node_id(node)
+        let mut result: Option<u64> = self.node_dict_id(node);
+        let mut parent_option = self.parent();
+        while let Some(parent) = parent_option {
+            let next_parent = parent.parent();
+            if result.is_some() {
+                return Some(parent.node_and_value_count() as u64 + result.unwrap() + 1);
+            }
+            result = parent.node_dict_id(node);
+            if next_parent.is_none() {
+                return parent.object_node_id(node);
+            }
+            parent_option = next_parent;
         }
+        None
     }
 
     fn object_value_id(&self, value: &str) -> Option<u64> {
-        match self.value_dictionary.id(value) {
-            Some(id) => Some(self.parent.node_and_value_count() as u64 + self.node_dictionary.len() as u64 + id + 1),
-            None => self.parent.object_value_id(value)
+        let mut result: Option<u64> = self.value_dict_id(value);
+        if result.is_some() {
+            return Some(self.parent.node_and_value_count() as u64 + self.node_dict_len() as u64 + result.unwrap() + 1);
         }
+        let mut parent_option = self.parent();
+        while let Some(parent) = parent_option {
+            let next_parent = parent.parent();
+            if next_parent.is_none() {
+                return parent.object_value_id(value);
+            }
+            result = parent.value_dict_id(value);
+            if result.is_some() {
+                return Some(next_parent.unwrap().node_and_value_count() as u64 + parent.node_dict_len() as u64 + result.unwrap() + 1);
+            }
+            parent_option = next_parent;
+        }
+        None
     }
 
     fn id_subject(&self, id: u64) -> Option<String> {
@@ -210,22 +312,26 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             return None;
         }
         let mut corrected_id = id - 1;
-        let parent_count = self.parent.node_and_value_count() as u64;
-
-        if corrected_id >= parent_count as u64 {
-            // subject, if it exists, is in this layer
-            corrected_id -= parent_count;
-            if corrected_id >= self.node_dictionary.len() as u64 {
-                None
+        // TODO: Can we do this without cloning self? It is not that efficient
+        let mut current_option: Option<Arc<dyn Layer>> = Some(Arc::new(self.clone()));
+        let mut parent_count = self.node_and_value_count() as u64;
+        while let Some(current_layer) = current_option {
+            parent_count = parent_count - current_layer.node_dict_len() as u64 - current_layer.value_dict_len() as u64;
+            if corrected_id >= parent_count as u64 {
+                // subject, if it exists, is in this layer
+                corrected_id -= parent_count;
+                if corrected_id >= current_layer.node_dict_len() as u64 {
+                    return None
+                }
+                else {
+                    return Some(current_layer.node_dict_get(corrected_id as usize))
+                }
             }
             else {
-                Some(self.node_dictionary.get(corrected_id as usize))
+                current_option = current_layer.parent();
             }
         }
-        else {
-            // subject, if it exists, is in a parent layer
-            self.parent.id_subject(id)
-        }
+        return None;
     }
 
     fn id_predicate(&self, id: u64) -> Option<String> {
@@ -233,21 +339,30 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             return None;
         }
         let mut corrected_id = id - 1;
-        let parent_count = self.parent.predicate_count() as u64;
-
-        if corrected_id >= parent_count {
-            // predicate, if it exists, is in this layer
-            corrected_id -= parent_count;
-            if corrected_id >= self.predicate_dictionary.len() as u64 {
-                None
+        // TODO: Can we do this without cloning self? It is not that efficient
+        let mut current_option: Option<Arc<dyn Layer>> = Some(Arc::new(self.clone()));
+        let mut parent_count = self.predicate_count() as u64;
+        while let Some(current_layer) = current_option {
+            let parent = current_layer.parent();
+            if parent.is_none() {
+                return current_layer.id_predicate(id);
+            }
+            parent_count = parent_count - current_layer.predicate_dict_len() as u64;
+            if corrected_id >= parent_count as u64 {
+                // subject, if it exists, is in this layer
+                corrected_id -= parent_count;
+                if corrected_id >= current_layer.predicate_dict_len() as u64 {
+                    return None
+                }
+                else {
+                    return Some(current_layer.predicate_dict_get(corrected_id as usize))
+                }
             }
             else {
-                Some(self.predicate_dictionary.get(corrected_id as usize))
+                current_option = current_layer.parent();
             }
         }
-        else {
-            self.parent.id_predicate(id)
-        }
+        return None;
     }
 
     fn id_object(&self, id: u64) -> Option<ObjectType> {
@@ -255,28 +370,38 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             return None;
         }
         let mut corrected_id = id - 1;
-        let parent_count = self.parent.node_and_value_count() as u64;
+        // TODO: Can we do this without cloning self? It is not that efficient
+        let mut current_option: Option<Arc<dyn Layer>> = Some(Arc::new(self.clone()));
+        let mut parent_count = self.node_and_value_count() as u64;
+        while let Some(current_layer) = current_option {
+            let parent = current_layer.parent();
+            if parent.is_none() {
+                return current_layer.id_object(id);
+            }
+            parent_count = parent_count - current_layer.node_dict_len() as u64 - current_layer.value_dict_len() as u64;
 
-        if corrected_id >= parent_count {
-            // object, if it exists, is in this layer
-            corrected_id -= parent_count;
-            if corrected_id >= self.node_dictionary.len() as u64 {
-                // object, if it exists, must be a value
-                corrected_id -= self.node_dictionary.len() as u64;
-                if corrected_id >= self.value_dictionary.len() as u64 {
-                    None
+            if corrected_id >= parent_count {
+                // object, if it exists, is in this layer
+                corrected_id -= parent_count;
+                if corrected_id >= current_layer.node_dict_len() as u64 {
+                    // object, if it exists, must be a value
+                    corrected_id -= current_layer.node_dict_len() as u64;
+                    if corrected_id >= current_layer.value_dict_len() as u64 {
+                        return None;
+                    }
+                    else {
+                        return Some(ObjectType::Value(current_layer.value_dict_get(corrected_id as usize)));
+                    }
                 }
                 else {
-                    Some(ObjectType::Value(self.value_dictionary.get(corrected_id as usize)))
+                    return Some(ObjectType::Node(current_layer.node_dict_get(corrected_id as usize)));
                 }
             }
             else {
-                Some(ObjectType::Node(self.node_dictionary.get(corrected_id as usize)))
+                current_option = current_layer.parent();
             }
         }
-        else {
-            self.parent.id_object(id)
-        }
+        return None;
     }
 
     fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
@@ -332,21 +457,11 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         })
     }
 
-    fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
-        if subject == 0 {
-            return None;
-        }
-
+    fn lookup_subject_current_layer(&self, subject: u64, parent: Option<Box<dyn SubjectLookup>>) -> Option<Box<dyn SubjectLookup>> {
         let mut pos: Option<AdjacencyStuff<M>> = None;
         let mut neg: Option<AdjacencyStuff<M>> = None;
-
-        // first determine where we should be looking.
         let pos_index = self.pos_subjects.index_of(subject);
         let neg_index = self.neg_subjects.index_of(subject);
-        let parent = self.parent.lookup_subject(subject);
-        if pos_index.is_none() && parent.is_none() {
-            return None;
-        }
 
         if pos_index.is_some() {
             // subject is mentioned in this layer (as an insert), and might be in the parent layer as well
@@ -374,14 +489,27 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
                 });
             }
         }
-
-        Some(Box::new(ChildSubjectLookup {
+        return Some(Box::new(ChildSubjectLookup {
             parent,
             subject,
             pos,
             neg
-        }))
+        }));
     }
+
+    fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
+        if subject == 0 {
+            return None;
+        }
+        let parents = self.parents();
+        let latest_idx = parents.len();
+        let mut latest_lookup: Option<Box<dyn SubjectLookup>> = None;
+        for index in (0..latest_idx).rev() {
+            latest_lookup = parents[index].lookup_subject_current_layer(subject, latest_lookup);
+        }
+        return self.lookup_subject_current_layer(subject, latest_lookup);
+    }
+
 
     fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
         if subject == 0 {
@@ -465,7 +593,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
                  .map(move |mapped_object| Box::new(cloned.lookup_object_removal_mapped((mapped_object+1) as u64)) as Box<dyn ObjectLookup>))
     }
 
-    fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+    fn lookup_object_current_layer(&self, object: u64, parent: Option<Box<dyn ObjectLookup>>) -> Option<Box<dyn ObjectLookup>> {
         let pos = self.pos_objects.index_of(object)
             .map(|index| self.pos_o_ps_adjacency_list.get((index as u64)+1))
             .map(|pos_sp_slice| ChildObjectLookupAdjacency {
@@ -473,7 +601,6 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
                 sp_slice: pos_sp_slice,
                 s_p_adjacency_list: self.pos_s_p_adjacency_list.clone()
             });
-        let parent = self.parent.lookup_object(object);
         if pos.is_none() && parent.is_none() {
             return None;
         }
@@ -489,6 +616,16 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         Some(Box::new(ChildObjectLookup::new(object, parent, pos, neg)))
     }
 
+    fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+        let parents = self.parents();
+        let latest_idx = parents.len();
+        let mut latest_lookup: Option<Box<dyn ObjectLookup>> = None;
+        for index in (0..latest_idx).rev() {
+            latest_lookup = parents[index].lookup_object_current_layer(object, latest_lookup);
+        }
+        return self.lookup_object_current_layer(object, latest_lookup);
+    }
+
     fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
         self.pos_objects.index_of(object)
             .map(|index| Box::new(self.lookup_object_addition_mapped((index as u64)+1)) as Box<dyn ObjectLookup>)
@@ -499,8 +636,9 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             .map(|index| Box::new(self.lookup_object_removal_mapped((index as u64)+1)) as Box<dyn ObjectLookup>)
     }
 
-    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
-        let parent = self.parent.lookup_predicate(predicate)
+
+    fn lookup_predicate_current_layer(&self, predicate: u64, parent: Option<Box<dyn PredicateLookup>>) -> Option<Box<dyn PredicateLookup>> {
+        let parent = parent
             .map(|parent| ChildPredicateLookupParentData {
                 parent,
                 neg_subjects: self.neg_subjects.clone(),
@@ -525,6 +663,16 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
                 child
             }))
         }
+    }
+
+    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+        let parents = self.parents();
+        let latest_idx = parents.len();
+        let mut latest_lookup: Option<Box<dyn PredicateLookup>> = None;
+        for index in (0..latest_idx).rev() {
+            latest_lookup = parents[index].lookup_predicate_current_layer(predicate, latest_lookup);
+        }
+        return self.lookup_predicate_current_layer(predicate, latest_lookup);
     }
 
     fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
@@ -655,9 +803,27 @@ struct ChildSubjectLookup<M:'static+AsRef<[u8]>+Clone> {
     neg: Option<AdjacencyStuff<M>>,
 }
 
+impl<M:AsRef<[u8]>+Clone> ChildSubjectLookup<M> {
+
+    fn parents(&self) -> Vec<&dyn SubjectLookup> {
+        let mut parents: Vec<&dyn SubjectLookup> = Vec::new();
+        let mut parent_option = self.parent();
+        while let Some(parent) = parent_option {
+            parent_option = parent.parent();
+            parents.push(parent);
+        }
+        parents
+    }
+}
+
+
 impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for ChildSubjectLookup<M> {
     fn subject(&self) -> u64 {
         self.subject
+    }
+
+    fn parent(&self) -> Option<&dyn SubjectLookup> {
+        self.parent.as_ref().map(|x|x.as_ref())
     }
 
     fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
@@ -672,14 +838,8 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for ChildSubjectLookup<M> {
         })
     }
 
-    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn SubjectPredicateLookup>> {
-        if predicate == 0 {
-            return None;
-        }
-
-        let parent_objects = self.parent.as_ref().and_then(|parent|parent.lookup_predicate(predicate));
-
-        if self.pos.is_none() && parent_objects.is_none() {
+    fn lookup_predicate_current(&self, predicate: u64, parent: Option<Box<dyn SubjectPredicateLookup>>) -> Option<Box<dyn SubjectPredicateLookup>> {
+        if self.pos.is_none() && parent.is_none() {
             None
         }
         else {
@@ -693,13 +853,26 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for ChildSubjectLookup<M> {
                                neg.sp_o_adjacency_list.get(neg.sp_offset+(position_in_neg_predicates as u64)+1)));
 
             Some(Box::new(ChildSubjectPredicateLookup {
-                parent: parent_objects,
+                parent: parent,
                 subject: self.subject,
                 predicate,
                 pos_objects,
                 neg_objects
             }))
         }
+    }
+
+    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn SubjectPredicateLookup>> {
+        if predicate == 0 {
+            return None;
+        }
+        let parents = self.parents();
+        let latest_idx = parents.len();
+        let mut latest_lookup: Option<Box<dyn SubjectPredicateLookup>> = None;
+        for index in (0..latest_idx).rev() {
+            latest_lookup = parents[index].lookup_predicate_current(predicate, latest_lookup);
+        }
+        return self.lookup_predicate_current(predicate, latest_lookup);
     }
 }
 
@@ -964,28 +1137,17 @@ impl<M:AsRef<[u8]>+Clone> ChildObjectLookup<M> {
     }
 }
 
-impl<M:AsRef<[u8]>+Clone> Clone for ChildObjectLookup<M> {
-    fn clone(&self) -> Self {
-        ChildObjectLookup {
-            object: self.object,
-            parent: self.parent.as_ref().map(|p|p.clone_box()),
-            pos: self.pos.clone(),
-            neg: self.neg.clone()
-        }
-    }
-}
-
 impl<M:'static+AsRef<[u8]>+Clone> ObjectLookup for ChildObjectLookup<M> {
     fn object(&self) -> u64 {
         self.object
     }
 
     fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=(u64, u64)>> {
-        Box::new(ChildSubjectPredicatePairsIterator::new(self.parent.as_ref().map(|p|p.clone_box()), self.pos.clone(), self.neg.clone()))
+        Box::new(ChildSubjectPredicatePairsIterator::new(self.parent(), self.pos.clone(), self.neg.clone()))
     }
 
-    fn clone_box(&self) -> Box<dyn ObjectLookup> {
-        Box::new(self.clone())
+    fn parent(&self) -> Option<&dyn ObjectLookup> {
+        self.parent.as_ref().map(|x|x.as_ref())
     }
 }
 
@@ -997,7 +1159,7 @@ struct ChildSubjectPredicatePairsIterator {
 }
 
 impl ChildSubjectPredicatePairsIterator {
-    fn new<M:'static+AsRef<[u8]>+Clone>(parent: Option<Box<dyn ObjectLookup>>,
+    fn new<M:'static+AsRef<[u8]>+Clone>(parent: Option<&dyn ObjectLookup>,
                                         pos: Option<ChildObjectLookupAdjacency<M>>,
                                         neg: Option<ChildObjectLookupAdjacency<M>>) -> Self {
         Self {
@@ -1089,6 +1251,7 @@ impl<M:'static+AsRef<[u8]>+Clone> PredicateLookup for ChildPredicateLookup<M> {
     }
 
     fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
+        // TODO: Eliminate recursion
         Box::new(ChildPredicateLookupSubjectPredicatePairsIterator {
             predicate: self.predicate,
             parent: self.parent.as_ref().map(|p|ChildPredicateLookupSubjectPredicatePairsIteratorParentData {
@@ -1494,8 +1657,9 @@ impl<F:'static+FileLoad+FileStore+Clone+Send+Sync> ChildLayerFileBuilderPhase2<F
     ) -> Self {
         let pos_subjects = Vec::new();
         let neg_subjects = Vec::new();
-        let s_p_width = ((parent.predicate_count() + num_predicates + 1) as f32).log2().ceil() as u8;
-        let sp_o_width = ((parent.node_and_value_count() + num_nodes + num_values + 1) as f32).log2().ceil() as u8;
+        let parent_counts = parent.all_counts();
+        let s_p_width = ((parent_counts.predicate_count + num_predicates + 1) as f32).log2().ceil() as u8;
+        let sp_o_width = ((parent_counts.node_count + parent_counts.value_count + num_nodes + num_values + 1) as f32).log2().ceil() as u8;
 
         let f = files.clone();
 

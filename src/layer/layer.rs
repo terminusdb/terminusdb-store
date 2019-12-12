@@ -21,6 +21,24 @@ pub trait Layer: Send+Sync {
     /// The amount of predicates known to this layer.
     /// This also counts entries in the parent.
     fn predicate_count(&self) -> usize;
+    /// Predicate dictionary get function
+    fn predicate_dict_get(&self, id: usize) -> String;
+    /// Predicate dict length of this specific layer
+    fn predicate_dict_len(&self) -> usize;
+    /// Predicate dict id of current layer
+    fn predicate_dict_id(&self, predicate: &str) -> Option<u64>;
+    /// Node dict id of current layer
+    fn node_dict_id(&self, subject: &str) -> Option<u64>;
+    /// Node dictionary get function
+    fn node_dict_get(&self, id: usize) -> String;
+    /// Node dict length of this specific layer
+    fn node_dict_len(&self) -> usize;
+    /// Value dict id of current layer
+    fn value_dict_id(&self, value: &str) -> Option<u64>;
+    /// Value dict length of this specific layer
+    fn value_dict_len(&self) -> usize;
+    /// Value dictionary get function
+    fn value_dict_get(&self, id: usize) -> String;
 
     /// The numerical id of a subject, or None if the subject cannot be found.
     fn subject_id(&self, subject: &str) -> Option<u64>;
@@ -71,6 +89,9 @@ pub trait Layer: Send+Sync {
     /// subject.
     fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>>;
 
+    /// lookup_subject for only current layer
+    fn lookup_subject_current_layer(&self, subject: u64, parent: Option<Box<dyn SubjectLookup>>) -> Option<Box<dyn SubjectLookup>>;
+
     /// Returns a `SubjectLookup` object for the given subject, or None if it cannot be constructed.
     ///
     /// Note that even if a value is returned here, that doesn't
@@ -117,6 +138,8 @@ pub trait Layer: Send+Sync {
     /// layers may have then removed every triple involving this
     /// object.
     fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>>;
+    /// Only lookup object for current layer
+    fn lookup_object_current_layer(&self, object: u64, parent: Option<Box<dyn ObjectLookup>>) -> Option<Box<dyn ObjectLookup>>;
 
     /// Returns an `ObjectLookup` for the given object, or None if it could not be constructed.
     ///
@@ -137,6 +160,8 @@ pub trait Layer: Send+Sync {
     /// later layers may have then removed every triple involving this
     /// predicate.
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>>;
+    /// Only lookup predicate for current layer
+    fn lookup_predicate_current_layer(&self, predicate: u64, parent: Option<Box<dyn PredicateLookup>>) -> Option<Box<dyn PredicateLookup>>;
 
     /// Returns a `PredicateLookup` for the given predicate, or None if it could not be constructed.
     ///
@@ -147,6 +172,21 @@ pub trait Layer: Send+Sync {
     ///
     /// This will only lookup in the current layer.
     fn lookup_predicate_removal(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>>;
+
+    /// Create a struct with all the counts
+    fn all_counts(&self) -> LayerCounts {
+        let mut node_count = self.node_dict_len();
+        let mut predicate_count = self.predicate_dict_len();
+        let mut value_count = self.value_dict_len();
+        let mut parent_option = self.parent();
+        while let Some(parent) = parent_option {
+            node_count += parent.node_dict_len();
+            predicate_count += parent.predicate_dict_len();
+            value_count += parent.value_dict_len();
+            parent_option = parent.parent();
+        }
+        LayerCounts { node_count, predicate_count, value_count }
+    }
 
     fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn PredicateLookup>>> {
         let cloned = self.clone_boxed();
@@ -252,6 +292,12 @@ pub trait Layer: Send+Sync {
     }
 }
 
+pub struct LayerCounts {
+    pub node_count: usize,
+    pub predicate_count: usize,
+    pub value_count: usize
+}
+
 /// The type of a layer - either base or child.
 #[derive(Clone,Copy)]
 pub enum LayerType {
@@ -268,6 +314,8 @@ pub enum LayerType {
 pub trait SubjectLookup {
     /// The subject that this lookup is based on
     fn subject(&self) -> u64;
+    /// Get the parent
+    fn parent(&self) -> Option<&dyn SubjectLookup>;
 
     /// Returns an iterator over predicate lookups
     fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>>;
@@ -279,7 +327,7 @@ pub trait SubjectLookup {
     /// lookup to be constructable, but if subsequent layers deleted
     /// all these triples, none will be retrievable.
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn SubjectPredicateLookup>>;
-
+    fn lookup_predicate_current(&self, predicate: u64, parent: Option<Box<dyn SubjectPredicateLookup>>) -> Option<Box<dyn SubjectPredicateLookup>>;
     /// Returns an iterator over all triples that can be found by this lookup
     fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
         Box::new(self.predicates().map(|p|p.triples()).flatten())
@@ -332,7 +380,7 @@ pub trait ObjectLookup {
     fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=(u64, u64)>>;
 
     /// clone this instance of ObjectLookup into a dyn Box.
-    fn clone_box(&self) -> Box<dyn ObjectLookup>;
+    fn parent(&self) -> Option<&dyn ObjectLookup>;
 
     /// Returns true if the object this lookup is for is connected to the given subject and predicater.
     fn has_subject_predicate_pair(&self, subject: u64, predicate: u64) -> bool {
