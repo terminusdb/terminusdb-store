@@ -482,6 +482,10 @@ impl<M:'static+AsRef<[u8]>+Clone> ObjectLookup for BaseObjectLookup<M> {
         self.object
     }
 
+    fn parent(&self) -> Option<&dyn ObjectLookup> {
+        None
+    }
+
     fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=(u64, u64)>> {
         let cloned = self.clone();
         Box::new(self.sp_slice.clone().into_iter()
@@ -493,10 +497,6 @@ impl<M:'static+AsRef<[u8]>+Clone> ObjectLookup for BaseObjectLookup<M> {
                          Some(cloned.s_p_adjacency_list.pair_at_pos(i-1))
                      }
                  }))
-    }
-
-    fn clone_box(&self) -> Box<dyn ObjectLookup> {
-        Box::new(self.clone())
     }
 }
 

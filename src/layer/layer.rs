@@ -380,7 +380,7 @@ pub trait ObjectLookup {
     fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=(u64, u64)>>;
 
     /// clone this instance of ObjectLookup into a dyn Box.
-    fn clone_box(&self) -> Box<dyn ObjectLookup>;
+    fn parent(&self) -> Option<&dyn ObjectLookup>;
 
     /// Returns true if the object this lookup is for is connected to the given subject and predicater.
     fn has_subject_predicate_pair(&self, subject: u64, predicate: u64) -> bool {

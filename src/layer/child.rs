@@ -1137,28 +1137,17 @@ impl<M:AsRef<[u8]>+Clone> ChildObjectLookup<M> {
     }
 }
 
-impl<M:AsRef<[u8]>+Clone> Clone for ChildObjectLookup<M> {
-    fn clone(&self) -> Self {
-        ChildObjectLookup {
-            object: self.object,
-            parent: self.parent.as_ref().map(|p|p.clone_box()),
-            pos: self.pos.clone(),
-            neg: self.neg.clone()
-        }
-    }
-}
-
 impl<M:'static+AsRef<[u8]>+Clone> ObjectLookup for ChildObjectLookup<M> {
     fn object(&self) -> u64 {
         self.object
     }
 
     fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=(u64, u64)>> {
-        Box::new(ChildSubjectPredicatePairsIterator::new(self.parent.as_ref().map(|p|p.clone_box()), self.pos.clone(), self.neg.clone()))
+        Box::new(ChildSubjectPredicatePairsIterator::new(self.parent(), self.pos.clone(), self.neg.clone()))
     }
 
-    fn clone_box(&self) -> Box<dyn ObjectLookup> {
-        Box::new(self.clone())
+    fn parent(&self) -> Option<&dyn ObjectLookup> {
+        self.parent.as_ref().map(|x|x.as_ref())
     }
 }
 
@@ -1170,7 +1159,7 @@ struct ChildSubjectPredicatePairsIterator {
 }
 
 impl ChildSubjectPredicatePairsIterator {
-    fn new<M:'static+AsRef<[u8]>+Clone>(parent: Option<Box<dyn ObjectLookup>>,
+    fn new<M:'static+AsRef<[u8]>+Clone>(parent: Option<&dyn ObjectLookup>,
                                         pos: Option<ChildObjectLookupAdjacency<M>>,
                                         neg: Option<ChildObjectLookupAdjacency<M>>) -> Self {
         Self {
@@ -1262,6 +1251,7 @@ impl<M:'static+AsRef<[u8]>+Clone> PredicateLookup for ChildPredicateLookup<M> {
     }
 
     fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
+        // TODO: Eliminate recursion
         Box::new(ChildPredicateLookupSubjectPredicatePairsIterator {
             predicate: self.predicate,
             parent: self.parent.as_ref().map(|p|ChildPredicateLookupSubjectPredicatePairsIteratorParentData {
