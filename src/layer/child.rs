@@ -803,9 +803,27 @@ struct ChildSubjectLookup<M:'static+AsRef<[u8]>+Clone> {
     neg: Option<AdjacencyStuff<M>>,
 }
 
+impl<M:AsRef<[u8]>+Clone> ChildSubjectLookup<M> {
+
+    fn parents(&self) -> Vec<&dyn SubjectLookup> {
+        let mut parents: Vec<&dyn SubjectLookup> = Vec::new();
+        let mut parent_option = self.parent();
+        while let Some(parent) = parent_option {
+            parent_option = parent.parent();
+            parents.push(parent);
+        }
+        parents
+    }
+}
+
+
 impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for ChildSubjectLookup<M> {
     fn subject(&self) -> u64 {
         self.subject
+    }
+
+    fn parent(&self) -> Option<&dyn SubjectLookup> {
+        self.parent.as_ref().map(|x|x.as_ref())
     }
 
     fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
@@ -820,14 +838,8 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for ChildSubjectLookup<M> {
         })
     }
 
-    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn SubjectPredicateLookup>> {
-        if predicate == 0 {
-            return None;
-        }
-        // TODO: Make non-recursive
-        let parent_objects = self.parent.as_ref().and_then(|parent|parent.lookup_predicate(predicate));
-
-        if self.pos.is_none() && parent_objects.is_none() {
+    fn lookup_predicate_current(&self, predicate: u64, parent: Option<Box<dyn SubjectPredicateLookup>>) -> Option<Box<dyn SubjectPredicateLookup>> {
+        if self.pos.is_none() && parent.is_none() {
             None
         }
         else {
@@ -841,13 +853,26 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for ChildSubjectLookup<M> {
                                neg.sp_o_adjacency_list.get(neg.sp_offset+(position_in_neg_predicates as u64)+1)));
 
             Some(Box::new(ChildSubjectPredicateLookup {
-                parent: parent_objects,
+                parent: parent,
                 subject: self.subject,
                 predicate,
                 pos_objects,
                 neg_objects
             }))
         }
+    }
+
+    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn SubjectPredicateLookup>> {
+        if predicate == 0 {
+            return None;
+        }
+        let parents = self.parents();
+        let latest_idx = parents.len();
+        let mut latest_lookup: Option<Box<dyn SubjectPredicateLookup>> = None;
+        for index in (0..latest_idx).rev() {
+            latest_lookup = parents[index].lookup_predicate_current(predicate, latest_lookup);
+        }
+        return self.lookup_predicate_current(predicate, latest_lookup);
     }
 }
 

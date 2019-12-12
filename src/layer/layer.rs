@@ -314,6 +314,8 @@ pub enum LayerType {
 pub trait SubjectLookup {
     /// The subject that this lookup is based on
     fn subject(&self) -> u64;
+    /// Get the parent
+    fn parent(&self) -> Option<&dyn SubjectLookup>;
 
     /// Returns an iterator over predicate lookups
     fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>>;
@@ -325,7 +327,7 @@ pub trait SubjectLookup {
     /// lookup to be constructable, but if subsequent layers deleted
     /// all these triples, none will be retrievable.
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn SubjectPredicateLookup>>;
-
+    fn lookup_predicate_current(&self, predicate: u64, parent: Option<Box<dyn SubjectPredicateLookup>>) -> Option<Box<dyn SubjectPredicateLookup>>;
     /// Returns an iterator over all triples that can be found by this lookup
     fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
         Box::new(self.predicates().map(|p|p.triples()).flatten())

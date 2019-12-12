@@ -343,6 +343,10 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for BaseSubjectLookup<M> {
         self.subject
     }
 
+    fn parent(&self) -> Option<&dyn SubjectLookup> {
+        None
+    }
+
     fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
         Box::new(BasePredicateIterator {
             subject: self.subject,
@@ -351,6 +355,10 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for BaseSubjectLookup<M> {
             sp_offset: self.sp_offset,
             sp_o_adjacency_list: self.sp_o_adjacency_list.clone()
         })
+    }
+
+    fn lookup_predicate_current(&self, predicate: u64, _parent: Option<Box<dyn SubjectPredicateLookup>>) -> Option<Box<dyn SubjectPredicateLookup>> {
+        self.lookup_predicate(predicate)
     }
 
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn SubjectPredicateLookup>> {
