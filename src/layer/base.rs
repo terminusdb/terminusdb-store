@@ -941,7 +941,7 @@ pub mod tests {
     use super::*;
     use crate::storage::memory::*;
 
-    fn base_layer_files() -> BaseLayerFiles<MemoryBackedStore> {
+    pub fn base_layer_files() -> BaseLayerFiles<MemoryBackedStore> {
         let files: Vec<_> = (0..21).map(|_| MemoryBackedStore::new()).collect();
         BaseLayerFiles {
             node_dictionary_files: DictionaryFiles {
@@ -1017,12 +1017,20 @@ pub mod tests {
         base_layer_files
     }
 
-    fn example_base_layer() -> BaseLayer<SharedVec> {
+    pub fn example_base_layer() -> BaseLayer<SharedVec> {
         let base_layer_files = example_base_layer_files();
 
         let layer = BaseLayer::load_from_files([1,2,3,4,5], &base_layer_files).wait().unwrap();
 
         layer
+    }
+
+    pub fn empty_base_layer() -> BaseLayer<SharedVec> {
+        let files = base_layer_files();
+        let base_builder = BaseLayerFileBuilder::from_files(&files);
+        base_builder.into_phase2().and_then(|b|b.finalize()).wait().unwrap();
+
+        BaseLayer::load_from_files([1,2,3,4,5], &files).wait().unwrap()
     }
 
     #[test]
