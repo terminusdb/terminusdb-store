@@ -4,6 +4,7 @@
 use futures::prelude::*;
 use futures::future;
 use futures::stream;
+use futures::stream::Peekable;
 
 use crate::structure::*;
 use crate::storage::*;
@@ -11,6 +12,7 @@ use super::layer::*;
 
 use std::sync::Arc;
 use std::collections::BTreeSet;
+use std::io;
 
 /// A base layer.
 ///
@@ -872,6 +874,68 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
     }
 }
 
+pub struct BaseTripleStream<S: Stream<Item=(u64,u64),Error=io::Error>+Send> {
+    s_p_stream: Peekable<S>,
+    sp_o_stream: Peekable<S>,
+    last_s_p: (u64, u64),
+    last_sp: u64
+}
+
+impl<S:Stream<Item=(u64,u64),Error=io::Error>+Send> BaseTripleStream<S> {
+    fn new(s_p_stream: S, sp_o_stream: S) -> BaseTripleStream<S> {
+        BaseTripleStream {
+            s_p_stream: s_p_stream.peekable(),
+            sp_o_stream: sp_o_stream.peekable(),
+            last_s_p: (0,0),
+            last_sp: 0
+        }
+    }
+}
+
+impl<S:Stream<Item=(u64,u64),Error=io::Error>+Send> Stream for BaseTripleStream<S> {
+    type Item = (u64,u64,u64);
+    type Error = io::Error;
+
+    fn poll(&mut self) -> Result<Async<Option<(u64,u64,u64)>>,io::Error> {
+        let sp_o = self.sp_o_stream.peek().map(|x|x.map(|x|x.map(|x|*x)));
+        match sp_o {
+            Err(e) => Err(e),
+            Ok(Async::NotReady) => Ok(Async::NotReady),
+            Ok(Async::Ready(None)) => Ok(Async::Ready(None)),
+            Ok(Async::Ready(Some((sp,o)))) => {
+                if sp > self.last_sp {
+                    let s_p = self.s_p_stream.peek().map(|x|x.map(|x|x.map(|x|*x)));
+                    match s_p {
+                        Err(e) => Err(e),
+                        Ok(Async::NotReady) => Ok(Async::NotReady),
+                        Ok(Async::Ready(None)) => Err(io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected end of s_p_stream")),
+                        Ok(Async::Ready(Some((s,p)))) => {
+                            self.sp_o_stream.poll().expect("peeked stream sp_o_stream with confirmed result did not have result on poll");
+                            self.s_p_stream.poll().expect("peeked stream s_p_stream with confirmed result did not have result on poll");
+                            self.last_s_p = (s,p);
+                            self.last_sp = sp;
+
+                            Ok(Async::Ready(Some((s,p,o))))
+                        }
+                    }
+                }
+                else {
+                    self.sp_o_stream.poll().expect("peeked stream sp_o_stream with confirmed result did not have result on poll");
+
+                    Ok(Async::Ready(Some((self.last_s_p.0, self.last_s_p.1, o))))
+                }
+            }
+        }
+    }
+}
+
+pub fn open_base_triple_stream<F:'static+FileLoad+FileStore>(s_p_files: AdjacencyListFiles<F>, sp_o_files: AdjacencyListFiles<F>) -> impl Stream<Item=(u64,u64,u64),Error=io::Error>+Send {
+    let s_p_stream = adjacency_list_stream_pairs(s_p_files.bitindex_files.bits_file, s_p_files.nums_file);
+    let sp_o_stream = adjacency_list_stream_pairs(sp_o_files.bitindex_files.bits_file, sp_o_files.nums_file);
+
+    BaseTripleStream::new(s_p_stream, sp_o_stream)
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::*;
@@ -1164,5 +1228,22 @@ pub mod tests {
                         (2,1,1),
                         (2,2,1)],
                    triples_by_object);
+    }
+
+    #[test]
+    fn stream_base_triples() {
+        let layer_files = example_base_layer_files();
+
+        let stream = open_base_triple_stream(layer_files.s_p_adjacency_list_files, layer_files.sp_o_adjacency_list_files);
+
+        let triples: Vec<_> = stream.collect().wait().unwrap();
+
+        assert_eq!(vec![(1,1,1),
+                        (2,1,1),
+                        (2,1,3),
+                        (2,3,6),
+                        (3,2,5),
+                        (3,3,6),
+                        (4,3,6)], triples);
     }
 }
