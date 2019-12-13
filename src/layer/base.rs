@@ -873,7 +873,7 @@ impl<F:'static+FileLoad+FileStore> BaseLayerFileBuilderPhase2<F> {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::storage::memory::*;
 
@@ -924,7 +924,7 @@ mod tests {
         }
     }
 
-    fn example_base_layer() -> BaseLayer<SharedVec> {
+    pub fn example_base_layer_files() -> BaseLayerFiles<MemoryBackedStore> {
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
@@ -949,6 +949,12 @@ mod tests {
 
 
         future.wait().unwrap();
+
+        base_layer_files
+    }
+
+    fn example_base_layer() -> BaseLayer<SharedVec> {
+        let base_layer_files = example_base_layer_files();
 
         let layer = BaseLayer::load_from_files([1,2,3,4,5], &base_layer_files).wait().unwrap();
 
