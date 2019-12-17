@@ -1027,6 +1027,7 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for ChildSubjectPredica
                     Some(false)
                 }
                 else {
+                    // TODO: Eliminate recursion
                     self.parent.as_ref().map(|p|p.has_object(object))
                 }
             })
