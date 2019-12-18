@@ -993,6 +993,20 @@ struct ChildSubjectPredicateLookup<M:'static+AsRef<[u8]>+Clone> {
     neg_objects: Option<LogArraySlice<M>>
 }
 
+impl<M:'static+AsRef<[u8]>+Clone> ChildSubjectPredicateLookup<M> {
+    fn parents(&self) -> Vec<&dyn SubjectPredicateLookup> {
+        let mut result = Vec::new();
+        let mut parent = self.parent();
+        while !parent.is_none() {
+            let x = parent.unwrap();
+            result.push(x);
+            parent = x.parent();
+        }
+
+        result
+    }
+}
+
 impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for ChildSubjectPredicateLookup<M> {
     fn subject(&self) -> u64 {
         self.subject
@@ -1000,6 +1014,10 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for ChildSubjectPredica
 
     fn predicate(&self) -> u64 {
         self.predicate
+    }
+
+    fn parent(&self) -> Option<&dyn SubjectPredicateLookup> {
+        self.parent.as_ref().map(|p|&**p)
     }
 
     fn objects(&self) -> Box<dyn Iterator<Item=u64>> {
@@ -1014,24 +1032,43 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for ChildSubjectPredica
         })
     }
 
+    fn has_pos_object_in_lookup(&self, object: u64) -> bool {
+        self.pos_objects.as_ref()
+            .and_then(|po|po.iter().position(|o|o == object).map(|_|true))
+            .unwrap_or(false)
+    }
+
+    fn has_neg_object_in_lookup(&self, object: u64) -> bool {
+        self.neg_objects.as_ref()
+            .and_then(|no|no.iter().position(|o|o == object).map(|_|true))
+            .unwrap_or(false)
+    }
+
     fn has_object(&self, object: u64) -> bool {
         if object == 0 {
             return false;
         }
-        // this should check pos (if it is there), then neg (if it is there), and finally parent.
-        // if it is in neg, return None. otherwise return the triple (if in pos) or whatever comes out of parent.
-        self.pos_objects.as_ref()
-            .and_then(|po|po.iter().position(|o|o == object).map(|_|true))
-            .or_else(|| {
-                if self.neg_objects.as_ref().and_then(|no|no.iter().position(|o|o == object)).is_some() {
-                    Some(false)
-                }
-                else {
-                    // TODO: Eliminate recursion
-                    self.parent.as_ref().map(|p|p.has_object(object))
-                }
-            })
-            .unwrap_or(false)
+
+        if self.has_pos_object_in_lookup(object) {
+            return true;
+        }
+
+        if self.has_neg_object_in_lookup(object) {
+            return false;
+        }
+
+        let parents = self.parents();
+        for i in 0..parents.len() {
+            let parent = parents[i];
+            if parent.has_pos_object_in_lookup(object) {
+                return true;
+            }
+            if parent.has_neg_object_in_lookup(object) {
+                return false;
+            }
+        }
+
+        false
     }
 }
 

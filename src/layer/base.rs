@@ -437,9 +437,21 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for BaseSubjectPredicat
         })
     }
 
-    fn has_object(&self, object: u64) -> bool {
+    fn has_pos_object_in_lookup(&self, object: u64) -> bool {
         // todo: use monotoniclogarray here to find object quicker
         self.objects.iter().find(|&o|o==object).is_some()
+    }
+
+    fn has_neg_object_in_lookup(&self, _object: u64) -> bool {
+        false
+    }
+
+    fn has_object(&self, object: u64) -> bool {
+        self.has_pos_object_in_lookup(object)
+    }
+
+    fn parent(&self) -> Option<&dyn SubjectPredicateLookup> {
+        None
     }
 }
 
