@@ -116,6 +116,7 @@ impl StoreLayerBuilder {
 /// A layer that keeps track of the store it came out of, allowing the creation of a layer builder on top of this layer
 #[derive(Clone)]
 pub struct StoreLayer {
+    // TODO this Arc here is not great
     layer: Arc<dyn Layer>,
     store: Store
 }
@@ -138,7 +139,8 @@ impl StoreLayer {
         let parent = self.layer.parent();
 
         parent.map(|p| StoreLayer {
-            layer: p,
+            // TODO Arc here is not great because of this particular clone
+            layer: p.clone_boxed().into(),
             store: self.store.clone()
         })
     }
@@ -149,7 +151,7 @@ impl Layer for StoreLayer {
         self.layer.name()
     }
 
-    fn parent(&self) -> Option<Arc<dyn Layer>> {
+    fn parent(&self) -> Option<&dyn Layer> {
         self.layer.parent()
     }
 
@@ -347,7 +349,7 @@ impl NamedGraph {
                 }
             })
     }
-    
+
     /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise
     pub fn set_head(&self, layer: &StoreLayer) -> impl Future<Item=bool,Error=io::Error>+Send {
         let store = self.store.clone();
@@ -355,7 +357,7 @@ impl NamedGraph {
         let cloned_layer = layer.layer.clone();
         store.label_store.get_label(&self.label)
             .and_then(move |label| {
-                let result: Box<dyn Future<Item=_,Error=_>+Send> = 
+                let result: Box<dyn Future<Item=_,Error=_>+Send> =
                     match label {
                         None => Box::new(future::err(io::Error::new(io::ErrorKind::NotFound, "label not found"))),
                         Some(label) => Box::new({

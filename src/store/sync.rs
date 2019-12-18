@@ -10,7 +10,6 @@ use futures::sync::oneshot;
 
 use std::io;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use crate::layer::{Layer,ObjectType,StringTriple,IdTriple,SubjectLookup,ObjectLookup, PredicateLookup};
 use crate::store::{Store, NamedGraph, StoreLayer, StoreLayerBuilder, open_memory_store, open_directory_store};
@@ -124,7 +123,7 @@ impl Layer for SyncStoreLayer {
         self.inner.name()
     }
 
-    fn parent(&self) -> Option<Arc<dyn Layer>> {
+    fn parent(&self) -> Option<&dyn Layer> {
         (&self.inner as &dyn Layer).parent()
     }
 

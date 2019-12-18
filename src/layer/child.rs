@@ -159,8 +159,8 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> ChildLayer<M> {
         ChildObjectLookup::new(object, None, Some(pos), None)
     }
 
-    fn parents(&self) -> Vec<Arc<dyn Layer>> {
-        let mut parents: Vec<Arc<dyn Layer>> = Vec::new();
+    fn parents(&self) -> Vec<&dyn Layer> {
+        let mut parents = Vec::new();
         let mut parent_option = self.parent();
         while let Some(parent) = parent_option {
             parent_option = parent.parent();
@@ -176,8 +176,8 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         self.name
     }
 
-    fn parent(&self) -> Option<Arc<dyn Layer>> {
-        Some(self.parent.clone())
+    fn parent(&self) -> Option<&dyn Layer> {
+        Some(&*self.parent)
     }
 
     fn node_dict_id(&self, subject: &str) -> Option<u64> {
@@ -313,8 +313,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             return None;
         }
         let mut corrected_id = id - 1;
-        // TODO: Can we do this without cloning self? It is not that efficient
-        let mut current_option: Option<Arc<dyn Layer>> = Some(Arc::new(self.clone()));
+        let mut current_option: Option<&dyn Layer> = Some(self);
         let mut parent_count = self.node_and_value_count() as u64;
         while let Some(current_layer) = current_option {
             parent_count = parent_count - current_layer.node_dict_len() as u64 - current_layer.value_dict_len() as u64;
@@ -340,8 +339,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             return None;
         }
         let mut corrected_id = id - 1;
-        // TODO: Can we do this without cloning self? It is not that efficient
-        let mut current_option: Option<Arc<dyn Layer>> = Some(Arc::new(self.clone()));
+        let mut current_option: Option<&dyn Layer> = Some(self);
         let mut parent_count = self.predicate_count() as u64;
         while let Some(current_layer) = current_option {
             let parent = current_layer.parent();
@@ -371,8 +369,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             return None;
         }
         let mut corrected_id = id - 1;
-        // TODO: Can we do this without cloning self? It is not that efficient
-        let mut current_option: Option<Arc<dyn Layer>> = Some(Arc::new(self.clone()));
+        let mut current_option: Option<&dyn Layer> = Some(self);
         let mut parent_count = self.node_and_value_count() as u64;
         while let Some(current_layer) = current_option {
             let parent = current_layer.parent();

@@ -10,7 +10,6 @@ use crate::structure::*;
 use crate::storage::*;
 use super::layer::*;
 
-use std::sync::Arc;
 use std::collections::BTreeSet;
 use std::io;
 
@@ -75,7 +74,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         self.name
     }
 
-    fn parent(&self) -> Option<Arc<dyn Layer>> {
+    fn parent(&self) -> Option<&dyn Layer> {
         None
     }
 

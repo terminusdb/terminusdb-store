@@ -1,7 +1,6 @@
 //! Common data structures and traits for all layer types.
 use std::hash::Hash;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// A layer containing dictionary entries and triples.
 ///
@@ -13,7 +12,7 @@ pub trait Layer: Send+Sync {
     fn name(&self) -> [u32;5];
 
     /// The parent of this layer, or None if this is a base layer.
-    fn parent(&self) -> Option<Arc<dyn Layer>>;
+    fn parent(&self) -> Option<&dyn Layer>;
 
     /// The amount of nodes and values known to this layer.
     /// This also counts entries in the parent.
