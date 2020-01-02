@@ -179,8 +179,9 @@ impl<F:'static+FileLoad+FileStore+Clone> LayerBuilder for SimpleLayerBuilder<F> 
                                              .and_then(|(values, b)| b.into_phase2()
                                                        .map(move |b| (b, nodes, predicates, values)))))
                          .and_then(move |(builder, node_ids, predicate_ids, value_ids)| {
-                             let parent_node_offset = parent.node_and_value_count() as u64;
-                             let parent_predicate_offset = parent.predicate_count() as u64;
+                             let counts = parent.all_counts();
+                             let parent_node_offset = counts.node_count as u64 + counts.value_count as u64;
+                             let parent_predicate_offset = counts.predicate_count as u64;
                              let mut node_map = HashMap::new();
                              for (node,id) in unresolved_nodes2.into_iter().zip(node_ids) {
                                  node_map.insert(node,id+parent_node_offset);
