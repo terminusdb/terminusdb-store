@@ -92,12 +92,14 @@ pub const FILENAMES: Filenames = Filenames {
     base_sp_o_adjacency_list_nums: "base_sp_o_adjacency_list_nums.logarray",
     base_sp_o_adjacency_list_bits: "base_sp_o_adjacency_list_bits.bitarray",
     base_sp_o_adjacency_list_bit_index_blocks: "base_sp_o_adjacency_list_bit_index_blocks.logarray",
-    base_sp_o_adjacency_list_bit_index_sblocks: "base_sp_o_adjacency_list_bit_index_sblocks.logarray",
+    base_sp_o_adjacency_list_bit_index_sblocks:
+        "base_sp_o_adjacency_list_bit_index_sblocks.logarray",
 
     base_o_ps_adjacency_list_nums: "base_o_ps_adjacency_list_nums.logarray",
     base_o_ps_adjacency_list_bits: "base_o_ps_adjacency_list_bits.bitarray",
     base_o_ps_adjacency_list_bit_index_blocks: "base_o_ps_adjacency_list_bit_index_blocks.logarray",
-    base_o_ps_adjacency_list_bit_index_sblocks: "base_o_ps_adjacency_list_bit_index_sblocks.logarray",
+    base_o_ps_adjacency_list_bit_index_sblocks:
+        "base_o_ps_adjacency_list_bit_index_sblocks.logarray",
 
     pos_subjects: "child_pos_subjects.logarray",
     pos_objects: "child_pos_objects.logarray",
@@ -136,16 +138,22 @@ pub const FILENAMES: Filenames = Filenames {
     neg_o_ps_adjacency_list_bit_index_sblocks: "neg_o_ps_adjacency_list_bit_index_sblocks.logarray",
 
     base_predicate_wavelet_tree_bits: "base_predicate_wavelet_tree_bits.bitarray",
-    base_predicate_wavelet_tree_bit_index_blocks: "base_predicate_wavelet_tree_bit_index_blocks.logarray",
-    base_predicate_wavelet_tree_bit_index_sblocks: "base_predicate_wavelet_tree_bit_index_sblocks.logarray",
+    base_predicate_wavelet_tree_bit_index_blocks:
+        "base_predicate_wavelet_tree_bit_index_blocks.logarray",
+    base_predicate_wavelet_tree_bit_index_sblocks:
+        "base_predicate_wavelet_tree_bit_index_sblocks.logarray",
 
     pos_predicate_wavelet_tree_bits: "pos_predicate_wavelet_tree_bits.bitarray",
-    pos_predicate_wavelet_tree_bit_index_blocks: "pos_predicate_wavelet_tree_bit_index_blocks.logarray",
-    pos_predicate_wavelet_tree_bit_index_sblocks: "pos_predicate_wavelet_tree_bit_index_sblocks.logarray",
+    pos_predicate_wavelet_tree_bit_index_blocks:
+        "pos_predicate_wavelet_tree_bit_index_blocks.logarray",
+    pos_predicate_wavelet_tree_bit_index_sblocks:
+        "pos_predicate_wavelet_tree_bit_index_sblocks.logarray",
 
     neg_predicate_wavelet_tree_bits: "neg_predicate_wavelet_tree_bits.bitarray",
-    neg_predicate_wavelet_tree_bit_index_blocks: "neg_predicate_wavelet_tree_bit_index_blocks.logarray",
-    neg_predicate_wavelet_tree_bit_index_sblocks: "neg_predicate_wavelet_tree_bit_index_sblocks.logarray",
+    neg_predicate_wavelet_tree_bit_index_blocks:
+        "neg_predicate_wavelet_tree_bit_index_blocks.logarray",
+    neg_predicate_wavelet_tree_bit_index_sblocks:
+        "neg_predicate_wavelet_tree_bit_index_sblocks.logarray",
 
-    parent: "parent.hex"
+    parent: "parent.hex",
 };

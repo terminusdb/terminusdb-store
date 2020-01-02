@@ -4,40 +4,39 @@
 //! By using the minimal width necessary to store the largest value of
 //! the array, the byte representation of the array can be compressed
 //! significantly compared to using an array of u64.
-use tokio::codec::{FramedRead,Decoder};
-use byteorder::{ByteOrder,BigEndian};
-use bytes::BytesMut;
-use futures::prelude::*;
-use futures::future;
 use crate::storage::*;
+use byteorder::{BigEndian, ByteOrder};
+use bytes::BytesMut;
+use futures::future;
+use futures::prelude::*;
 use std::cmp::Ordering;
+use tokio::codec::{Decoder, FramedRead};
 
 #[derive(Clone)]
-pub struct LogArray<M:AsRef<[u8]>+Clone> {
+pub struct LogArray<M: AsRef<[u8]> + Clone> {
     len: u32,
     width: u8,
     len_bytes: usize,
-    data: M
+    data: M,
 }
 
 #[derive(Debug)]
 pub enum LogArrayError {
-    InvalidCoding
+    InvalidCoding,
 }
 
-pub struct LogArrayIterator<'a, M:AsRef<[u8]>+Clone> {
+pub struct LogArrayIterator<'a, M: AsRef<[u8]> + Clone> {
     logarray: &'a LogArray<M>,
     pos: usize,
-    end: usize
+    end: usize,
 }
 
-impl<'a, M:AsRef<[u8]>+Clone> Iterator for LogArrayIterator<'a, M> {
+impl<'a, M: AsRef<[u8]> + Clone> Iterator for LogArrayIterator<'a, M> {
     type Item = u64;
     fn next(&mut self) -> Option<u64> {
         if self.pos == self.end {
             None
-        }
-        else {
+        } else {
             let result = self.logarray.entry(self.pos);
             self.pos += 1;
 
@@ -46,19 +45,18 @@ impl<'a, M:AsRef<[u8]>+Clone> Iterator for LogArrayIterator<'a, M> {
     }
 }
 
-pub struct OwnedLogArrayIterator<M:AsRef<[u8]>+Clone> {
+pub struct OwnedLogArrayIterator<M: AsRef<[u8]> + Clone> {
     logarray: LogArray<M>,
     pos: usize,
-    end: usize
+    end: usize,
 }
 
-impl<M:AsRef<[u8]>+Clone> Iterator for OwnedLogArrayIterator<M> {
+impl<M: AsRef<[u8]> + Clone> Iterator for OwnedLogArrayIterator<M> {
     type Item = u64;
     fn next(&mut self) -> Option<u64> {
         if self.pos == self.end {
             None
-        }
-        else {
+        } else {
             let result = self.logarray.entry(self.pos);
             self.pos += 1;
 
@@ -67,19 +65,23 @@ impl<M:AsRef<[u8]>+Clone> Iterator for OwnedLogArrayIterator<M> {
     }
 }
 
-impl<M:AsRef<[u8]>+Clone> LogArray<M> {
-    pub fn parse(data: M) -> Result<LogArray<M>,LogArrayError> {
-        let len = BigEndian::read_u32(&data.as_ref()[data.as_ref().len()-8..]);
-        let width = data.as_ref()[data.as_ref().len()-4];
+impl<M: AsRef<[u8]> + Clone> LogArray<M> {
+    pub fn parse(data: M) -> Result<LogArray<M>, LogArrayError> {
+        let len = BigEndian::read_u32(&data.as_ref()[data.as_ref().len() - 8..]);
+        let width = data.as_ref()[data.as_ref().len() - 4];
         let len_bytes = (len as usize * width as usize + 7) / 8 as usize;
 
-        assert_eq!((len_bytes+15)/8*8, data.as_ref().len(), "logarray data is of wrong length");
+        assert_eq!(
+            (len_bytes + 15) / 8 * 8,
+            data.as_ref().len(),
+            "logarray data is of wrong length"
+        );
 
         Ok(LogArray {
             len,
             width,
             len_bytes,
-            data
+            data,
         })
     }
 
@@ -103,39 +105,38 @@ impl<M:AsRef<[u8]>+Clone> LogArray<M> {
 
         if start_u64_offset + 16 > self.len_bytes {
             let fragment_size = self.len_bytes - start_u64_offset;
-            let mut x = vec![0;16];
-            x[..fragment_size].copy_from_slice(&self.data.as_ref()[start_u64_offset..self.len_bytes]);
+            let mut x = vec![0; 16];
+            x[..fragment_size]
+                .copy_from_slice(&self.data.as_ref()[start_u64_offset..self.len_bytes]);
 
             let n1 = BigEndian::read_u64(&x);
             let n2 = BigEndian::read_u64(&x[8..]);
-            (n1,n2)
-        }
-        else {
+            (n1, n2)
+        } else {
             let n1 = BigEndian::read_u64(&self.data.as_ref()[start_u64_offset..self.len_bytes]);
-            let n2 = BigEndian::read_u64(&self.data.as_ref()[start_u64_offset+8..self.len_bytes]);
-            (n1,n2)
+            let n2 = BigEndian::read_u64(&self.data.as_ref()[start_u64_offset + 8..self.len_bytes]);
+            (n1, n2)
         }
     }
 
-    fn shift_for_index(&self, index:usize) -> i8 {
+    fn shift_for_index(&self, index: usize) -> i8 {
         64 - self.width as i8 - (index * self.width as usize % 64) as i8
     }
 
-    pub fn entry(&self, index:usize) -> u64 {
-        let (n1,n2) = self.nums_for_index(index);
+    pub fn entry(&self, index: usize) -> u64 {
+        let (n1, n2) = self.nums_for_index(index);
         let shift_for_index = self.shift_for_index(index);
         if shift_for_index < 0 {
             // crossing an u64 boundary. we need to shift left
             let mut x = n1;
             x <<= 64 - (self.width as i8 + shift_for_index) as u8;
-            x >>= 64-self.width; // x contains the first part in the correct position
+            x >>= 64 - self.width; // x contains the first part in the correct position
             let mut y = n2;
             y >>= 64 + shift_for_index;
             x |= y;
 
             x
-        }
-        else {
+        } else {
             // no boundaries are crossed. all that matters is n1
             let mut x = n1;
             x <<= 64 - (self.width as i8 + shift_for_index) as u8;
@@ -149,7 +150,7 @@ impl<M:AsRef<[u8]>+Clone> LogArray<M> {
         LogArrayIterator {
             logarray: self,
             pos: 0,
-            end: self.len()
+            end: self.len(),
         }
     }
 
@@ -168,19 +169,19 @@ impl<M:AsRef<[u8]>+Clone> LogArray<M> {
         LogArraySlice {
             original: self.clone(),
             offset,
-            length
+            length,
         }
     }
 }
 
 #[derive(Clone)]
-pub struct LogArraySlice<M:AsRef<[u8]>+Clone> {
+pub struct LogArraySlice<M: AsRef<[u8]> + Clone> {
     original: LogArray<M>,
     offset: usize,
-    length: usize
+    length: usize,
 }
 
-impl<M:AsRef<[u8]>+Clone> LogArraySlice<M> {
+impl<M: AsRef<[u8]> + Clone> LogArraySlice<M> {
     pub fn len(&self) -> usize {
         self.length
     }
@@ -190,14 +191,14 @@ impl<M:AsRef<[u8]>+Clone> LogArraySlice<M> {
             panic!("index too large for slice");
         }
 
-        self.original.entry(index+self.offset)
+        self.original.entry(index + self.offset)
     }
 
     pub fn iter(&self) -> LogArrayIterator<M> {
         LogArrayIterator {
             logarray: &self.original,
             pos: self.offset,
-            end: self.offset + self.length
+            end: self.offset + self.length,
         }
     }
 
@@ -211,26 +212,29 @@ impl<M:AsRef<[u8]>+Clone> LogArraySlice<M> {
 }
 
 /// write a logarray directly to an AsyncWrite
-pub struct LogArrayFileBuilder<W:'static+tokio::io::AsyncWrite+Send> {
+pub struct LogArrayFileBuilder<W: 'static + tokio::io::AsyncWrite + Send> {
     file: W,
     width: u8,
     current: u64,
     current_offset: u8,
-    pub count: u32
+    pub count: u32,
 }
 
-impl<W:'static+tokio::io::AsyncWrite+Send> LogArrayFileBuilder<W> {
+impl<W: 'static + tokio::io::AsyncWrite + Send> LogArrayFileBuilder<W> {
     pub fn new(w: W, width: u8) -> LogArrayFileBuilder<W> {
         LogArrayFileBuilder {
             file: w,
             width: width,
             current: 0,
             current_offset: 0,
-            count: 0
+            count: 0,
         }
     }
 
-    pub fn push(mut self, val: u64) -> Box<dyn Future<Item=LogArrayFileBuilder<W>,Error=std::io::Error>+Send> {
+    pub fn push(
+        mut self,
+        val: u64,
+    ) -> Box<dyn Future<Item = LogArrayFileBuilder<W>, Error = std::io::Error> + Send> {
         if val.leading_zeros() < 64 - self.width as u32 {
             panic!("value {} too large for width {}", val, self.width);
         }
@@ -243,63 +247,70 @@ impl<W:'static+tokio::io::AsyncWrite+Send> LogArrayFileBuilder<W> {
 
         if self.current_offset + self.width >= 64 {
             // we filled up 64 bits, time to write
-            let mut buf = vec![0u8;8];
+            let mut buf = vec![0u8; 8];
             BigEndian::write_u64(&mut buf, self.current);
 
             let new_offset = self.current_offset + self.width - 64;
-            let remainder = if new_offset == 0 { 0 } else { val << (64 - new_offset) };
+            let remainder = if new_offset == 0 {
+                0
+            } else {
+                val << (64 - new_offset)
+            };
 
             let LogArrayFileBuilder {
                 file,
                 width,
                 count,
                 current: _,
-                current_offset: _
+                current_offset: _,
             } = self;
 
-            Box::new(tokio::io::write_all(file, buf)
-                     .map(move |(file, _)| LogArrayFileBuilder {
-                         file: file,
-                         width: width,
-                         current: remainder,
-                         current_offset: new_offset,
-                         count: count
-                     }))
-        }
-        else {
+            Box::new(
+                tokio::io::write_all(file, buf).map(move |(file, _)| LogArrayFileBuilder {
+                    file: file,
+                    width: width,
+                    current: remainder,
+                    current_offset: new_offset,
+                    count: count,
+                }),
+            )
+        } else {
             self.current_offset += self.width;
             Box::new(future::ok(self))
         }
     }
 
-    pub fn push_all<S:Stream<Item=u64,Error=std::io::Error>>(self, vals: S) -> impl Future<Item=LogArrayFileBuilder<W>,Error=std::io::Error> {
+    pub fn push_all<S: Stream<Item = u64, Error = std::io::Error>>(
+        self,
+        vals: S,
+    ) -> impl Future<Item = LogArrayFileBuilder<W>, Error = std::io::Error> {
         vals.fold(self, |x, val| x.push(val))
     }
 
-    pub fn finalize(self) -> impl Future<Item=W, Error=std::io::Error> {
+    pub fn finalize(self) -> impl Future<Item = W, Error = std::io::Error> {
         let LogArrayFileBuilder {
-            file, width, count, current, current_offset: _
+            file,
+            width,
+            count,
+            current,
+            current_offset: _,
         } = self;
 
+        let write_last_bits: Box<dyn Future<Item = W, Error = std::io::Error> + Send> =
+            if (count as u64) * (width as u64) % 64 == 0 {
+                Box::new(future::ok(file))
+            } else {
+                let mut buf = vec![0u8; 8];
+                BigEndian::write_u64(&mut buf, current);
+                Box::new(tokio::io::write_all(file, buf).map(|(file, _)| file))
+            };
 
-        let write_last_bits: Box<dyn Future<Item=W, Error=std::io::Error>+Send> = if (count as u64)*(width as u64) % 64 == 0 {
-            Box::new(future::ok(file))
-        }
-        else {
-            let mut buf = vec![0u8;8];
-            BigEndian::write_u64(&mut buf, current);
-            Box::new(tokio::io::write_all(file, buf)
-                     .map(|(file,_)|file))
-        };
-
-        write_last_bits
-            .and_then(move |file| {
-                let mut buf = vec![0u8;8];
-                BigEndian::write_u32(&mut buf, count);
-                buf[4] = width;
-                tokio::io::write_all(file, buf)
-                     .map(|(file,_)|file)
-            })
+        write_last_bits.and_then(move |file| {
+            let mut buf = vec![0u8; 8];
+            BigEndian::write_u32(&mut buf, count);
+            buf[4] = width;
+            tokio::io::write_all(file, buf).map(|(file, _)| file)
+        })
     }
 }
 
@@ -308,7 +319,7 @@ pub struct LogArrayDecoder {
     current: u64,
     width: u8,
     offset: u8,
-    remaining: u32
+    remaining: u32,
 }
 
 impl Decoder for LogArrayDecoder {
@@ -323,7 +334,7 @@ impl Decoder for LogArrayDecoder {
         }
         if self.offset + self.width <= 64 {
             // we can just return the first thingie no problem
-            let result = (self.current << self.offset) >> (64-self.width);
+            let result = (self.current << self.offset) >> (64 - self.width);
             self.offset += self.width;
             self.remaining -= 1;
             return Ok(Some(result));
@@ -346,9 +357,8 @@ impl Decoder for LogArrayDecoder {
             // in that case, we start at the beginning of the number just read.
             self.offset = self.width;
 
-            return Ok(Some(fragment>>(64-self.width)));
-        }
-        else {
+            return Ok(Some(fragment >> (64 - self.width)));
+        } else {
             // we've not yet reached the end of our current 64 bit chunk. the current entry is divided over the current and the next chunk.
             let big: u64 = (current << self.offset) >> self.offset;
             let big_len = 64 - self.offset;
@@ -362,29 +372,42 @@ impl Decoder for LogArrayDecoder {
     }
 }
 
-pub fn logarray_file_get_length_and_width<F:FileLoad>(f: &F) -> impl Future<Item=(u32,u8),Error=std::io::Error> {
+pub fn logarray_file_get_length_and_width<F: FileLoad>(
+    f: &F,
+) -> impl Future<Item = (u32, u8), Error = std::io::Error> {
     let end_offset = f.size() - 8;
     // read the length and width
-    tokio::io::read_exact(f.open_read_from(end_offset), vec![0;8])
-        .map(move |(_,buf)| {
-            let len = BigEndian::read_u32(&buf);
-            let width = buf[4];
+    tokio::io::read_exact(f.open_read_from(end_offset), vec![0; 8]).map(move |(_, buf)| {
+        let len = BigEndian::read_u32(&buf);
+        let width = buf[4];
 
-            (len, width)
-        })
+        (len, width)
+    })
 }
 
-pub fn logarray_stream_entries<F:FileLoad>(f: F) -> impl Stream<Item=u64,Error=std::io::Error> {
+pub fn logarray_stream_entries<F: FileLoad>(
+    f: F,
+) -> impl Stream<Item = u64, Error = std::io::Error> {
     logarray_file_get_length_and_width(&f)
-        .map(move |(len, width)| FramedRead::new(f.open_read(), LogArrayDecoder { current: 0, width, offset: 64, remaining: len }))
+        .map(move |(len, width)| {
+            FramedRead::new(
+                f.open_read(),
+                LogArrayDecoder {
+                    current: 0,
+                    width,
+                    offset: 64,
+                    remaining: len,
+                },
+            )
+        })
         .into_stream()
         .flatten()
 }
 
 #[derive(Clone)]
-pub struct MonotonicLogArray<M:AsRef<[u8]>+Clone>(LogArray<M>);
+pub struct MonotonicLogArray<M: AsRef<[u8]> + Clone>(LogArray<M>);
 
-impl<M:AsRef<[u8]>+Clone> MonotonicLogArray<M> {
+impl<M: AsRef<[u8]> + Clone> MonotonicLogArray<M> {
     pub fn from_logarray(logarray: LogArray<M>) -> MonotonicLogArray<M> {
         if cfg!(debug_assertions) {
             let mut iter = logarray.iter();
@@ -407,7 +430,7 @@ impl<M:AsRef<[u8]>+Clone> MonotonicLogArray<M> {
         self.0.len()
     }
 
-    pub fn entry(&self, index:usize) -> u64 {
+    pub fn entry(&self, index: usize) -> u64 {
         self.0.entry(index)
     }
 
@@ -430,7 +453,7 @@ impl<M:AsRef<[u8]>+Clone> MonotonicLogArray<M> {
             let mid = (min + max) / 2;
             match element.cmp(&self.entry(mid)) {
                 Ordering::Equal => return Some(mid),
-                Ordering::Greater => min = mid+1,
+                Ordering::Greater => min = mid + 1,
                 Ordering::Less => {
                     if mid == 0 {
                         return None;
@@ -442,7 +465,6 @@ impl<M:AsRef<[u8]>+Clone> MonotonicLogArray<M> {
 
         None
     }
-
 }
 
 #[cfg(test)]
@@ -455,7 +477,8 @@ mod tests {
     fn generate_then_parse_works() {
         let store = MemoryBackedStore::new();
         let builder = LogArrayFileBuilder::new(store.open_write(), 5);
-        builder.push_all(stream::iter_ok(vec![1,3,2,5,12,31,18]))
+        builder
+            .push_all(stream::iter_ok(vec![1, 3, 2, 5, 12, 31, 18]))
             .and_then(|b| b.finalize())
             .wait()
             .unwrap();
@@ -477,14 +500,13 @@ mod tests {
     fn generate_then_stream_works() {
         let store = MemoryBackedStore::new();
         let builder = LogArrayFileBuilder::new(store.open_write(), 5);
-        builder.push_all(stream::iter_ok(0..31))
+        builder
+            .push_all(stream::iter_ok(0..31))
             .and_then(|b| b.finalize())
             .wait()
             .unwrap();
 
-        let entries: Vec<u64> = logarray_stream_entries(store).collect()
-            .wait()
-            .unwrap();
+        let entries: Vec<u64> = logarray_stream_entries(store).collect().wait().unwrap();
 
         let expected: Vec<u64> = (0..31).collect();
 
@@ -495,8 +517,9 @@ mod tests {
     fn iterate_over_logarray() {
         let store = MemoryBackedStore::new();
         let builder = LogArrayFileBuilder::new(store.open_write(), 5);
-        let original = vec![1,3,2,5,12,31,18];
-        builder.push_all(stream::iter_ok(original.clone()))
+        let original = vec![1, 3, 2, 5, 12, 31, 18];
+        builder
+            .push_all(stream::iter_ok(original.clone()))
             .and_then(|b| b.finalize())
             .wait()
             .unwrap();
@@ -514,8 +537,9 @@ mod tests {
     fn owned_iterate_over_logarray() {
         let store = MemoryBackedStore::new();
         let builder = LogArrayFileBuilder::new(store.open_write(), 5);
-        let original = vec![1,3,2,5,12,31,18];
-        builder.push_all(stream::iter_ok(original.clone()))
+        let original = vec![1, 3, 2, 5, 12, 31, 18];
+        builder
+            .push_all(stream::iter_ok(original.clone()))
             .and_then(|b| b.finalize())
             .wait()
             .unwrap();
@@ -533,8 +557,9 @@ mod tests {
     fn iterate_over_logarray_slice() {
         let store = MemoryBackedStore::new();
         let builder = LogArrayFileBuilder::new(store.open_write(), 5);
-        let original = vec![1,3,2,5,12,31,18];
-        builder.push_all(stream::iter_ok(original.clone()))
+        let original = vec![1, 3, 2, 5, 12, 31, 18];
+        builder
+            .push_all(stream::iter_ok(original.clone()))
             .and_then(|b| b.finalize())
             .wait()
             .unwrap();
@@ -542,19 +567,20 @@ mod tests {
         let content = store.map().wait().unwrap();
 
         let logarray = LogArray::parse(&content).unwrap();
-        let slice = logarray.slice(2,3);
+        let slice = logarray.slice(2, 3);
 
         let result: Vec<u64> = slice.iter().collect();
 
-        assert_eq!(vec![2,5,12], result);
+        assert_eq!(vec![2, 5, 12], result);
     }
 
     #[test]
     fn owned_iterate_over_logarray_slice() {
         let store = MemoryBackedStore::new();
         let builder = LogArrayFileBuilder::new(store.open_write(), 5);
-        let original = vec![1,3,2,5,12,31,18];
-        builder.push_all(stream::iter_ok(original.clone()))
+        let original = vec![1, 3, 2, 5, 12, 31, 18];
+        builder
+            .push_all(stream::iter_ok(original.clone()))
             .and_then(|b| b.finalize())
             .wait()
             .unwrap();
@@ -562,19 +588,20 @@ mod tests {
         let content = store.map().wait().unwrap();
 
         let logarray = LogArray::parse(&content).unwrap();
-        let slice = logarray.slice(2,3);
+        let slice = logarray.slice(2, 3);
 
         let result: Vec<u64> = slice.into_iter().collect();
 
-        assert_eq!(vec![2,5,12], result);
+        assert_eq!(vec![2, 5, 12], result);
     }
 
     #[test]
     fn monotonic_logarray_index_lookup() {
         let store = MemoryBackedStore::new();
         let builder = LogArrayFileBuilder::new(store.open_write(), 5);
-        let original = vec![1,3,5,6,7,10,11,15,16,18,20,25,31];
-        builder.push_all(stream::iter_ok(original.clone()))
+        let original = vec![1, 3, 5, 6, 7, 10, 11, 15, 16, 18, 20, 25, 31];
+        builder
+            .push_all(stream::iter_ok(original.clone()))
             .and_then(|b| b.finalize())
             .wait()
             .unwrap();
@@ -594,10 +621,11 @@ mod tests {
     #[test]
     fn writing_64_bits_of_data() {
         let store = MemoryBackedStore::new();
-        let original = vec![1,2,3,4,5,6,7,8,1,2,3,4,5,6,7,8];
+        let original = vec![1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8];
         let builder = LogArrayFileBuilder::new(store.open_write(), 4);
-        builder.push_all(stream::iter_ok(original.clone()))
-            .and_then(|b|b.finalize())
+        builder
+            .push_all(stream::iter_ok(original.clone()))
+            .and_then(|b| b.finalize())
             .wait()
             .unwrap();
 
@@ -606,5 +634,4 @@ mod tests {
         assert_eq!(original, logarray.iter().collect::<Vec<_>>());
         assert_eq!(16, logarray.data.0.len());
     }
-
 }

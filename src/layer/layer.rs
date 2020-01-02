@@ -1,15 +1,15 @@
 //! Common data structures and traits for all layer types.
-use std::hash::Hash;
 use std::collections::HashMap;
+use std::hash::Hash;
 
 /// A layer containing dictionary entries and triples.
 ///
 /// A layer can be queried. To answer queries, layers will check their
 /// own data structures, and if they have a parent, the parent is
 /// queried as well.
-pub trait Layer: Send+Sync {
+pub trait Layer: Send + Sync {
     /// The name of this layer.
-    fn name(&self) -> [u32;5];
+    fn name(&self) -> [u32; 5];
 
     /// The parent of this layer, or None if this is a base layer.
     fn parent(&self) -> Option<&dyn Layer>;
@@ -60,7 +60,7 @@ pub trait Layer: Send+Sync {
     /// `SubjectLookup`. Each such object stores a
     /// subject id, and knows how to retrieve any linked
     /// predicate-object pair.
-    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>;
+    fn subjects(&self) -> Box<dyn Iterator<Item = Box<dyn SubjectLookup>>>;
 
     /// Returns an iterator over all triple data added by this layer.
     ///
@@ -68,7 +68,7 @@ pub trait Layer: Send+Sync {
     /// `SubjectLookup`. Each such object stores a
     /// subject id, and knows how to retrieve any linked
     /// predicate-object pair.
-    fn subject_additions(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>;
+    fn subject_additions(&self) -> Box<dyn Iterator<Item = Box<dyn SubjectLookup>>>;
 
     /// Returns an iterator over all triple data removed by this layer.
     ///
@@ -76,7 +76,7 @@ pub trait Layer: Send+Sync {
     /// `SubjectLookup`. Each such object stores a
     /// subject id, and knows how to retrieve any linked
     /// predicate-object pair.
-    fn subject_removals(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>;
+    fn subject_removals(&self) -> Box<dyn Iterator<Item = Box<dyn SubjectLookup>>>;
 
     /// Returns a `SubjectLookup` object for the given subject, or None if it cannot be constructed.
     ///
@@ -89,7 +89,11 @@ pub trait Layer: Send+Sync {
     fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>>;
 
     /// lookup_subject for only current layer
-    fn lookup_subject_current_layer(&self, subject: u64, parent: Option<Box<dyn SubjectLookup>>) -> Option<Box<dyn SubjectLookup>>;
+    fn lookup_subject_current_layer(
+        &self,
+        subject: u64,
+        parent: Option<Box<dyn SubjectLookup>>,
+    ) -> Option<Box<dyn SubjectLookup>>;
 
     /// Returns a `SubjectLookup` object for the given subject, or None if it cannot be constructed.
     ///
@@ -111,21 +115,21 @@ pub trait Layer: Send+Sync {
     /// Objects are returned as an `ObjectLookup`, an object that can
     /// then be queried for subject-predicate pairs pointing to that
     /// object.
-    fn objects(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>>;
+    fn objects(&self) -> Box<dyn Iterator<Item = Box<dyn ObjectLookup>>>;
 
     /// Returns an iterator over all objects added by this layer.
     ///
     /// Objects are returned as an `ObjectLookup`, an object that can
     /// then be queried for subject-predicate pairs pointing to that
     /// object.
-    fn object_additions(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>>;
+    fn object_additions(&self) -> Box<dyn Iterator<Item = Box<dyn ObjectLookup>>>;
 
     /// Returns an iterator over all objects removed by this layer.
     ///
     /// Objects are returned as an `ObjectLookup`, an object that can
     /// then be queried for subject-predicate pairs pointing to that
     /// object.
-    fn object_removals(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>>;
+    fn object_removals(&self) -> Box<dyn Iterator<Item = Box<dyn ObjectLookup>>>;
 
     /// Returns an `ObjectLookup` for the given object, or None if it could not be constructed.
     ///
@@ -138,7 +142,11 @@ pub trait Layer: Send+Sync {
     /// object.
     fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>>;
     /// Only lookup object for current layer
-    fn lookup_object_current_layer(&self, object: u64, parent: Option<Box<dyn ObjectLookup>>) -> Option<Box<dyn ObjectLookup>>;
+    fn lookup_object_current_layer(
+        &self,
+        object: u64,
+        parent: Option<Box<dyn ObjectLookup>>,
+    ) -> Option<Box<dyn ObjectLookup>>;
 
     /// Returns an `ObjectLookup` for the given object, or None if it could not be constructed.
     ///
@@ -160,7 +168,11 @@ pub trait Layer: Send+Sync {
     /// predicate.
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>>;
     /// Only lookup predicate for current layer
-    fn lookup_predicate_current_layer(&self, predicate: u64, parent: Option<Box<dyn PredicateLookup>>) -> Option<Box<dyn PredicateLookup>>;
+    fn lookup_predicate_current_layer(
+        &self,
+        predicate: u64,
+        parent: Option<Box<dyn PredicateLookup>>,
+    ) -> Option<Box<dyn PredicateLookup>>;
 
     /// Returns a `PredicateLookup` for the given predicate, or None if it could not be constructed.
     ///
@@ -184,27 +196,42 @@ pub trait Layer: Send+Sync {
             value_count += parent.value_dict_len();
             parent_option = parent.parent();
         }
-        LayerCounts { node_count, predicate_count, value_count }
+        LayerCounts {
+            node_count,
+            predicate_count,
+            value_count,
+        }
     }
 
-    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn PredicateLookup>>> {
+    fn predicates(&self) -> Box<dyn Iterator<Item = Box<dyn PredicateLookup>>> {
         let cloned = self.clone_boxed();
-        Box::new((1..=self.predicate_count()).map(move |p|cloned.lookup_predicate(p as u64)).flatten())
+        Box::new(
+            (1..=self.predicate_count())
+                .map(move |p| cloned.lookup_predicate(p as u64))
+                .flatten(),
+        )
     }
 
-    fn predicate_additions(&self) -> Box<dyn Iterator<Item=Box<dyn PredicateLookup>>> {
+    fn predicate_additions(&self) -> Box<dyn Iterator<Item = Box<dyn PredicateLookup>>> {
         let cloned = self.clone_boxed();
-        Box::new((1..=self.predicate_count()).map(move |p|cloned.lookup_predicate_addition(p as u64)).flatten())
+        Box::new(
+            (1..=self.predicate_count())
+                .map(move |p| cloned.lookup_predicate_addition(p as u64))
+                .flatten(),
+        )
     }
 
-    fn predicate_removals(&self) -> Box<dyn Iterator<Item=Box<dyn PredicateLookup>>> {
+    fn predicate_removals(&self) -> Box<dyn Iterator<Item = Box<dyn PredicateLookup>>> {
         let cloned = self.clone_boxed();
-        Box::new((1..=self.predicate_count()).map(move |p|cloned.lookup_predicate_removal(p as u64)).flatten())
+        Box::new(
+            (1..=self.predicate_count())
+                .map(move |p| cloned.lookup_predicate_removal(p as u64))
+                .flatten(),
+        )
     }
 
     /// Return a clone of this layer in a box.
     fn clone_boxed(&self) -> Box<dyn Layer>;
-
 
     /// Returns true if the given triple exists, and false otherwise.
     fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
@@ -231,62 +258,78 @@ pub trait Layer: Send+Sync {
     /// This is a convenient werapper around
     /// `SubjectLookup` and
     /// `SubjectPredicateLookup` style querying.
-    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
-        Box::new(self.subjects().map(|s|s.predicates()).flatten()
-                 .map(|p|p.triples()).flatten())
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+        Box::new(
+            self.subjects()
+                .map(|s| s.predicates())
+                .flatten()
+                .map(|p| p.triples())
+                .flatten(),
+        )
     }
 
     /// Convert a `StringTriple` to an `IdTriple`, returning None if any of the strings in the triple could not be resolved.
     fn string_triple_to_id(&self, triple: &StringTriple) -> Option<IdTriple> {
-        self.subject_id(&triple.subject)
-            .and_then(|subject| self.predicate_id(&triple.predicate)
-                      .and_then(|predicate| match &triple.object {
-                          ObjectType::Node(node) => self.object_node_id(&node),
-                          ObjectType::Value(value) => self.object_value_id(&value)
-                      }.map(|object| IdTriple {
-                          subject,
-                          predicate,
-                          object
-                      })))
+        self.subject_id(&triple.subject).and_then(|subject| {
+            self.predicate_id(&triple.predicate).and_then(|predicate| {
+                match &triple.object {
+                    ObjectType::Node(node) => self.object_node_id(&node),
+                    ObjectType::Value(value) => self.object_value_id(&value),
+                }
+                .map(|object| IdTriple {
+                    subject,
+                    predicate,
+                    object,
+                })
+            })
+        })
     }
 
     /// Convert all known strings in the given string triple to ids.
-    fn string_triple_to_partially_resolved(&self, triple: &StringTriple) -> PartiallyResolvedTriple {
+    fn string_triple_to_partially_resolved(
+        &self,
+        triple: &StringTriple,
+    ) -> PartiallyResolvedTriple {
         PartiallyResolvedTriple {
-            subject: self.subject_id(&triple.subject)
+            subject: self
+                .subject_id(&triple.subject)
                 .map(|id| PossiblyResolved::Resolved(id))
                 .unwrap_or(PossiblyResolved::Unresolved(triple.subject.clone())),
-            predicate: self.predicate_id(&triple.predicate)
+            predicate: self
+                .predicate_id(&triple.predicate)
                 .map(|id| PossiblyResolved::Resolved(id))
                 .unwrap_or(PossiblyResolved::Unresolved(triple.predicate.clone())),
             object: match &triple.object {
-                ObjectType::Node(node) => self.object_node_id(&node)
+                ObjectType::Node(node) => self
+                    .object_node_id(&node)
                     .map(|id| PossiblyResolved::Resolved(id))
                     .unwrap_or(PossiblyResolved::Unresolved(triple.object.clone())),
-                ObjectType::Value(value) => self.object_value_id(&value)
+                ObjectType::Value(value) => self
+                    .object_value_id(&value)
                     .map(|id| PossiblyResolved::Resolved(id))
                     .unwrap_or(PossiblyResolved::Unresolved(triple.object.clone())),
-            }
+            },
         }
     }
 
     /// Convert an id triple to the corresponding string version, returning None if any of those ids could not be converted.
     fn id_triple_to_string(&self, triple: &IdTriple) -> Option<StringTriple> {
-        self.id_subject(triple.subject)
-            .and_then(|subject| self.id_predicate(triple.predicate)
-                      .and_then(|predicate| self.id_object(triple.object)
-                                .map(|object| StringTriple {
-                                    subject,
-                                    predicate,
-                                    object
-                                })))
+        self.id_subject(triple.subject).and_then(|subject| {
+            self.id_predicate(triple.predicate).and_then(|predicate| {
+                self.id_object(triple.object).map(|object| StringTriple {
+                    subject,
+                    predicate,
+                    object,
+                })
+            })
+        })
     }
 
     /// Returns true if the given layer is an ancestor of this layer, false otherwise.
     fn is_ancestor_of(&self, other: &dyn Layer) -> bool {
         match other.parent() {
             None => false,
-            Some(parent) => parent.name() == self.name() || self.is_ancestor_of(&*parent)
+            Some(parent) => parent.name() == self.name() || self.is_ancestor_of(&*parent),
         }
     }
 }
@@ -294,14 +337,14 @@ pub trait Layer: Send+Sync {
 pub struct LayerCounts {
     pub node_count: usize,
     pub predicate_count: usize,
-    pub value_count: usize
+    pub value_count: usize,
 }
 
 /// The type of a layer - either base or child.
-#[derive(Clone,Copy)]
+#[derive(Clone, Copy)]
 pub enum LayerType {
     Base,
-    Child
+    Child,
 }
 
 /// A trait that caches a lookup in a layer by subject.
@@ -317,7 +360,7 @@ pub trait SubjectLookup {
     fn parent(&self) -> Option<&dyn SubjectLookup>;
 
     /// Returns an iterator over predicate lookups
-    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>>;
+    fn predicates(&self) -> Box<dyn Iterator<Item = Box<dyn SubjectPredicateLookup>>>;
     /// Returns a predicate lookup for the given predicate, or None if no such lookup could be constructed
     ///
     /// Note that even when it can be constructed, that doesn't mean
@@ -326,10 +369,14 @@ pub trait SubjectLookup {
     /// lookup to be constructable, but if subsequent layers deleted
     /// all these triples, none will be retrievable.
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn SubjectPredicateLookup>>;
-    fn lookup_predicate_current(&self, predicate: u64, parent: Option<Box<dyn SubjectPredicateLookup>>) -> Option<Box<dyn SubjectPredicateLookup>>;
+    fn lookup_predicate_current(
+        &self,
+        predicate: u64,
+        parent: Option<Box<dyn SubjectPredicateLookup>>,
+    ) -> Option<Box<dyn SubjectPredicateLookup>>;
     /// Returns an iterator over all triples that can be found by this lookup
-    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
-        Box::new(self.predicates().map(|p|p.triples()).flatten())
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+        Box::new(self.predicates().map(|p| p.triples()).flatten())
     }
 }
 
@@ -347,7 +394,7 @@ pub trait SubjectPredicateLookup {
     fn predicate(&self) -> u64;
 
     /// Returns an iterator over all objects that can be found by this lookup.
-    fn objects(&self) -> Box<dyn Iterator<Item=u64>>;
+    fn objects(&self) -> Box<dyn Iterator<Item = u64>>;
 
     /// Returns true if the given object exists in the additions and false otherwise.
     fn has_pos_object_in_lookup(&self, object: u64) -> bool;
@@ -362,18 +409,20 @@ pub trait SubjectPredicateLookup {
     fn parent(&self) -> Option<&dyn SubjectPredicateLookup>;
 
     /// Returns an iterator over all triples that can be found by this lookup.
-    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
         let subject = self.subject();
         let predicate = self.predicate();
-        Box::new(self.objects().map(move |o| IdTriple::new(subject, predicate, o)))
+        Box::new(
+            self.objects()
+                .map(move |o| IdTriple::new(subject, predicate, o)),
+        )
     }
 
     /// Returns a triple for the given object, or None if it doesn't exist.
     fn triple(&self, object: u64) -> Option<IdTriple> {
         if self.has_object(object) {
             Some(IdTriple::new(self.subject(), self.predicate(), object))
-        }
-        else {
+        } else {
             None
         }
     }
@@ -385,7 +434,7 @@ pub trait ObjectLookup {
     fn object(&self) -> u64;
 
     /// Returns an iterator over the subject-predicate pairs pointing at this object.
-    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=(u64, u64)>>;
+    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item = (u64, u64)>>;
 
     /// clone this instance of ObjectLookup into a dyn Box.
     fn parent(&self) -> Option<&dyn ObjectLookup>;
@@ -409,45 +458,52 @@ pub trait ObjectLookup {
     fn triple(&self, subject: u64, predicate: u64) -> Option<IdTriple> {
         if self.has_subject_predicate_pair(subject, predicate) {
             Some(IdTriple::new(subject, predicate, self.object()))
-        }
-        else {
+        } else {
             None
         }
     }
 
     /// Returns an iterator over all triples with the object of this lookup.
-    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
         let object = self.object();
-        Box::new(self.subject_predicate_pairs()
-                 .map(move |(s,p)| IdTriple::new(s,p,object)))
+        Box::new(
+            self.subject_predicate_pairs()
+                .map(move |(s, p)| IdTriple::new(s, p, object)),
+        )
     }
 }
 
 /// A trait that caches a lookup in a layer by predicate.
 pub trait PredicateLookup {
     fn predicate(&self) -> u64;
-    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>>;
+    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item = Box<dyn SubjectPredicateLookup>>>;
 
     /// Returns an iterator over all triples with the object of this lookup.
-    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
-        Box::new(self.subject_predicate_pairs()
-                 .map(move |sp| sp.triples())
-                 .flatten())
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+        Box::new(
+            self.subject_predicate_pairs()
+                .map(move |sp| sp.triples())
+                .flatten(),
+        )
     }
 }
 
 /// A triple, stored as numerical ids.
-#[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct IdTriple {
     pub subject: u64,
     pub predicate: u64,
-    pub object: u64
+    pub object: u64,
 }
 
 impl IdTriple {
     /// Construct a new id triple.
     pub fn new(subject: u64, predicate: u64, object: u64) -> Self {
-        IdTriple { subject, predicate, object }
+        IdTriple {
+            subject,
+            predicate,
+            object,
+        }
     }
 
     /// convert this triple into a `PartiallyResolvedTriple`, which is a data structure used in layer building.
@@ -461,11 +517,11 @@ impl IdTriple {
 }
 
 /// A triple stored as strings.
-#[derive(Debug,Clone,PartialEq,Eq,PartialOrd,Ord,Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StringTriple {
     pub subject: String,
     pub predicate: String,
-    pub object: ObjectType
+    pub object: ObjectType,
 }
 
 impl StringTriple {
@@ -476,7 +532,7 @@ impl StringTriple {
         StringTriple {
             subject: subject.to_owned(),
             predicate: predicate.to_owned(),
-            object: ObjectType::Node(object.to_owned())
+            object: ObjectType::Node(object.to_owned()),
         }
     }
 
@@ -487,7 +543,7 @@ impl StringTriple {
         StringTriple {
             subject: subject.to_owned(),
             predicate: predicate.to_owned(),
-            object: ObjectType::Value(object.to_owned())
+            object: ObjectType::Value(object.to_owned()),
         }
     }
 
@@ -502,18 +558,18 @@ impl StringTriple {
 }
 
 /// Either a resolved id or an unresolved inner type.
-#[derive(Debug,Clone,PartialEq,Eq,PartialOrd,Ord,Hash)]
-pub enum PossiblyResolved<T:Clone+PartialEq+Eq+PartialOrd+Ord+Hash> {
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PossiblyResolved<T: Clone + PartialEq + Eq + PartialOrd + Ord + Hash> {
     Unresolved(T),
-    Resolved(u64)
+    Resolved(u64),
 }
 
-impl<T:Clone+PartialEq+Eq+PartialOrd+Ord+Hash> PossiblyResolved<T> {
+impl<T: Clone + PartialEq + Eq + PartialOrd + Ord + Hash> PossiblyResolved<T> {
     /// Returns true if this is a resolved id, and false otherwise.
     pub fn is_resolved(&self) -> bool {
         match self {
             Self::Unresolved(_) => false,
-            Self::Resolved(_) => true
+            Self::Resolved(_) => true,
         }
     }
 
@@ -521,7 +577,7 @@ impl<T:Clone+PartialEq+Eq+PartialOrd+Ord+Hash> PossiblyResolved<T> {
     pub fn as_ref(&self) -> PossiblyResolved<&T> {
         match self {
             Self::Unresolved(u) => PossiblyResolved::Unresolved(&u),
-            Self::Resolved(id) => PossiblyResolved::Resolved(*id)
+            Self::Resolved(id) => PossiblyResolved::Resolved(*id),
         }
     }
 
@@ -537,13 +593,13 @@ impl<T:Clone+PartialEq+Eq+PartialOrd+Ord+Hash> PossiblyResolved<T> {
     pub fn unwrap_resolved(self) -> u64 {
         match self {
             Self::Unresolved(_) => panic!("tried to unwrap resolved, but got an unresolved"),
-            Self::Resolved(id) => id
+            Self::Resolved(id) => id,
         }
     }
 }
 
 /// A triple where the subject, predicate and object can all either be fully resolved to an id, or unresolved.
-#[derive(Debug,Clone,PartialEq,Eq,PartialOrd,Ord,Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PartiallyResolvedTriple {
     pub subject: PossiblyResolved<String>,
     pub predicate: PossiblyResolved<String>,
@@ -552,22 +608,31 @@ pub struct PartiallyResolvedTriple {
 
 impl PartiallyResolvedTriple {
     /// Resolve the unresolved ids in this triple using the given hashmaps for nodes, predicates and values.
-    pub fn resolve_with(&self, node_map: &HashMap<String, u64>, predicate_map: &HashMap<String, u64>, value_map: &HashMap<String, u64>) -> Option<IdTriple> {
+    pub fn resolve_with(
+        &self,
+        node_map: &HashMap<String, u64>,
+        predicate_map: &HashMap<String, u64>,
+        value_map: &HashMap<String, u64>,
+    ) -> Option<IdTriple> {
         let subject = match self.subject.as_ref() {
             PossiblyResolved::Unresolved(s) => *node_map.get(s)?,
-            PossiblyResolved::Resolved(id) => id
+            PossiblyResolved::Resolved(id) => id,
         };
         let predicate = match self.predicate.as_ref() {
             PossiblyResolved::Unresolved(p) => *predicate_map.get(p)?,
-            PossiblyResolved::Resolved(id) => id
+            PossiblyResolved::Resolved(id) => id,
         };
         let object = match self.object.as_ref() {
             PossiblyResolved::Unresolved(ObjectType::Node(n)) => *node_map.get(n)?,
             PossiblyResolved::Unresolved(ObjectType::Value(v)) => *value_map.get(v)?,
-            PossiblyResolved::Resolved(id) => id
+            PossiblyResolved::Resolved(id) => id,
         };
 
-        Some(IdTriple { subject, predicate, object })
+        Some(IdTriple {
+            subject,
+            predicate,
+            object,
+        })
     }
 }
 
@@ -584,5 +649,5 @@ impl PartiallyResolvedTriple {
 #[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Ord, Hash)]
 pub enum ObjectType {
     Node(String),
-    Value(String)
+    Value(String),
 }
