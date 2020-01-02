@@ -228,6 +228,10 @@ impl Layer for StoreLayer {
         self.layer.id_object(id)
     }
 
+    fn subjects_current_layer(&self, parent: Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+        self.layer.subjects_current_layer(parent)
+    }
+
     fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
         self.layer.subjects()
     }

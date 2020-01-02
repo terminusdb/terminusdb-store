@@ -402,9 +402,9 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         return None;
     }
 
-    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subjects_current_layer(&self, parent: Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
         Box::new(ChildSubjectIterator {
-            parent: Some(Box::new(self.parent.subjects())),
+            parent: Some(parent),
             next_parent_subject: None,
 
             pos: Some(ChildSubjectIteratorPart {
@@ -421,6 +421,16 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
                 pos: 0
             }),
         })
+    }
+
+    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+        let parents = self.parents();
+        let latest_idx = parents.len() - 1;
+        let mut latest_lookup = parents[latest_idx].subjects();
+        for index in (0..latest_idx).rev() {
+            latest_lookup = parents[index].subjects_current_layer(latest_lookup);
+        }
+        return self.subjects_current_layer(latest_lookup);
     }
 
     fn subject_additions(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
