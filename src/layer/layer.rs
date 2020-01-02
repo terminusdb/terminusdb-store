@@ -61,6 +61,8 @@ pub trait Layer: Send+Sync {
     /// subject id, and knows how to retrieve any linked
     /// predicate-object pair.
     fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>;
+    /// Subjects for current layer
+    fn subjects_current_layer(&self, parent: Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>;
 
     /// Returns an iterator over all triple data added by this layer.
     ///

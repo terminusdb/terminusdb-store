@@ -199,6 +199,10 @@ impl Layer for SyncStoreLayer {
         self.inner.id_object(id)
     }
 
+    fn subjects_current_layer(&self, parent: Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+        self.inner.subjects_current_layer(parent)
+    }
+
     fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
         self.inner.subjects()
     }
