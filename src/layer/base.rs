@@ -352,6 +352,10 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for BaseSubjectLookup<M> {
         None
     }
 
+    fn predicates_current_layer(&self, _parent: Option<Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>>>) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
+        self.predicates()
+    }
+
     fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
         Box::new(BasePredicateIterator {
             subject: self.subject,
