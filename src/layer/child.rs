@@ -735,6 +735,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildSubjectIterator<M> {
     type Item = Box<dyn SubjectLookup>;
 
     fn next(&mut self) -> Option<Box<dyn SubjectLookup>> {
+        // TODO: Eliminate recursion
         if self.parent.is_some() && self.next_parent_subject.is_none() {
             self.next_parent_subject = self.parent.as_mut().unwrap().next();
             if self.next_parent_subject.is_none() {
@@ -898,6 +899,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateIterator<M> {
     type Item=Box<dyn SubjectPredicateLookup>;
 
     fn next(&mut self) -> Option<Box<dyn SubjectPredicateLookup>> {
+        // TODO: Eliminate recursion
         if self.parent.is_some() && self.next_parent_predicate.is_none() {
             match self.parent.as_mut().unwrap().next() {
                 Some(predicate) => self.next_parent_predicate = Some(predicate),
@@ -1094,6 +1096,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildObjectIterator<M> {
     fn next(&mut self) -> Option<u64> {
         // first iterate through all the pos objects
         // then, iterate through the parent, and filter out the next objects
+        // TODO: Eliminate recursion
         if self.parent.is_some() && self.next_parent_object.is_none() {
             match self.parent.as_mut().unwrap().next() {
                 Some(triple) => self.next_parent_object = Some(triple.object),
@@ -1220,6 +1223,7 @@ impl Iterator for ChildSubjectPredicatePairsIterator {
     type Item = (u64,u64);
 
     fn next(&mut self) -> Option<(u64,u64)> {
+        // TODO: Eliminate recursion
         let parent = self.parent.as_mut().and_then(|p|p.peek()).map(|p|*p);
         let pos = self.pos.as_mut().and_then(|p|p.peek()).map(|p|*p);
         let neg = self.neg.as_mut().and_then(|n|n.peek()).map(|n|*n);
@@ -1383,6 +1387,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateLookupSubjectPredic
     type Item = Box<dyn SubjectPredicateLookup>;
 
     fn next(&mut self) -> Option<Box<dyn SubjectPredicateLookup>> {
+        // TODO: Eliminate recursion
         let next_parent_subject = self.parent.as_mut().and_then(|p|p.peek_next_subject());
         let next_child_subject = self.child.as_mut().and_then(|c|c.peek_next_subject());
 
