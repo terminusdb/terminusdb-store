@@ -834,9 +834,9 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for ChildSubjectLookup<M> {
         self.parent.as_ref().map(|x|x.as_ref())
     }
 
-    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
+    fn predicates_current_layer(&self, parent: Option<Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>>>) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
         Box::new(ChildPredicateIterator {
-            parent: self.parent.as_ref().map(|parent|parent.predicates()),
+            parent: parent,
             subject: self.subject,
             pos_adjacencies: self.pos.clone(),
             neg_adjacencies: self.neg.clone(),
@@ -844,6 +844,16 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for ChildSubjectLookup<M> {
             pos_pos: 0,
             neg_pos: 0
         })
+    }
+
+    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
+        let parents = self.parents();
+        let latest_idx = parents.len();
+        let mut latest_lookup = None;
+        for index in (0..latest_idx).rev() {
+            latest_lookup = Some(parents[index].predicates_current_layer(latest_lookup));
+        }
+        return self.predicates_current_layer(latest_lookup);
     }
 
     fn lookup_predicate_current(&self, predicate: u64, parent: Option<Box<dyn SubjectPredicateLookup>>) -> Option<Box<dyn SubjectPredicateLookup>> {
