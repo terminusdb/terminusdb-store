@@ -418,6 +418,12 @@ impl Store {
             .map(move |label| label.map(|label|NamedGraph::new(label.name, store)))
     }
 
+    pub fn get_layer_from_id(&self, layer: [u32;5]) -> impl Future<Item=Option<StoreLayer>,Error=std::io::Error> {
+        let store = self.clone();
+        self.layer_store.get_layer(layer)
+            .map(move |layer| layer.map(move |l|StoreLayer::wrap(l, store)))
+    }
+
     /// Create a base layer builder, unattached to any database label
     ///
     /// After having committed it, use `set_head` on a `NamedGraph` to attach it.
@@ -505,5 +511,21 @@ mod tests {
         assert_eq!(layer2_name, layer.name());
         assert!(layer.string_triple_exists(&StringTriple::new_value("cow","says","moo")));
         assert!(layer.string_triple_exists(&StringTriple::new_value("pig","says","oink")));
+    }
+
+    #[test]
+    fn create_layer_and_retrieve_it_by_id() {
+        let runtime = Runtime::new().unwrap();
+
+        let store = open_memory_store();
+        let builder = oneshot::spawn(store.create_base_layer(), &runtime.executor()).wait().unwrap();
+        oneshot::spawn(builder.add_string_triple(&StringTriple::new_value("cow","says","moo")), &runtime.executor()).wait().unwrap();
+
+        let layer = oneshot::spawn(builder.commit(), &runtime.executor()).wait().unwrap();
+
+        let id = layer.name();
+
+        let layer2 = oneshot::spawn(store.get_layer_from_id(id), &runtime.executor()).wait().unwrap().unwrap();
+        assert!(layer2.string_triple_exists(&StringTriple::new_value("cow","says","moo")));
     }
 }
