@@ -10,6 +10,8 @@ use std::collections::HashMap;
 pub trait Layer: Send+Sync {
     /// The name of this layer.
     fn name(&self) -> [u32;5];
+    /// Name of the layer including its parents
+    fn names(&self) -> Vec<[u32;5]>;
 
     /// The parent of this layer, or None if this is a base layer.
     fn parent(&self) -> Option<&dyn Layer>;

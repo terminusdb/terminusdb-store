@@ -176,6 +176,11 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         self.name
     }
 
+    fn names(&self) -> Vec<[u32;5]> {
+        let parents = self.parents();
+        parents.into_iter().map(|layer|layer.name()).collect()
+    }
+
     fn parent(&self) -> Option<&dyn Layer> {
         Some(&*self.parent)
     }

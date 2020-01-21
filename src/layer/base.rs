@@ -74,6 +74,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         self.name
     }
 
+    fn names(&self) -> Vec<[u32;5]> {
+        vec![self.name()]
+    }
+
     fn parent(&self) -> Option<&dyn Layer> {
         None
     }

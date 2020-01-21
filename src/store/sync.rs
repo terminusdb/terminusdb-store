@@ -123,6 +123,10 @@ impl Layer for SyncStoreLayer {
         self.inner.name()
     }
 
+    fn names(&self) -> Vec<[u32;5]> {
+        self.inner.names()
+    }
+
     fn parent(&self) -> Option<&dyn Layer> {
         (&self.inner as &dyn Layer).parent()
     }

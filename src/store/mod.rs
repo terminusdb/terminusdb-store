@@ -151,6 +151,10 @@ impl Layer for StoreLayer {
         self.layer.name()
     }
 
+    fn names(&self) -> Vec<[u32;5]> {
+        self.layer.names()
+    }
+
     fn parent(&self) -> Option<&dyn Layer> {
         self.layer.parent()
     }
