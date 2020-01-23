@@ -1,7 +1,6 @@
 //! Common data structures and traits for all layer types.
 use std::hash::Hash;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// A layer containing dictionary entries and triples.
 ///
@@ -13,7 +12,7 @@ pub trait Layer: Send+Sync {
     fn name(&self) -> [u32;5];
 
     /// The parent of this layer, or None if this is a base layer.
-    fn parent(&self) -> Option<Arc<dyn Layer>>;
+    fn parent(&self) -> Option<&dyn Layer>;
 
     /// The amount of nodes and values known to this layer.
     /// This also counts entries in the parent.
@@ -350,8 +349,17 @@ pub trait SubjectPredicateLookup {
     /// Returns an iterator over all objects that can be found by this lookup.
     fn objects(&self) -> Box<dyn Iterator<Item=u64>>;
 
+    /// Returns true if the given object exists in the additions and false otherwise.
+    fn has_pos_object_in_lookup(&self, object: u64) -> bool;
+
+    /// Returns true if the given object exists in the deletions and false otherwise.
+    fn has_neg_object_in_lookup(&self, object: u64) -> bool;
+
     /// Returns true if the given object exists, and false otherwise.
     fn has_object(&self, object: u64) -> bool;
+
+    /// Returns the parent lookup, or None if it doesn't exist.
+    fn parent(&self) -> Option<&dyn SubjectPredicateLookup>;
 
     /// Returns an iterator over all triples that can be found by this lookup.
     fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {

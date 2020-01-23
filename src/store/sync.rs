@@ -10,7 +10,6 @@ use futures::sync::oneshot;
 
 use std::io;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use crate::layer::{Layer,ObjectType,StringTriple,IdTriple,SubjectLookup,ObjectLookup, PredicateLookup};
 use crate::store::{Store, NamedGraph, StoreLayer, StoreLayerBuilder, open_memory_store, open_directory_store};
@@ -124,7 +123,7 @@ impl Layer for SyncStoreLayer {
         self.inner.name()
     }
 
-    fn parent(&self) -> Option<Arc<dyn Layer>> {
+    fn parent(&self) -> Option<&dyn Layer> {
         (&self.inner as &dyn Layer).parent()
     }
 
@@ -344,6 +343,12 @@ impl SyncStore {
         inner.map(|i| i.map(|i|SyncNamedGraph::wrap(i)))
     }
 
+    pub fn get_layer_from_id(&self, layer: [u32;5]) -> Result<Option<SyncStoreLayer>,std::io::Error> {
+        let inner = task_sync(self.inner.get_layer_from_id(layer));
+
+        inner.map(|layer| layer.map(|l|SyncStoreLayer::wrap(l)))
+    }
+
     /// Create a base layer builder, unattached to any database label
     ///
     /// After having committed it, use `set_head` on a `NamedGraph` to attach it.
@@ -426,5 +431,19 @@ mod tests {
         assert_eq!(layer2_name, layer.name());
         assert!(layer.string_triple_exists(&StringTriple::new_value("cow","says","moo")));
         assert!(layer.string_triple_exists(&StringTriple::new_value("pig","says","oink")));
+    }
+
+    #[test]
+    fn create_sync_layer_and_retrieve_it_by_id() {
+        let store = open_sync_memory_store();
+        let builder = store.create_base_layer().unwrap();
+        builder.add_string_triple(&StringTriple::new_value("cow","says","moo")).unwrap();
+
+        let layer = builder.commit().unwrap();
+
+        let id = layer.name();
+
+        let layer2 = store.get_layer_from_id(id).unwrap().unwrap();
+        assert!(layer2.string_triple_exists(&StringTriple::new_value("cow","says","moo")));
     }
 }

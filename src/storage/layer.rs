@@ -483,7 +483,7 @@ pub mod tests {
         let base_layer = store.get_layer(base_name).wait().unwrap().unwrap();
 
         assert!(Arc::ptr_eq(&layer1, &layer2));
-        assert!(Arc::ptr_eq(&base_layer, &layer1.parent().unwrap()));
+        assert_eq!(&*base_layer as *const dyn Layer, layer1.parent().unwrap() as *const dyn Layer);
     }
 
     #[test]

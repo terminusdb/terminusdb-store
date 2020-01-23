@@ -14,6 +14,7 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 use std::collections::BTreeSet;
 use std::iter::Peekable;
+use std::io;
 
 /// A child layer.
 ///
@@ -158,8 +159,8 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> ChildLayer<M> {
         ChildObjectLookup::new(object, None, Some(pos), None)
     }
 
-    fn parents(&self) -> Vec<Arc<dyn Layer>> {
-        let mut parents: Vec<Arc<dyn Layer>> = Vec::new();
+    fn parents(&self) -> Vec<&dyn Layer> {
+        let mut parents = Vec::new();
         let mut parent_option = self.parent();
         while let Some(parent) = parent_option {
             parent_option = parent.parent();
@@ -175,8 +176,8 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         self.name
     }
 
-    fn parent(&self) -> Option<Arc<dyn Layer>> {
-        Some(self.parent.clone())
+    fn parent(&self) -> Option<&dyn Layer> {
+        Some(&*self.parent)
     }
 
     fn node_dict_id(&self, subject: &str) -> Option<u64> {
@@ -312,8 +313,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             return None;
         }
         let mut corrected_id = id - 1;
-        // TODO: Can we do this without cloning self? It is not that efficient
-        let mut current_option: Option<Arc<dyn Layer>> = Some(Arc::new(self.clone()));
+        let mut current_option: Option<&dyn Layer> = Some(self);
         let mut parent_count = self.node_and_value_count() as u64;
         while let Some(current_layer) = current_option {
             parent_count = parent_count - current_layer.node_dict_len() as u64 - current_layer.value_dict_len() as u64;
@@ -339,8 +339,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             return None;
         }
         let mut corrected_id = id - 1;
-        // TODO: Can we do this without cloning self? It is not that efficient
-        let mut current_option: Option<Arc<dyn Layer>> = Some(Arc::new(self.clone()));
+        let mut current_option: Option<&dyn Layer> = Some(self);
         let mut parent_count = self.predicate_count() as u64;
         while let Some(current_layer) = current_option {
             let parent = current_layer.parent();
@@ -370,8 +369,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             return None;
         }
         let mut corrected_id = id - 1;
-        // TODO: Can we do this without cloning self? It is not that efficient
-        let mut current_option: Option<Arc<dyn Layer>> = Some(Arc::new(self.clone()));
+        let mut current_option: Option<&dyn Layer> = Some(self);
         let mut parent_count = self.node_and_value_count() as u64;
         while let Some(current_layer) = current_option {
             let parent = current_layer.parent();
@@ -992,6 +990,20 @@ struct ChildSubjectPredicateLookup<M:'static+AsRef<[u8]>+Clone> {
     neg_objects: Option<LogArraySlice<M>>
 }
 
+impl<M:'static+AsRef<[u8]>+Clone> ChildSubjectPredicateLookup<M> {
+    fn parents(&self) -> Vec<&dyn SubjectPredicateLookup> {
+        let mut result = Vec::new();
+        let mut parent = self.parent();
+        while !parent.is_none() {
+            let x = parent.unwrap();
+            result.push(x);
+            parent = x.parent();
+        }
+
+        result
+    }
+}
+
 impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for ChildSubjectPredicateLookup<M> {
     fn subject(&self) -> u64 {
         self.subject
@@ -999,6 +1011,10 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for ChildSubjectPredica
 
     fn predicate(&self) -> u64 {
         self.predicate
+    }
+
+    fn parent(&self) -> Option<&dyn SubjectPredicateLookup> {
+        self.parent.as_ref().map(|p|&**p)
     }
 
     fn objects(&self) -> Box<dyn Iterator<Item=u64>> {
@@ -1013,23 +1029,43 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for ChildSubjectPredica
         })
     }
 
+    fn has_pos_object_in_lookup(&self, object: u64) -> bool {
+        self.pos_objects.as_ref()
+            .and_then(|po|po.iter().position(|o|o == object).map(|_|true))
+            .unwrap_or(false)
+    }
+
+    fn has_neg_object_in_lookup(&self, object: u64) -> bool {
+        self.neg_objects.as_ref()
+            .and_then(|no|no.iter().position(|o|o == object).map(|_|true))
+            .unwrap_or(false)
+    }
+
     fn has_object(&self, object: u64) -> bool {
         if object == 0 {
             return false;
         }
-        // this should check pos (if it is there), then neg (if it is there), and finally parent.
-        // if it is in neg, return None. otherwise return the triple (if in pos) or whatever comes out of parent.
-        self.pos_objects.as_ref()
-            .and_then(|po|po.iter().position(|o|o == object).map(|_|true))
-            .or_else(|| {
-                if self.neg_objects.as_ref().and_then(|no|no.iter().position(|o|o == object)).is_some() {
-                    Some(false)
-                }
-                else {
-                    self.parent.as_ref().map(|p|p.has_object(object))
-                }
-            })
-            .unwrap_or(false)
+
+        if self.has_pos_object_in_lookup(object) {
+            return true;
+        }
+
+        if self.has_neg_object_in_lookup(object) {
+            return false;
+        }
+
+        let parents = self.parents();
+        for i in 0..parents.len() {
+            let parent = parents[i];
+            if parent.has_pos_object_in_lookup(object) {
+                return true;
+            }
+            if parent.has_neg_object_in_lookup(object) {
+                return false;
+            }
+        }
+
+        false
     }
 }
 
@@ -1996,97 +2032,99 @@ fn build_object_index<F:'static+FileLoad+FileStore>(sp_o_files: AdjacencyListFil
         .map(|_|())
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::layer::base::*;
-    use super::*;
-    use crate::storage::memory::*;
-    fn base_layer_files() -> BaseLayerFiles<MemoryBackedStore> {
-        let files: Vec<_> = (0..21).map(|_| MemoryBackedStore::new()).collect();
-        BaseLayerFiles {
-            node_dictionary_files: DictionaryFiles {
-                blocks_file: files[0].clone(),
-                offsets_file: files[1].clone()
-            },
-            predicate_dictionary_files: DictionaryFiles {
-                blocks_file: files[2].clone(),
-                offsets_file: files[3].clone()
-            },
-            value_dictionary_files: DictionaryFiles {
-                blocks_file: files[4].clone(),
-                offsets_file: files[5].clone()
-            },
-            s_p_adjacency_list_files: AdjacencyListFiles {
-                bitindex_files: BitIndexFiles {
-                    bits_file: files[6].clone(),
-                    blocks_file: files[7].clone(),
-                    sblocks_file: files[8].clone(),
-                },
-                nums_file: files[9].clone()
-            },
-            sp_o_adjacency_list_files: AdjacencyListFiles {
-                bitindex_files: BitIndexFiles {
-                    bits_file: files[10].clone(),
-                    blocks_file: files[11].clone(),
-                    sblocks_file: files[12].clone(),
-                },
-                nums_file: files[13].clone()
-            },
-            o_ps_adjacency_list_files: AdjacencyListFiles {
-                bitindex_files: BitIndexFiles {
-                    bits_file: files[14].clone(),
-                    blocks_file: files[15].clone(),
-                    sblocks_file: files[16].clone(),
-                },
-                nums_file: files[17].clone()
-            },
-            predicate_wavelet_tree_files: BitIndexFiles {
-                bits_file: files[18].clone(),
-                blocks_file: files[19].clone(),
-                sblocks_file: files[20].clone(),
-            },
+pub struct ChildTripleStream<S1: Stream<Item=u64,Error=io::Error>, S2: Stream<Item=(u64,u64),Error=io::Error>+Send> {
+    subjects_stream: stream::Peekable<S1>,
+    s_p_stream: stream::Peekable<S2>,
+    sp_o_stream: stream::Peekable<S2>,
+    last_mapped_s: u64,
+    last_s_p: (u64, u64),
+    last_sp: u64,
+}
+
+impl<S1: Stream<Item=u64,Error=io::Error>, S2: Stream<Item=(u64,u64),Error=io::Error>+Send> ChildTripleStream<S1,S2> {
+    fn new(subjects_stream: S1, s_p_stream: S2, sp_o_stream: S2) -> ChildTripleStream<S1,S2> {
+        ChildTripleStream {
+            subjects_stream: subjects_stream.peekable(),
+            s_p_stream: s_p_stream.peekable(),
+            sp_o_stream: sp_o_stream.peekable(),
+            last_mapped_s: 0,
+            last_s_p: (0,0),
+            last_sp: 0
         }
     }
+}
 
-    fn empty_base_layer() -> BaseLayer<SharedVec> {
-        let files = base_layer_files();
-        let base_builder = BaseLayerFileBuilder::from_files(&files);
-        base_builder.into_phase2().and_then(|b|b.finalize()).wait().unwrap();
+impl<S1: Stream<Item=u64,Error=io::Error>, S2: Stream<Item=(u64,u64),Error=io::Error>+Send> Stream for ChildTripleStream<S1,S2> {
+    type Item = (u64,u64,u64);
+    type Error = io::Error;
 
-        BaseLayer::load_from_files([1,2,3,4,5], &files).wait().unwrap()
+    fn poll(&mut self) -> Result<Async<Option<(u64,u64,u64)>>,io::Error> {
+        let sp_o = self.sp_o_stream.peek().map(|x|x.map(|x|x.map(|x|*x)));
+        match sp_o {
+            Err(e) => Err(e),
+            Ok(Async::NotReady) => Ok(Async::NotReady),
+            Ok(Async::Ready(None)) => Ok(Async::Ready(None)),
+            Ok(Async::Ready(Some((sp,o)))) => {
+                if sp > self.last_sp {
+                    let s_p = self.s_p_stream.peek().map(|x|x.map(|x|x.map(|x|*x)));
+                    match s_p {
+                        Err(e) => Err(e),
+                        Ok(Async::NotReady) => Ok(Async::NotReady),
+                        Ok(Async::Ready(None)) => Err(io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected end of s_p_stream")),
+                        Ok(Async::Ready(Some((s,p)))) => {
+                            if s > self.last_s_p.0 {
+                                let mapped_s = self.subjects_stream.peek().map(|x|x.map(|x|x.map(|x|*x)));
+                                match mapped_s {
+                                    Err(e) => Err(e),
+                                    Ok(Async::NotReady) => Ok(Async::NotReady),
+                                    Ok(Async::Ready(None)) => Err(io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected end of subjects_stream")),
+                                    Ok(Async::Ready(Some(mapped_s))) => {
+                                        self.sp_o_stream.poll().expect("peeked stream sp_o_stream with confirmed result did not have result on poll");
+                                        self.s_p_stream.poll().expect("peeked stream s_p_stream with confirmed result did not have result on poll");
+                                        self.subjects_stream.poll().expect("peeked stream subjects_stream with confirmed result did not have result on poll");
+                                        self.last_mapped_s = mapped_s;
+                                        self.last_s_p = (s,p);
+                                        self.last_sp = sp;
+
+                                        Ok(Async::Ready(Some((mapped_s,p,o))))
+                                    }
+                                }
+                            }
+                            else {
+                                self.sp_o_stream.poll().expect("peeked stream sp_o_stream with confirmed result did not have result on poll");
+                                self.s_p_stream.poll().expect("peeked stream s_p_stream with confirmed result did not have result on poll");
+                                self.last_s_p = (s,p);
+                                self.last_sp = sp;
+
+                                Ok(Async::Ready(Some((self.last_mapped_s,p,o))))
+                            }
+                        }
+                    }
+                }
+                else {
+                    self.sp_o_stream.poll().expect("peeked stream sp_o_stream with confirmed result did not have result on poll");
+
+                    Ok(Async::Ready(Some((self.last_mapped_s, self.last_s_p.1, o))))
+                }
+            }
+        }
     }
+}
 
-    fn example_base_layer() -> BaseLayer<SharedVec> {
-        let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
-        let predicates = vec!["abcde", "fghij", "klmno", "lll"];
-        let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
+pub fn open_child_triple_stream<F:'static+FileLoad+FileStore>(subjects_file: F, s_p_files: AdjacencyListFiles<F>, sp_o_files: AdjacencyListFiles<F>) -> impl Stream<Item=(u64,u64,u64),Error=io::Error>+Send {
+    let subjects_stream = logarray_stream_entries(subjects_file);
+    let s_p_stream = adjacency_list_stream_pairs(s_p_files.bitindex_files.bits_file, s_p_files.nums_file);
+    let sp_o_stream = adjacency_list_stream_pairs(sp_o_files.bitindex_files.bits_file, sp_o_files.nums_file);
 
+    ChildTripleStream::new(subjects_stream, s_p_stream, sp_o_stream)
+}
 
-        let files = base_layer_files();
-        let base_builder = BaseLayerFileBuilder::from_files(&files);
-
-        let future = base_builder.add_nodes(nodes.into_iter().map(|s|s.to_string()))
-            .and_then(move |(_,b)| b.add_predicates(predicates.into_iter().map(|s|s.to_string())))
-            .and_then(move |(_,b)| b.add_values(values.into_iter().map(|s|s.to_string())))
-            .and_then(|(_,b)| b.into_phase2())
-
-            .and_then(|b| b.add_triple(1,1,1))
-            .and_then(|b| b.add_triple(2,1,1))
-            .and_then(|b| b.add_triple(2,1,3))
-            .and_then(|b| b.add_triple(2,3,6))
-            .and_then(|b| b.add_triple(3,2,5))
-            .and_then(|b| b.add_triple(3,3,6))
-            .and_then(|b| b.add_triple(4,3,6))
-            .and_then(|b| b.finalize());
-
-        future.wait().unwrap();
-
-        let base_layer = BaseLayer::load_from_files([1,2,3,4,5], &files).wait().unwrap();
-
-        base_layer
-    }
-
-    fn example_child_files() -> ChildLayerFiles<MemoryBackedStore> {
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::memory::*;
+    use crate::layer::base::tests::*;
+    fn child_layer_files() -> ChildLayerFiles<MemoryBackedStore> {
         let files: Vec<_> = (0..40).map(|_| MemoryBackedStore::new()).collect();
 
         ChildLayerFiles {
@@ -2175,7 +2213,7 @@ mod tests {
 
         let parent = Arc::new(base_layer);
 
-        let child_files = example_child_files();
+        let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
@@ -2200,7 +2238,7 @@ mod tests {
 
         let parent = Arc::new(base_layer);
 
-        let child_files = example_child_files();
+        let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
@@ -2229,7 +2267,7 @@ mod tests {
 
         let parent = Arc::new(base_layer);
 
-        let child_files = example_child_files();
+        let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
@@ -2255,7 +2293,7 @@ mod tests {
         let base_layer = example_base_layer();
         let parent = Arc::new(base_layer);
 
-        let child_files = example_child_files();
+        let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
@@ -2284,7 +2322,7 @@ mod tests {
         let base_layer = example_base_layer();
         let parent = Arc::new(base_layer);
 
-        let child_files = example_child_files();
+        let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
@@ -2314,7 +2352,7 @@ mod tests {
         let base_layer = example_base_layer();
         let parent = Arc::new(base_layer);
 
-        let child_files = example_child_files();
+        let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
@@ -2346,7 +2384,7 @@ mod tests {
         let base_layer = empty_base_layer();
         let parent = Arc::new(base_layer);
 
-        let child_files = example_child_files();
+        let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder
@@ -2384,7 +2422,7 @@ mod tests {
         let base_layer = example_base_layer();
         let parent = Arc::new(base_layer);
 
-        let child_files = example_child_files();
+        let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
@@ -2432,7 +2470,7 @@ mod tests {
         let base_layer = example_base_layer();
         let parent = Arc::new(base_layer);
 
-        let child_files = example_child_files();
+        let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
@@ -2451,7 +2489,7 @@ mod tests {
         let base_layer = example_base_layer();
         let parent = Arc::new(base_layer);
 
-        let child_files = example_child_files();
+        let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder
@@ -2479,7 +2517,7 @@ mod tests {
         let base_layer = example_base_layer();
         let parent = Arc::new(base_layer);
 
-        let child_files = example_child_files();
+        let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder
@@ -2507,7 +2545,7 @@ mod tests {
         let base_layer = example_base_layer();
         let parent = Arc::new(base_layer);
 
-        let child_files = example_child_files();
+        let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
@@ -2536,7 +2574,7 @@ mod tests {
         let base_layer = example_base_layer();
         let parent = Arc::new(base_layer);
 
-        let child_files = example_child_files();
+        let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
@@ -2565,7 +2603,7 @@ mod tests {
         let base_layer = example_base_layer();
         let parent = Arc::new(base_layer);
 
-        let child_files = example_child_files();
+        let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
@@ -2594,7 +2632,7 @@ mod tests {
         let base_layer = example_base_layer();
         let parent = Arc::new(base_layer);
 
-        let child_files = example_child_files();
+        let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
@@ -2623,7 +2661,7 @@ mod tests {
         let base_layer = example_base_layer();
         let parent = Arc::new(base_layer);
 
-        let child_files = example_child_files();
+        let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
@@ -2652,7 +2690,7 @@ mod tests {
         let base_layer = example_base_layer();
         let parent = Arc::new(base_layer);
 
-        let child_files = example_child_files();
+        let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
@@ -2681,7 +2719,7 @@ mod tests {
         let base_layer = example_base_layer();
         let parent = Arc::new(base_layer);
 
-        let child_files = example_child_files();
+        let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
         child_builder.into_phase2()
@@ -2702,7 +2740,7 @@ mod tests {
         let base_layer = empty_base_layer();
         let parent = Arc::new(base_layer);
 
-        let child_files = example_child_files();
+        let child_files = child_layer_files();
         let builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
 
         let future = builder.add_nodes(vec!["a","b"].into_iter().map(|x|x.to_string()))
@@ -2731,5 +2769,47 @@ mod tests {
                         (2,1,1),
                         (2,2,1)],
                    triples_by_object);
+    }
+
+    #[test]
+    fn stream_child_triples() {
+        let base_layer = example_base_layer();
+        let parent = Arc::new(base_layer);
+
+        let child_files = child_layer_files();
+        let builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
+
+        let future = builder.into_phase2()
+            .and_then(|b| b.add_triple(1,2,1))
+            .and_then(|b| b.add_triple(3,1,5))
+            .and_then(|b| b.add_triple(5,2,3))
+            .and_then(|b| b.add_triple(5,2,4))
+            .and_then(|b| b.add_triple(5,2,5))
+            .and_then(|b| b.add_triple(5,3,1))
+
+            .and_then(|b| b.remove_triple(2,1,1))
+            .and_then(|b| b.remove_triple(2,3,6))
+            .and_then(|b| b.remove_triple(4,3,6))
+            .and_then(|b| b.finalize());
+
+
+        future.wait().unwrap();
+
+        let addition_stream = open_child_triple_stream(child_files.pos_subjects_file, child_files.pos_s_p_adjacency_list_files, child_files.pos_sp_o_adjacency_list_files);
+        let removal_stream = open_child_triple_stream(child_files.neg_subjects_file, child_files.neg_s_p_adjacency_list_files, child_files.neg_sp_o_adjacency_list_files);
+
+        let addition_triples: Vec<_> = addition_stream.collect().wait().unwrap();
+        let removal_triples: Vec<_> = removal_stream.collect().wait().unwrap();
+
+        assert_eq!(vec![(1,2,1),
+                        (3,1,5),
+                        (5,2,3),
+                        (5,2,4),
+                        (5,2,5),
+                        (5,3,1)], addition_triples);
+
+        assert_eq!(vec![(2,1,1),
+                        (2,3,6),
+                        (4,3,6)], removal_triples);
     }
 }
