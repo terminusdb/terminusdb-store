@@ -3,6 +3,13 @@
 //! It is expected that most users of this library will work exclusively with the types contained in this module.
 pub mod sync;
 
+extern crate tar;
+extern crate flate2;
+
+use flate2::Compression;
+use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
+
 use futures::prelude::*;
 use futures::future;
 use std::sync::Arc;
@@ -447,6 +454,35 @@ pub fn open_memory_store() -> Store {
 pub fn open_directory_store<P:Into<PathBuf>>(path: P) -> Store {
     let p = path.into();
     Store::new(DirectoryLabelStore::new(p.clone()), CachedLayerStore::new(DirectoryLayerStore::new(p)))
+}
+
+/// Creates a tar.gz of specific labels and layers
+pub fn serialize_directory_store<P:Into<PathBuf>>(path: P, label_names: Vec<&str>, layer_ids: Vec<&str>) -> Vec<u8> {
+    let tar_gz: Vec<u8> = vec![];
+    let mut enc = GzEncoder::new(tar_gz, Compression::default());
+    {
+        let mut tar = tar::Builder::new(&mut enc);
+        let p = path.into();
+        for id in layer_ids {
+            let mut layer_path = p.clone();
+            layer_path.push(id);
+            tar.append_path(layer_path).unwrap();
+        }
+        for name in label_names {
+            let mut label_path = p.clone();
+            label_path.push(name);
+            tar.append_path(label_path).unwrap();
+        }
+    }
+    // TODO: Proper error handling
+    enc.finish().unwrap()
+}
+
+pub fn deserialize_directory_store<P:Into<PathBuf>>(directory_store_path: P, tar_path: P) -> Result<(), std::io::Error> {
+    let tar_gz = std::fs::File::open(tar_path.into())?;
+    let tar = GzDecoder::new(tar_gz);
+    let mut archive = tar::Archive::new(tar);
+    archive.unpack(directory_store_path.into())
 }
 
 #[cfg(test)]
