@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use futures_locks::RwLock;
 
-use crate::storage::{LabelStore, LayerStore, CachedLayerStore};
+use crate::storage::{LabelStore, LayerStore, CachedLayerStore, LockingHashMapLayerCache};
 use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
 use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore};
 use crate::layer::{Layer,LayerBuilder,ObjectType,StringTriple,IdTriple,SubjectLookup,ObjectLookup, PredicateLookup};
@@ -436,13 +436,13 @@ impl Store {
 ///
 /// This is useful for testing purposes, or if the database is only going to be used for caching purposes
 pub fn open_memory_store() -> Store {
-    Store::new(MemoryLabelStore::new(), CachedLayerStore::new(MemoryLayerStore::new()))
+    Store::new(MemoryLabelStore::new(), CachedLayerStore::new(MemoryLayerStore::new(), LockingHashMapLayerCache::new()))
 }
 
 /// Open a store that stores its data in the given directory
 pub fn open_directory_store<P:Into<PathBuf>>(path: P) -> Store {
     let p = path.into();
-    Store::new(DirectoryLabelStore::new(p.clone()), CachedLayerStore::new(DirectoryLayerStore::new(p)))
+    Store::new(DirectoryLabelStore::new(p.clone()), CachedLayerStore::new(DirectoryLayerStore::new(p), LockingHashMapLayerCache::new()))
 }
 
 #[cfg(test)]
