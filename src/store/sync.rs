@@ -11,7 +11,7 @@ use futures::sync::oneshot;
 use std::io;
 use std::path::PathBuf;
 
-use crate::layer::{Layer,ObjectType,StringTriple,IdTriple,SubjectLookup,ObjectLookup, PredicateLookup};
+use crate::layer::{Layer,ObjectType,StringTriple,IdTriple,SubjectLookup,ObjectLookup, PredicateLookup, SubjectIterator};
 use crate::store::{Store, NamedGraph, StoreLayer, StoreLayerBuilder, open_memory_store, open_directory_store};
 
 lazy_static! {
@@ -199,19 +199,19 @@ impl Layer for SyncStoreLayer {
         self.inner.id_object(id)
     }
 
-    fn subjects_current_layer(&self, parent: Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subjects_current_layer(&self, parent: Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>>) -> Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>> {
         self.inner.subjects_current_layer(parent)
     }
 
-    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subjects(&self) -> Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>> {
         self.inner.subjects()
     }
 
-    fn subject_additions(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subject_additions(&self) -> Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>> {
         self.inner.subject_additions()
     }
 
-    fn subject_removals(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subject_removals(&self) -> Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>> {
         self.inner.subject_removals()
     }
 

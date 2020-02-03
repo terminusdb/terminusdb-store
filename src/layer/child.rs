@@ -402,7 +402,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         return None;
     }
 
-    fn subjects_current_layer(&self, parent: Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subjects_current_layer(&self, parent: Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>>) -> Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>> {
         Box::new(ChildSubjectIterator {
             parent: Some(parent),
             next_parent_subject: None,
@@ -423,7 +423,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         })
     }
 
-    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subjects(&self) -> Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>> {
         let parents = self.parents();
         let latest_idx = parents.len() - 1;
         let mut latest_lookup = parents[latest_idx].subjects();
@@ -433,7 +433,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         return self.subjects_current_layer(latest_lookup);
     }
 
-    fn subject_additions(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subject_additions(&self) -> Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>> {
         Box::new(ChildSubjectIterator {
             parent: None,
             next_parent_subject: None,
@@ -449,7 +449,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         })
     }
 
-    fn subject_removals(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subject_removals(&self) -> Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>> {
         Box::new(ChildSubjectIterator {
             parent: None,
             next_parent_subject: None,
@@ -724,27 +724,34 @@ struct ChildSubjectIteratorPart<M:'static+AsRef<[u8]>+Clone> {
 }
 
 struct ChildSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
-    parent: Option<Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>>,
+    parent: Option<Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>>>,
     next_parent_subject: Option<Box<dyn SubjectLookup>>,
 
     pos: Option<ChildSubjectIteratorPart<M>>,
     neg: Option<ChildSubjectIteratorPart<M>>,
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildSubjectIterator<M> {
-    type Item = Box<dyn SubjectLookup>;
-
-    fn next(&mut self) -> Option<Box<dyn SubjectLookup>> {
-        // TODO: Eliminate recursion
-        if self.parent.is_some() && self.next_parent_subject.is_none() {
-            self.next_parent_subject = self.parent.as_mut().unwrap().next();
-            if self.next_parent_subject.is_none() {
-                self.parent = None;
-            }
+impl<M:'static+AsRef<[u8]>+Clone> ChildSubjectIterator<M> {
+    fn parents(&self) -> Vec<&dyn SubjectIterator<Item=Box<dyn SubjectLookup>>> {
+        let mut parents = Vec::new();
+        let mut parent_option = self.parent();
+        while let Some(parent) = parent_option {
+            parent_option = parent.parent();
+            parents.push(parent);
         }
+        parents
+    }
+}
 
-        let mut next_parent = None;
-        std::mem::swap(&mut next_parent, &mut self.next_parent_subject);
+
+impl<M:'static+AsRef<[u8]>+Clone> SubjectIterator for ChildSubjectIterator<M> {
+    fn parent(&self) -> Option<&dyn SubjectIterator<Item=Box<dyn SubjectLookup>>> {
+        self.parent.as_ref().map(|x|x.as_ref())
+    }
+
+    fn check_current(&mut self, next_parent: Option<Box<dyn SubjectLookup>>) -> Option<Box<dyn SubjectLookup>> {
+        let mut next_parent2 = None;
+     //   std::mem::swap(&mut next_parent, &mut self.next_parent_subject);
         let next_parent_subject = next_parent.as_ref().map(|p|p.subject()).unwrap_or(0);
 
         let next_pos_subject = self.pos.as_ref().map(|pos| if pos.pos < pos.subjects.len() { pos.subjects.entry(pos.pos) } else { 0 }).unwrap_or(0);
@@ -779,12 +786,12 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildSubjectIterator<M> {
         }
 
         if !(next_pos_subject == 0 || next_parent_subject <= next_pos_subject) {
-            std::mem::swap(&mut next_parent, &mut self.next_parent_subject);
+            std::mem::swap(&mut next_parent2, &mut self.next_parent_subject);
         }
 
         if next_parent_subject != 0 || next_pos_subject != 0 {
             Some(Box::new(ChildSubjectLookup {
-                parent: next_parent,
+                parent: next_parent2,
                 subject: subject,
                 pos,
                 neg
@@ -793,6 +800,28 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildSubjectIterator<M> {
         else {
             None
         }
+    }
+}
+
+impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildSubjectIterator<M> {
+    type Item = Box<dyn SubjectLookup>;
+
+    fn next(&mut self) -> Option<Box<dyn SubjectLookup>> {
+        /*
+        if self.parent.is_some() && self.next_parent_subject.is_none() {
+            self.next_parent_subject = self.parent.as_mut().unwrap().next();
+            if self.next_parent_subject.is_none() {
+                self.parent = None;
+            }
+        }
+         */
+        let mut parents = self.parents();
+        let latest_idx = parents.len();
+        let mut latest_lookup = None;
+        for index in (0..latest_idx).rev() {
+            latest_lookup = parents[index].check_current(latest_lookup);
+        }
+        return self.check_current(latest_lookup);
     }
 }
 

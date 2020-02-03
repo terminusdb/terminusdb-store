@@ -13,7 +13,7 @@ use futures_locks::RwLock;
 use crate::storage::{LabelStore, LayerStore, CachedLayerStore};
 use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
 use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore};
-use crate::layer::{Layer,LayerBuilder,ObjectType,StringTriple,IdTriple,SubjectLookup,ObjectLookup, PredicateLookup};
+use crate::layer::{Layer,LayerBuilder,ObjectType,StringTriple,IdTriple,SubjectLookup,ObjectLookup, PredicateLookup, SubjectIterator};
 
 use std::io;
 
@@ -228,19 +228,19 @@ impl Layer for StoreLayer {
         self.layer.id_object(id)
     }
 
-    fn subjects_current_layer(&self, parent: Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subjects_current_layer(&self, parent: Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>>) -> Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>> {
         self.layer.subjects_current_layer(parent)
     }
 
-    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subjects(&self) -> Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>> {
         self.layer.subjects()
     }
 
-    fn subject_additions(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subject_additions(&self) -> Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>> {
         self.layer.subject_additions()
     }
 
-    fn subject_removals(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subject_removals(&self) -> Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>> {
         self.layer.subject_removals()
     }
 

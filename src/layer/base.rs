@@ -78,7 +78,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         None
     }
 
-    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subjects(&self) -> Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>> {
         Box::new(BaseSubjectIterator {
             pos: 0,
             s_p_adjacency_list: self.s_p_adjacency_list.clone(),
@@ -86,16 +86,22 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         })
     }
 
-    fn subjects_current_layer(&self, _parent: Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subjects_current_layer(&self, _parent: Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>>) -> Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>> {
         self.subjects()
     }
 
-    fn subject_additions(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subject_additions(&self) -> Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>> {
         self.subjects()
     }
 
-    fn subject_removals(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
-        Box::new(std::iter::empty())
+    fn subject_removals(&self) -> Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>> {
+      //  Box::new(std::iter::empty::<Box<dyn SubjectLookup>>())
+        // TODO: HOW TO DO THIS :(
+        Box::new(BaseSubjectIterator {
+            pos: 0,
+            s_p_adjacency_list: self.s_p_adjacency_list.clone(),
+            sp_o_adjacency_list: self.sp_o_adjacency_list.clone()
+        })
     }
 
     fn node_dict_len(&self) -> usize {
@@ -308,10 +314,13 @@ struct BaseSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
     pos: u64,
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseSubjectIterator<M> {
-    type Item = Box<dyn SubjectLookup>;
 
-    fn next(&mut self) -> Option<Box<dyn SubjectLookup>> {
+impl<M:'static+AsRef<[u8]>+Clone> SubjectIterator for BaseSubjectIterator<M> {
+    fn parent(&self) -> Option<&dyn SubjectIterator<Item=Box<dyn SubjectLookup>>> {
+        None
+    }
+
+    fn check_current(&mut self, _next_parent: Option<Box<dyn SubjectLookup>>) -> Option<Box<dyn SubjectLookup>> {
         if self.pos >= self.s_p_adjacency_list.left_count() as u64 {
             None
         }
@@ -332,6 +341,14 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseSubjectIterator<M> {
                 }))
             }
         }
+    }
+}
+
+impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseSubjectIterator<M> {
+    type Item = Box<dyn SubjectLookup>;
+
+    fn next(&mut self) -> Option<Box<dyn SubjectLookup>> {
+        self.check_current(None)
     }
 }
 

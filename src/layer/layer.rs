@@ -60,9 +60,9 @@ pub trait Layer: Send+Sync {
     /// `SubjectLookup`. Each such object stores a
     /// subject id, and knows how to retrieve any linked
     /// predicate-object pair.
-    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>;
+    fn subjects(&self) -> Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>>;
     /// Subjects for current layer
-    fn subjects_current_layer(&self, parent: Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>;
+    fn subjects_current_layer(&self, parent: Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>>) -> Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>>;
 
     /// Returns an iterator over all triple data added by this layer.
     ///
@@ -70,7 +70,7 @@ pub trait Layer: Send+Sync {
     /// `SubjectLookup`. Each such object stores a
     /// subject id, and knows how to retrieve any linked
     /// predicate-object pair.
-    fn subject_additions(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>;
+    fn subject_additions(&self) -> Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>>;
 
     /// Returns an iterator over all triple data removed by this layer.
     ///
@@ -78,7 +78,7 @@ pub trait Layer: Send+Sync {
     /// `SubjectLookup`. Each such object stores a
     /// subject id, and knows how to retrieve any linked
     /// predicate-object pair.
-    fn subject_removals(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>;
+    fn subject_removals(&self) -> Box<dyn SubjectIterator<Item=Box<dyn SubjectLookup>>>;
 
     /// Returns a `SubjectLookup` object for the given subject, or None if it cannot be constructed.
     ///
@@ -437,6 +437,12 @@ pub trait PredicateLookup {
                  .map(move |sp| sp.triples())
                  .flatten())
     }
+}
+
+/// Special trait for layer iterators
+pub trait SubjectIterator: Iterator {
+    fn parent(&self) -> Option<&dyn SubjectIterator<Item=Box<dyn SubjectLookup>>>;
+    fn check_current(&mut self, next_parent: Option<Box<dyn SubjectLookup>>) -> Option<Box<dyn SubjectLookup>>;
 }
 
 /// A triple, stored as numerical ids.
