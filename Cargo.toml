@@ -21,7 +21,6 @@ memmap = "0.7"
 rand = "0.7"
 lazy_static = "1.4"
 fs2 = "0.4.3"
-libc = "0.2.66"
 
 [dev-dependencies]
 tempfile = "3.1"
