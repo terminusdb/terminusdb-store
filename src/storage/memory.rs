@@ -130,51 +130,97 @@ impl MemoryLayerStore {
     }
 }
 
-impl LayerRetriever for MemoryLayerStore {
+impl LayerStore for MemoryLayerStore {
     fn layers(&self) -> Box<dyn Future<Item=Vec<[u32;5]>, Error=io::Error>+Send> {
         Box::new(self.layers.read()
                  .then(|layers|Ok(layers.expect("rwlock read cannot fail").keys().map(|k|k.clone()).collect())))
     }
 
-    fn get_layer_with_retriever(&self, name: [u32;5], retriever: Box<dyn LayerRetriever>) -> Box<dyn Future<Item=Option<Arc<dyn Layer>>,Error=io::Error>+Send> {
+    fn get_layer_with_cache(&self, name: [u32;5], cache: Arc<dyn LayerCache>) -> Box<dyn Future<Item=Option<Arc<dyn Layer>>,Error=io::Error>+Send> {
+        if let Some(layer) = cache.get_layer_from_cache(name) {
+            return Box::new(future::ok(Some(layer)));
+        }
+
+        // not in cache, time to do a clever
+
         Box::new(self.layers.read()
                  .then(move |layers| {
                      let layers = layers.expect("rwlock read should always succeed");
-                     let saved = layers.get(&name).map(|x|x.clone());
-                     let fut: Box<dyn Future<Item=_,Error=_>+Send> = match saved {
-                         None => Box::new(future::ok(None)),
-                         Some(saved) => Box::new(
-                             future::ok(saved)
-                                 .and_then(move |(parent_name, files)| {
-                                     let fut: Box<dyn Future<Item=_,Error=_>+Send> =
-                                         if parent_name.is_some() {
-                                             let files = files.clone().into_child();
-                                             Box::new(retriever.get_layer(parent_name.unwrap())
-                                                      .and_then(|parent| match parent {
-                                                          None => Err(io::Error::new(io::ErrorKind::InvalidData, "expected parent layer to exist")),
-                                                          Some(p) => Ok(p)
-                                                      })
-                                                      .and_then(move |parent| ChildLayer::load_from_files(name, parent, &files))
-                                                      .map(|layer| Some(Arc::new(layer) as Arc<dyn Layer>)))
-                                         } else {
-                                             Box::new(BaseLayer::load_from_files(name, &files.clone().into_base())
-                                                      .map(|layer| Some(Arc::new(layer) as Arc<dyn Layer>)))
-                                         };
-                                     fut
-                                 }))
+
+                     let mut ids = Vec::new();
+                     // collect ids until we get a cache hit
+                     let mut id = name;
+                     let mut first = true;
+                     let mut cached = None;
+                     loop {
+                         match cache.get_layer_from_cache(id) {
+                             None => {
+                                 ids.push(id);
+                                 if let Some((parent, _)) = layers.get(&id) {
+                                     first = false;
+                                     match parent {
+                                         None => break, // we traversed all the way to the base layer without finding a cached layer
+                                         Some(parent) => {
+                                             id = *parent;
+                                         }
+                                     }
+                                 }
+                                 else if first {
+                                     // the requested layer does not exist.
+                                     return future::Either::A(future::ok(None));
+                                 }
+                                 else {
+                                     // layer parent does not exist. this should never happen
+                                     panic!("expected to find parent layer, but not found");
+                                 }
+                             }
+                             Some(layer) => {
+                                 // great, we found a cached layer, now we can iteratively build all the child layers.
+                                 cached = Some(layer);
+                                 break;
+                             }
+                         }
+                     }
+
+                     // at this point we have a list of layer ids, and optionally, we have a cached layer
+                     // starting with the cached layer, we need to construct child layers iteratively.
+                     // lacking a cached layer, the very last item in the vec is a base layer and that is our starting point.
+
+                     let cache2 = cache.clone();
+
+                     let layer_future = match cached {
+                         None => {
+                             // construct base layer out of last id, then pop it
+                             let base_id = ids.pop().unwrap();
+                             let (_, files) = layers.get(&base_id).unwrap();
+                             future::Either::A(BaseLayer::load_from_files(base_id, &files.clone().into_base()).map(move |l| {
+                                 let result = Arc::new(l) as Arc<dyn Layer>;
+                                 cache.cache_layer(result.clone());
+
+                                 result
+                             }))
+                         },
+                         Some(layer) => future::Either::B(future::ok(layer))
                      };
 
-                     fut
+                     ids.reverse();
+
+                     future::Either::B(layer_future.and_then(move |layer|
+                                                             stream::iter_ok(ids)
+                                                             .fold(layer, move |layer, id| {
+                                                                 let (_, files) = layers.get(&id).unwrap();
+                                                                 let cache = cache2.clone();
+                                                                 ChildLayer::load_from_files(name, layer, &files.clone().into_child())
+                                                                     .map(move |l| {
+                                                                         let result = Arc::new(l) as Arc<dyn Layer>;
+                                                                         cache.cache_layer(result.clone());
+                                                                         result
+                                                                     })
+                                                             }))
+                                       .map(move |l| Some(l)))
                  }))
-
     }
 
-    fn boxed_retriever(&self) -> Box<dyn LayerRetriever> {
-        Box::new(self.clone())
-    }
-}
-
-impl LayerStore for MemoryLayerStore {
     fn create_base_layer(&self) -> Box<dyn Future<Item=Box<dyn LayerBuilder>,Error=io::Error>+Send> {
         let name = rand::random();
 
@@ -230,9 +276,9 @@ impl LayerStore for MemoryLayerStore {
                  }))
     }
 
-    fn create_child_layer_with_retriever(&self, parent: [u32;5], retriever: Box<dyn LayerRetriever>) -> Box<dyn Future<Item=Box<dyn LayerBuilder>,Error=io::Error>+Send> {
+    fn create_child_layer_with_cache(&self, parent: [u32;5], cache: Arc<dyn LayerCache>) -> Box<dyn Future<Item=Box<dyn LayerBuilder>,Error=io::Error>+Send> {
         let layers = self.layers.clone();
-        Box::new(retriever.get_layer(parent)
+        Box::new(self.get_layer_with_cache(parent, cache)
                  .and_then(|parent_layer| match parent_layer {
                      None => future::err(io::Error::new(io::ErrorKind::NotFound, "parent layer not found")),
                      Some(parent_layer) => future::ok(parent_layer)
