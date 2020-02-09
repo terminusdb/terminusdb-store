@@ -445,6 +445,13 @@ mod tests {
         assert_eq!(Some("aabbb".to_string()), p.get(1));
         assert_eq!(Some("ccccc".to_string()), p.get(2));
         assert_eq!(None, p.get(4));
+
+        let mut i = p.strings();
+
+        assert_eq!(Some("aaaaa".to_string()), i.next());
+        assert_eq!(Some("aabbb".to_string()), i.next());
+        assert_eq!(Some("ccccc".to_string()), i.next());
+        assert_eq!(None, i.next());
     }
 
     #[test]
