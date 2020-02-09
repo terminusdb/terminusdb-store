@@ -102,15 +102,15 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         self.node_dictionary.len()
     }
 
-    fn node_dict_get(&self, id: usize) -> String {
+    fn node_dict_get(&self, id: usize) -> Option<String> {
         self.node_dictionary.get(id)
     }
 
-    fn predicate_dict_get(&self, id: usize) -> String {
+    fn predicate_dict_get(&self, id: usize) -> Option<String> {
         self.predicate_dictionary.get(id)
     }
 
-    fn value_dict_get(&self, id: usize) -> String {
+    fn value_dict_get(&self, id: usize) -> Option<String> {
         self.value_dictionary.get(id)
     }
 
@@ -164,11 +164,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
             return None;
         }
         let corrected_id = id - 1;
-
-        match corrected_id < (self.node_dictionary.len() as u64) {
-            true => Some(self.node_dictionary.get(corrected_id as usize)),
-            false => None
-        }
+        self.node_dict_get(corrected_id as usize)
     }
 
     fn id_predicate(&self, id: u64) -> Option<String> {
@@ -176,11 +172,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
             return None;
         }
         let corrected_id = id - 1;
-
-        match corrected_id < (self.predicate_dictionary.len() as u64) {
-            true => Some(self.predicate_dictionary.get(corrected_id as usize)),
-            false => None
-        }
+        self.predicate_dict_get(corrected_id as usize)
     }
 
     fn id_object(&self, id: u64) -> Option<ObjectType> {
@@ -191,15 +183,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
 
         if corrected_id >= (self.node_dictionary.len() as u64) {
             let val_id = corrected_id - (self.node_dictionary.len() as u64);
-            if val_id >= (self.value_dictionary.len() as u64) {
-                None
-            }
-            else {
-                Some(ObjectType::Value(self.value_dictionary.get(val_id as usize)))
-            }
+            self.value_dict_get(val_id as usize).map(ObjectType::Value)
         }
         else {
-            Some(ObjectType::Node(self.node_dictionary.get(corrected_id as usize)))
+            self.node_dictionary.get(corrected_id as usize).map(ObjectType::Node)
         }
     }
 

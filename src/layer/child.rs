@@ -188,12 +188,12 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         self.node_dictionary.len()
     }
 
-    fn node_dict_get(&self, id: usize) -> String {
+    fn node_dict_get(&self, id: usize) -> Option<String> {
         self.node_dictionary.get(id)
     }
 
 
-    fn value_dict_get(&self, id: usize) -> String {
+    fn value_dict_get(&self, id: usize) -> Option<String> {
         self.value_dictionary.get(id)
     }
 
@@ -223,7 +223,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         self.predicate_dictionary.id(predicate)
     }
 
-    fn predicate_dict_get(&self, id: usize) -> String {
+    fn predicate_dict_get(&self, id: usize) -> Option<String> {
         self.predicate_dictionary.get(id)
     }
 
@@ -320,12 +320,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             if corrected_id >= parent_count as u64 {
                 // subject, if it exists, is in this layer
                 corrected_id -= parent_count;
-                if corrected_id >= current_layer.node_dict_len() as u64 {
-                    return None
-                }
-                else {
-                    return Some(current_layer.node_dict_get(corrected_id as usize))
-                }
+                return current_layer.node_dict_get(corrected_id as usize);
             }
             else {
                 current_option = current_layer.parent();
@@ -350,12 +345,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
             if corrected_id >= parent_count as u64 {
                 // subject, if it exists, is in this layer
                 corrected_id -= parent_count;
-                if corrected_id >= current_layer.predicate_dict_len() as u64 {
-                    return None
-                }
-                else {
-                    return Some(current_layer.predicate_dict_get(corrected_id as usize))
-                }
+                return current_layer.predicate_dict_get(corrected_id as usize);
             }
             else {
                 current_option = current_layer.parent();
@@ -384,15 +374,10 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
                 if corrected_id >= current_layer.node_dict_len() as u64 {
                     // object, if it exists, must be a value
                     corrected_id -= current_layer.node_dict_len() as u64;
-                    if corrected_id >= current_layer.value_dict_len() as u64 {
-                        return None;
-                    }
-                    else {
-                        return Some(ObjectType::Value(current_layer.value_dict_get(corrected_id as usize)));
-                    }
+                    return current_layer.value_dict_get(corrected_id as usize).map(ObjectType::Value);
                 }
                 else {
-                    return Some(ObjectType::Node(current_layer.node_dict_get(corrected_id as usize)));
+                    return current_layer.node_dict_get(corrected_id as usize).map(ObjectType::Node);
                 }
             }
             else {
