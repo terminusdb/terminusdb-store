@@ -104,12 +104,22 @@ pub trait Layer: Send+Sync {
     /// subject.
     fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
         let mut lookups = Vec::new();
-        lookups.push((self.lookup_subject_addition(subject), self.lookup_subject_removal(subject)));
+
+        let addition = self.lookup_subject_addition(subject);
+        let removal = self.lookup_subject_removal(subject);
+        if addition.is_some() || removal.is_some() {
+            lookups.push((addition, removal));
+        }
 
         let mut cur = self.parent();
         while cur.is_some() {
-            lookups.push((cur.unwrap().lookup_subject_addition(subject),
-                          cur.unwrap().lookup_subject_removal(subject)));
+            let addition = cur.unwrap().lookup_subject_addition(subject);
+            let removal = cur.unwrap().lookup_subject_removal(subject);
+
+            if addition.is_some() || removal.is_some() {
+                lookups.push((addition, removal));
+            }
+
             cur = cur.unwrap().parent();
         }
 
@@ -186,12 +196,22 @@ pub trait Layer: Send+Sync {
     /// object.
     fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
        let mut lookups = Vec::new();
-        lookups.push((self.lookup_object_addition(object), self.lookup_object_removal(object)));
+
+        let addition = self.lookup_object_addition(object);
+        let removal = self.lookup_object_removal(object);
+        if addition.is_some() || removal.is_some() {
+            lookups.push((addition, removal));
+        }
 
         let mut cur = self.parent();
         while cur.is_some() {
-            lookups.push((cur.unwrap().lookup_object_addition(object),
-                          cur.unwrap().lookup_object_removal(object)));
+            let addition = cur.unwrap().lookup_object_addition(object);
+            let removal = cur.unwrap().lookup_object_removal(object);
+
+            if addition.is_some() || removal.is_some() {
+                lookups.push((addition, removal));
+            }
+
             cur = cur.unwrap().parent();
         }
 
@@ -226,12 +246,22 @@ pub trait Layer: Send+Sync {
     /// predicate.
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
         let mut lookups = Vec::new();
-        lookups.push((self.lookup_predicate_addition(predicate), self.lookup_predicate_removal(predicate)));
+
+        let addition = self.lookup_predicate_addition(predicate);
+        let removal = self.lookup_predicate_removal(predicate);
+        if addition.is_some() || removal.is_some() {
+            lookups.push((addition, removal));
+        }
 
         let mut cur = self.parent();
         while cur.is_some() {
-            lookups.push((cur.unwrap().lookup_predicate_addition(predicate),
-                          cur.unwrap().lookup_predicate_removal(predicate)));
+            let addition = cur.unwrap().lookup_predicate_addition(predicate);
+            let removal = cur.unwrap().lookup_predicate_removal(predicate);
+
+            if addition.is_some() || removal.is_some() {
+                lookups.push((addition, removal));
+            }
+
             cur = cur.unwrap().parent();
         }
 
@@ -425,7 +455,9 @@ impl Iterator for GenericSubjectIterator {
                 };
 
                 (pos_subject, neg_subject)
-            }).collect();
+            })
+            .filter(|(pos, neg)| pos.is_some() || neg.is_some())
+            .collect();
 
         Some(GenericSubjectLookup {
             subject: min,
@@ -548,6 +580,7 @@ impl SubjectLookup for GenericSubjectLookup {
         let lookups: Vec<_> = self.lookups.iter()
             .map(|(pos, neg)| (pos.as_ref().and_then(|p|p.lookup_predicate(predicate)),
                                neg.as_ref().and_then(|n|n.lookup_predicate(predicate))))
+            .filter(|(pos, neg)| pos.is_some() || neg.is_some())
             .collect();
 
         if lookups.iter().find(|(pos, _neg)| pos.is_some()).is_some() {
@@ -601,7 +634,9 @@ impl Iterator for GenericSubjectPredicateIterator {
                 };
 
                 (pos_predicate, neg_predicate)
-            }).collect();
+            })
+            .filter(|(pos, neg)| pos.is_some() || neg.is_some())
+            .collect();
 
         Some(GenericSubjectPredicateLookup {
             subject: self.subject,
@@ -800,9 +835,6 @@ pub trait ObjectLookup {
     /// Returns an iterator over the subject-predicate pairs pointing at this object.
     fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=(u64, u64)>>;
 
-    /// clone this instance of ObjectLookup into a dyn Box.
-    fn parent(&self) -> Option<&dyn ObjectLookup>;
-
     /// Returns true if the object this lookup is for is connected to the given subject and predicater.
     fn has_subject_predicate_pair(&self, subject: u64, predicate: u64) -> bool {
         for (s, p) in self.subject_predicate_pairs() {
@@ -872,7 +904,9 @@ impl Iterator for GenericObjectIterator {
                 };
 
                 (pos_object, neg_object)
-            }).collect();
+            })
+            .filter(|(pos, neg)| pos.is_some() || neg.is_some())
+            .collect();
 
         Some(GenericObjectLookup {
             object: min,
@@ -904,10 +938,6 @@ impl ObjectLookup for GenericObjectLookup {
         Box::new(ObjectSubjectPredicatePairIterator {
             layers
         })
-    }
-
-    fn parent(&self) -> Option<&dyn ObjectLookup> {
-        unimplemented!();
     }
 }
 
@@ -1031,7 +1061,9 @@ impl Iterator for GenericSubjectPredicatePairIterator {
                 neg_lookup = neg.next();
             }
 
-            lookups.push((pos_lookup, neg_lookup));
+            if pos_lookup.is_some() || neg_lookup.is_some() {
+                lookups.push((pos_lookup, neg_lookup));
+            }
         }
 
         Some(GenericSubjectPredicateLookup {
