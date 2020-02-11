@@ -13,7 +13,7 @@ use futures_locks::RwLock;
 use crate::storage::{LabelStore, LayerStore, CachedLayerStore, LockingHashMapLayerCache};
 use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
 use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore};
-use crate::layer::{Layer,LayerBuilder,ObjectType,StringTriple,IdTriple,SubjectLookup,ObjectLookup, PredicateLookup};
+use crate::layer::{Layer,LayerBuilder,ObjectType,StringTriple,IdTriple,LayerSubjectLookup,LayerObjectLookup,LayerPredicateLookup};
 
 use std::io;
 
@@ -228,79 +228,43 @@ impl Layer for StoreLayer {
         self.layer.id_object(id)
     }
 
-    fn subjects_current_layer(&self, parent: Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
-        self.layer.subjects_current_layer(parent)
-    }
-
-    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
-        self.layer.subjects()
-    }
-
-    fn subject_additions(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subject_additions(&self) -> Box<dyn Iterator<Item=Box<dyn LayerSubjectLookup>>> {
         self.layer.subject_additions()
     }
 
-    fn subject_removals(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subject_removals(&self) -> Box<dyn Iterator<Item=Box<dyn LayerSubjectLookup>>> {
         self.layer.subject_removals()
     }
 
-    fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
-        self.layer.lookup_subject(subject)
-    }
-
-    fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
+    fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn LayerSubjectLookup>> {
         self.layer.lookup_subject_addition(subject)
     }
 
-    fn lookup_subject_removal(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
+    fn lookup_subject_removal(&self, subject: u64) -> Option<Box<dyn LayerSubjectLookup>> {
         self.layer.lookup_subject_removal(subject)
     }
 
-    fn lookup_subject_current_layer(&self, subject: u64, parent: Option<Box<dyn SubjectLookup>>) -> Option<Box<dyn SubjectLookup>> {
-        self.layer.lookup_subject_current_layer(subject, parent)
-    }
-
-    fn lookup_predicate_current_layer(&self, predicate: u64, parent: Option<Box<dyn PredicateLookup>>) -> Option<Box<dyn PredicateLookup>> {
-        self.layer.lookup_predicate_current_layer(predicate, parent)
-    }
-
-    fn objects(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
-        self.layer.objects()
-    }
-
-    fn object_additions(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
+    fn object_additions(&self) -> Box<dyn Iterator<Item=Box<dyn LayerObjectLookup>>> {
         self.layer.object_additions()
     }
 
-    fn object_removals(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
+    fn object_removals(&self) -> Box<dyn Iterator<Item=Box<dyn LayerObjectLookup>>> {
         self.layer.object_removals()
     }
 
-    fn lookup_object_current_layer(&self, object: u64, parent: Option<Box<dyn ObjectLookup>>) -> Option<Box<dyn ObjectLookup>> {
-        self.layer.lookup_object_current_layer(object, parent)
-    }
-
-    fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
-        self.layer.lookup_object(object)
-    }
-
-    fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+    fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn LayerObjectLookup>> {
         self.layer.lookup_object_addition(object)
     }
 
-    fn lookup_object_removal(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+    fn lookup_object_removal(&self, object: u64) -> Option<Box<dyn LayerObjectLookup>> {
         self.layer.lookup_object_removal(object)
     }
 
-    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
-        self.layer.lookup_predicate(predicate)
-    }
-
-    fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+    fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn LayerPredicateLookup>> {
         self.layer.lookup_predicate_addition(predicate)
     }
 
-    fn lookup_predicate_removal(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+    fn lookup_predicate_removal(&self, predicate: u64) -> Option<Box<dyn LayerPredicateLookup>> {
         self.layer.lookup_predicate_removal(predicate)
     }
 

@@ -13,7 +13,6 @@ use futures::stream;
 use std::cmp::Ordering;
 use std::sync::Arc;
 use std::collections::BTreeSet;
-use std::iter::Peekable;
 use std::io;
 
 /// A child layer.
@@ -125,50 +124,41 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> ChildLayer<M> {
         }
     }
 
-    fn lookup_object_addition_mapped(&self, mapped_object: u64) -> impl ObjectLookup {
+    fn lookup_layer_object_addition_mapped(&self, mapped_object: u64) -> impl LayerObjectLookup {
         if mapped_object == 0 || mapped_object as usize > self.pos_objects.len() {
             panic!("unknown mapped object requested");
         }
         let object = self.pos_objects.entry((mapped_object-1) as usize);
 
-        let pos_sp_slice = self.pos_o_ps_adjacency_list.get(mapped_object);
-        let pos = ChildObjectLookupAdjacency {
-            subjects: self.pos_subjects.clone(),
-            sp_slice: pos_sp_slice,
-            s_p_adjacency_list: self.pos_s_p_adjacency_list.clone()
-        };
+        let sp_slice = self.pos_o_ps_adjacency_list.get(mapped_object);
+        let subjects = self.pos_subjects.clone();
+        let s_p_adjacency_list = self.pos_s_p_adjacency_list.clone();
 
-
-        ChildObjectLookup::new(object, None, Some(pos), None)
+        ChildLayerObjectLookup {
+            object,
+            sp_slice,
+            s_p_adjacency_list,
+            subjects
+        }
     }
 
-    fn lookup_object_removal_mapped(&self, mapped_object: u64) -> impl ObjectLookup {
+    fn lookup_layer_object_removal_mapped(&self, mapped_object: u64) -> impl LayerObjectLookup {
         if mapped_object == 0 || mapped_object as usize > self.neg_objects.len() {
             panic!("unknown mapped object requested");
         }
         let object = self.neg_objects.entry((mapped_object-1) as usize);
 
-        let neg_sp_slice = self.neg_o_ps_adjacency_list.get(mapped_object);
-        // we pretend it's actually the pos part and reuse subject mapping in the child object lookup
-        let pos = ChildObjectLookupAdjacency {
-            subjects: self.neg_subjects.clone(),
-            sp_slice: neg_sp_slice,
-            s_p_adjacency_list: self.neg_s_p_adjacency_list.clone()
-        };
+        let sp_slice = self.neg_o_ps_adjacency_list.get(mapped_object);
+        let subjects = self.neg_subjects.clone();
+        let s_p_adjacency_list = self.neg_s_p_adjacency_list.clone();
 
-        ChildObjectLookup::new(object, None, Some(pos), None)
-    }
-
-    fn parents(&self) -> Vec<&dyn Layer> {
-        let mut parents = Vec::new();
-        let mut parent_option = self.parent();
-        while let Some(parent) = parent_option {
-            parent_option = parent.parent();
-            parents.push(parent);
+        ChildLayerObjectLookup {
+            object,
+            sp_slice,
+            s_p_adjacency_list,
+            subjects
         }
-        parents
     }
-
 }
 
 impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
@@ -402,124 +392,35 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         return None;
     }
 
-    fn subjects_current_layer(&self, parent: Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
-        Box::new(ChildSubjectIterator {
-            parent: Some(parent),
-            next_parent_subject: None,
-
-            pos: Some(ChildSubjectIteratorPart {
-                subjects: self.pos_subjects.clone(),
-                s_p_adjacency_list: self.pos_s_p_adjacency_list.clone(),
-                sp_o_adjacency_list: self.pos_sp_o_adjacency_list.clone(),
-                pos: 0
-            }),
-
-            neg: Some(ChildSubjectIteratorPart {
-                subjects: self.neg_subjects.clone(),
-                s_p_adjacency_list: self.neg_s_p_adjacency_list.clone(),
-                sp_o_adjacency_list: self.neg_sp_o_adjacency_list.clone(),
-                pos: 0
-            }),
-        })
+    fn subject_additions(&self) -> Box<dyn Iterator<Item=Box<dyn LayerSubjectLookup>>> {
+        let s_p_adjacency_list = self.pos_s_p_adjacency_list.clone();
+        let sp_o_adjacency_list = self.pos_sp_o_adjacency_list.clone();
+        Box::new(self.pos_subjects.clone().into_iter().enumerate()
+                 .map(move |(c,s)| Box::new(ChildLayerSubjectLookup {
+                     subject: s,
+                     adjacencies: AdjacencyStuff {
+                         predicates: s_p_adjacency_list.get((c as u64)+1),
+                         sp_offset: s_p_adjacency_list.offset_for((c as u64)+1),
+                         sp_o_adjacency_list: sp_o_adjacency_list.clone()
+                     }
+                 }) as Box<dyn LayerSubjectLookup>))
     }
 
-    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
-        let parents = self.parents();
-        let latest_idx = parents.len() - 1;
-        let mut latest_lookup = parents[latest_idx].subjects();
-        for index in (0..latest_idx).rev() {
-            latest_lookup = parents[index].subjects_current_layer(latest_lookup);
-        }
-        return self.subjects_current_layer(latest_lookup);
+    fn subject_removals(&self) -> Box<dyn Iterator<Item=Box<dyn LayerSubjectLookup>>> {
+        let s_p_adjacency_list = self.neg_s_p_adjacency_list.clone();
+        let sp_o_adjacency_list = self.neg_sp_o_adjacency_list.clone();
+        Box::new(self.neg_subjects.clone().into_iter().enumerate()
+                 .map(move |(c,s)| Box::new(ChildLayerSubjectLookup {
+                     subject: s,
+                     adjacencies: AdjacencyStuff {
+                         predicates: s_p_adjacency_list.get((c as u64)+1),
+                         sp_offset: s_p_adjacency_list.offset_for((c as u64)+1),
+                         sp_o_adjacency_list: sp_o_adjacency_list.clone()
+                     }
+                 }) as Box<dyn LayerSubjectLookup>))
     }
 
-    fn subject_additions(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
-        Box::new(ChildSubjectIterator {
-            parent: None,
-            next_parent_subject: None,
-
-            pos: Some(ChildSubjectIteratorPart {
-                subjects: self.pos_subjects.clone(),
-                s_p_adjacency_list: self.pos_s_p_adjacency_list.clone(),
-                sp_o_adjacency_list: self.pos_sp_o_adjacency_list.clone(),
-                pos: 0
-            }),
-
-            neg: None
-        })
-    }
-
-    fn subject_removals(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
-        Box::new(ChildSubjectIterator {
-            parent: None,
-            next_parent_subject: None,
-
-            pos: Some(ChildSubjectIteratorPart {
-                subjects: self.neg_subjects.clone(),
-                s_p_adjacency_list: self.neg_s_p_adjacency_list.clone(),
-                sp_o_adjacency_list: self.neg_sp_o_adjacency_list.clone(),
-                pos: 0
-            }),
-
-            neg: None
-        })
-    }
-
-    fn lookup_subject_current_layer(&self, subject: u64, parent: Option<Box<dyn SubjectLookup>>) -> Option<Box<dyn SubjectLookup>> {
-        let mut pos: Option<AdjacencyStuff<M>> = None;
-        let mut neg: Option<AdjacencyStuff<M>> = None;
-        let pos_index = self.pos_subjects.index_of(subject);
-        let neg_index = self.neg_subjects.index_of(subject);
-
-        if pos_index.is_some() {
-            // subject is mentioned in this layer (as an insert), and might be in the parent layer as well
-            let pos_mapped_subject = pos_index.unwrap() as u64 + 1;
-            if pos_mapped_subject <= self.pos_s_p_adjacency_list.left_count() as u64 {
-                let pos_predicates = self.pos_s_p_adjacency_list.get(pos_mapped_subject);
-                let pos_sp_offset = self.pos_s_p_adjacency_list.offset_for(pos_mapped_subject);
-                pos = Some(AdjacencyStuff {
-                    predicates: pos_predicates,
-                    sp_offset: pos_sp_offset,
-                    sp_o_adjacency_list: self.pos_sp_o_adjacency_list.clone()
-                });
-            }
-        }
-        if neg_index.is_some() {
-            let neg_mapped_subject = neg_index.unwrap() as u64 + 1;
-            if neg_mapped_subject <= self.neg_s_p_adjacency_list.left_count() as u64 {
-                let neg_predicates = self.neg_s_p_adjacency_list.get(neg_mapped_subject);
-                let neg_sp_offset = self.neg_s_p_adjacency_list.offset_for(neg_mapped_subject);
-
-                neg = Some(AdjacencyStuff {
-                    predicates: neg_predicates,
-                    sp_offset: neg_sp_offset,
-                    sp_o_adjacency_list: self.neg_sp_o_adjacency_list.clone()
-                });
-            }
-        }
-        return Some(Box::new(ChildSubjectLookup {
-            parent,
-            subject,
-            pos,
-            neg
-        }));
-    }
-
-    fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
-        if subject == 0 {
-            return None;
-        }
-        let parents = self.parents();
-        let latest_idx = parents.len();
-        let mut latest_lookup: Option<Box<dyn SubjectLookup>> = None;
-        for index in (0..latest_idx).rev() {
-            latest_lookup = parents[index].lookup_subject_current_layer(subject, latest_lookup);
-        }
-        return self.lookup_subject_current_layer(subject, latest_lookup);
-    }
-
-
-    fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
+    fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn LayerSubjectLookup>> {
         if subject == 0 {
             return None;
         }
@@ -533,15 +434,13 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         if mapped_subject <= self.pos_s_p_adjacency_list.left_count() as u64 {
             let predicates = self.pos_s_p_adjacency_list.get(mapped_subject);
             let sp_offset = self.pos_s_p_adjacency_list.offset_for(mapped_subject);
-            Some(Box::new(ChildSubjectLookup {
-                parent: None,
+            Some(Box::new(ChildLayerSubjectLookup {
                 subject,
-                pos: Some(AdjacencyStuff {
+                adjacencies: AdjacencyStuff {
                     predicates,
                     sp_offset,
                     sp_o_adjacency_list: self.pos_sp_o_adjacency_list.clone()
-                }),
-                neg: None
+                }
             }))
         }
         else {
@@ -549,7 +448,7 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         }
     }
 
-    fn lookup_subject_removal(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
+    fn lookup_subject_removal(&self, subject: u64) -> Option<Box<dyn LayerSubjectLookup>> {
         if subject == 0 {
             return None;
         }
@@ -563,15 +462,13 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         if mapped_subject <= self.neg_s_p_adjacency_list.left_count() as u64 {
             let predicates = self.neg_s_p_adjacency_list.get(mapped_subject);
             let sp_offset = self.neg_s_p_adjacency_list.offset_for(mapped_subject);
-            Some(Box::new(ChildSubjectLookup {
-                parent: None,
+            Some(Box::new(ChildLayerSubjectLookup {
                 subject,
-                pos: Some(AdjacencyStuff {
+                adjacencies: AdjacencyStuff {
                     predicates,
                     sp_offset,
                     sp_o_adjacency_list: self.neg_sp_o_adjacency_list.clone()
-                }),
-                neg: None
+                }
             }))
         }
         else {
@@ -579,219 +476,53 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for ChildLayer<M> {
         }
     }
 
-    fn objects(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
-        // todo: there might be a more efficient method than doing
-        // this lookup over and over, due to sequentiality of the
-        // underlying data structures
-        let cloned = self.clone();
-        Box::new((0..self.node_and_value_count())
-                 .map(move |object| cloned.lookup_object((object+1) as u64))
-                 .flatten())
-    }
-
-    fn object_additions(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
+    fn object_additions(&self) -> Box<dyn Iterator<Item=Box<dyn LayerObjectLookup>>> {
         let cloned = self.clone();
         Box::new((0..self.pos_objects.len())
-                 .map(move |mapped_object| Box::new(cloned.lookup_object_addition_mapped((mapped_object+1) as u64)) as Box<dyn ObjectLookup>))
+                 .map(move |mapped_object| Box::new(cloned.lookup_layer_object_addition_mapped((mapped_object+1) as u64)) as Box<dyn LayerObjectLookup>))
     }
 
-    fn object_removals(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
+    fn object_removals(&self) -> Box<dyn Iterator<Item=Box<dyn LayerObjectLookup>>> {
         let cloned = self.clone();
         Box::new((0..self.neg_objects.len())
-                 .map(move |mapped_object| Box::new(cloned.lookup_object_removal_mapped((mapped_object+1) as u64)) as Box<dyn ObjectLookup>))
+                 .map(move |mapped_object| Box::new(cloned.lookup_layer_object_removal_mapped((mapped_object+1) as u64)) as Box<dyn LayerObjectLookup>))
     }
 
-    fn lookup_object_current_layer(&self, object: u64, parent: Option<Box<dyn ObjectLookup>>) -> Option<Box<dyn ObjectLookup>> {
-        let pos = self.pos_objects.index_of(object)
-            .map(|index| self.pos_o_ps_adjacency_list.get((index as u64)+1))
-            .map(|pos_sp_slice| ChildObjectLookupAdjacency {
-                subjects: self.pos_subjects.clone(),
-                sp_slice: pos_sp_slice,
-                s_p_adjacency_list: self.pos_s_p_adjacency_list.clone()
-            });
-        if pos.is_none() && parent.is_none() {
-            return None;
-        }
-
-        let neg = self.neg_objects.index_of(object)
-            .map(|index| self.neg_o_ps_adjacency_list.get((index as u64)+1))
-            .map(|neg_sp_slice| ChildObjectLookupAdjacency {
-                subjects: self.neg_subjects.clone(),
-                sp_slice: neg_sp_slice,
-                s_p_adjacency_list: self.neg_s_p_adjacency_list.clone()
-            });
-
-        Some(Box::new(ChildObjectLookup::new(object, parent, pos, neg)))
-    }
-
-    fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
-        let parents = self.parents();
-        let latest_idx = parents.len();
-        let mut latest_lookup: Option<Box<dyn ObjectLookup>> = None;
-        for index in (0..latest_idx).rev() {
-            latest_lookup = parents[index].lookup_object_current_layer(object, latest_lookup);
-        }
-        return self.lookup_object_current_layer(object, latest_lookup);
-    }
-
-    fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+    fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn LayerObjectLookup>> {
         self.pos_objects.index_of(object)
-            .map(|index| Box::new(self.lookup_object_addition_mapped((index as u64)+1)) as Box<dyn ObjectLookup>)
+            .map(|index| Box::new(self.lookup_layer_object_addition_mapped((index as u64)+1)) as Box<dyn LayerObjectLookup>)
     }
 
-    fn lookup_object_removal(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
-        self.pos_objects.index_of(object)
-            .map(|index| Box::new(self.lookup_object_removal_mapped((index as u64)+1)) as Box<dyn ObjectLookup>)
+    fn lookup_object_removal(&self, object: u64) -> Option<Box<dyn LayerObjectLookup>> {
+        self.neg_objects.index_of(object)
+            .map(|index| Box::new(self.lookup_layer_object_removal_mapped((index as u64)+1)) as Box<dyn LayerObjectLookup>)
     }
 
 
-    fn lookup_predicate_current_layer(&self, predicate: u64, parent: Option<Box<dyn PredicateLookup>>) -> Option<Box<dyn PredicateLookup>> {
-        let parent = parent
-            .map(|parent| ChildPredicateLookupParentData {
-                parent,
-                neg_subjects: self.neg_subjects.clone(),
-                neg_s_p_adjacency_list: self.neg_s_p_adjacency_list.clone(),
-                neg_sp_o_adjacency_list: self.neg_sp_o_adjacency_list.clone()
-            });
-        let child = self.pos_predicate_wavelet_tree.lookup(predicate)
-            .map(|lookup| ChildPredicateLookupChildData {
-                lookup,
-                pos_subjects: self.pos_subjects.clone(),
-                pos_s_p_adjacency_list: self.pos_s_p_adjacency_list.clone(),
-                pos_sp_o_adjacency_list: self.pos_sp_o_adjacency_list.clone()
-            });
-
-        if parent.is_none() && child.is_none() {
-            None
-        }
-        else {
-            Some(Box::new(ChildPredicateLookup {
-                predicate,
-                parent,
-                child
-            }))
-        }
-    }
-
-    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
-        let parents = self.parents();
-        let latest_idx = parents.len();
-        let mut latest_lookup: Option<Box<dyn PredicateLookup>> = None;
-        for index in (0..latest_idx).rev() {
-            latest_lookup = parents[index].lookup_predicate_current_layer(predicate, latest_lookup);
-        }
-        return self.lookup_predicate_current_layer(predicate, latest_lookup);
-    }
-
-    fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+    fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn LayerPredicateLookup>> {
         self.pos_predicate_wavelet_tree.lookup(predicate)
-            .map(|lookup| Box::new(ChildPredicateLookup {
+            .map(|lookup| Box::new(ChildLayerPredicateLookup {
                 predicate,
-                parent: None,
-                child: Some(ChildPredicateLookupChildData {
-                    lookup,
-                    pos_subjects: self.pos_subjects.clone(),
-                    pos_s_p_adjacency_list: self.pos_s_p_adjacency_list.clone(),
-                    pos_sp_o_adjacency_list: self.pos_sp_o_adjacency_list.clone()
-                })
-            }) as Box<dyn PredicateLookup>)
+                lookup,
+                subjects: self.pos_subjects.clone(),
+                s_p_adjacency_list: self.pos_s_p_adjacency_list.clone(),
+                sp_o_adjacency_list: self.pos_sp_o_adjacency_list.clone()
+            }) as Box<dyn LayerPredicateLookup>)
     }
 
-    fn lookup_predicate_removal(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+    fn lookup_predicate_removal(&self, predicate: u64) -> Option<Box<dyn LayerPredicateLookup>> {
         self.neg_predicate_wavelet_tree.lookup(predicate)
-            .map(|lookup| Box::new(ChildPredicateLookup {
+            .map(|lookup| Box::new(ChildLayerPredicateLookup {
                 predicate,
-                parent: None,
-                child: Some(ChildPredicateLookupChildData {
-                    lookup,
-                    pos_subjects: self.neg_subjects.clone(),
-                    pos_s_p_adjacency_list: self.neg_s_p_adjacency_list.clone(),
-                    pos_sp_o_adjacency_list: self.neg_sp_o_adjacency_list.clone()
-                })
-            }) as Box<dyn PredicateLookup>)
+                lookup,
+                subjects: self.neg_subjects.clone(),
+                s_p_adjacency_list: self.neg_s_p_adjacency_list.clone(),
+                sp_o_adjacency_list: self.neg_sp_o_adjacency_list.clone()
+            }) as Box<dyn LayerPredicateLookup>)
     }
 
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())
-    }
-}
-
-struct ChildSubjectIteratorPart<M:'static+AsRef<[u8]>+Clone> {
-    subjects: MonotonicLogArray<M>,
-    s_p_adjacency_list: AdjacencyList<M>,
-    sp_o_adjacency_list: AdjacencyList<M>,
-    pos: usize
-}
-
-struct ChildSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
-    parent: Option<Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>>,
-    next_parent_subject: Option<Box<dyn SubjectLookup>>,
-
-    pos: Option<ChildSubjectIteratorPart<M>>,
-    neg: Option<ChildSubjectIteratorPart<M>>,
-}
-
-impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildSubjectIterator<M> {
-    type Item = Box<dyn SubjectLookup>;
-
-    fn next(&mut self) -> Option<Box<dyn SubjectLookup>> {
-        if self.parent.is_some() && self.next_parent_subject.is_none() {
-            self.next_parent_subject = self.parent.as_mut().unwrap().next();
-            if self.next_parent_subject.is_none() {
-                self.parent = None;
-            }
-        }
-
-        let mut next_parent = None;
-        std::mem::swap(&mut next_parent, &mut self.next_parent_subject);
-        let next_parent_subject = next_parent.as_ref().map(|p|p.subject()).unwrap_or(0);
-
-        let next_pos_subject = self.pos.as_ref().map(|pos| if pos.pos < pos.subjects.len() { pos.subjects.entry(pos.pos) } else { 0 }).unwrap_or(0);
-        let next_neg_subject = self.neg.as_ref().map(|neg| if neg.pos < neg.subjects.len() { neg.subjects.entry(neg.pos) } else { 0 }).unwrap_or(0);
-
-        let mut pos: Option<AdjacencyStuff<M>> = None;
-        let mut neg: Option<AdjacencyStuff<M>> = None;
-
-        let mut subject = next_parent_subject;
-
-        if next_pos_subject != 0 && (next_parent_subject == 0 || next_pos_subject <= next_parent_subject) {
-            subject = next_pos_subject;
-            let selfpos = self.pos.as_mut().unwrap();
-            pos = Some(AdjacencyStuff {
-                predicates: selfpos.s_p_adjacency_list.get(1+selfpos.pos as u64),
-                sp_offset: selfpos.s_p_adjacency_list.offset_for(1+selfpos.pos as u64),
-                sp_o_adjacency_list: selfpos.sp_o_adjacency_list.clone()
-            });
-
-            selfpos.pos += 1;
-        }
-
-        if next_neg_subject != 0 && (next_pos_subject == 0 || next_parent_subject <= next_pos_subject) && next_parent_subject == next_neg_subject {
-            let selfneg = self.neg.as_mut().unwrap();
-            neg = Some(AdjacencyStuff {
-                predicates: selfneg.s_p_adjacency_list.get(1+selfneg.pos as u64),
-                sp_offset: selfneg.s_p_adjacency_list.offset_for(1+selfneg.pos as u64),
-                sp_o_adjacency_list: selfneg.sp_o_adjacency_list.clone()
-            });
-
-            selfneg.pos +=1;
-        }
-
-        if !(next_pos_subject == 0 || next_parent_subject <= next_pos_subject) {
-            std::mem::swap(&mut next_parent, &mut self.next_parent_subject);
-        }
-
-        if next_parent_subject != 0 || next_pos_subject != 0 {
-            Some(Box::new(ChildSubjectLookup {
-                parent: next_parent,
-                subject: subject,
-                pos,
-                neg
-            }))
-        }
-        else {
-            None
-        }
     }
 }
 
@@ -802,229 +533,48 @@ struct AdjacencyStuff<M:'static+AsRef<[u8]>+Clone> {
     sp_o_adjacency_list: AdjacencyList<M>
 }
 
-
-struct ChildSubjectLookup<M:'static+AsRef<[u8]>+Clone> {
-    parent: Option<Box<dyn SubjectLookup>>,
+struct ChildLayerSubjectLookup<M:'static+AsRef<[u8]>+Clone> {
     subject: u64,
 
-    pos: Option<AdjacencyStuff<M>>,
-    neg: Option<AdjacencyStuff<M>>,
+    adjacencies: AdjacencyStuff<M>,
 }
 
-impl<M:AsRef<[u8]>+Clone> ChildSubjectLookup<M> {
-
-    fn parents(&self) -> Vec<&dyn SubjectLookup> {
-        let mut parents: Vec<&dyn SubjectLookup> = Vec::new();
-        let mut parent_option = self.parent();
-        while let Some(parent) = parent_option {
-            parent_option = parent.parent();
-            parents.push(parent);
-        }
-        parents
-    }
-}
-
-
-impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for ChildSubjectLookup<M> {
+impl<M:AsRef<[u8]>+Clone> LayerSubjectLookup for ChildLayerSubjectLookup<M> {
     fn subject(&self) -> u64 {
         self.subject
     }
 
-    fn parent(&self) -> Option<&dyn SubjectLookup> {
-        self.parent.as_ref().map(|x|x.as_ref())
+    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn LayerSubjectPredicateLookup>>> {
+        let subject = self.subject;
+        let offset = self.adjacencies.sp_offset;
+        let aj = self.adjacencies.sp_o_adjacency_list.clone();
+        Box::new(self.adjacencies.predicates.clone().into_iter().enumerate()
+                 .map(move |(c,p)| Box::new(ChildLayerSubjectPredicateLookup {
+                     subject: subject,
+                     predicate: p,
+                     objects: aj.get(offset+(c as u64)+1)
+                 }) as Box<dyn LayerSubjectPredicateLookup>))
     }
 
-    fn predicates_current_layer(&self, parent: Option<Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>>>) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
-        Box::new(ChildPredicateIterator {
-            parent: parent,
-            subject: self.subject,
-            pos_adjacencies: self.pos.clone(),
-            neg_adjacencies: self.neg.clone(),
-            next_parent_predicate: None,
-            pos_pos: 0,
-            neg_pos: 0
-        })
-    }
-
-    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
-        let parents = self.parents();
-        let latest_idx = parents.len();
-        let mut latest_lookup = None;
-        for index in (0..latest_idx).rev() {
-            latest_lookup = Some(parents[index].predicates_current_layer(latest_lookup));
-        }
-        return self.predicates_current_layer(latest_lookup);
-    }
-
-    fn lookup_predicate_current(&self, predicate: u64, parent: Option<Box<dyn SubjectPredicateLookup>>) -> Option<Box<dyn SubjectPredicateLookup>> {
-        if self.pos.is_none() && parent.is_none() {
-            None
-        }
-        else {
-            let pos_objects = self.pos.as_ref()
-                .and_then(|pos| pos.predicates.iter().position(|p|p==predicate)
-                          .map(|position_in_pos_predicates|
-                               pos.sp_o_adjacency_list.get(pos.sp_offset+(position_in_pos_predicates as u64)+1)));
-            let neg_objects = self.neg.as_ref()
-                .and_then(|neg| neg.predicates.iter().position(|p|p==predicate)
-                          .map(|position_in_neg_predicates|
-                               neg.sp_o_adjacency_list.get(neg.sp_offset+(position_in_neg_predicates as u64)+1)));
-
-            Some(Box::new(ChildSubjectPredicateLookup {
-                parent: parent,
+    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn LayerSubjectPredicateLookup>> {
+        self.adjacencies.predicates.iter().position(|p| p == predicate)
+            .map(|pos| self.adjacencies.sp_o_adjacency_list.get(self.adjacencies.sp_offset+(pos as u64)+1))
+            .map(|objects| Box::new(ChildLayerSubjectPredicateLookup {
                 subject: self.subject,
-                predicate,
-                pos_objects,
-                neg_objects
-            }))
-        }
-    }
-
-    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn SubjectPredicateLookup>> {
-        if predicate == 0 {
-            return None;
-        }
-        let parents = self.parents();
-        let latest_idx = parents.len();
-        let mut latest_lookup: Option<Box<dyn SubjectPredicateLookup>> = None;
-        for index in (0..latest_idx).rev() {
-            latest_lookup = parents[index].lookup_predicate_current(predicate, latest_lookup);
-        }
-        return self.lookup_predicate_current(predicate, latest_lookup);
+                predicate: predicate,
+                objects: objects
+            }) as Box<dyn LayerSubjectPredicateLookup>)
     }
 }
 
-struct ChildPredicateIterator<M:'static+AsRef<[u8]>+Clone> {
-    parent: Option<Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>>>,
-    subject: u64,
-    pos_adjacencies: Option<AdjacencyStuff<M>>,
-    neg_adjacencies: Option<AdjacencyStuff<M>>,
-    next_parent_predicate: Option<Box<dyn SubjectPredicateLookup>>,
-    pos_pos: usize,
-    neg_pos: usize
-}
 
-impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateIterator<M> {
-    type Item=Box<dyn SubjectPredicateLookup>;
-
-    fn next(&mut self) -> Option<Box<dyn SubjectPredicateLookup>> {
-        if self.parent.is_some() && self.next_parent_predicate.is_none() {
-            match self.parent.as_mut().unwrap().next() {
-                Some(predicate) => self.next_parent_predicate = Some(predicate),
-                None => self.parent = None
-            };
-        }
-        let pos_predicate = if self.pos_pos < self.pos_adjacencies.as_ref().map(|pa|pa.predicates.len()).unwrap_or(0) { Some(self.pos_adjacencies.as_ref().unwrap().predicates.entry(self.pos_pos)) } else { None };
-        let neg_predicate = if self.neg_pos < self.neg_adjacencies.as_ref().map(|no|no.predicates.len()).unwrap_or(0) { Some(self.neg_adjacencies.as_ref().unwrap().predicates.entry(self.neg_pos)) } else { None };
-
-        let mut next_parent_predicate = None;
-        std::mem::swap(&mut next_parent_predicate, &mut self.next_parent_predicate);
-        match (next_parent_predicate, pos_predicate, neg_predicate) {
-            (Some(parent), Some(pos), neg) => {
-                let neg_objects = if parent.predicate() == neg.unwrap_or(0) && parent.predicate() <= pos {
-                    let neg_adjacencies = self.neg_adjacencies.as_ref().unwrap();
-                    let result = neg_adjacencies.sp_o_adjacency_list.get(neg_adjacencies.sp_offset+(self.neg_pos as u64)+1);
-                    self.neg_pos += 1;
-
-                    Some(result)
-                } else {
-                    None
-                };
-
-                let pos_objects = if parent.predicate() >= pos {
-                    let pos_adjacencies = self.pos_adjacencies.as_ref().unwrap();
-                    let result = pos_adjacencies.sp_o_adjacency_list.get(pos_adjacencies.sp_offset+(self.pos_pos as u64)+1);
-                    self.pos_pos += 1;
-
-                    Some(result)
-                } else {
-                    None
-                };
-
-                let parent_predicate = parent.predicate();
-                let predicate = if parent_predicate <= pos { parent_predicate } else { pos };
-
-                let parent_option = if parent.predicate() <= pos {
-                    Some(parent)
-                } else {
-                    std::mem::swap(&mut Some(parent), &mut self.next_parent_predicate);
-                    None
-                };
-
-
-                Some(ChildSubjectPredicateLookup {
-                    parent: parent_option,
-                    subject: self.subject,
-                    predicate,
-                    pos_objects,
-                    neg_objects
-                })
-            },
-            (Some(parent), None, neg) => {
-                let neg_objects = if parent.predicate() == neg.unwrap_or(0) {
-                    let neg_adjacencies = self.neg_adjacencies.as_ref().unwrap();
-                    let result = neg_adjacencies.sp_o_adjacency_list.get(neg_adjacencies.sp_offset+(self.neg_pos as u64)+1);
-                    self.neg_pos += 1;
-                    Some(result)
-                } else {
-                    None
-                };
-
-                let predicate = parent.predicate();
-
-                Some(ChildSubjectPredicateLookup {
-                    parent: Some(parent),
-                    subject: self.subject,
-                    predicate,
-                    pos_objects: None,
-                    neg_objects
-                })
-            },
-            (None, Some(pos), _) => {
-                let pos_adjacencies = self.pos_adjacencies.as_ref().unwrap();
-                let pos_objects = Some(pos_adjacencies.sp_o_adjacency_list.get(pos_adjacencies.sp_offset+(self.pos_pos as u64)+1));
-                self.pos_pos += 1;
-
-                Some(ChildSubjectPredicateLookup {
-                    parent: None,
-                    subject: self.subject,
-                    predicate: pos,
-                    pos_objects,
-                    neg_objects: None
-                })
-            },
-            (None, None, _) => None
-        }
-        .map(|x|{
-            let result: Box<dyn SubjectPredicateLookup> = Box::new(x);
-            result
-        })
-    }
-}
-
-struct ChildSubjectPredicateLookup<M:'static+AsRef<[u8]>+Clone> {
-    parent: Option<Box<dyn SubjectPredicateLookup>>,
+struct ChildLayerSubjectPredicateLookup<M:'static+AsRef<[u8]>+Clone> {
     subject: u64,
     predicate: u64,
-    pos_objects: Option<LogArraySlice<M>>,
-    neg_objects: Option<LogArraySlice<M>>
+    objects: LogArraySlice<M>,
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> ChildSubjectPredicateLookup<M> {
-    fn parents(&self) -> Vec<&dyn SubjectPredicateLookup> {
-        let mut result = Vec::new();
-        let mut parent = self.parent();
-        while !parent.is_none() {
-            let x = parent.unwrap();
-            result.push(x);
-            parent = x.parent();
-        }
-
-        result
-    }
-}
-
-impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for ChildSubjectPredicateLookup<M> {
+impl<M:'static+AsRef<[u8]>+Clone> LayerSubjectPredicateLookup for ChildLayerSubjectPredicateLookup<M> {
     fn subject(&self) -> u64 {
         self.subject
     }
@@ -1033,418 +583,67 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for ChildSubjectPredica
         self.predicate
     }
 
-    fn parent(&self) -> Option<&dyn SubjectPredicateLookup> {
-        self.parent.as_ref().map(|p|&**p)
-    }
-
     fn objects(&self) -> Box<dyn Iterator<Item=u64>> {
-        Box::new(ChildObjectIterator {
-            parent: self.parent.as_ref().map(|p|p.triples()),
-            pos_objects: self.pos_objects.clone(),
-            neg_objects: self.neg_objects.clone(),
-
-            next_parent_object: None,
-            pos_pos: 0,
-            neg_pos: 0
-        })
-    }
-
-    fn has_pos_object_in_lookup(&self, object: u64) -> bool {
-        self.pos_objects.as_ref()
-            .and_then(|po|po.iter().position(|o|o == object).map(|_|true))
-            .unwrap_or(false)
-    }
-
-    fn has_neg_object_in_lookup(&self, object: u64) -> bool {
-        self.neg_objects.as_ref()
-            .and_then(|no|no.iter().position(|o|o == object).map(|_|true))
-            .unwrap_or(false)
+        Box::new(self.objects.clone().into_iter())
     }
 
     fn has_object(&self, object: u64) -> bool {
-        if object == 0 {
-            return false;
-        }
-
-        if self.has_pos_object_in_lookup(object) {
-            return true;
-        }
-
-        if self.has_neg_object_in_lookup(object) {
-            return false;
-        }
-
-        let parents = self.parents();
-        for i in 0..parents.len() {
-            let parent = parents[i];
-            if parent.has_pos_object_in_lookup(object) {
-                return true;
-            }
-            if parent.has_neg_object_in_lookup(object) {
-                return false;
-            }
-        }
-
-        false
+        self.objects.iter().find(|&x|x==object).is_some()
     }
 }
 
-struct ChildObjectIterator<M:'static+AsRef<[u8]>+Clone> {
-    parent: Option<Box<dyn Iterator<Item=IdTriple>>>,
-    next_parent_object: Option<u64>,
-    pos_objects: Option<LogArraySlice<M>>,
-    neg_objects: Option<LogArraySlice<M>>,
-    pos_pos: usize,
-    neg_pos: usize,
-}
-
-impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildObjectIterator<M> {
-    type Item = u64;
-
-    fn next(&mut self) -> Option<u64> {
-        // first iterate through all the pos objects
-        // then, iterate through the parent, and filter out the next objects
-        if self.parent.is_some() && self.next_parent_object.is_none() {
-            match self.parent.as_mut().unwrap().next() {
-                Some(triple) => self.next_parent_object = Some(triple.object),
-                None => self.parent = None
-            };
-        }
-
-        let next_pos_object: Option<u64> = if self.pos_pos < self.pos_objects.as_ref().map(|po|po.len()).unwrap_or(0) { Some(self.pos_objects.as_ref().unwrap().entry(self.pos_pos)) } else { None };
-        let next_neg_object: Option<u64> = if self.neg_pos < self.neg_objects.as_ref().map(|no|no.len()).unwrap_or(0) { Some(self.neg_objects.as_ref().unwrap().entry(self.neg_pos)) } else { None };
-
-        match (self.next_parent_object, next_pos_object, next_neg_object) {
-            (Some(parent_object), Some(pos_object), neg_object) => {
-                if parent_object < pos_object {
-                    self.next_parent_object = None;
-                    if parent_object == neg_object.unwrap_or(0) {
-                        // skip this one, since it has been removed
-                        self.neg_pos += 1;
-                        self.next()
-                    }
-                    else {
-                        Some(parent_object)
-                    }
-                }
-                else {
-                    self.pos_pos += 1;
-                    Some(pos_object)
-                }
-            },
-            (Some(parent_object), None, neg_object) => {
-                self.next_parent_object = None;
-                if parent_object == neg_object.unwrap_or(0) {
-                    // skip this one, since it has been removed
-                    self.neg_pos += 1;
-                    self.next()
-                }
-                else {
-                    Some(parent_object)
-                }
-            },
-            (None, Some(own_object), _) => {
-                self.pos_pos += 1;
-                Some(own_object)
-            },
-            (None, None, _) => None
-        }
-    }
-}
-
-#[derive(Clone)]
-struct ChildObjectLookupAdjacency<M:AsRef<[u8]>+Clone> {
+struct ChildLayerObjectLookup<M:'static+AsRef<[u8]>+Clone> {
+    object: u64,
     sp_slice: LogArraySlice<M>,
     s_p_adjacency_list: AdjacencyList<M>,
     subjects: MonotonicLogArray<M>,
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> ChildObjectLookupAdjacency<M> {
-    fn iter(&self) -> impl Iterator<Item=(u64,u64)> {
-        let sp_slice = self.sp_slice.clone();
-        let s_p_adjacency_list = self.s_p_adjacency_list.clone();
-        let subjects = self.subjects.clone();
-        sp_slice.into_iter()
-            .map(move |index| s_p_adjacency_list.pair_at_pos(index-1))
-            .map(move |(mapped_subject, predicate)| (subjects.entry((mapped_subject as usize)-1), predicate))
-    }
-}
-
-//#[derive(Clone)]
-struct ChildObjectLookup<M:AsRef<[u8]>+Clone> {
-    object: u64,
-    parent: Option<Box<dyn ObjectLookup>>,
-
-    pos: Option<ChildObjectLookupAdjacency<M>>,
-    neg: Option<ChildObjectLookupAdjacency<M>>,
-}
-
-impl<M:AsRef<[u8]>+Clone> ChildObjectLookup<M> {
-    fn new(object: u64,
-           parent: Option<Box<dyn ObjectLookup>>,
-           pos: Option<ChildObjectLookupAdjacency<M>>,
-           neg: Option<ChildObjectLookupAdjacency<M>>) -> Self {
-        Self {
-            object,
-            parent,
-            pos,
-            neg,
-        }
-    }
-}
-
-impl<M:'static+AsRef<[u8]>+Clone> ObjectLookup for ChildObjectLookup<M> {
+impl<M:'static+AsRef<[u8]>+Clone> LayerObjectLookup for ChildLayerObjectLookup<M> {
     fn object(&self) -> u64 {
         self.object
     }
 
     fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=(u64, u64)>> {
-        Box::new(ChildSubjectPredicatePairsIterator::new(self.parent(), self.pos.clone(), self.neg.clone()))
-    }
-
-    fn parent(&self) -> Option<&dyn ObjectLookup> {
-        self.parent.as_ref().map(|x|x.as_ref())
-    }
-}
-
-struct ChildSubjectPredicatePairsIterator {
-    parent: Option<Peekable<Box<dyn Iterator<Item=(u64,u64)>>>>,
-
-    pos: Option<Peekable<Box<dyn Iterator<Item=(u64,u64)>>>>,
-    neg: Option<Peekable<Box<dyn Iterator<Item=(u64, u64)>>>>
-}
-
-impl ChildSubjectPredicatePairsIterator {
-    fn new<M:'static+AsRef<[u8]>+Clone>(parent: Option<&dyn ObjectLookup>,
-                                        pos: Option<ChildObjectLookupAdjacency<M>>,
-                                        neg: Option<ChildObjectLookupAdjacency<M>>) -> Self {
-        Self {
-            parent: parent.map(|p|p.subject_predicate_pairs().peekable()),
-            pos: pos.map(|p| (Box::new(p.iter()) as Box<dyn Iterator<Item=(u64,u64)>>).peekable()),
-            neg: neg.map(|n| (Box::new(n.iter()) as Box<dyn Iterator<Item=(u64,u64)>>).peekable()),
-        }
+        let sp_slice = self.sp_slice.clone();
+        let s_p_adjacency_list = self.s_p_adjacency_list.clone();
+        let subjects = self.subjects.clone();
+        Box::new(sp_slice.into_iter()
+            .map(move |index| s_p_adjacency_list.pair_at_pos(index-1))
+            .map(move |(mapped_subject, predicate)| (subjects.entry((mapped_subject as usize)-1), predicate)))
     }
 }
 
-impl Iterator for ChildSubjectPredicatePairsIterator {
-    type Item = (u64,u64);
-
-    fn next(&mut self) -> Option<(u64,u64)> {
-        let parent = self.parent.as_mut().and_then(|p|p.peek()).map(|p|*p);
-        let pos = self.pos.as_mut().and_then(|p|p.peek()).map(|p|*p);
-        let neg = self.neg.as_mut().and_then(|n|n.peek()).map(|n|*n);
-        if parent.is_none() {
-            self.parent = None;
-        }
-        if pos.is_none() {
-            self.pos = None;
-        }
-        if neg.is_none() {
-            self.neg = None;
-        }
-
-        if parent.is_some() {
-            let parent = parent.unwrap();
-            if pos.is_none() || parent < pos.unwrap() {
-                // pick parent result (after checking neg)
-                let read_parent = self.parent.as_mut().unwrap().next().unwrap();
-                let mut read_neg: Option<(u64,u64)> = neg;
-                while self.neg.as_mut().and_then(|n|n.peek().map(|n|*n <= parent)).unwrap_or(false) {
-                    // next result on neg stream is less than or equal to parent, so we need to read it.
-                    read_neg = self.neg.as_mut().unwrap().next();
-                }
-
-                if read_neg.is_some() && read_neg.unwrap() == read_parent {
-                    // parent entry was found in neg, so skip to next entry
-                    return self.next();
-                }
-                else {
-                    return Some(read_parent);
-                }
-            }
-            else if parent == pos.unwrap() {
-                // this should not happen, as pos layer should not
-                // contain anything that is also in the parent
-                // layer. Panic as something must have gone terribly wrong.
-                panic!("unexpectedly found equal value in parent and child layers");
-            }
-        }
-
-        // no parent, or earlier pos
-        if pos.is_some() {
-            // just child
-            Some(self.pos.as_mut().unwrap().next().unwrap())
-        }
-        else {
-            None
-        }
-    }
-}
-
-struct ChildPredicateLookupParentData<M:AsRef<[u8]>+Clone> {
-    parent: Box<dyn PredicateLookup>,
-    neg_subjects: MonotonicLogArray<M>,
-    neg_s_p_adjacency_list: AdjacencyList<M>,
-    neg_sp_o_adjacency_list: AdjacencyList<M>,
-}
-
-struct ChildPredicateLookupChildData<M:AsRef<[u8]>+Clone> {
-    lookup: WaveletLookup<M>,
-    pos_subjects: MonotonicLogArray<M>,
-    pos_s_p_adjacency_list: AdjacencyList<M>,
-    pos_sp_o_adjacency_list: AdjacencyList<M>,
-}
-
-struct ChildPredicateLookup<M:AsRef<[u8]>+Clone> {
+struct ChildLayerPredicateLookup<M:'static+AsRef<[u8]>+Clone> {
     predicate: u64,
-    parent: Option<ChildPredicateLookupParentData<M>>,
-    child: Option<ChildPredicateLookupChildData<M>>
+    lookup: WaveletLookup<M>,
+    subjects: MonotonicLogArray<M>,
+    s_p_adjacency_list: AdjacencyList<M>,
+    sp_o_adjacency_list: AdjacencyList<M>,
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> PredicateLookup for ChildPredicateLookup<M> {
+impl<M:'static+AsRef<[u8]>+Clone> LayerPredicateLookup for ChildLayerPredicateLookup<M> {
     fn predicate(&self) -> u64 {
         self.predicate
     }
 
-    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
-        // TODO: Eliminate recursion
-        Box::new(ChildPredicateLookupSubjectPredicatePairsIterator {
-            predicate: self.predicate,
-            parent: self.parent.as_ref().map(|p|ChildPredicateLookupSubjectPredicatePairsIteratorParentData {
-                parent_pairs: p.parent.subject_predicate_pairs().peekable(),
-                neg_subjects: p.neg_subjects.clone(),
-                neg_s_p_adjacency_list: p.neg_s_p_adjacency_list.clone(),
-                neg_sp_o_adjacency_list: p.neg_sp_o_adjacency_list.clone()
-            }),
-            child: self.child.as_ref().map(|child| ChildPredicateLookupSubjectPredicatePairsIteratorChildData {
-                lookup_positions: (Box::new(child.lookup.iter()) as Box<dyn Iterator<Item=u64>>).peekable(),
-                pos_subjects: child.pos_subjects.clone(),
-                pos_s_p_adjacency_list: child.pos_s_p_adjacency_list.clone(),
-                pos_sp_o_adjacency_list: child.pos_sp_o_adjacency_list.clone(),
-            })
-        })
-    }
-}
-
-struct ChildPredicateLookupSubjectPredicatePairsIteratorParentData<M:AsRef<[u8]>+Clone> {
-    parent_pairs: Peekable<Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>>>,
-
-    neg_subjects: MonotonicLogArray<M>,
-    neg_s_p_adjacency_list: AdjacencyList<M>,
-    neg_sp_o_adjacency_list: AdjacencyList<M>,
-}
-
-struct ChildPredicateLookupSubjectPredicatePairsIteratorChildData<M:AsRef<[u8]>+Clone> {
-    lookup_positions: Peekable<Box<dyn Iterator<Item=u64>>>,
-
-    pos_subjects: MonotonicLogArray<M>,
-    pos_s_p_adjacency_list: AdjacencyList<M>,
-    pos_sp_o_adjacency_list: AdjacencyList<M>,
-}
-
-impl<M:AsRef<[u8]>+Clone> ChildPredicateLookupSubjectPredicatePairsIteratorParentData<M> {
-    fn peek_next_subject(&mut self) -> Option<u64> {
-        self.parent_pairs.peek().map(|sp| sp.subject())
-    }
-
-    fn next(&mut self) -> (Option<Box<dyn SubjectPredicateLookup>>, Option<LogArraySlice<M>>) {
-        let pair = self.parent_pairs.next().unwrap();
-        let subject = pair.subject();
-
-        let mapped_subject = self.neg_subjects.index_of(subject).map(|s|s + 1);
-        let entry_in_sp_o = mapped_subject.and_then(|mapped_subject| {
-            let offset = self.neg_s_p_adjacency_list.offset_for(mapped_subject as u64);
-            let s_p_slice = self.neg_s_p_adjacency_list.get(mapped_subject as u64);
-            s_p_slice.iter().position(|p|p == pair.predicate())
-                .map(|pos_in_slice| offset + (pos_in_slice as u64) + 1)
-        });
-        let slice = entry_in_sp_o.map(|entry_in_sp_o|self.neg_sp_o_adjacency_list.get(entry_in_sp_o));
-
-        (Some(pair), slice)
-    }
-}
-
-impl<M:AsRef<[u8]>+Clone> ChildPredicateLookupSubjectPredicatePairsIteratorChildData<M> {
-    fn peek_next_subject(&mut self) -> Option<u64> {
-        self.lookup_positions.peek()
-            .map(|&pos| pos)
-            .map(|pos| {
-                let mapped_subject = self.pos_s_p_adjacency_list.pair_at_pos(pos).0 as usize;
-                self.pos_subjects.entry(mapped_subject-1)
-            })
-    }
-
-    fn next(&mut self) -> Option<LogArraySlice<M>> {
-        let pos = self.lookup_positions.next().unwrap();
-        let slice = self.pos_sp_o_adjacency_list.get(pos+1);
-
-        Some(slice)
-    }
-}
-
-
-struct ChildPredicateLookupSubjectPredicatePairsIterator<M:AsRef<[u8]>+Clone> {
-    predicate: u64,
-    parent: Option<ChildPredicateLookupSubjectPredicatePairsIteratorParentData<M>>,
-    child: Option<ChildPredicateLookupSubjectPredicatePairsIteratorChildData<M>>
-}
-
-impl<M:'static+AsRef<[u8]>+Clone> Iterator for ChildPredicateLookupSubjectPredicatePairsIterator<M> {
-    type Item = Box<dyn SubjectPredicateLookup>;
-
-    fn next(&mut self) -> Option<Box<dyn SubjectPredicateLookup>> {
-        let next_parent_subject = self.parent.as_mut().and_then(|p|p.peek_next_subject());
-        let next_child_subject = self.child.as_mut().and_then(|c|c.peek_next_subject());
-
-        let mut parent: Option<Box<dyn SubjectPredicateLookup>> = None;
-        let subject: u64;
+    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=Box<dyn LayerSubjectPredicateLookup>>> {
         let predicate = self.predicate;
-        let mut pos_objects: Option<LogArraySlice<M>> = None;
-        let mut neg_objects: Option<LogArraySlice<M>> = None;
-
-        match (next_parent_subject, next_child_subject) {
-            (Some(next_parent_subject), Some(next_child_subject)) => {
-                if next_parent_subject == next_child_subject {
-                    let result = self.parent.as_mut().unwrap().next();
-                    parent = result.0;
-                    neg_objects = result.1;
-                    subject = next_parent_subject;
-                    pos_objects = self.child.as_mut().unwrap().next();
-                }
-                else if next_parent_subject < next_child_subject {
-                    let result = self.parent.as_mut().unwrap().next();
-                    parent = result.0;
-                    neg_objects = result.1;
-                    subject = next_parent_subject;
-                }
-                else {
-                    pos_objects = self.child.as_mut().unwrap().next();
-                    subject = next_child_subject;
-                }
-            },
-            (Some(next_parent_subject), None) => {
-                let result = self.parent.as_mut().unwrap().next();
-                parent = result.0;
-                neg_objects = result.1;
-                subject = next_parent_subject;
-            },
-            (None, Some(next_child_subject)) => {
-                pos_objects = self.child.as_mut().unwrap().next();
-                subject = next_child_subject;
-            },
-            (None, None) => return None
-        }
-
-        Some(Box::new(ChildSubjectPredicateLookup {
-            parent,
-            subject,
-            predicate,
-            pos_objects,
-            neg_objects
-        }))
+        let subjects = self.subjects.clone();
+        let s_p_adjacency_list = self.s_p_adjacency_list.clone();
+        let sp_o_adjacency_list = self.sp_o_adjacency_list.clone();
+        
+        Box::new(self.lookup.iter()
+                 .map(move |pos| {
+                     let (mapped_subject, _predicate) = s_p_adjacency_list.pair_at_pos(pos);
+                      Box::new(ChildLayerSubjectPredicateLookup {
+                          subject: subjects.entry((mapped_subject as usize)-1),
+                          predicate: predicate,
+                          objects: sp_o_adjacency_list.get(pos+1)
+                      }) as Box<dyn LayerSubjectPredicateLookup>
+                 }))
     }
 }
-
 
 /// A builder for a child layer.
 ///
