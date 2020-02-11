@@ -78,23 +78,15 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         None
     }
 
-    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
-        Box::new(BaseSubjectIterator {
+    fn subject_additions(&self) -> Box<dyn Iterator<Item=Box<dyn LayerSubjectLookup>>> {
+        Box::new(BaseLayerSubjectIterator {
             pos: 0,
             s_p_adjacency_list: self.s_p_adjacency_list.clone(),
             sp_o_adjacency_list: self.sp_o_adjacency_list.clone()
         })
     }
 
-    fn subjects_current_layer(&self, _parent: Box<dyn Iterator<Item=Box<dyn SubjectLookup>>>) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
-        self.subjects()
-    }
-
-    fn subject_additions(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
-        self.subjects()
-    }
-
-    fn subject_removals(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subject_removals(&self) -> Box<dyn Iterator<Item=Box<dyn LayerSubjectLookup>>> {
         Box::new(std::iter::empty())
     }
 
@@ -204,16 +196,12 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
     }
 
 
-    fn lookup_subject_current_layer(&self, subject: u64, _parent: Option<Box<dyn SubjectLookup>>) -> Option<Box<dyn SubjectLookup>> {
-        self.lookup_subject(subject)
-    }
-
-    fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
+    fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn LayerSubjectLookup>> {
         if subject == 0 || subject >= (self.s_p_adjacency_list.left_count() + 1) as u64 {
             None
         }
         else {
-            Some(Box::new(BaseSubjectLookup {
+            Some(Box::new(BaseLayerSubjectLookup {
                 subject: subject,
                 predicates: self.s_p_adjacency_list.get(subject),
                 sp_offset: self.s_p_adjacency_list.offset_for(subject),
@@ -222,42 +210,30 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         }
     }
 
-    fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
-        self.lookup_subject(subject)
-    }
-
-    fn lookup_subject_removal(&self, _subject: u64) -> Option<Box<dyn SubjectLookup>> {
+    fn lookup_subject_removal(&self, _subject: u64) -> Option<Box<dyn LayerSubjectLookup>> {
         None
     }
 
-    fn objects(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
+    fn object_additions(&self) -> Box<dyn Iterator<Item=Box<dyn LayerObjectLookup>>> {
         // todo: there might be a more efficient method than doing
         // this lookup over and over, due to sequentiality of the
         // underlying data structures
         let cloned = self.clone();
         Box::new((0..self.node_and_value_count())
-                 .map(move |object| cloned.lookup_object((object+1) as u64).unwrap()))
+                 .map(move |object| cloned.lookup_object_addition((object+1) as u64).unwrap()))
     }
 
-    fn object_additions(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
-        self.objects()
-    }
-
-    fn object_removals(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
+    fn object_removals(&self) -> Box<dyn Iterator<Item=Box<dyn LayerObjectLookup>>> {
         Box::new(std::iter::empty())
     }
 
-    fn lookup_object_current_layer(&self, object: u64, _parent: Option<Box<dyn ObjectLookup>>) -> Option<Box<dyn ObjectLookup>> {
-        self.lookup_object(object)
-    }
-
-    fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+    fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn LayerObjectLookup>> {
         if object == 0 || object > self.node_and_value_count() as u64 {
             None
         }
         else {
             let sp_slice = self.o_ps_adjacency_list.get(object);
-            Some(Box::new(BaseObjectLookup {
+            Some(Box::new(BaseLayerObjectLookup {
                 object,
                 sp_slice,
                 s_p_adjacency_list: self.s_p_adjacency_list.clone(),
@@ -265,34 +241,22 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
         }
     }
 
-    fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
-        self.lookup_object(object)
-    }
-
-    fn lookup_object_removal(&self, _object: u64) -> Option<Box<dyn ObjectLookup>> {
+    fn lookup_object_removal(&self, _object: u64) -> Option<Box<dyn LayerObjectLookup>> {
         None
     }
 
-    fn lookup_predicate_current_layer(&self, predicate: u64, _parent: Option<Box<dyn PredicateLookup>>) -> Option<Box<dyn PredicateLookup>> {
-        self.lookup_predicate(predicate)
-    }
-
-    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+    fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn LayerPredicateLookup>> {
         let s_p_adjacency_list = self.s_p_adjacency_list.clone();
         let sp_o_adjacency_list = self.sp_o_adjacency_list.clone();
         self.predicate_wavelet_tree.lookup(predicate)
-            .map(|lookup| Box::new(BasePredicateLookup {
+            .map(|lookup| Box::new(BaseLayerPredicateLookup {
                 lookup,
                 s_p_adjacency_list,
                 sp_o_adjacency_list
-            }) as Box<dyn PredicateLookup>)
+            }) as Box<dyn LayerPredicateLookup>)
     }
 
-    fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
-        self.lookup_predicate(predicate)
-    }
-
-    fn lookup_predicate_removal(&self, _predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+    fn lookup_predicate_removal(&self, _predicate: u64) -> Option<Box<dyn LayerPredicateLookup>> {
         None
     }
 
@@ -302,16 +266,16 @@ impl<M:'static+AsRef<[u8]>+Clone+Send+Sync> Layer for BaseLayer<M> {
 }
 
 #[derive(Clone)]
-struct BaseSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
+struct BaseLayerSubjectIterator<M:'static+AsRef<[u8]>+Clone> {
     s_p_adjacency_list: AdjacencyList<M>,
     sp_o_adjacency_list: AdjacencyList<M>,
     pos: u64,
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseSubjectIterator<M> {
-    type Item = Box<dyn SubjectLookup>;
+impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseLayerSubjectIterator<M> {
+    type Item = Box<dyn LayerSubjectLookup>;
 
-    fn next(&mut self) -> Option<Box<dyn SubjectLookup>> {
+    fn next(&mut self) -> Option<Box<dyn LayerSubjectLookup>> {
         if self.pos >= self.s_p_adjacency_list.left_count() as u64 {
             None
         }
@@ -324,7 +288,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseSubjectIterator<M> {
                 self.next()
             }
             else {
-                Some(Box::new(BaseSubjectLookup {
+                Some(Box::new(BaseLayerSubjectLookup {
                     subject,
                     predicates: self.s_p_adjacency_list.get(subject),
                     sp_offset: self.s_p_adjacency_list.offset_for(subject),
@@ -336,28 +300,20 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseSubjectIterator<M> {
 }
 
 #[derive(Clone)]
-struct BaseSubjectLookup<M:'static+AsRef<[u8]>+Clone> {
+struct BaseLayerSubjectLookup<M:'static+AsRef<[u8]>+Clone> {
     subject: u64,
     predicates: LogArraySlice<M>,
     sp_offset: u64,
     sp_o_adjacency_list: AdjacencyList<M>
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for BaseSubjectLookup<M> {
+impl<M:'static+AsRef<[u8]>+Clone> LayerSubjectLookup for BaseLayerSubjectLookup<M> {
     fn subject(&self) -> u64 {
         self.subject
     }
 
-    fn parent(&self) -> Option<&dyn SubjectLookup> {
-        None
-    }
-
-    fn predicates_current_layer(&self, _parent: Option<Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>>>) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
-        self.predicates()
-    }
-
-    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
-        Box::new(BasePredicateIterator {
+    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn LayerSubjectPredicateLookup>>> {
+        Box::new(BaseLayerPredicateIterator {
             subject: self.subject,
             pos: 0,
             predicates: self.predicates.clone(),
@@ -366,15 +322,11 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for BaseSubjectLookup<M> {
         })
     }
 
-    fn lookup_predicate_current(&self, predicate: u64, _parent: Option<Box<dyn SubjectPredicateLookup>>) -> Option<Box<dyn SubjectPredicateLookup>> {
-        self.lookup_predicate(predicate)
-    }
-
-    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn SubjectPredicateLookup>> {
+    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn LayerSubjectPredicateLookup>> {
         let pos = self.predicates.iter().position(|p| p == predicate);
         match pos {
             None => None,
-            Some(pos) => Some(Box::new(BaseSubjectPredicateLookup {
+            Some(pos) => Some(Box::new(BaseLayerSubjectPredicateLookup {
                 subject: self.subject,
                 predicate: predicate,
                 objects: self.sp_o_adjacency_list.get(self.sp_offset+(pos as u64)+1)
@@ -384,7 +336,7 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectLookup for BaseSubjectLookup<M> {
 }
 
 #[derive(Clone)]
-struct BasePredicateIterator<M:'static+AsRef<[u8]>+Clone> {
+struct BaseLayerPredicateIterator<M:'static+AsRef<[u8]>+Clone> {
     subject: u64,
     pos: usize,
     predicates: LogArraySlice<M>,
@@ -392,10 +344,10 @@ struct BasePredicateIterator<M:'static+AsRef<[u8]>+Clone> {
     sp_o_adjacency_list: AdjacencyList<M>
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> Iterator for BasePredicateIterator<M> {
-    type Item = Box<dyn SubjectPredicateLookup>;
+impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseLayerPredicateIterator<M> {
+    type Item = Box<dyn LayerSubjectPredicateLookup>;
 
-    fn next(&mut self) -> Option<Box<dyn SubjectPredicateLookup>> {
+    fn next(&mut self) -> Option<Box<dyn LayerSubjectPredicateLookup>> {
         if self.pos >= self.predicates.len() {
             None
         }
@@ -409,7 +361,7 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for BasePredicateIterator<M> {
                 self.next()
             }
             else {
-                Some(Box::new(BaseSubjectPredicateLookup {
+                Some(Box::new(BaseLayerSubjectPredicateLookup {
                     subject: self.subject,
                     predicate,
                     objects
@@ -420,13 +372,13 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for BasePredicateIterator<M> {
 }
 
 #[derive(Clone)]
-struct BaseSubjectPredicateLookup<M:'static+AsRef<[u8]>+Clone> {
+struct BaseLayerSubjectPredicateLookup<M:'static+AsRef<[u8]>+Clone> {
     subject: u64,
     predicate: u64,
     objects: LogArraySlice<M>
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for BaseSubjectPredicateLookup<M> {
+impl<M:'static+AsRef<[u8]>+Clone> LayerSubjectPredicateLookup for BaseLayerSubjectPredicateLookup<M> {
     fn subject(&self) -> u64 {
         self.subject
     }
@@ -436,7 +388,7 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for BaseSubjectPredicat
     }
 
     fn objects(&self) -> Box<dyn Iterator<Item=u64>> {
-        Box::new(BaseObjectIterator {
+        Box::new(BaseLayerObjectIterator {
             subject: self.subject,
             predicate: self.predicate,
             objects: self.objects.clone(),
@@ -444,33 +396,21 @@ impl<M:'static+AsRef<[u8]>+Clone> SubjectPredicateLookup for BaseSubjectPredicat
         })
     }
 
-    fn has_pos_object_in_lookup(&self, object: u64) -> bool {
+    fn has_object(&self, object: u64) -> bool {
         // todo: use monotoniclogarray here to find object quicker
         self.objects.iter().find(|&o|o==object).is_some()
-    }
-
-    fn has_neg_object_in_lookup(&self, _object: u64) -> bool {
-        false
-    }
-
-    fn has_object(&self, object: u64) -> bool {
-        self.has_pos_object_in_lookup(object)
-    }
-
-    fn parent(&self) -> Option<&dyn SubjectPredicateLookup> {
-        None
     }
 }
 
 #[derive(Clone)]
-struct BaseObjectIterator<M:'static+AsRef<[u8]>+Clone> {
+struct BaseLayerObjectIterator<M:'static+AsRef<[u8]>+Clone> {
     pub subject: u64,
     pub predicate: u64,
     objects: LogArraySlice<M>,
     pos: usize
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseObjectIterator<M> {
+impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseLayerObjectIterator<M> {
     type Item = u64;
 
     fn next(&mut self) -> Option<u64> {
@@ -492,19 +432,15 @@ impl<M:'static+AsRef<[u8]>+Clone> Iterator for BaseObjectIterator<M> {
 }
 
 #[derive(Clone)]
-struct BaseObjectLookup<M:AsRef<[u8]>+Clone> {
+struct BaseLayerObjectLookup<M:AsRef<[u8]>+Clone> {
     object: u64,
     sp_slice: LogArraySlice<M>,
     s_p_adjacency_list: AdjacencyList<M>,
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> ObjectLookup for BaseObjectLookup<M> {
+impl<M:'static+AsRef<[u8]>+Clone> LayerObjectLookup for BaseLayerObjectLookup<M> {
     fn object(&self) -> u64 {
         self.object
-    }
-
-    fn parent(&self) -> Option<&dyn ObjectLookup> {
-        None
     }
 
     fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=(u64, u64)>> {
@@ -521,19 +457,15 @@ impl<M:'static+AsRef<[u8]>+Clone> ObjectLookup for BaseObjectLookup<M> {
     }
 }
 
-struct BasePredicateLookup<M:'static+AsRef<[u8]>+Clone> {
+struct BaseLayerPredicateLookup<M:'static+AsRef<[u8]>+Clone> {
     lookup: WaveletLookup<M>,
     s_p_adjacency_list: AdjacencyList<M>,
     sp_o_adjacency_list: AdjacencyList<M>
 }
 
-impl<M:'static+AsRef<[u8]>+Clone> PredicateLookup for BasePredicateLookup<M> {
-    fn predicate(&self) -> u64 {
-        self.lookup.entry
-    }
-
-    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
-        let predicate = self.predicate();
+impl<M:'static+AsRef<[u8]>+Clone> BaseLayerPredicateLookup<M> {
+    fn base_subject_predicate_pairs(&self) -> impl Iterator<Item=BaseLayerSubjectPredicateLookup<M>> {
+        let predicate = LayerPredicateLookup::predicate(self);
         let s_p_adjacency_list = self.s_p_adjacency_list.clone();
         let sp_o_adjacency_list = self.sp_o_adjacency_list.clone();
         Box::new(self.lookup.iter()
@@ -541,12 +473,21 @@ impl<M:'static+AsRef<[u8]>+Clone> PredicateLookup for BasePredicateLookup<M> {
                      let (subject, _) = s_p_adjacency_list.pair_at_pos(pos);
                      let objects = sp_o_adjacency_list.get(pos+1);
 
-                     Box::new(BaseSubjectPredicateLookup {
+                     BaseLayerSubjectPredicateLookup {
                          subject,
                          predicate,
                          objects
-                     }) as Box<dyn SubjectPredicateLookup>
+                     }
                  }))
+    }
+}
+impl<M:'static+AsRef<[u8]>+Clone> LayerPredicateLookup for BaseLayerPredicateLookup<M> {
+    fn predicate(&self) -> u64 {
+        self.lookup.entry
+    }
+
+    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=Box<dyn LayerSubjectPredicateLookup>>> {
+        Box::new(self.base_subject_predicate_pairs().map(|l|Box::new(l) as Box<dyn LayerSubjectPredicateLookup>))
     }
 }
 
