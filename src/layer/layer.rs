@@ -758,30 +758,45 @@ impl Iterator for GenericSubjectPredicateObjectIterator {
     type Item = u64;
 
     fn next(&mut self) -> Option<u64> {
-        // what is the lowest number to talk about now?
-        let mut min = None;
-        for (pos, neg) in self.layers.iter_mut().rev() {
-            let pos_object = pos.peek().map(|o|*o);
-            let neg_object = neg.peek().map(|o|*o);
-            if pos_object.is_some() && (min.is_none() || pos_object < min) {
-                min = pos_object;
+        let mut min;
+        loop {
+            // what is the lowest number to talk about now?
+            min = None;
+            let mut deleted = false;
+            for (pos, neg) in self.layers.iter_mut().rev() {
+                let pos_object = pos.peek().map(|o|*o);
+                let neg_object = neg.peek().map(|o|*o);
+                if pos_object.is_some() && (min.is_none() || pos_object < min) {
+                    deleted = false;
+                    min = pos_object;
+                }
+                else if deleted && pos_object.is_some() && pos_object == min {
+                    deleted = false;
+                }
+                else if neg_object == min {
+                    deleted = true;
+                }
             }
-            else if neg_object == min {
-                min = None;
+
+            // advance all iterators until they're either exhausted or beyond the min we found
+            // if min is None, we need to exhaust everything
+            for (pos, neg) in self.layers.iter_mut() {
+                while pos.peek().is_some() && (min.is_none() || pos.peek().map(|o|*o).unwrap() <= min.unwrap()) {
+                    pos.next().unwrap();
+                }
+                while neg.peek().is_some() && (min.is_none() || neg.peek().map(|o|*o).unwrap() <= min.unwrap()) {
+                    neg.next().unwrap();
+                }
+            }
+
+            // we advanced all the iterators, but we aren't necessarily done.
+            // It could be that the item we intended to return was deleted.
+            // In that case we need another retrieval round.
+            // If not, or if we ran out of data, we need to return.
+            if min.is_none() || !deleted {
+                break;
             }
         }
-
-        // advance all iterators until they're either exhausted or beyond the min we found
-        // if min is None, we need to exhaust everything
-        for (pos, neg) in self.layers.iter_mut() {
-            while pos.peek().is_some() && (min.is_none() || pos.peek().map(|o|*o).unwrap() <= min.unwrap()) {
-                pos.next().unwrap();
-            }
-            while neg.peek().is_some() && (min.is_none() || neg.peek().map(|o|*o).unwrap() <= min.unwrap()) {
-                neg.next().unwrap();
-            }
-        }
-
         min
     }
 }
@@ -949,26 +964,42 @@ impl Iterator for ObjectSubjectPredicatePairIterator {
     type Item = (u64,u64);
 
     fn next(&mut self) -> Option<(u64,u64)> {
-        let mut min = None;
-        for (pos, neg) in self.layers.iter_mut().rev() {
-            let pos_sp = pos.peek().map(|s|*s);
-            let neg_sp = neg.peek().map(|s|*s);
-            if pos_sp.is_some() && (min.is_none() || pos_sp < min) {
-                min = pos_sp;
+        let mut min;
+        loop {
+            min = None;
+            let mut deleted = false;
+            for (pos, neg) in self.layers.iter_mut().rev() {
+                let pos_sp = pos.peek().map(|s|*s);
+                let neg_sp = neg.peek().map(|s|*s);
+                if pos_sp.is_some() && (min.is_none() || pos_sp < min) {
+                    deleted = false;
+                    min = pos_sp;
+                }
+                else if deleted && pos_sp.is_some() && pos_sp == min {
+                    deleted = false;
+                }
+                else if neg_sp == min {
+                    deleted = true;
+                }
             }
-            else if neg_sp == min {
-                min = None;
-            }
-        }
 
-        // advance all iterators until they're either exhausted or beyond the min we found
-        // if min is None, we need to exhaust everything
-        for (pos, neg) in self.layers.iter_mut() {
-            while pos.peek().is_some() && (min.is_none() || pos.peek().map(|s|*s).unwrap() <= min.unwrap()) {
-                pos.next().unwrap();
+            // advance all iterators until they're either exhausted or beyond the min we found
+            // if min is None, we need to exhaust everything
+            for (pos, neg) in self.layers.iter_mut() {
+                while pos.peek().is_some() && (min.is_none() || pos.peek().map(|s|*s).unwrap() <= min.unwrap()) {
+                    pos.next().unwrap();
+                }
+                while neg.peek().is_some() && (min.is_none() || neg.peek().map(|s|*s).unwrap() <= min.unwrap()) {
+                    neg.next().unwrap();
+                }
             }
-            while neg.peek().is_some() && (min.is_none() || neg.peek().map(|s|*s).unwrap() <= min.unwrap()) {
-                neg.next().unwrap();
+
+            // we advanced all the iterators, but we aren't necessarily done.
+            // It could be that the item we intended to return was deleted.
+            // In that case we need another retrieval round.
+            // If not, or if we ran out of data, we need to return.
+            if min.is_none() || !deleted {
+                break;
             }
         }
 
