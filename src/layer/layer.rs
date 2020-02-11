@@ -951,12 +951,12 @@ impl Iterator for ObjectSubjectPredicatePairIterator {
     fn next(&mut self) -> Option<(u64,u64)> {
         let mut min = None;
         for (pos, neg) in self.layers.iter_mut().rev() {
-            let pos_subject = pos.peek().map(|s|*s);
-            let neg_subject = neg.peek().map(|s|*s);
-            if pos_subject.is_some() && (min.is_none() || pos_subject < min) {
-                min = pos_subject;
+            let pos_sp = pos.peek().map(|s|*s);
+            let neg_sp = neg.peek().map(|s|*s);
+            if pos_sp.is_some() && (min.is_none() || pos_sp < min) {
+                min = pos_sp;
             }
-            else if neg_subject == min {
+            else if neg_sp == min {
                 min = None;
             }
         }
@@ -1223,4 +1223,71 @@ impl PartiallyResolvedTriple {
 pub enum ObjectType {
     Node(String),
     Value(String)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::layer::base::BaseLayer;
+    use crate::layer::child::ChildLayer;
+    use crate::layer::base::tests::base_layer_files;
+    use crate::layer::child::tests::child_layer_files;
+    use crate::layer::builder::{LayerBuilder,SimpleLayerBuilder};
+    use futures::prelude::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn find_triple_after_adjacent_removal() {
+        let files = base_layer_files();
+        let mut builder = SimpleLayerBuilder::new([1,2,3,4,5], files.clone());
+
+        builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
+        builder.add_string_triple(&StringTriple::new_value("cow", "says", "sniff"));
+
+        builder.commit().wait().unwrap();
+
+        let base = Arc::new(BaseLayer::load_from_files([1,2,3,4,5], &files).wait().unwrap()) as Arc<dyn Layer>;
+
+        let files = child_layer_files();
+        let mut builder = SimpleLayerBuilder::from_parent([5,4,3,2,1], base.clone(), files.clone());
+        builder.remove_string_triple(&StringTriple::new_value("cow", "says", "moo"));
+        builder.commit().wait().unwrap();
+
+        let child = Arc::new(ChildLayer::load_from_files([5,4,3,2,1], base, &files).wait().unwrap()) as Arc<dyn Layer>;
+
+        let triples: Vec<_> = child.triples()
+            .map(|t|child.id_triple_to_string(&t).unwrap())
+            .collect();
+
+        assert_eq!(vec![StringTriple::new_value("cow", "says", "sniff")], triples);
+    }
+
+    #[test]
+    fn find_triple_by_object_after_adjacent_removal() {
+        let files = base_layer_files();
+        let mut builder = SimpleLayerBuilder::new([1,2,3,4,5], files.clone());
+
+        builder.add_string_triple(&StringTriple::new_value("cow", "hears", "moo"));
+        builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
+
+        builder.commit().wait().unwrap();
+
+        let base = Arc::new(BaseLayer::load_from_files([1,2,3,4,5], &files).wait().unwrap()) as Arc<dyn Layer>;
+
+        let files = child_layer_files();
+        let mut builder = SimpleLayerBuilder::from_parent([5,4,3,2,1], base.clone(), files.clone());
+        builder.remove_string_triple(&StringTriple::new_value("cow", "hears", "moo"));
+        builder.commit().wait().unwrap();
+
+        let child = Arc::new(ChildLayer::load_from_files([5,4,3,2,1], base, &files).wait().unwrap()) as Arc<dyn Layer>;
+
+        let triples: Vec<_> = child.objects()
+            .map(|o|o.triples())
+            .flatten()
+            .map(|t|child.id_triple_to_string(&t).unwrap())
+            .collect();
+
+        assert_eq!(vec![StringTriple::new_value("cow", "says", "moo")], triples);
+    }
 }

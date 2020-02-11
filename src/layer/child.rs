@@ -1300,11 +1300,11 @@ pub fn open_child_triple_stream<F:'static+FileLoad+FileStore>(subjects_file: F, 
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::storage::memory::*;
     use crate::layer::base::tests::*;
-    fn child_layer_files() -> ChildLayerFiles<MemoryBackedStore> {
+    pub fn child_layer_files() -> ChildLayerFiles<MemoryBackedStore> {
         let files: Vec<_> = (0..40).map(|_| MemoryBackedStore::new()).collect();
 
         ChildLayerFiles {
