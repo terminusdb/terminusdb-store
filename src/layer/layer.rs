@@ -1295,6 +1295,38 @@ mod tests {
     }
 
     #[test]
+    fn find_triple_after_removal_and_readdition() {
+        let files = base_layer_files();
+        let mut builder = SimpleLayerBuilder::new([1,2,3,4,5], files.clone());
+
+        builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
+
+        builder.commit().wait().unwrap();
+
+        let base = Arc::new(BaseLayer::load_from_files([1,2,3,4,5], &files).wait().unwrap()) as Arc<dyn Layer>;
+
+        let files = child_layer_files();
+        let mut builder = SimpleLayerBuilder::from_parent([5,4,3,2,1], base.clone(), files.clone());
+        builder.remove_string_triple(&StringTriple::new_value("cow", "says", "moo"));
+        builder.commit().wait().unwrap();
+
+        let child = Arc::new(ChildLayer::load_from_files([5,4,3,2,1], base, &files).wait().unwrap()) as Arc<dyn Layer>;
+
+        let files = child_layer_files();
+        let mut builder = SimpleLayerBuilder::from_parent([5,4,3,2,2], child.clone(), files.clone());
+        builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
+        builder.commit().wait().unwrap();
+
+        let child = Arc::new(ChildLayer::load_from_files([5,4,3,2,2], child, &files).wait().unwrap()) as Arc<dyn Layer>;
+
+        let triples: Vec<_> = child.triples()
+            .map(|t|child.id_triple_to_string(&t).unwrap())
+            .collect();
+
+        assert_eq!(vec![StringTriple::new_value("cow", "says", "moo")], triples);
+    }
+
+    #[test]
     fn find_triple_by_object_after_adjacent_removal() {
         let files = base_layer_files();
         let mut builder = SimpleLayerBuilder::new([1,2,3,4,5], files.clone());
@@ -1321,4 +1353,39 @@ mod tests {
 
         assert_eq!(vec![StringTriple::new_value("cow", "says", "moo")], triples);
     }
+
+    #[test]
+    fn find_triple_by_object_after_removal_and_readdition() {
+        let files = base_layer_files();
+        let mut builder = SimpleLayerBuilder::new([1,2,3,4,5], files.clone());
+
+        builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
+
+        builder.commit().wait().unwrap();
+
+        let base = Arc::new(BaseLayer::load_from_files([1,2,3,4,5], &files).wait().unwrap()) as Arc<dyn Layer>;
+
+        let files = child_layer_files();
+        let mut builder = SimpleLayerBuilder::from_parent([5,4,3,2,1], base.clone(), files.clone());
+        builder.remove_string_triple(&StringTriple::new_value("cow", "says", "moo"));
+        builder.commit().wait().unwrap();
+
+        let child = Arc::new(ChildLayer::load_from_files([5,4,3,2,1], base, &files).wait().unwrap()) as Arc<dyn Layer>;
+
+        let files = child_layer_files();
+        let mut builder = SimpleLayerBuilder::from_parent([5,4,3,2,2], child.clone(), files.clone());
+        builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
+        builder.commit().wait().unwrap();
+
+        let child = Arc::new(ChildLayer::load_from_files([5,4,3,2,2], child, &files).wait().unwrap()) as Arc<dyn Layer>;
+
+        let triples: Vec<_> = child.objects()
+            .map(|o|o.triples())
+            .flatten()
+            .map(|t|child.id_triple_to_string(&t).unwrap())
+            .collect();
+
+        assert_eq!(vec![StringTriple::new_value("cow", "says", "moo")], triples);
+    }
+
 }
