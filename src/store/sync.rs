@@ -143,11 +143,11 @@ impl Layer for SyncStoreLayer {
         self.inner.value_dict_len()
     }
 
-    fn value_dict_get(&self, id: usize) -> String {
+    fn value_dict_get(&self, id: usize) -> Option<String> {
         self.inner.value_dict_get(id)
     }
 
-    fn node_dict_get(&self, id: usize) -> String {
+    fn node_dict_get(&self, id: usize) -> Option<String> {
         self.inner.node_dict_get(id)
     }
 
@@ -159,7 +159,7 @@ impl Layer for SyncStoreLayer {
         self.inner.predicate_dict_id(predicate)
     }
 
-    fn predicate_dict_get(&self, id: usize) -> String {
+    fn predicate_dict_get(&self, id: usize) -> Option<String> {
         self.inner.predicate_dict_get(id)
     }
 

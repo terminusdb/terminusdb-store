@@ -168,11 +168,12 @@ impl<M:AsRef<[u8]>+Clone> PfcBlock<M> {
         }
     }
 
-    pub fn get(&self, index: usize) -> String {
-        if index >= self.n_strings {
-            panic!("index too high");
+    pub fn get(&self, index: usize) -> Option<String> {
+        if index < self.n_strings {
+            self.strings().nth(index)
+        } else {
+            None
         }
-        self.strings().nth(index).unwrap()
     }
 
     pub fn len(&self) -> usize {
@@ -241,17 +242,21 @@ impl<M:AsRef<[u8]>+Clone> PfcDict<M> {
         self.n_strings as usize
     }
 
-    pub fn get(&self, ix: usize) -> String {
-        if ix as u64 >= self.n_strings {
-            panic!("index too high");
+    pub fn get(&self, ix: usize) -> Option<String> {
+        if (ix as u64) < self.n_strings {
+            let block_index = ix / BLOCK_SIZE;
+            let block_offset = if block_index == 0 {
+                0
+            } else {
+                self.block_offsets.entry(block_index - 1)
+            };
+            let block = PfcBlock::parse(&self.blocks.as_ref()[block_offset as usize..]).unwrap();
+
+            let index_in_block = ix % BLOCK_SIZE;
+            block.get(index_in_block)
+        } else {
+            None
         }
-
-        let block_index = ix / BLOCK_SIZE;
-        let block_offset = if block_index == 0 { 0 } else { self.block_offsets.entry(block_index-1) };
-        let block = PfcBlock::parse(&self.blocks.as_ref()[block_offset as usize..]).unwrap();
-
-        let index_in_block = ix % BLOCK_SIZE;
-        block.get(index_in_block)
     }
 
     pub fn id(&self, s: &str) -> Option<u64> {
@@ -436,9 +441,17 @@ mod tests {
 
         let p = PfcDict::parse(blocks.map().wait().unwrap(), offsets.map().wait().unwrap()).unwrap();
 
-        assert_eq!("aaaaa", p.get(0));
-        assert_eq!("aabbb", p.get(1));
-        assert_eq!("ccccc", p.get(2));
+        assert_eq!(Some("aaaaa".to_string()), p.get(0));
+        assert_eq!(Some("aabbb".to_string()), p.get(1));
+        assert_eq!(Some("ccccc".to_string()), p.get(2));
+        assert_eq!(None, p.get(4));
+
+        let mut i = p.strings();
+
+        assert_eq!(Some("aaaaa".to_string()), i.next());
+        assert_eq!(Some("aabbb".to_string()), i.next());
+        assert_eq!(Some("ccccc".to_string()), i.next());
+        assert_eq!(None, i.next());
     }
 
     #[test]
@@ -465,11 +478,12 @@ mod tests {
 
         let p = PfcDict::parse(blocks.map().wait().unwrap(), offsets.map().wait().unwrap()).unwrap();
 
-        assert_eq!("aaaaa", p.get(0));
-        assert_eq!("aabbb", p.get(1));
-        assert_eq!("ccccc", p.get(2));
-        assert_eq!("eeee", p.get(8));
-        assert_eq!("great scott", p.get(9));
+        assert_eq!(Some("aaaaa".to_string()), p.get(0));
+        assert_eq!(Some("aabbb".to_string()), p.get(1));
+        assert_eq!(Some("ccccc".to_string()), p.get(2));
+        assert_eq!(Some("eeee".to_string()), p.get(8));
+        assert_eq!(Some("great scott".to_string()), p.get(9));
+        assert_eq!(None, p.get(10));
     }
 
     #[test]
