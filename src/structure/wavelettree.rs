@@ -16,7 +16,7 @@ use tokio::prelude::*;
 /// rounded up to make it an integer. Since we're encoding u64 values,
 /// the number of layers can never be larger than 64.
 #[derive(Clone)]
-pub struct WaveletTree<M: AsRef<[u8]> + Clone> {
+pub struct WaveletTree<M> {
     bits: BitIndex<M>,
     num_layers: u8,
 }
@@ -27,14 +27,14 @@ pub struct WaveletTree<M: AsRef<[u8]> + Clone> {
 /// positions out of a wavelet tree, allowing for quick iteration over
 /// all positions for a given entry.
 #[derive(Clone)]
-pub struct WaveletLookup<M: AsRef<[u8]> + Clone> {
+pub struct WaveletLookup<M> {
     /// the entry this lookup was created for.
     pub entry: u64,
     tree: WaveletTree<M>,
     slices: Vec<(bool, u64, u64)>,
 }
 
-impl<M: AsRef<[u8]> + Clone> WaveletLookup<M> {
+impl<M: AsRef<[u8]>> WaveletLookup<M> {
     /// Returns the amount of positions found in this lookup.
     pub fn len(&self) -> usize {
         let (b, start, end) = *self.slices.last().unwrap();
@@ -77,13 +77,16 @@ impl<M: AsRef<[u8]> + Clone> WaveletLookup<M> {
     }
 
     /// Returns an Iterator over all positions for the entry of this lookup
-    pub fn iter(&self) -> impl Iterator<Item = u64> {
+    pub fn iter(&self) -> impl Iterator<Item = u64>
+    where
+        M: Clone,
+    {
         let cloned = self.clone();
         (0..self.len()).map(move |i| cloned.entry(i))
     }
 }
 
-impl<M: AsRef<[u8]> + Clone> WaveletTree<M> {
+impl<M> WaveletTree<M> {
     /// Construct a wavelet tree from a bitindex and a layer count.
     pub fn from_parts(bits: BitIndex<M>, num_layers: u8) -> WaveletTree<M> {
         if num_layers != 0 && bits.len() % num_layers as usize != 0 {
@@ -108,13 +111,19 @@ impl<M: AsRef<[u8]> + Clone> WaveletTree<M> {
     }
 
     /// Decode the wavelet tree to the original u64 sequence. This returns an iterator.
-    pub fn decode(&self) -> impl Iterator<Item = u64> {
+    pub fn decode(&self) -> impl Iterator<Item = u64>
+    where
+        M: AsRef<[u8]> + Clone,
+    {
         let owned = self.clone();
         (0..self.len()).map(move |i| owned.decode_one(i))
     }
 
     /// Decode a single position of the original u64 sequence.
-    pub fn decode_one(&self, index: usize) -> u64 {
+    pub fn decode_one(&self, index: usize) -> u64
+    where
+        M: AsRef<[u8]>,
+    {
         let len = self.len() as u64;
         let mut offset = index as u64;
         let mut alphabet_start = 0;
@@ -155,7 +164,10 @@ impl<M: AsRef<[u8]> + Clone> WaveletTree<M> {
     }
 
     /// Lookup the given entry. This returns a `WaveletLookup` which can then be used to find all positions.
-    pub fn lookup(&self, entry: u64) -> Option<WaveletLookup<M>> {
+    pub fn lookup(&self, entry: u64) -> Option<WaveletLookup<M>>
+    where
+        M: AsRef<[u8]> + Clone,
+    {
         let width = self.len() as u64;
         let mut slices = Vec::with_capacity(self.num_layers as usize);
         let mut alphabet_start = 0;
@@ -193,14 +205,17 @@ impl<M: AsRef<[u8]> + Clone> WaveletTree<M> {
     }
 
     /// Lookup the given entry. This returns a single result, even if there's multiple.
-    pub fn lookup_one(&self, entry: u64) -> Option<u64> {
+    pub fn lookup_one(&self, entry: u64) -> Option<u64>
+    where
+        M: AsRef<[u8]> + Clone,
+    {
         self.lookup(entry).map(|l| l.entry(0))
     }
 }
 
 fn build_wavelet_fragment<
     S: Stream<Item = u64, Error = std::io::Error> + Send,
-    W: AsyncWrite + Send,
+    W: 'static + AsyncWrite + Send,
 >(
     stream: S,
     write: BitArrayFileBuilder<W>,
@@ -266,7 +281,7 @@ pub fn build_wavelet_tree_from_stream<
 
 /// Build a wavelet tree from a file storing a logarray.
 pub fn build_wavelet_tree_from_logarray<
-    FLoad: 'static + FileLoad + Clone,
+    FLoad: 'static + FileLoad,
     F: 'static + FileLoad + FileStore,
 >(
     source: FLoad,

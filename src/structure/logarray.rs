@@ -13,9 +13,10 @@ use futures::future;
 use futures::prelude::*;
 use std::cmp::Ordering;
 use tokio::codec::{Decoder, FramedRead};
+use tokio_io::AsyncWrite;
 
 #[derive(Clone)]
-pub struct LogArray<M: AsRef<[u8]> + Clone> {
+pub struct LogArray<M> {
     len: u32,
     width: u8,
     len_bytes: usize,
@@ -27,13 +28,13 @@ pub enum LogArrayError {
     InvalidCoding,
 }
 
-pub struct LogArrayIterator<'a, M: AsRef<[u8]> + Clone> {
+pub struct LogArrayIterator<'a, M> {
     logarray: &'a LogArray<M>,
     pos: usize,
     end: usize,
 }
 
-impl<'a, M: AsRef<[u8]> + Clone> Iterator for LogArrayIterator<'a, M> {
+impl<'a, M: AsRef<[u8]>> Iterator for LogArrayIterator<'a, M> {
     type Item = u64;
     fn next(&mut self) -> Option<u64> {
         if self.pos == self.end {
@@ -47,13 +48,13 @@ impl<'a, M: AsRef<[u8]> + Clone> Iterator for LogArrayIterator<'a, M> {
     }
 }
 
-pub struct OwnedLogArrayIterator<M: AsRef<[u8]> + Clone> {
+pub struct OwnedLogArrayIterator<M> {
     logarray: LogArray<M>,
     pos: usize,
     end: usize,
 }
 
-impl<M: AsRef<[u8]> + Clone> Iterator for OwnedLogArrayIterator<M> {
+impl<M: AsRef<[u8]>> Iterator for OwnedLogArrayIterator<M> {
     type Item = u64;
     fn next(&mut self) -> Option<u64> {
         if self.pos == self.end {
@@ -67,8 +68,11 @@ impl<M: AsRef<[u8]> + Clone> Iterator for OwnedLogArrayIterator<M> {
     }
 }
 
-impl<M: AsRef<[u8]> + Clone> LogArray<M> {
-    pub fn parse(data: M) -> Result<LogArray<M>, LogArrayError> {
+impl<M> LogArray<M> {
+    pub fn parse(data: M) -> Result<LogArray<M>, LogArrayError>
+    where
+        M: AsRef<[u8]>,
+    {
         let len = BigEndian::read_u32(&data.as_ref()[data.as_ref().len() - 8..]);
         let width = data.as_ref()[data.as_ref().len() - 4];
         let len_bytes = (len as usize * width as usize + 7) / 8 as usize;
@@ -99,7 +103,10 @@ impl<M: AsRef<[u8]> + Clone> LogArray<M> {
         self.len_bytes
     }
 
-    fn nums_for_index(&self, index: usize) -> (u64, u64) {
+    fn nums_for_index(&self, index: usize) -> (u64, u64)
+    where
+        M: AsRef<[u8]>,
+    {
         let start_bit = self.width as usize * index;
         let start_byte = start_bit / 8;
 
@@ -121,13 +128,12 @@ impl<M: AsRef<[u8]> + Clone> LogArray<M> {
         }
     }
 
-    fn shift_for_index(&self, index: usize) -> i8 {
-        64 - self.width as i8 - (index * self.width as usize % 64) as i8
-    }
-
-    pub fn entry(&self, index: usize) -> u64 {
+    pub fn entry(&self, index: usize) -> u64
+    where
+        M: AsRef<[u8]>,
+    {
         let (n1, n2) = self.nums_for_index(index);
-        let shift_for_index = self.shift_for_index(index);
+        let shift_for_index = 64 - self.width as i8 - (index * self.width as usize % 64) as i8;
         if shift_for_index < 0 {
             // crossing an u64 boundary. we need to shift left
             let mut x = n1;
@@ -164,7 +170,10 @@ impl<M: AsRef<[u8]> + Clone> LogArray<M> {
         }
     }
 
-    pub fn slice(&self, offset: usize, length: usize) -> LogArraySlice<M> {
+    pub fn slice(&self, offset: usize, length: usize) -> LogArraySlice<M>
+    where
+        M: Clone,
+    {
         if self.len() < offset + length {
             panic!("slice out of bounds");
         }
@@ -177,22 +186,24 @@ impl<M: AsRef<[u8]> + Clone> LogArray<M> {
 }
 
 #[derive(Clone)]
-pub struct LogArraySlice<M: AsRef<[u8]> + Clone> {
+pub struct LogArraySlice<M> {
     original: LogArray<M>,
     offset: usize,
     length: usize,
 }
 
-impl<M: AsRef<[u8]> + Clone> LogArraySlice<M> {
+impl<M> LogArraySlice<M> {
     pub fn len(&self) -> usize {
         self.length
     }
 
-    pub fn entry(&self, index: usize) -> u64 {
+    pub fn entry(&self, index: usize) -> u64
+    where
+        M: AsRef<[u8]>,
+    {
         if index >= self.length {
             panic!("index too large for slice");
         }
-
         self.original.entry(index + self.offset)
     }
 
@@ -214,7 +225,7 @@ impl<M: AsRef<[u8]> + Clone> LogArraySlice<M> {
 }
 
 /// write a logarray directly to an AsyncWrite
-pub struct LogArrayFileBuilder<W: 'static + tokio::io::AsyncWrite + Send> {
+pub struct LogArrayFileBuilder<W> {
     file: W,
     width: u8,
     current: u64,
@@ -222,7 +233,7 @@ pub struct LogArrayFileBuilder<W: 'static + tokio::io::AsyncWrite + Send> {
     pub count: u32,
 }
 
-impl<W: 'static + tokio::io::AsyncWrite + Send> LogArrayFileBuilder<W> {
+impl<W> LogArrayFileBuilder<W> {
     pub fn new(w: W, width: u8) -> LogArrayFileBuilder<W> {
         LogArrayFileBuilder {
             file: w,
@@ -232,7 +243,9 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> LogArrayFileBuilder<W> {
             count: 0,
         }
     }
+}
 
+impl<W: 'static + Send + AsyncWrite> LogArrayFileBuilder<W> {
     pub fn push(
         mut self,
         val: u64,
@@ -407,10 +420,13 @@ pub fn logarray_stream_entries<F: FileLoad>(
 }
 
 #[derive(Clone)]
-pub struct MonotonicLogArray<M: AsRef<[u8]> + Clone>(LogArray<M>);
+pub struct MonotonicLogArray<M>(LogArray<M>);
 
-impl<M: AsRef<[u8]> + Clone> MonotonicLogArray<M> {
-    pub fn from_logarray(logarray: LogArray<M>) -> MonotonicLogArray<M> {
+impl<M> MonotonicLogArray<M> {
+    pub fn from_logarray(logarray: LogArray<M>) -> MonotonicLogArray<M>
+    where
+        M: AsRef<[u8]>,
+    {
         if cfg!(debug_assertions) {
             let mut iter = logarray.iter();
             let first = iter.next();
@@ -432,7 +448,10 @@ impl<M: AsRef<[u8]> + Clone> MonotonicLogArray<M> {
         self.0.len()
     }
 
-    pub fn entry(&self, index: usize) -> u64 {
+    pub fn entry(&self, index: usize) -> u64
+    where
+        M: AsRef<[u8]>,
+    {
         self.0.entry(index)
     }
 
@@ -444,7 +463,10 @@ impl<M: AsRef<[u8]> + Clone> MonotonicLogArray<M> {
         self.0.into_iter()
     }
 
-    pub fn index_of(&self, element: u64) -> Option<usize> {
+    pub fn index_of(&self, element: u64) -> Option<usize>
+    where
+        M: AsRef<[u8]>,
+    {
         if self.len() == 0 {
             return None;
         }

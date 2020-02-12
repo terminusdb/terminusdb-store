@@ -15,14 +15,17 @@ const SBLOCK_SIZE: usize = 52;
 
 /// A bitarray with an index, supporting rank and select queries.
 #[derive(Clone)]
-pub struct BitIndex<M: AsRef<[u8]> + Clone> {
+pub struct BitIndex<M> {
     array: BitArray<M>,
     blocks: LogArray<M>,
     sblocks: LogArray<M>,
 }
 
-impl<M: AsRef<[u8]> + Clone> BitIndex<M> {
-    pub fn from_maps(bitarray_map: M, blocks_map: M, sblocks_map: M) -> BitIndex<M> {
+impl<M> BitIndex<M> {
+    pub fn from_maps(bitarray_map: M, blocks_map: M, sblocks_map: M) -> BitIndex<M>
+    where
+        M: AsRef<[u8]>,
+    {
         let bitarray = BitArray::from_bits(bitarray_map);
         let blocks_logarray = LogArray::parse(blocks_map).unwrap();
         let sblocks_logarray = LogArray::parse(sblocks_map).unwrap();
@@ -45,7 +48,10 @@ impl<M: AsRef<[u8]> + Clone> BitIndex<M> {
         }
     }
 
-    fn block_bits(&self, block_index: usize) -> &[u8] {
+    fn block_bits(&self, block_index: usize) -> &[u8]
+    where
+        M: AsRef<[u8]>,
+    {
         let bit_index = block_index * 8;
 
         &self.array.bits()[bit_index..bit_index + 8]
@@ -57,12 +63,18 @@ impl<M: AsRef<[u8]> + Clone> BitIndex<M> {
     }
 
     /// Returns the bit at the given index.
-    pub fn get(&self, index: u64) -> bool {
+    pub fn get(&self, index: u64) -> bool
+    where
+        M: AsRef<[u8]>,
+    {
         self.array.get(index as usize)
     }
 
     /// Returns the amount of 1-bits in the bitarray up to and including the given index.
-    pub fn rank1(&self, index: u64) -> u64 {
+    pub fn rank1(&self, index: u64) -> u64
+    where
+        M: AsRef<[u8]>,
+    {
         let block_index = index / 64;
         let sblock_index = block_index / SBLOCK_SIZE as u64;
 
@@ -79,7 +91,10 @@ impl<M: AsRef<[u8]> + Clone> BitIndex<M> {
     }
 
     /// Returns the amount of 1-bits in the given range (up to but excluding end).
-    pub fn rank1_from_range(&self, start: u64, end: u64) -> u64 {
+    pub fn rank1_from_range(&self, start: u64, end: u64) -> u64
+    where
+        M: AsRef<[u8]>,
+    {
         if start == end {
             return 0;
         }
@@ -91,7 +106,10 @@ impl<M: AsRef<[u8]> + Clone> BitIndex<M> {
         rank
     }
 
-    fn select1_sblock(&self, rank: u64) -> usize {
+    fn select1_sblock(&self, rank: u64) -> usize
+    where
+        M: AsRef<[u8]>,
+    {
         let mut start = 0;
         let mut end = self.sblocks.len() - 1;
         let mut mid;
@@ -112,7 +130,10 @@ impl<M: AsRef<[u8]> + Clone> BitIndex<M> {
         mid
     }
 
-    fn select1_block(&self, sblock: usize, subrank: u64) -> usize {
+    fn select1_block(&self, sblock: usize, subrank: u64) -> usize
+    where
+        M: AsRef<[u8]>,
+    {
         let mut start = sblock * SBLOCK_SIZE;
         let mut end = start + SBLOCK_SIZE - 1;
         if end > self.blocks.len() - 1 {
@@ -145,7 +166,10 @@ impl<M: AsRef<[u8]> + Clone> BitIndex<M> {
     }
 
     /// Returns the index of the 1-bit in the bitarray corresponding with the given rank.
-    pub fn select1(&self, rank: u64) -> Option<u64> {
+    pub fn select1(&self, rank: u64) -> Option<u64>
+    where
+        M: AsRef<[u8]>,
+    {
         let sblock = self.select1_sblock(rank);
         let sblock_rank = self.sblocks.entry(sblock);
         if sblock_rank < rank {
@@ -175,7 +199,10 @@ impl<M: AsRef<[u8]> + Clone> BitIndex<M> {
         None
     }
 
-    pub fn select1_from_range(&self, subrank: u64, start: u64, end: u64) -> Option<u64> {
+    pub fn select1_from_range(&self, subrank: u64, start: u64, end: u64) -> Option<u64>
+    where
+        M: AsRef<[u8]>,
+    {
         // todo this is a dumb implementation. we can actually do a much faster select by making sblock/block lookup ranged. for now this will work.
         let rank_offset = if start == 0 { 0 } else { self.rank1(start - 1) };
 
@@ -191,13 +218,19 @@ impl<M: AsRef<[u8]> + Clone> BitIndex<M> {
     }
 
     /// Returns the amount of 0-bits in the bitarray up to and including the given index.
-    pub fn rank0(&self, index: u64) -> u64 {
+    pub fn rank0(&self, index: u64) -> u64
+    where
+        M: AsRef<[u8]>,
+    {
         let r0 = self.rank1(index);
         1 + index - r0
     }
 
     /// Returns the amount of 0-bits in the given range (up to but excluding end).
-    pub fn rank0_from_range(&self, start: u64, end: u64) -> u64 {
+    pub fn rank0_from_range(&self, start: u64, end: u64) -> u64
+    where
+        M: AsRef<[u8]>,
+    {
         if start == end {
             return 0;
         }
@@ -209,7 +242,10 @@ impl<M: AsRef<[u8]> + Clone> BitIndex<M> {
         rank
     }
 
-    fn select0_sblock(&self, rank: u64) -> usize {
+    fn select0_sblock(&self, rank: u64) -> usize
+    where
+        M: AsRef<[u8]>,
+    {
         let mut start = 0;
         let mut end = self.sblocks.len() - 1;
         let mut mid;
@@ -230,7 +266,10 @@ impl<M: AsRef<[u8]> + Clone> BitIndex<M> {
         mid
     }
 
-    fn select0_block(&self, sblock: usize, subrank: u64) -> usize {
+    fn select0_block(&self, sblock: usize, subrank: u64) -> usize
+    where
+        M: AsRef<[u8]>,
+    {
         let mut start = sblock * SBLOCK_SIZE;
         let mut end = start + SBLOCK_SIZE - 1;
         if end > self.blocks.len() - 1 {
@@ -264,7 +303,10 @@ impl<M: AsRef<[u8]> + Clone> BitIndex<M> {
     }
 
     /// Returns the index of the 0-bit in the bitarray corresponding with the given rank.
-    pub fn select0(&self, rank: u64) -> Option<u64> {
+    pub fn select0(&self, rank: u64) -> Option<u64>
+    where
+        M: AsRef<[u8]>,
+    {
         let sblock = self.select0_sblock(rank);
         let sblock_rank = ((1 + sblock) * SBLOCK_SIZE * 64) as u64 - self.sblocks.entry(sblock);
 
@@ -296,7 +338,10 @@ impl<M: AsRef<[u8]> + Clone> BitIndex<M> {
         None
     }
 
-    pub fn select0_from_range(&self, subrank: u64, start: u64, end: u64) -> Option<u64> {
+    pub fn select0_from_range(&self, subrank: u64, start: u64, end: u64) -> Option<u64>
+    where
+        M: AsRef<[u8]>,
+    {
         // todo this is a dumb implementation. we can actually do a much faster select by making sblock/block lookup ranged. for now this will work.
         let rank_offset = if start == 0 { 0 } else { self.rank0(start - 1) };
 

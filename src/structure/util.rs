@@ -1,5 +1,6 @@
 use byteorder::{BigEndian, ByteOrder};
 use futures::prelude::*;
+use tokio::io::AsyncWrite;
 
 pub fn find_common_prefix(b1: &[u8], b2: &[u8]) -> usize {
     let mut common = 0;
@@ -14,7 +15,7 @@ pub fn find_common_prefix(b1: &[u8], b2: &[u8]) -> usize {
     common
 }
 
-pub fn write_nul_terminated_bytes<W: tokio::io::AsyncWrite + Send>(
+pub fn write_nul_terminated_bytes<W: AsyncWrite + Send>(
     w: W,
     bytes: Vec<u8>,
 ) -> impl Future<Item = (W, usize), Error = std::io::Error> {
@@ -24,7 +25,7 @@ pub fn write_nul_terminated_bytes<W: tokio::io::AsyncWrite + Send>(
     })
 }
 
-pub fn write_padding<W: tokio::io::AsyncWrite + Send>(
+pub fn write_padding<W: AsyncWrite + Send>(
     w: W,
     current_pos: usize,
     width: u8,
@@ -34,7 +35,7 @@ pub fn write_padding<W: tokio::io::AsyncWrite + Send>(
         .map(|(w, slice)| (w, slice.len()))
 }
 
-pub fn write_u64<W: tokio::io::AsyncWrite + Send>(
+pub fn write_u64<W: AsyncWrite + Send>(
     w: W,
     num: u64,
 ) -> impl Future<Item = W, Error = std::io::Error> {

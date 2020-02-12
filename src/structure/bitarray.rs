@@ -11,14 +11,17 @@ use tokio::codec::{Decoder, FramedRead};
 use tokio::prelude::*;
 
 #[derive(Clone)]
-pub struct BitArray<M: AsRef<[u8]> + Clone> {
+pub struct BitArray<M> {
     bits: M,
     /// how many bits are being used in the last 8 bytes?
     count: u64,
 }
 
-impl<M: AsRef<[u8]> + Clone> BitArray<M> {
-    pub fn from_bits(bits: M) -> BitArray<M> {
+impl<M> BitArray<M> {
+    pub fn from_bits(bits: M) -> BitArray<M>
+    where
+        M: AsRef<[u8]>,
+    {
         if bits.as_ref().len() < 8 || bits.as_ref().len() % 8 != 0 {
             panic!("unexpected bitarray length");
         }
@@ -28,7 +31,10 @@ impl<M: AsRef<[u8]> + Clone> BitArray<M> {
         BitArray { bits, count }
     }
 
-    pub fn bits(&self) -> &[u8] {
+    pub fn bits(&self) -> &[u8]
+    where
+        M: AsRef<[u8]>,
+    {
         &self.bits.as_ref()[..self.bits.as_ref().len() - 8]
     }
 
@@ -36,7 +42,10 @@ impl<M: AsRef<[u8]> + Clone> BitArray<M> {
         self.count as usize // TODO on 32 bit platform this'll cut off
     }
 
-    pub fn get(&self, index: usize) -> bool {
+    pub fn get(&self, index: usize) -> bool
+    where
+        M: AsRef<[u8]>,
+    {
         if index > self.len() {
             panic!("index too high");
         }
@@ -48,20 +57,14 @@ impl<M: AsRef<[u8]> + Clone> BitArray<M> {
     }
 }
 
-pub struct BitArrayFileBuilder<W>
-where
-    W: 'static + AsyncWrite + Send,
-{
+pub struct BitArrayFileBuilder<W> {
     current_byte: u8,
     current_bit_pos: u8,
     bit_output: W,
-    pub count: u64,
+    count: u64,
 }
 
-impl<W> BitArrayFileBuilder<W>
-where
-    W: 'static + AsyncWrite + Send,
-{
+impl<W> BitArrayFileBuilder<W> {
     pub fn new(output: W) -> BitArrayFileBuilder<W> {
         BitArrayFileBuilder {
             current_byte: 0,
@@ -73,7 +76,10 @@ where
 
     fn flush_current(
         self,
-    ) -> Box<dyn Future<Item = BitArrayFileBuilder<W>, Error = std::io::Error> + Send> {
+    ) -> Box<dyn Future<Item = BitArrayFileBuilder<W>, Error = std::io::Error> + Send>
+    where
+        W: 'static + AsyncWrite + Send,
+    {
         let count = self.count;
         Box::new(
             tokio::io::write_all(self.bit_output, vec![self.current_byte]).map(move |(w, _)| {
@@ -90,7 +96,10 @@ where
     pub fn push(
         mut self,
         bit: bool,
-    ) -> Box<dyn Future<Item = BitArrayFileBuilder<W>, Error = std::io::Error> + Send> {
+    ) -> Box<dyn Future<Item = BitArrayFileBuilder<W>, Error = std::io::Error> + Send>
+    where
+        W: 'static + AsyncWrite + Send,
+    {
         let mut b = match bit {
             true => 128,
             false => 0,
@@ -107,19 +116,29 @@ where
         }
     }
 
-    pub fn push_all<S: 'static + Stream<Item = bool, Error = std::io::Error> + Send>(
+    pub fn push_all<S>(
         self,
         stream: S,
-    ) -> Box<dyn Future<Item = BitArrayFileBuilder<W>, Error = std::io::Error> + Send> {
+    ) -> Box<dyn Future<Item = BitArrayFileBuilder<W>, Error = std::io::Error> + Send>
+    where
+        S: 'static + Stream<Item = bool, Error = std::io::Error> + Send,
+        W: 'static + AsyncWrite + Send,
+    {
         Box::new(stream.fold(self, |builder, bit| builder.push(bit)))
     }
 
-    fn pad(self) -> impl Future<Item = W, Error = std::io::Error> {
+    fn pad(self) -> impl Future<Item = W, Error = std::io::Error>
+    where
+        W: 'static + AsyncWrite + Send,
+    {
         write_padding(self.bit_output, (self.count as usize + 7) / 8, 8)
             .map(|(bit_output, _)| bit_output)
     }
 
-    pub fn finalize(self) -> impl Future<Item = W, Error = std::io::Error> {
+    pub fn finalize(self) -> impl Future<Item = W, Error = std::io::Error>
+    where
+        W: 'static + AsyncWrite + Send,
+    {
         let count = self.count;
         let flush_current: Box<
             dyn Future<Item = BitArrayFileBuilder<W>, Error = std::io::Error> + Send,
@@ -185,9 +204,7 @@ fn block_bits(block: u64) -> Vec<bool> {
     result
 }
 
-pub fn bitarray_stream_bits<F: FileLoad + Clone>(
-    f: F,
-) -> impl Stream<Item = bool, Error = std::io::Error> {
+pub fn bitarray_stream_bits<F: FileLoad>(f: F) -> impl Stream<Item = bool, Error = std::io::Error> {
     bitarray_count_from_file(f.clone())
         .into_stream()
         .map(move |count| {

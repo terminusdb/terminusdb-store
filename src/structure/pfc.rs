@@ -10,6 +10,7 @@ use futures::prelude::*;
 use std::cmp::{Ord, Ordering};
 use std::error::Error;
 use std::fmt::Display;
+use tokio::io::AsyncWrite;
 
 #[derive(Debug)]
 pub enum PfcError {
@@ -44,21 +45,21 @@ impl Into<std::io::Error> for PfcError {
 }
 
 #[derive(Clone)]
-pub struct PfcBlock<M: AsRef<[u8]> + Clone> {
+pub struct PfcBlock<M> {
     encoded_strings: M,
     n_strings: usize,
 }
 
 const BLOCK_SIZE: usize = 8;
 
-pub struct PfcBlockIterator<'a, M: AsRef<[u8]> + Clone> {
+pub struct PfcBlockIterator<'a, M> {
     block: &'a PfcBlock<M>,
     count: usize,
     pos: usize,
     string: Vec<u8>,
 }
 
-impl<'a, M: AsRef<[u8]> + Clone> Iterator for PfcBlockIterator<'a, M> {
+impl<'a, M: AsRef<[u8]>> Iterator for PfcBlockIterator<'a, M> {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
@@ -96,14 +97,14 @@ impl<'a, M: AsRef<[u8]> + Clone> Iterator for PfcBlockIterator<'a, M> {
 }
 
 // the owned version is pretty much equivalent. There should be a way to make this one implementation with generics but I haven't figured out how!
-pub struct OwnedPfcBlockIterator<M: AsRef<[u8]> + Clone> {
+pub struct OwnedPfcBlockIterator<M> {
     block: PfcBlock<M>,
     count: usize,
     pos: usize,
     string: Vec<u8>,
 }
 
-impl<M: AsRef<[u8]> + Clone> Iterator for OwnedPfcBlockIterator<M> {
+impl<M: AsRef<[u8]>> Iterator for OwnedPfcBlockIterator<M> {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
@@ -140,7 +141,7 @@ impl<M: AsRef<[u8]> + Clone> Iterator for OwnedPfcBlockIterator<M> {
     }
 }
 
-impl<M: AsRef<[u8]> + Clone> PfcBlock<M> {
+impl<M> PfcBlock<M> {
     pub fn parse(data: M) -> Result<PfcBlock<M>, PfcError> {
         Ok(PfcBlock {
             encoded_strings: data,
@@ -155,7 +156,10 @@ impl<M: AsRef<[u8]> + Clone> PfcBlock<M> {
         })
     }
 
-    pub fn head(&self) -> Vec<u8> {
+    pub fn head(&self) -> Vec<u8>
+    where
+        M: AsRef<[u8]>,
+    {
         let first_end = self
             .encoded_strings
             .as_ref()
@@ -186,7 +190,10 @@ impl<M: AsRef<[u8]> + Clone> PfcBlock<M> {
         }
     }
 
-    pub fn get(&self, index: usize) -> Option<String> {
+    pub fn get(&self, index: usize) -> Option<String>
+    where
+        M: AsRef<[u8]>,
+    {
         if index < self.n_strings {
             self.strings().nth(index)
         } else {
@@ -194,27 +201,29 @@ impl<M: AsRef<[u8]> + Clone> PfcBlock<M> {
         }
     }
 
-    pub fn len(&self) -> usize {
+    pub fn len(&self) -> usize
+    where
+        M: AsRef<[u8]>,
+    {
         let vbyte_len = VByte::required_len(self.encoded_strings.as_ref().len() as u64);
-
         vbyte_len + self.encoded_strings.as_ref().len()
     }
 }
 
 #[derive(Clone)]
-pub struct PfcDict<M: AsRef<[u8]> + Clone> {
+pub struct PfcDict<M> {
     n_strings: u64,
     block_offsets: LogArray<M>,
     blocks: M,
 }
 
-pub struct PfcDictIterator<'a, M: AsRef<[u8]> + Clone> {
+pub struct PfcDictIterator<'a, M> {
     dict: &'a PfcDict<M>,
     block_index: usize,
     block: Option<OwnedPfcBlockIterator<&'a [u8]>>,
 }
 
-impl<'a, M: AsRef<[u8]> + Clone> Iterator for PfcDictIterator<'a, M> {
+impl<'a, M: AsRef<[u8]>> Iterator for PfcDictIterator<'a, M> {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
@@ -256,8 +265,11 @@ impl<'a, M: AsRef<[u8]> + Clone> Iterator for PfcDictIterator<'a, M> {
     }
 }
 
-impl<M: AsRef<[u8]> + Clone> PfcDict<M> {
-    pub fn parse(blocks: M, offsets: M) -> Result<PfcDict<M>, PfcError> {
+impl<M> PfcDict<M> {
+    pub fn parse(blocks: M, offsets: M) -> Result<PfcDict<M>, PfcError>
+    where
+        M: AsRef<[u8]>,
+    {
         let n_strings = BigEndian::read_u64(&blocks.as_ref()[blocks.as_ref().len() - 8..]);
 
         let block_offsets = LogArray::parse(offsets)?;
@@ -273,7 +285,10 @@ impl<M: AsRef<[u8]> + Clone> PfcDict<M> {
         self.n_strings as usize
     }
 
-    pub fn get(&self, ix: usize) -> Option<String> {
+    pub fn get(&self, ix: usize) -> Option<String>
+    where
+        M: AsRef<[u8]>,
+    {
         if (ix as u64) < self.n_strings {
             let block_index = ix / BLOCK_SIZE;
             let block_offset = if block_index == 0 {
@@ -290,7 +305,10 @@ impl<M: AsRef<[u8]> + Clone> PfcDict<M> {
         }
     }
 
-    pub fn id(&self, s: &str) -> Option<u64> {
+    pub fn id(&self, s: &str) -> Option<u64>
+    where
+        M: AsRef<[u8]>,
+    {
         // let's binary search
         let mut min = 0;
         let mut max = self.block_offsets.len();
@@ -360,7 +378,7 @@ impl<M: AsRef<[u8]> + Clone> PfcDict<M> {
     }
 }
 
-pub struct PfcDictFileBuilder<W: tokio::io::AsyncWrite + Send> {
+pub struct PfcDictFileBuilder<W> {
     /// the file that this builder writes the pfc blocks to
     pfc_blocks_file: W,
     /// the file that this builder writes the block offsets to
@@ -373,7 +391,7 @@ pub struct PfcDictFileBuilder<W: tokio::io::AsyncWrite + Send> {
     index: Vec<u64>,
 }
 
-impl<W: 'static + tokio::io::AsyncWrite + Send> PfcDictFileBuilder<W> {
+impl<W> PfcDictFileBuilder<W> {
     pub fn new(pfc_blocks_file: W, pfc_block_offsets_file: W) -> PfcDictFileBuilder<W> {
         PfcDictFileBuilder {
             pfc_blocks_file,
@@ -384,6 +402,9 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> PfcDictFileBuilder<W> {
             index: Vec::new(),
         }
     }
+}
+
+impl<W: 'static + AsyncWrite + Send> PfcDictFileBuilder<W> {
     pub fn add(
         self,
         s: &str,

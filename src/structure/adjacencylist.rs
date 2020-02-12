@@ -19,12 +19,12 @@ use crate::storage::*;
 use tokio::prelude::*;
 
 #[derive(Clone)]
-pub struct AdjacencyList<M: AsRef<[u8]> + Clone> {
+pub struct AdjacencyList<M> {
     pub nums: LogArray<M>,
     pub bits: BitIndex<M>,
 }
 
-impl<M: AsRef<[u8]> + Clone> AdjacencyList<M> {
+impl<M> AdjacencyList<M> {
     pub fn from_parts(nums: LogArray<M>, bits: BitIndex<M>) -> AdjacencyList<M> {
         debug_assert_eq!(nums.len(), bits.len());
         AdjacencyList { nums, bits }
@@ -35,7 +35,10 @@ impl<M: AsRef<[u8]> + Clone> AdjacencyList<M> {
         bits_slice: M,
         bits_block_slice: M,
         bits_sblock_slice: M,
-    ) -> AdjacencyList<M> {
+    ) -> AdjacencyList<M>
+    where
+        M: AsRef<[u8]>,
+    {
         let nums = LogArray::parse(nums_slice).unwrap();
         let bit_array = BitArray::from_bits(bits_slice);
         let bits_block_array = LogArray::parse(bits_block_slice).unwrap();
@@ -45,7 +48,10 @@ impl<M: AsRef<[u8]> + Clone> AdjacencyList<M> {
         Self::from_parts(nums, bits)
     }
 
-    pub fn left_count(&self) -> usize {
+    pub fn left_count(&self) -> usize
+    where
+        M: AsRef<[u8]>,
+    {
         if self.bits.len() == 0 {
             0
         } else {
@@ -57,7 +63,10 @@ impl<M: AsRef<[u8]> + Clone> AdjacencyList<M> {
         self.bits.len()
     }
 
-    pub fn offset_for(&self, index: u64) -> u64 {
+    pub fn offset_for(&self, index: u64) -> u64
+    where
+        M: AsRef<[u8]>,
+    {
         if index == 1 {
             0
         } else {
@@ -65,7 +74,10 @@ impl<M: AsRef<[u8]> + Clone> AdjacencyList<M> {
         }
     }
 
-    pub fn pair_at_pos(&self, pos: u64) -> (u64, u64) {
+    pub fn pair_at_pos(&self, pos: u64) -> (u64, u64)
+    where
+        M: AsRef<[u8]>,
+    {
         let left = if pos == 0 {
             0
         } else {
@@ -76,7 +88,10 @@ impl<M: AsRef<[u8]> + Clone> AdjacencyList<M> {
         (left, right)
     }
 
-    pub fn get(&self, index: u64) -> LogArraySlice<M> {
+    pub fn get(&self, index: u64) -> LogArraySlice<M>
+    where
+        M: AsRef<[u8]> + Clone,
+    {
         if index < 1 {
             panic!("minimum index has to be 1");
         }
@@ -88,7 +103,10 @@ impl<M: AsRef<[u8]> + Clone> AdjacencyList<M> {
         self.nums.slice(start as usize, length as usize)
     }
 
-    pub fn iter(&self) -> AdjacencyListIterator<M> {
+    pub fn iter(&self) -> AdjacencyListIterator<M>
+    where
+        M: Clone,
+    {
         AdjacencyListIterator {
             pos: 0,
             left: 1,
@@ -106,14 +124,14 @@ impl<M: AsRef<[u8]> + Clone> AdjacencyList<M> {
     }
 }
 
-pub struct AdjacencyListIterator<M: AsRef<[u8]> + Clone> {
+pub struct AdjacencyListIterator<M> {
     pos: usize,
     left: u64,
     bits: BitIndex<M>,
     nums: LogArray<M>,
 }
 
-impl<M: AsRef<[u8]> + Clone> Iterator for AdjacencyListIterator<M> {
+impl<M: AsRef<[u8]>> Iterator for AdjacencyListIterator<M> {
     type Item = (u64, u64);
 
     fn next(&mut self) -> Option<(u64, u64)> {
@@ -141,12 +159,12 @@ impl<M: AsRef<[u8]> + Clone> Iterator for AdjacencyListIterator<M> {
     }
 }
 
-pub struct AdjacencyBitCountStream<S: Stream<Item = bool, Error = std::io::Error>> {
+pub struct AdjacencyBitCountStream<S> {
     stream: S,
     count: u64,
 }
 
-impl<S: Stream<Item = bool, Error = std::io::Error>> AdjacencyBitCountStream<S> {
+impl<S> AdjacencyBitCountStream<S> {
     fn new(stream: S, offset: u64) -> Self {
         AdjacencyBitCountStream {
             stream,
@@ -177,7 +195,7 @@ impl<S: Stream<Item = bool, Error = std::io::Error>> Stream for AdjacencyBitCoun
     }
 }
 
-pub fn adjacency_list_stream_pairs<F: FileLoad + Clone>(
+pub fn adjacency_list_stream_pairs<F: FileLoad>(
     bits_file: F,
     nums_file: F,
 ) -> impl Stream<Item = (u64, u64), Error = std::io::Error> {
@@ -186,13 +204,7 @@ pub fn adjacency_list_stream_pairs<F: FileLoad + Clone>(
         .filter(|(_, right)| *right != 0)
 }
 
-pub struct AdjacencyListBuilder<F, W1, W2, W3>
-where
-    F: 'static + FileLoad + FileStore,
-    W1: 'static + AsyncWrite + Send,
-    W2: 'static + AsyncWrite + Send,
-    W3: 'static + AsyncWrite + Send,
-{
+pub struct AdjacencyListBuilder<F: FileStore, W1, W2, W3> {
     bitfile: F,
     bitarray: BitArrayFileBuilder<F::Write>,
     bitindex_blocks: W1,
@@ -202,13 +214,7 @@ where
     last_right: u64,
 }
 
-impl<F, W1, W2, W3> AdjacencyListBuilder<F, W1, W2, W3>
-where
-    F: 'static + FileLoad + FileStore,
-    W1: 'static + AsyncWrite + Send,
-    W2: 'static + AsyncWrite + Send,
-    W3: 'static + AsyncWrite + Send,
-{
+impl<F: FileStore, W1, W2, W3> AdjacencyListBuilder<F, W1, W2, W3> {
     pub fn new(
         bitfile: F,
         bitindex_blocks: W1,
@@ -231,6 +237,18 @@ where
         }
     }
 
+    pub fn count(&self) -> u64 {
+        self.bitarray.count()
+    }
+}
+
+impl<F, W1, W2, W3> AdjacencyListBuilder<F, W1, W2, W3>
+where
+    F: 'static + FileLoad + FileStore,
+    W1: 'static + AsyncWrite + Send,
+    W2: 'static + AsyncWrite + Send,
+    W3: 'static + AsyncWrite + Send,
+{
     pub fn push(self, left: u64, right: u64) -> impl Future<Item = Self, Error = std::io::Error> {
         // the tricky thing with this code is that the bitarray lags one entry behind the logarray.
         // The reason for this is that at push time, we do not yet know if this entry is going to be
@@ -322,10 +340,6 @@ where
                 build_bitindex(bitfile.open_read(), bitindex_blocks, bitindex_sblocks)
             })
             .map(|_| ())
-    }
-
-    pub fn count(&self) -> u64 {
-        self.bitarray.count()
     }
 }
 
