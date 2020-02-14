@@ -1,6 +1,6 @@
 //! Common data structures and traits for all layer types.
-use std::hash::Hash;
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::iter::Peekable;
 
 /// A layer containing dictionary entries and triples.
@@ -8,9 +8,9 @@ use std::iter::Peekable;
 /// A layer can be queried. To answer queries, layers will check their
 /// own data structures, and if they have a parent, the parent is
 /// queried as well.
-pub trait Layer: Send+Sync {
+pub trait Layer: Send + Sync {
     /// The name of this layer.
-    fn name(&self) -> [u32;5];
+    fn name(&self) -> [u32; 5];
 
     /// The parent of this layer, or None if this is a base layer.
     fn parent(&self) -> Option<&dyn Layer>;
@@ -61,19 +61,23 @@ pub trait Layer: Send+Sync {
     /// `SubjectLookup`. Each such object stores a
     /// subject id, and knows how to retrieve any linked
     /// predicate-object pair.
-    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subjects(&self) -> Box<dyn Iterator<Item = Box<dyn SubjectLookup>>> {
         let mut layers = Vec::new();
-        layers.push((self.subject_additions().peekable(), self.subject_removals().peekable()));
+        layers.push((
+            self.subject_additions().peekable(),
+            self.subject_removals().peekable(),
+        ));
         let mut cur = self.parent();
 
         while cur.is_some() {
-            layers.push((cur.unwrap().subject_additions().peekable(),cur.unwrap().subject_removals().peekable()));
+            layers.push((
+                cur.unwrap().subject_additions().peekable(),
+                cur.unwrap().subject_removals().peekable(),
+            ));
             cur = cur.unwrap().parent();
         }
 
-        let it = GenericSubjectIterator {
-            layers
-        };
+        let it = GenericSubjectIterator { layers };
 
         Box::new(it.map(|s| Box::new(s) as Box<dyn SubjectLookup>))
     }
@@ -84,7 +88,7 @@ pub trait Layer: Send+Sync {
     /// `SubjectLookup`. Each such object stores a
     /// subject id, and knows how to retrieve any linked
     /// predicate-object pair.
-    fn subject_additions(&self) -> Box<dyn Iterator<Item=Box<dyn LayerSubjectLookup>>>;
+    fn subject_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>>;
 
     /// Returns an iterator over all triple data removed by this layer.
     ///
@@ -92,7 +96,7 @@ pub trait Layer: Send+Sync {
     /// `SubjectLookup`. Each such object stores a
     /// subject id, and knows how to retrieve any linked
     /// predicate-object pair.
-    fn subject_removals(&self) -> Box<dyn Iterator<Item=Box<dyn LayerSubjectLookup>>>;
+    fn subject_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>>;
 
     /// Returns a `SubjectLookup` object for the given subject, or None if it cannot be constructed.
     ///
@@ -126,10 +130,9 @@ pub trait Layer: Send+Sync {
         if lookups.iter().any(|(pos, _neg)| pos.is_some()) {
             Some(Box::new(GenericSubjectLookup {
                 subject: subject,
-                lookups: lookups
+                lookups: lookups,
             }) as Box<dyn SubjectLookup>)
-        }
-        else {
+        } else {
             None
         }
     }
@@ -154,19 +157,23 @@ pub trait Layer: Send+Sync {
     /// Objects are returned as an `ObjectLookup`, an object that can
     /// then be queried for subject-predicate pairs pointing to that
     /// object.
-    fn objects(&self) -> Box<dyn Iterator<Item=Box<dyn ObjectLookup>>> {
+    fn objects(&self) -> Box<dyn Iterator<Item = Box<dyn ObjectLookup>>> {
         let mut layers = Vec::new();
-        layers.push((self.object_additions().peekable(), self.object_removals().peekable()));
+        layers.push((
+            self.object_additions().peekable(),
+            self.object_removals().peekable(),
+        ));
         let mut cur = self.parent();
 
         while cur.is_some() {
-            layers.push((cur.unwrap().object_additions().peekable(),cur.unwrap().object_removals().peekable()));
+            layers.push((
+                cur.unwrap().object_additions().peekable(),
+                cur.unwrap().object_removals().peekable(),
+            ));
             cur = cur.unwrap().parent();
         }
 
-        let it = GenericObjectIterator {
-            layers
-        };
+        let it = GenericObjectIterator { layers };
 
         Box::new(it.map(|s| Box::new(s) as Box<dyn ObjectLookup>))
     }
@@ -176,14 +183,14 @@ pub trait Layer: Send+Sync {
     /// Objects are returned as an `ObjectLookup`, an object that can
     /// then be queried for subject-predicate pairs pointing to that
     /// object.
-    fn object_additions(&self) -> Box<dyn Iterator<Item=Box<dyn LayerObjectLookup>>>;
+    fn object_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>>;
 
     /// Returns an iterator over all objects removed by this layer.
     ///
     /// Objects are returned as an `ObjectLookup`, an object that can
     /// then be queried for subject-predicate pairs pointing to that
     /// object.
-    fn object_removals(&self) -> Box<dyn Iterator<Item=Box<dyn LayerObjectLookup>>>;
+    fn object_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>>;
 
     /// Returns an `ObjectLookup` for the given object, or None if it could not be constructed.
     ///
@@ -195,7 +202,7 @@ pub trait Layer: Send+Sync {
     /// layers may have then removed every triple involving this
     /// object.
     fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
-       let mut lookups = Vec::new();
+        let mut lookups = Vec::new();
 
         let addition = self.lookup_object_addition(object);
         let removal = self.lookup_object_removal(object);
@@ -215,13 +222,9 @@ pub trait Layer: Send+Sync {
             cur = cur.unwrap().parent();
         }
 
-        if lookups.iter().any(|(pos, _neg)|pos.is_some()) {
-            Some(Box::new(GenericObjectLookup {
-                object,
-                lookups
-            }))
-        }
-        else {
+        if lookups.iter().any(|(pos, _neg)| pos.is_some()) {
+            Some(Box::new(GenericObjectLookup { object, lookups }))
+        } else {
             None
         }
     }
@@ -268,10 +271,9 @@ pub trait Layer: Send+Sync {
         if lookups.iter().any(|(pos, _neg)| pos.is_some()) {
             Some(Box::new(GenericPredicateLookup {
                 predicate: predicate,
-                lookups: lookups
+                lookups: lookups,
             }) as Box<dyn PredicateLookup>)
-        }
-        else {
+        } else {
             None
         }
     }
@@ -298,27 +300,42 @@ pub trait Layer: Send+Sync {
             value_count += parent.value_dict_len();
             parent_option = parent.parent();
         }
-        LayerCounts { node_count, predicate_count, value_count }
+        LayerCounts {
+            node_count,
+            predicate_count,
+            value_count,
+        }
     }
 
-    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn PredicateLookup>>> {
+    fn predicates(&self) -> Box<dyn Iterator<Item = Box<dyn PredicateLookup>>> {
         let cloned = self.clone_boxed();
-        Box::new((1..=self.predicate_count()).map(move |p|cloned.lookup_predicate(p as u64)).flatten())
+        Box::new(
+            (1..=self.predicate_count())
+                .map(move |p| cloned.lookup_predicate(p as u64))
+                .flatten(),
+        )
     }
 
-    fn predicate_additions(&self) -> Box<dyn Iterator<Item=Box<dyn LayerPredicateLookup>>> {
+    fn predicate_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerPredicateLookup>>> {
         let cloned = self.clone_boxed();
-        Box::new((1..=self.predicate_count()).map(move |p|cloned.lookup_predicate_addition(p as u64)).flatten())
+        Box::new(
+            (1..=self.predicate_count())
+                .map(move |p| cloned.lookup_predicate_addition(p as u64))
+                .flatten(),
+        )
     }
 
-    fn predicate_removals(&self) -> Box<dyn Iterator<Item=Box<dyn LayerPredicateLookup>>> {
+    fn predicate_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerPredicateLookup>>> {
         let cloned = self.clone_boxed();
-        Box::new((1..=self.predicate_count()).map(move |p|cloned.lookup_predicate_removal(p as u64)).flatten())
+        Box::new(
+            (1..=self.predicate_count())
+                .map(move |p| cloned.lookup_predicate_removal(p as u64))
+                .flatten(),
+        )
     }
 
     /// Return a clone of this layer in a box.
     fn clone_boxed(&self) -> Box<dyn Layer>;
-
 
     /// Returns true if the given triple exists, and false otherwise.
     fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
@@ -345,62 +362,78 @@ pub trait Layer: Send+Sync {
     /// This is a convenient werapper around
     /// `SubjectLookup` and
     /// `SubjectPredicateLookup` style querying.
-    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
-        Box::new(self.subjects().map(|s|s.predicates()).flatten()
-                 .map(|p|p.triples()).flatten())
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+        Box::new(
+            self.subjects()
+                .map(|s| s.predicates())
+                .flatten()
+                .map(|p| p.triples())
+                .flatten(),
+        )
     }
 
     /// Convert a `StringTriple` to an `IdTriple`, returning None if any of the strings in the triple could not be resolved.
     fn string_triple_to_id(&self, triple: &StringTriple) -> Option<IdTriple> {
-        self.subject_id(&triple.subject)
-            .and_then(|subject| self.predicate_id(&triple.predicate)
-                      .and_then(|predicate| match &triple.object {
-                          ObjectType::Node(node) => self.object_node_id(&node),
-                          ObjectType::Value(value) => self.object_value_id(&value)
-                      }.map(|object| IdTriple {
-                          subject,
-                          predicate,
-                          object
-                      })))
+        self.subject_id(&triple.subject).and_then(|subject| {
+            self.predicate_id(&triple.predicate).and_then(|predicate| {
+                match &triple.object {
+                    ObjectType::Node(node) => self.object_node_id(&node),
+                    ObjectType::Value(value) => self.object_value_id(&value),
+                }
+                .map(|object| IdTriple {
+                    subject,
+                    predicate,
+                    object,
+                })
+            })
+        })
     }
 
     /// Convert all known strings in the given string triple to ids.
-    fn string_triple_to_partially_resolved(&self, triple: &StringTriple) -> PartiallyResolvedTriple {
+    fn string_triple_to_partially_resolved(
+        &self,
+        triple: &StringTriple,
+    ) -> PartiallyResolvedTriple {
         PartiallyResolvedTriple {
-            subject: self.subject_id(&triple.subject)
+            subject: self
+                .subject_id(&triple.subject)
                 .map(|id| PossiblyResolved::Resolved(id))
                 .unwrap_or(PossiblyResolved::Unresolved(triple.subject.clone())),
-            predicate: self.predicate_id(&triple.predicate)
+            predicate: self
+                .predicate_id(&triple.predicate)
                 .map(|id| PossiblyResolved::Resolved(id))
                 .unwrap_or(PossiblyResolved::Unresolved(triple.predicate.clone())),
             object: match &triple.object {
-                ObjectType::Node(node) => self.object_node_id(&node)
+                ObjectType::Node(node) => self
+                    .object_node_id(&node)
                     .map(|id| PossiblyResolved::Resolved(id))
                     .unwrap_or(PossiblyResolved::Unresolved(triple.object.clone())),
-                ObjectType::Value(value) => self.object_value_id(&value)
+                ObjectType::Value(value) => self
+                    .object_value_id(&value)
                     .map(|id| PossiblyResolved::Resolved(id))
                     .unwrap_or(PossiblyResolved::Unresolved(triple.object.clone())),
-            }
+            },
         }
     }
 
     /// Convert an id triple to the corresponding string version, returning None if any of those ids could not be converted.
     fn id_triple_to_string(&self, triple: &IdTriple) -> Option<StringTriple> {
-        self.id_subject(triple.subject)
-            .and_then(|subject| self.id_predicate(triple.predicate)
-                      .and_then(|predicate| self.id_object(triple.object)
-                                .map(|object| StringTriple {
-                                    subject,
-                                    predicate,
-                                    object
-                                })))
+        self.id_subject(triple.subject).and_then(|subject| {
+            self.id_predicate(triple.predicate).and_then(|predicate| {
+                self.id_object(triple.object).map(|object| StringTriple {
+                    subject,
+                    predicate,
+                    object,
+                })
+            })
+        })
     }
 
     /// Returns true if the given layer is an ancestor of this layer, false otherwise.
     fn is_ancestor_of(&self, other: &dyn Layer) -> bool {
         match other.parent() {
             None => false,
-            Some(parent) => parent.name() == self.name() || self.is_ancestor_of(&*parent)
+            Some(parent) => parent.name() == self.name() || self.is_ancestor_of(&*parent),
         }
     }
 }
@@ -408,18 +441,21 @@ pub trait Layer: Send+Sync {
 pub struct LayerCounts {
     pub node_count: usize,
     pub predicate_count: usize,
-    pub value_count: usize
+    pub value_count: usize,
 }
 
 /// The type of a layer - either base or child.
-#[derive(Clone,Copy)]
+#[derive(Clone, Copy)]
 pub enum LayerType {
     Base,
-    Child
+    Child,
 }
 
 struct GenericSubjectIterator {
-    layers: Vec<(Peekable<Box<dyn Iterator<Item=Box<dyn LayerSubjectLookup>>>>,Peekable<Box<dyn Iterator<Item=Box<dyn LayerSubjectLookup>>>>)>
+    layers: Vec<(
+        Peekable<Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>>>,
+        Peekable<Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>>>,
+    )>,
 }
 
 impl Iterator for GenericSubjectIterator {
@@ -429,7 +465,7 @@ impl Iterator for GenericSubjectIterator {
         // find the very lowest subject
         let mut min = None;
         for (pos, _neg) in self.layers.iter_mut() {
-            let pos_subject = pos.peek().map(|lookup|lookup.subject());
+            let pos_subject = pos.peek().map(|lookup| lookup.subject());
 
             if pos_subject.is_some() && (min.is_none() || pos_subject < min) {
                 min = pos_subject;
@@ -443,15 +479,25 @@ impl Iterator for GenericSubjectIterator {
 
         // now collect a vec of lookups
         let min = min.unwrap();
-        let lookups = self.layers.iter_mut()
+        let lookups = self
+            .layers
+            .iter_mut()
             .map(|(pos, neg)| {
-                let pos_subject = match pos.peek().map(|lookup|min == lookup.subject()).unwrap_or(false) {
+                let pos_subject = match pos
+                    .peek()
+                    .map(|lookup| min == lookup.subject())
+                    .unwrap_or(false)
+                {
                     true => pos.next(),
-                    false => None
+                    false => None,
                 };
-                let neg_subject = match neg.peek().map(|lookup|min == lookup.subject()).unwrap_or(false) {
+                let neg_subject = match neg
+                    .peek()
+                    .map(|lookup| min == lookup.subject())
+                    .unwrap_or(false)
+                {
                     true => neg.next(),
-                    false => None
+                    false => None,
                 };
 
                 (pos_subject, neg_subject)
@@ -461,7 +507,7 @@ impl Iterator for GenericSubjectIterator {
 
         Some(GenericSubjectLookup {
             subject: min,
-            lookups: lookups
+            lookups: lookups,
         })
     }
 }
@@ -476,12 +522,12 @@ pub trait LayerSubjectLookup {
     /// The subject that this lookup is based on
     fn subject(&self) -> u64;
     /// Returns an iterator over predicate lookups
-    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn LayerSubjectPredicateLookup>>>;
+    fn predicates(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectPredicateLookup>>>;
     /// Returns a predicate lookup for the given predicate, or None if no such lookup could be constructed
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn LayerSubjectPredicateLookup>>;
     /// Returns an iterator over all triples that can be found by this lookup
-    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
-        Box::new(self.predicates().map(|p|p.triples()).flatten())
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+        Box::new(self.predicates().map(|p| p.triples()).flatten())
     }
 }
 
@@ -499,24 +545,26 @@ pub trait LayerSubjectPredicateLookup {
     fn predicate(&self) -> u64;
 
     /// Returns an iterator over all objects that can be found by this lookup.
-    fn objects(&self) -> Box<dyn Iterator<Item=u64>>;
+    fn objects(&self) -> Box<dyn Iterator<Item = u64>>;
 
     /// Returns true if the given object exists, and false otherwise.
     fn has_object(&self, object: u64) -> bool;
 
     /// Returns an iterator over all triples that can be found by this lookup.
-    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
         let subject = self.subject();
         let predicate = self.predicate();
-        Box::new(self.objects().map(move |o| IdTriple::new(subject, predicate, o)))
+        Box::new(
+            self.objects()
+                .map(move |o| IdTriple::new(subject, predicate, o)),
+        )
     }
 
     /// Returns a triple for the given object, or None if it doesn't exist.
     fn triple(&self, object: u64) -> Option<IdTriple> {
         if self.has_object(object) {
             Some(IdTriple::new(self.subject(), self.predicate(), object))
-        }
-        else {
+        } else {
             None
         }
     }
@@ -532,7 +580,7 @@ pub trait SubjectLookup {
     /// The subject that this lookup is based on
     fn subject(&self) -> u64;
     /// Returns an iterator over predicate lookups
-    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>>;
+    fn predicates(&self) -> Box<dyn Iterator<Item = Box<dyn SubjectPredicateLookup>>>;
     /// Returns a predicate lookup for the given predicate, or None if no such lookup could be constructed
     ///
     /// Note that even when it can be constructed, that doesn't mean
@@ -542,15 +590,18 @@ pub trait SubjectLookup {
     /// all these triples, none will be retrievable.
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn SubjectPredicateLookup>>;
     /// Returns an iterator over all triples that can be found by this lookup
-    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
-        Box::new(self.predicates().map(|p|p.triples()).flatten())
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+        Box::new(self.predicates().map(|p| p.triples()).flatten())
     }
 }
 
 /// A SubjectLookup that is implemented in terms of addition and removal lookups
 struct GenericSubjectLookup {
     subject: u64,
-    lookups: Vec<(Option<Box<dyn LayerSubjectLookup>>,Option<Box<dyn LayerSubjectLookup>>)>
+    lookups: Vec<(
+        Option<Box<dyn LayerSubjectLookup>>,
+        Option<Box<dyn LayerSubjectLookup>>,
+    )>,
 }
 
 impl SubjectLookup for GenericSubjectLookup {
@@ -558,28 +609,49 @@ impl SubjectLookup for GenericSubjectLookup {
         self.subject
     }
 
-    fn predicates(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
-        let layers = self.lookups.iter()
-            .map(|(pos, neg)| (pos.as_ref()
-                               .map(|p|Box::new(p.predicates()) as Box<dyn Iterator<Item=Box<dyn LayerSubjectPredicateLookup>>>)
-                               .unwrap_or(Box::new(std::iter::empty()))
-                               .peekable(),
-                               neg.as_ref()
-                               .map(|n|Box::new(n.predicates()) as Box<dyn Iterator<Item=Box<dyn LayerSubjectPredicateLookup>>>)
-                               .unwrap_or(Box::new(std::iter::empty()))
-                               .peekable()))
+    fn predicates(&self) -> Box<dyn Iterator<Item = Box<dyn SubjectPredicateLookup>>> {
+        let layers = self
+            .lookups
+            .iter()
+            .map(|(pos, neg)| {
+                (
+                    pos.as_ref()
+                        .map(|p| {
+                            Box::new(p.predicates())
+                                as Box<dyn Iterator<Item = Box<dyn LayerSubjectPredicateLookup>>>
+                        })
+                        .unwrap_or(Box::new(std::iter::empty()))
+                        .peekable(),
+                    neg.as_ref()
+                        .map(|n| {
+                            Box::new(n.predicates())
+                                as Box<dyn Iterator<Item = Box<dyn LayerSubjectPredicateLookup>>>
+                        })
+                        .unwrap_or(Box::new(std::iter::empty()))
+                        .peekable(),
+                )
+            })
             .collect();
 
-        Box::new(GenericSubjectPredicateIterator {
-            subject: self.subject,
-            layers: layers
-        }.map(|lookup|Box::new(lookup) as Box<dyn SubjectPredicateLookup>))
+        Box::new(
+            GenericSubjectPredicateIterator {
+                subject: self.subject,
+                layers: layers,
+            }
+            .map(|lookup| Box::new(lookup) as Box<dyn SubjectPredicateLookup>),
+        )
     }
 
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn SubjectPredicateLookup>> {
-        let lookups: Vec<_> = self.lookups.iter()
-            .map(|(pos, neg)| (pos.as_ref().and_then(|p|p.lookup_predicate(predicate)),
-                               neg.as_ref().and_then(|n|n.lookup_predicate(predicate))))
+        let lookups: Vec<_> = self
+            .lookups
+            .iter()
+            .map(|(pos, neg)| {
+                (
+                    pos.as_ref().and_then(|p| p.lookup_predicate(predicate)),
+                    neg.as_ref().and_then(|n| n.lookup_predicate(predicate)),
+                )
+            })
             .filter(|(pos, neg)| pos.is_some() || neg.is_some())
             .collect();
 
@@ -587,10 +659,9 @@ impl SubjectLookup for GenericSubjectLookup {
             Some(Box::new(GenericSubjectPredicateLookup {
                 subject: self.subject,
                 predicate: predicate,
-                lookups: lookups
+                lookups: lookups,
             }))
-        }
-        else {
+        } else {
             None
         }
     }
@@ -598,7 +669,10 @@ impl SubjectLookup for GenericSubjectLookup {
 
 struct GenericSubjectPredicateIterator {
     subject: u64,
-    layers: Vec<(Peekable<Box<dyn Iterator<Item=Box<dyn LayerSubjectPredicateLookup>>>>,Peekable<Box<dyn Iterator<Item=Box<dyn LayerSubjectPredicateLookup>>>>)>
+    layers: Vec<(
+        Peekable<Box<dyn Iterator<Item = Box<dyn LayerSubjectPredicateLookup>>>>,
+        Peekable<Box<dyn Iterator<Item = Box<dyn LayerSubjectPredicateLookup>>>>,
+    )>,
 }
 
 impl Iterator for GenericSubjectPredicateIterator {
@@ -608,7 +682,7 @@ impl Iterator for GenericSubjectPredicateIterator {
         // find the very lowest predicate
         let mut min = None;
         for (pos, _neg) in self.layers.iter_mut() {
-            let pos_predicate = pos.peek().map(|lookup|lookup.predicate());
+            let pos_predicate = pos.peek().map(|lookup| lookup.predicate());
 
             if pos_predicate.is_some() && (min.is_none() || pos_predicate < min) {
                 min = pos_predicate;
@@ -622,15 +696,25 @@ impl Iterator for GenericSubjectPredicateIterator {
 
         // now collect a vec of lookups
         let min = min.unwrap();
-        let lookups = self.layers.iter_mut()
+        let lookups = self
+            .layers
+            .iter_mut()
             .map(|(pos, neg)| {
-                let pos_predicate = match pos.peek().map(|lookup|min == lookup.predicate()).unwrap_or(false) {
+                let pos_predicate = match pos
+                    .peek()
+                    .map(|lookup| min == lookup.predicate())
+                    .unwrap_or(false)
+                {
                     true => pos.next(),
-                    false => None
+                    false => None,
                 };
-                let neg_predicate = match neg.peek().map(|lookup|min == lookup.predicate()).unwrap_or(false) {
+                let neg_predicate = match neg
+                    .peek()
+                    .map(|lookup| min == lookup.predicate())
+                    .unwrap_or(false)
+                {
                     true => neg.next(),
-                    false => None
+                    false => None,
                 };
 
                 (pos_predicate, neg_predicate)
@@ -641,7 +725,7 @@ impl Iterator for GenericSubjectPredicateIterator {
         Some(GenericSubjectPredicateLookup {
             subject: self.subject,
             predicate: min,
-            lookups: lookups
+            lookups: lookups,
         })
     }
 }
@@ -660,7 +744,7 @@ pub trait SubjectPredicateLookup {
     fn predicate(&self) -> u64;
 
     /// Returns an iterator over all objects that can be found by this lookup.
-    fn objects(&self) -> Box<dyn Iterator<Item=u64>>;
+    fn objects(&self) -> Box<dyn Iterator<Item = u64>>;
 
     /// Returns true if the given object exists in the additions and false otherwise.
     fn has_pos_object_in_lookup(&self, object: u64) -> bool;
@@ -672,18 +756,20 @@ pub trait SubjectPredicateLookup {
     fn has_object(&self, object: u64) -> bool;
 
     /// Returns an iterator over all triples that can be found by this lookup.
-    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
         let subject = self.subject();
         let predicate = self.predicate();
-        Box::new(self.objects().map(move |o| IdTriple::new(subject, predicate, o)))
+        Box::new(
+            self.objects()
+                .map(move |o| IdTriple::new(subject, predicate, o)),
+        )
     }
 
     /// Returns a triple for the given object, or None if it doesn't exist.
     fn triple(&self, object: u64) -> Option<IdTriple> {
         if self.has_object(object) {
             Some(IdTriple::new(self.subject(), self.predicate(), object))
-        }
-        else {
+        } else {
             None
         }
     }
@@ -692,7 +778,10 @@ pub trait SubjectPredicateLookup {
 struct GenericSubjectPredicateLookup {
     subject: u64,
     predicate: u64,
-    lookups: Vec<(Option<Box<dyn LayerSubjectPredicateLookup>>, Option<Box<dyn LayerSubjectPredicateLookup>>)>
+    lookups: Vec<(
+        Option<Box<dyn LayerSubjectPredicateLookup>>,
+        Option<Box<dyn LayerSubjectPredicateLookup>>,
+    )>,
 }
 
 impl SubjectPredicateLookup for GenericSubjectPredicateLookup {
@@ -704,33 +793,38 @@ impl SubjectPredicateLookup for GenericSubjectPredicateLookup {
         self.predicate
     }
 
-    
-    fn objects(&self) -> Box<dyn Iterator<Item=u64>> {
-        let layers = self.lookups.iter()
-            .map(|(pos, neg)| (pos.as_ref()
-                               .map(|p|Box::new(p.objects()) as Box<dyn Iterator<Item=u64>>)
-                               .unwrap_or(Box::new(std::iter::empty()))
-                               .peekable(),
-                               neg.as_ref()
-                               .map(|n|Box::new(n.objects()) as Box<dyn Iterator<Item=u64>>)
-                               .unwrap_or(Box::new(std::iter::empty()))
-                               .peekable()))
+    fn objects(&self) -> Box<dyn Iterator<Item = u64>> {
+        let layers = self
+            .lookups
+            .iter()
+            .map(|(pos, neg)| {
+                (
+                    pos.as_ref()
+                        .map(|p| Box::new(p.objects()) as Box<dyn Iterator<Item = u64>>)
+                        .unwrap_or(Box::new(std::iter::empty()))
+                        .peekable(),
+                    neg.as_ref()
+                        .map(|n| Box::new(n.objects()) as Box<dyn Iterator<Item = u64>>)
+                        .unwrap_or(Box::new(std::iter::empty()))
+                        .peekable(),
+                )
+            })
             .collect();
 
-        Box::new(GenericSubjectPredicateObjectIterator {
-            layers,
-        })
+        Box::new(GenericSubjectPredicateObjectIterator { layers })
     }
 
     fn has_pos_object_in_lookup(&self, object: u64) -> bool {
-        self.lookups.first()
+        self.lookups
+            .first()
             .and_then(|last| last.0.as_ref())
             .map(|pos| pos.has_object(object))
             .unwrap_or(false)
     }
 
     fn has_neg_object_in_lookup(&self, object: u64) -> bool {
-        self.lookups.first()
+        self.lookups
+            .first()
             .and_then(|last| last.1.as_ref())
             .map(|pos| pos.has_object(object))
             .unwrap_or(false)
@@ -738,10 +832,10 @@ impl SubjectPredicateLookup for GenericSubjectPredicateLookup {
 
     fn has_object(&self, object: u64) -> bool {
         for (pos, neg) in self.lookups.iter() {
-            if pos.as_ref().map(|p|p.has_object(object)).unwrap_or(false) {
+            if pos.as_ref().map(|p| p.has_object(object)).unwrap_or(false) {
                 return true;
             }
-            if neg.as_ref().map(|p|p.has_object(object)).unwrap_or(false) {
+            if neg.as_ref().map(|p| p.has_object(object)).unwrap_or(false) {
                 return false;
             }
         }
@@ -751,7 +845,10 @@ impl SubjectPredicateLookup for GenericSubjectPredicateLookup {
 }
 
 struct GenericSubjectPredicateObjectIterator {
-    layers: Vec<(Peekable<Box<dyn Iterator<Item=u64>>>,Peekable<Box<dyn Iterator<Item=u64>>>)>,
+    layers: Vec<(
+        Peekable<Box<dyn Iterator<Item = u64>>>,
+        Peekable<Box<dyn Iterator<Item = u64>>>,
+    )>,
 }
 
 impl Iterator for GenericSubjectPredicateObjectIterator {
@@ -764,16 +861,14 @@ impl Iterator for GenericSubjectPredicateObjectIterator {
             min = None;
             let mut deleted = false;
             for (pos, neg) in self.layers.iter_mut().rev() {
-                let pos_object = pos.peek().map(|o|*o);
-                let neg_object = neg.peek().map(|o|*o);
+                let pos_object = pos.peek().map(|o| *o);
+                let neg_object = neg.peek().map(|o| *o);
                 if pos_object.is_some() && (min.is_none() || pos_object < min) {
                     deleted = false;
                     min = pos_object;
-                }
-                else if deleted && pos_object.is_some() && pos_object == min {
+                } else if deleted && pos_object.is_some() && pos_object == min {
                     deleted = false;
-                }
-                else if neg_object == min {
+                } else if neg_object == min {
                     deleted = true;
                 }
             }
@@ -781,10 +876,14 @@ impl Iterator for GenericSubjectPredicateObjectIterator {
             // advance all iterators until they're either exhausted or beyond the min we found
             // if min is None, we need to exhaust everything
             for (pos, neg) in self.layers.iter_mut() {
-                while pos.peek().is_some() && (min.is_none() || pos.peek().map(|o|*o).unwrap() <= min.unwrap()) {
+                while pos.peek().is_some()
+                    && (min.is_none() || pos.peek().map(|o| *o).unwrap() <= min.unwrap())
+                {
                     pos.next().unwrap();
                 }
-                while neg.peek().is_some() && (min.is_none() || neg.peek().map(|o|*o).unwrap() <= min.unwrap()) {
+                while neg.peek().is_some()
+                    && (min.is_none() || neg.peek().map(|o| *o).unwrap() <= min.unwrap())
+                {
                     neg.next().unwrap();
                 }
             }
@@ -807,7 +906,7 @@ pub trait LayerObjectLookup {
     fn object(&self) -> u64;
 
     /// Returns an iterator over the subject-predicate pairs pointing at this object.
-    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=(u64, u64)>>;
+    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item = (u64, u64)>>;
 
     /// Returns true if the object this lookup is for is connected to the given subject and predicater.
     fn has_subject_predicate_pair(&self, subject: u64, predicate: u64) -> bool {
@@ -828,17 +927,18 @@ pub trait LayerObjectLookup {
     fn triple(&self, subject: u64, predicate: u64) -> Option<IdTriple> {
         if self.has_subject_predicate_pair(subject, predicate) {
             Some(IdTriple::new(subject, predicate, self.object()))
-        }
-        else {
+        } else {
             None
         }
     }
 
     /// Returns an iterator over all triples with the object of this lookup.
-    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
         let object = self.object();
-        Box::new(self.subject_predicate_pairs()
-                 .map(move |(s,p)| IdTriple::new(s,p,object)))
+        Box::new(
+            self.subject_predicate_pairs()
+                .map(move |(s, p)| IdTriple::new(s, p, object)),
+        )
     }
 }
 
@@ -848,7 +948,7 @@ pub trait ObjectLookup {
     fn object(&self) -> u64;
 
     /// Returns an iterator over the subject-predicate pairs pointing at this object.
-    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=(u64, u64)>>;
+    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item = (u64, u64)>>;
 
     /// Returns true if the object this lookup is for is connected to the given subject and predicater.
     fn has_subject_predicate_pair(&self, subject: u64, predicate: u64) -> bool {
@@ -869,22 +969,26 @@ pub trait ObjectLookup {
     fn triple(&self, subject: u64, predicate: u64) -> Option<IdTriple> {
         if self.has_subject_predicate_pair(subject, predicate) {
             Some(IdTriple::new(subject, predicate, self.object()))
-        }
-        else {
+        } else {
             None
         }
     }
 
     /// Returns an iterator over all triples with the object of this lookup.
-    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
         let object = self.object();
-        Box::new(self.subject_predicate_pairs()
-                 .map(move |(s,p)| IdTriple::new(s,p,object)))
+        Box::new(
+            self.subject_predicate_pairs()
+                .map(move |(s, p)| IdTriple::new(s, p, object)),
+        )
     }
 }
 
 struct GenericObjectIterator {
-    layers: Vec<(Peekable<Box<dyn Iterator<Item=Box<dyn LayerObjectLookup>>>>,Peekable<Box<dyn Iterator<Item=Box<dyn LayerObjectLookup>>>>)>
+    layers: Vec<(
+        Peekable<Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>>>,
+        Peekable<Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>>>,
+    )>,
 }
 
 impl Iterator for GenericObjectIterator {
@@ -893,7 +997,7 @@ impl Iterator for GenericObjectIterator {
     fn next(&mut self) -> Option<GenericObjectLookup> {
         let mut min = None;
         for (pos, _neg) in self.layers.iter_mut() {
-            let pos_object = pos.peek().map(|lookup|lookup.object());
+            let pos_object = pos.peek().map(|lookup| lookup.object());
 
             if pos_object.is_some() && (min.is_none() || pos_object < min) {
                 min = pos_object;
@@ -907,15 +1011,25 @@ impl Iterator for GenericObjectIterator {
 
         // now collect a vec of lookups
         let min = min.unwrap();
-        let lookups = self.layers.iter_mut()
+        let lookups = self
+            .layers
+            .iter_mut()
             .map(|(pos, neg)| {
-                let pos_object = match pos.peek().map(|lookup|min == lookup.object()).unwrap_or(false) {
+                let pos_object = match pos
+                    .peek()
+                    .map(|lookup| min == lookup.object())
+                    .unwrap_or(false)
+                {
                     true => pos.next(),
-                    false => None
+                    false => None,
                 };
-                let neg_object = match neg.peek().map(|lookup|min == lookup.object()).unwrap_or(false) {
+                let neg_object = match neg
+                    .peek()
+                    .map(|lookup| min == lookup.object())
+                    .unwrap_or(false)
+                {
                     true => neg.next(),
-                    false => None
+                    false => None,
                 };
 
                 (pos_object, neg_object)
@@ -925,14 +1039,17 @@ impl Iterator for GenericObjectIterator {
 
         Some(GenericObjectLookup {
             object: min,
-            lookups: lookups
+            lookups: lookups,
         })
     }
 }
 
 struct GenericObjectLookup {
     object: u64,
-    lookups: Vec<(Option<Box<dyn LayerObjectLookup>>,Option<Box<dyn LayerObjectLookup>>)>
+    lookups: Vec<(
+        Option<Box<dyn LayerObjectLookup>>,
+        Option<Box<dyn LayerObjectLookup>>,
+    )>,
 }
 
 impl ObjectLookup for GenericObjectLookup {
@@ -940,45 +1057,52 @@ impl ObjectLookup for GenericObjectLookup {
         self.object
     }
 
-    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=(u64, u64)>> {
-        let layers: Vec<_> = self.lookups.iter()
-            .map(|(pos, neg)| (pos.as_ref().map(|p|p.subject_predicate_pairs())
-                               .unwrap_or(Box::new(std::iter::empty()))
-                               .peekable(),
-                               neg.as_ref().map(|p|p.subject_predicate_pairs())
-                               .unwrap_or(Box::new(std::iter::empty()))
-                               .peekable()))
+    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item = (u64, u64)>> {
+        let layers: Vec<_> = self
+            .lookups
+            .iter()
+            .map(|(pos, neg)| {
+                (
+                    pos.as_ref()
+                        .map(|p| p.subject_predicate_pairs())
+                        .unwrap_or(Box::new(std::iter::empty()))
+                        .peekable(),
+                    neg.as_ref()
+                        .map(|p| p.subject_predicate_pairs())
+                        .unwrap_or(Box::new(std::iter::empty()))
+                        .peekable(),
+                )
+            })
             .collect();
 
-        Box::new(ObjectSubjectPredicatePairIterator {
-            layers
-        })
+        Box::new(ObjectSubjectPredicatePairIterator { layers })
     }
 }
 
 struct ObjectSubjectPredicatePairIterator {
-    layers: Vec<(Peekable<Box<dyn Iterator<Item=(u64,u64)>>>,Peekable<Box<dyn Iterator<Item=(u64,u64)>>>)>
+    layers: Vec<(
+        Peekable<Box<dyn Iterator<Item = (u64, u64)>>>,
+        Peekable<Box<dyn Iterator<Item = (u64, u64)>>>,
+    )>,
 }
 
 impl Iterator for ObjectSubjectPredicatePairIterator {
-    type Item = (u64,u64);
+    type Item = (u64, u64);
 
-    fn next(&mut self) -> Option<(u64,u64)> {
+    fn next(&mut self) -> Option<(u64, u64)> {
         let mut min;
         loop {
             min = None;
             let mut deleted = false;
             for (pos, neg) in self.layers.iter_mut().rev() {
-                let pos_sp = pos.peek().map(|s|*s);
-                let neg_sp = neg.peek().map(|s|*s);
+                let pos_sp = pos.peek().map(|s| *s);
+                let neg_sp = neg.peek().map(|s| *s);
                 if pos_sp.is_some() && (min.is_none() || pos_sp < min) {
                     deleted = false;
                     min = pos_sp;
-                }
-                else if deleted && pos_sp.is_some() && pos_sp == min {
+                } else if deleted && pos_sp.is_some() && pos_sp == min {
                     deleted = false;
-                }
-                else if neg_sp == min {
+                } else if neg_sp == min {
                     deleted = true;
                 }
             }
@@ -986,10 +1110,14 @@ impl Iterator for ObjectSubjectPredicatePairIterator {
             // advance all iterators until they're either exhausted or beyond the min we found
             // if min is None, we need to exhaust everything
             for (pos, neg) in self.layers.iter_mut() {
-                while pos.peek().is_some() && (min.is_none() || pos.peek().map(|s|*s).unwrap() <= min.unwrap()) {
+                while pos.peek().is_some()
+                    && (min.is_none() || pos.peek().map(|s| *s).unwrap() <= min.unwrap())
+                {
                     pos.next().unwrap();
                 }
-                while neg.peek().is_some() && (min.is_none() || neg.peek().map(|s|*s).unwrap() <= min.unwrap()) {
+                while neg.peek().is_some()
+                    && (min.is_none() || neg.peek().map(|s| *s).unwrap() <= min.unwrap())
+                {
                     neg.next().unwrap();
                 }
             }
@@ -1009,32 +1137,41 @@ impl Iterator for ObjectSubjectPredicatePairIterator {
 
 pub trait LayerPredicateLookup {
     fn predicate(&self) -> u64;
-    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=Box<dyn LayerSubjectPredicateLookup>>>;
+    fn subject_predicate_pairs(
+        &self,
+    ) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectPredicateLookup>>>;
 
     /// Returns an iterator over all triples with the object of this lookup.
-    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
-        Box::new(self.subject_predicate_pairs()
-                 .map(move |sp| sp.triples())
-                 .flatten())
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+        Box::new(
+            self.subject_predicate_pairs()
+                .map(move |sp| sp.triples())
+                .flatten(),
+        )
     }
 }
 
 /// A trait that caches a lookup in a layer by predicate.
 pub trait PredicateLookup {
     fn predicate(&self) -> u64;
-    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>>;
+    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item = Box<dyn SubjectPredicateLookup>>>;
 
     /// Returns an iterator over all triples with the object of this lookup.
-    fn triples(&self) -> Box<dyn Iterator<Item=IdTriple>> {
-        Box::new(self.subject_predicate_pairs()
-                 .map(move |sp| sp.triples())
-                 .flatten())
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+        Box::new(
+            self.subject_predicate_pairs()
+                .map(move |sp| sp.triples())
+                .flatten(),
+        )
     }
 }
 
 struct GenericPredicateLookup {
     predicate: u64,
-    lookups: Vec<(Option<Box<dyn LayerPredicateLookup>>, Option<Box<dyn LayerPredicateLookup>>)>
+    lookups: Vec<(
+        Option<Box<dyn LayerPredicateLookup>>,
+        Option<Box<dyn LayerPredicateLookup>>,
+    )>,
 }
 
 impl PredicateLookup for GenericPredicateLookup {
@@ -1042,26 +1179,40 @@ impl PredicateLookup for GenericPredicateLookup {
         self.predicate
     }
 
-    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectPredicateLookup>>> {
-        let layers: Vec<_> = self.lookups.iter()
-            .map(|(pos, neg)|(pos.as_ref().map(|p|p.subject_predicate_pairs())
-                              .unwrap_or(Box::new(std::iter::empty()))
-                              .peekable(),
-                              neg.as_ref().map(|n|n.subject_predicate_pairs())
-                              .unwrap_or(Box::new(std::iter::empty()))
-                              .peekable()))
+    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item = Box<dyn SubjectPredicateLookup>>> {
+        let layers: Vec<_> = self
+            .lookups
+            .iter()
+            .map(|(pos, neg)| {
+                (
+                    pos.as_ref()
+                        .map(|p| p.subject_predicate_pairs())
+                        .unwrap_or(Box::new(std::iter::empty()))
+                        .peekable(),
+                    neg.as_ref()
+                        .map(|n| n.subject_predicate_pairs())
+                        .unwrap_or(Box::new(std::iter::empty()))
+                        .peekable(),
+                )
+            })
             .collect();
 
-        Box::new(GenericSubjectPredicatePairIterator {
-            predicate: self.predicate,
-            layers: layers
-        }.map(|l| Box::new(l) as Box<dyn SubjectPredicateLookup>))
+        Box::new(
+            GenericSubjectPredicatePairIterator {
+                predicate: self.predicate,
+                layers: layers,
+            }
+            .map(|l| Box::new(l) as Box<dyn SubjectPredicateLookup>),
+        )
     }
 }
 
 struct GenericSubjectPredicatePairIterator {
     predicate: u64,
-    layers: Vec<(Peekable<Box<dyn Iterator<Item=Box<dyn LayerSubjectPredicateLookup>>>>,Peekable<Box<dyn Iterator<Item=Box<dyn LayerSubjectPredicateLookup>>>>)>
+    layers: Vec<(
+        Peekable<Box<dyn Iterator<Item = Box<dyn LayerSubjectPredicateLookup>>>>,
+        Peekable<Box<dyn Iterator<Item = Box<dyn LayerSubjectPredicateLookup>>>>,
+    )>,
 }
 
 impl Iterator for GenericSubjectPredicatePairIterator {
@@ -1070,7 +1221,7 @@ impl Iterator for GenericSubjectPredicatePairIterator {
     fn next(&mut self) -> Option<GenericSubjectPredicateLookup> {
         let mut min = None;
         for (pos, _neg) in self.layers.iter_mut() {
-            let subject = pos.peek().map(|l|l.subject());
+            let subject = pos.peek().map(|l| l.subject());
             if subject.is_some() && (min.is_none() || subject < min) {
                 min = subject;
             }
@@ -1079,16 +1230,16 @@ impl Iterator for GenericSubjectPredicatePairIterator {
         if min.is_none() {
             return None;
         }
-        
+
         let mut lookups = Vec::with_capacity(self.layers.len());
 
         for (pos, neg) in self.layers.iter_mut() {
             let mut pos_lookup = None;
-            if pos.peek().map(|l|l.subject()) == min {
+            if pos.peek().map(|l| l.subject()) == min {
                 pos_lookup = pos.next();
             }
             let mut neg_lookup = None;
-            if neg.peek().map(|l|l.subject()) == min {
+            if neg.peek().map(|l| l.subject()) == min {
                 neg_lookup = neg.next();
             }
 
@@ -1100,23 +1251,27 @@ impl Iterator for GenericSubjectPredicatePairIterator {
         Some(GenericSubjectPredicateLookup {
             subject: min.unwrap(),
             predicate: self.predicate,
-            lookups: lookups
+            lookups: lookups,
         })
     }
 }
 
 /// A triple, stored as numerical ids.
-#[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct IdTriple {
     pub subject: u64,
     pub predicate: u64,
-    pub object: u64
+    pub object: u64,
 }
 
 impl IdTriple {
     /// Construct a new id triple.
     pub fn new(subject: u64, predicate: u64, object: u64) -> Self {
-        IdTriple { subject, predicate, object }
+        IdTriple {
+            subject,
+            predicate,
+            object,
+        }
     }
 
     /// convert this triple into a `PartiallyResolvedTriple`, which is a data structure used in layer building.
@@ -1130,11 +1285,11 @@ impl IdTriple {
 }
 
 /// A triple stored as strings.
-#[derive(Debug,Clone,PartialEq,Eq,PartialOrd,Ord,Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StringTriple {
     pub subject: String,
     pub predicate: String,
-    pub object: ObjectType
+    pub object: ObjectType,
 }
 
 impl StringTriple {
@@ -1145,7 +1300,7 @@ impl StringTriple {
         StringTriple {
             subject: subject.to_owned(),
             predicate: predicate.to_owned(),
-            object: ObjectType::Node(object.to_owned())
+            object: ObjectType::Node(object.to_owned()),
         }
     }
 
@@ -1156,7 +1311,7 @@ impl StringTriple {
         StringTriple {
             subject: subject.to_owned(),
             predicate: predicate.to_owned(),
-            object: ObjectType::Value(object.to_owned())
+            object: ObjectType::Value(object.to_owned()),
         }
     }
 
@@ -1171,18 +1326,18 @@ impl StringTriple {
 }
 
 /// Either a resolved id or an unresolved inner type.
-#[derive(Debug,Clone,PartialEq,Eq,PartialOrd,Ord,Hash)]
-pub enum PossiblyResolved<T:Clone+PartialEq+Eq+PartialOrd+Ord+Hash> {
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PossiblyResolved<T: Clone + PartialEq + Eq + PartialOrd + Ord + Hash> {
     Unresolved(T),
-    Resolved(u64)
+    Resolved(u64),
 }
 
-impl<T:Clone+PartialEq+Eq+PartialOrd+Ord+Hash> PossiblyResolved<T> {
+impl<T: Clone + PartialEq + Eq + PartialOrd + Ord + Hash> PossiblyResolved<T> {
     /// Returns true if this is a resolved id, and false otherwise.
     pub fn is_resolved(&self) -> bool {
         match self {
             Self::Unresolved(_) => false,
-            Self::Resolved(_) => true
+            Self::Resolved(_) => true,
         }
     }
 
@@ -1190,7 +1345,7 @@ impl<T:Clone+PartialEq+Eq+PartialOrd+Ord+Hash> PossiblyResolved<T> {
     pub fn as_ref(&self) -> PossiblyResolved<&T> {
         match self {
             Self::Unresolved(u) => PossiblyResolved::Unresolved(&u),
-            Self::Resolved(id) => PossiblyResolved::Resolved(*id)
+            Self::Resolved(id) => PossiblyResolved::Resolved(*id),
         }
     }
 
@@ -1206,13 +1361,13 @@ impl<T:Clone+PartialEq+Eq+PartialOrd+Ord+Hash> PossiblyResolved<T> {
     pub fn unwrap_resolved(self) -> u64 {
         match self {
             Self::Unresolved(_) => panic!("tried to unwrap resolved, but got an unresolved"),
-            Self::Resolved(id) => id
+            Self::Resolved(id) => id,
         }
     }
 }
 
 /// A triple where the subject, predicate and object can all either be fully resolved to an id, or unresolved.
-#[derive(Debug,Clone,PartialEq,Eq,PartialOrd,Ord,Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PartiallyResolvedTriple {
     pub subject: PossiblyResolved<String>,
     pub predicate: PossiblyResolved<String>,
@@ -1221,22 +1376,31 @@ pub struct PartiallyResolvedTriple {
 
 impl PartiallyResolvedTriple {
     /// Resolve the unresolved ids in this triple using the given hashmaps for nodes, predicates and values.
-    pub fn resolve_with(&self, node_map: &HashMap<String, u64>, predicate_map: &HashMap<String, u64>, value_map: &HashMap<String, u64>) -> Option<IdTriple> {
+    pub fn resolve_with(
+        &self,
+        node_map: &HashMap<String, u64>,
+        predicate_map: &HashMap<String, u64>,
+        value_map: &HashMap<String, u64>,
+    ) -> Option<IdTriple> {
         let subject = match self.subject.as_ref() {
             PossiblyResolved::Unresolved(s) => *node_map.get(s)?,
-            PossiblyResolved::Resolved(id) => id
+            PossiblyResolved::Resolved(id) => id,
         };
         let predicate = match self.predicate.as_ref() {
             PossiblyResolved::Unresolved(p) => *predicate_map.get(p)?,
-            PossiblyResolved::Resolved(id) => id
+            PossiblyResolved::Resolved(id) => id,
         };
         let object = match self.object.as_ref() {
             PossiblyResolved::Unresolved(ObjectType::Node(n)) => *node_map.get(n)?,
             PossiblyResolved::Unresolved(ObjectType::Value(v)) => *value_map.get(v)?,
-            PossiblyResolved::Resolved(id) => id
+            PossiblyResolved::Resolved(id) => id,
         };
 
-        Some(IdTriple { subject, predicate, object })
+        Some(IdTriple {
+            subject,
+            predicate,
+            object,
+        })
     }
 }
 
@@ -1253,74 +1417,101 @@ impl PartiallyResolvedTriple {
 #[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Ord, Hash)]
 pub enum ObjectType {
     Node(String),
-    Value(String)
+    Value(String),
 }
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layer::base::BaseLayer;
-    use crate::layer::child::ChildLayer;
     use crate::layer::base::tests::base_layer_files;
+    use crate::layer::base::BaseLayer;
+    use crate::layer::builder::{LayerBuilder, SimpleLayerBuilder};
     use crate::layer::child::tests::child_layer_files;
-    use crate::layer::builder::{LayerBuilder,SimpleLayerBuilder};
+    use crate::layer::child::ChildLayer;
     use futures::prelude::*;
     use std::sync::Arc;
 
     #[test]
     fn find_triple_after_adjacent_removal() {
         let files = base_layer_files();
-        let mut builder = SimpleLayerBuilder::new([1,2,3,4,5], files.clone());
+        let mut builder = SimpleLayerBuilder::new([1, 2, 3, 4, 5], files.clone());
 
         builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
         builder.add_string_triple(&StringTriple::new_value("cow", "says", "sniff"));
 
         builder.commit().wait().unwrap();
 
-        let base = Arc::new(BaseLayer::load_from_files([1,2,3,4,5], &files).wait().unwrap()) as Arc<dyn Layer>;
+        let base = Arc::new(
+            BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
+                .wait()
+                .unwrap(),
+        ) as Arc<dyn Layer>;
 
         let files = child_layer_files();
-        let mut builder = SimpleLayerBuilder::from_parent([5,4,3,2,1], base.clone(), files.clone());
+        let mut builder =
+            SimpleLayerBuilder::from_parent([5, 4, 3, 2, 1], base.clone(), files.clone());
         builder.remove_string_triple(&StringTriple::new_value("cow", "says", "moo"));
         builder.commit().wait().unwrap();
 
-        let child = Arc::new(ChildLayer::load_from_files([5,4,3,2,1], base, &files).wait().unwrap()) as Arc<dyn Layer>;
+        let child = Arc::new(
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], base, &files)
+                .wait()
+                .unwrap(),
+        ) as Arc<dyn Layer>;
 
-        let triples: Vec<_> = child.triples()
-            .map(|t|child.id_triple_to_string(&t).unwrap())
+        let triples: Vec<_> = child
+            .triples()
+            .map(|t| child.id_triple_to_string(&t).unwrap())
             .collect();
 
-        assert_eq!(vec![StringTriple::new_value("cow", "says", "sniff")], triples);
+        assert_eq!(
+            vec![StringTriple::new_value("cow", "says", "sniff")],
+            triples
+        );
     }
 
     #[test]
     fn find_triple_after_removal_and_readdition() {
         let files = base_layer_files();
-        let mut builder = SimpleLayerBuilder::new([1,2,3,4,5], files.clone());
+        let mut builder = SimpleLayerBuilder::new([1, 2, 3, 4, 5], files.clone());
 
         builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
 
         builder.commit().wait().unwrap();
 
-        let base = Arc::new(BaseLayer::load_from_files([1,2,3,4,5], &files).wait().unwrap()) as Arc<dyn Layer>;
+        let base = Arc::new(
+            BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
+                .wait()
+                .unwrap(),
+        ) as Arc<dyn Layer>;
 
         let files = child_layer_files();
-        let mut builder = SimpleLayerBuilder::from_parent([5,4,3,2,1], base.clone(), files.clone());
+        let mut builder =
+            SimpleLayerBuilder::from_parent([5, 4, 3, 2, 1], base.clone(), files.clone());
         builder.remove_string_triple(&StringTriple::new_value("cow", "says", "moo"));
         builder.commit().wait().unwrap();
 
-        let child = Arc::new(ChildLayer::load_from_files([5,4,3,2,1], base, &files).wait().unwrap()) as Arc<dyn Layer>;
+        let child = Arc::new(
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], base, &files)
+                .wait()
+                .unwrap(),
+        ) as Arc<dyn Layer>;
 
         let files = child_layer_files();
-        let mut builder = SimpleLayerBuilder::from_parent([5,4,3,2,2], child.clone(), files.clone());
+        let mut builder =
+            SimpleLayerBuilder::from_parent([5, 4, 3, 2, 2], child.clone(), files.clone());
         builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
         builder.commit().wait().unwrap();
 
-        let child = Arc::new(ChildLayer::load_from_files([5,4,3,2,2], child, &files).wait().unwrap()) as Arc<dyn Layer>;
+        let child = Arc::new(
+            ChildLayer::load_from_files([5, 4, 3, 2, 2], child, &files)
+                .wait()
+                .unwrap(),
+        ) as Arc<dyn Layer>;
 
-        let triples: Vec<_> = child.triples()
-            .map(|t|child.id_triple_to_string(&t).unwrap())
+        let triples: Vec<_> = child
+            .triples()
+            .map(|t| child.id_triple_to_string(&t).unwrap())
             .collect();
 
         assert_eq!(vec![StringTriple::new_value("cow", "says", "moo")], triples);
@@ -1329,26 +1520,36 @@ mod tests {
     #[test]
     fn find_triple_by_object_after_adjacent_removal() {
         let files = base_layer_files();
-        let mut builder = SimpleLayerBuilder::new([1,2,3,4,5], files.clone());
+        let mut builder = SimpleLayerBuilder::new([1, 2, 3, 4, 5], files.clone());
 
         builder.add_string_triple(&StringTriple::new_value("cow", "hears", "moo"));
         builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
 
         builder.commit().wait().unwrap();
 
-        let base = Arc::new(BaseLayer::load_from_files([1,2,3,4,5], &files).wait().unwrap()) as Arc<dyn Layer>;
+        let base = Arc::new(
+            BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
+                .wait()
+                .unwrap(),
+        ) as Arc<dyn Layer>;
 
         let files = child_layer_files();
-        let mut builder = SimpleLayerBuilder::from_parent([5,4,3,2,1], base.clone(), files.clone());
+        let mut builder =
+            SimpleLayerBuilder::from_parent([5, 4, 3, 2, 1], base.clone(), files.clone());
         builder.remove_string_triple(&StringTriple::new_value("cow", "hears", "moo"));
         builder.commit().wait().unwrap();
 
-        let child = Arc::new(ChildLayer::load_from_files([5,4,3,2,1], base, &files).wait().unwrap()) as Arc<dyn Layer>;
+        let child = Arc::new(
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], base, &files)
+                .wait()
+                .unwrap(),
+        ) as Arc<dyn Layer>;
 
-        let triples: Vec<_> = child.objects()
-            .map(|o|o.triples())
+        let triples: Vec<_> = child
+            .objects()
+            .map(|o| o.triples())
             .flatten()
-            .map(|t|child.id_triple_to_string(&t).unwrap())
+            .map(|t| child.id_triple_to_string(&t).unwrap())
             .collect();
 
         assert_eq!(vec![StringTriple::new_value("cow", "says", "moo")], triples);
@@ -1357,35 +1558,49 @@ mod tests {
     #[test]
     fn find_triple_by_object_after_removal_and_readdition() {
         let files = base_layer_files();
-        let mut builder = SimpleLayerBuilder::new([1,2,3,4,5], files.clone());
+        let mut builder = SimpleLayerBuilder::new([1, 2, 3, 4, 5], files.clone());
 
         builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
 
         builder.commit().wait().unwrap();
 
-        let base = Arc::new(BaseLayer::load_from_files([1,2,3,4,5], &files).wait().unwrap()) as Arc<dyn Layer>;
+        let base = Arc::new(
+            BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
+                .wait()
+                .unwrap(),
+        ) as Arc<dyn Layer>;
 
         let files = child_layer_files();
-        let mut builder = SimpleLayerBuilder::from_parent([5,4,3,2,1], base.clone(), files.clone());
+        let mut builder =
+            SimpleLayerBuilder::from_parent([5, 4, 3, 2, 1], base.clone(), files.clone());
         builder.remove_string_triple(&StringTriple::new_value("cow", "says", "moo"));
         builder.commit().wait().unwrap();
 
-        let child = Arc::new(ChildLayer::load_from_files([5,4,3,2,1], base, &files).wait().unwrap()) as Arc<dyn Layer>;
+        let child = Arc::new(
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], base, &files)
+                .wait()
+                .unwrap(),
+        ) as Arc<dyn Layer>;
 
         let files = child_layer_files();
-        let mut builder = SimpleLayerBuilder::from_parent([5,4,3,2,2], child.clone(), files.clone());
+        let mut builder =
+            SimpleLayerBuilder::from_parent([5, 4, 3, 2, 2], child.clone(), files.clone());
         builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
         builder.commit().wait().unwrap();
 
-        let child = Arc::new(ChildLayer::load_from_files([5,4,3,2,2], child, &files).wait().unwrap()) as Arc<dyn Layer>;
+        let child = Arc::new(
+            ChildLayer::load_from_files([5, 4, 3, 2, 2], child, &files)
+                .wait()
+                .unwrap(),
+        ) as Arc<dyn Layer>;
 
-        let triples: Vec<_> = child.objects()
-            .map(|o|o.triples())
+        let triples: Vec<_> = child
+            .objects()
+            .map(|o| o.triples())
             .flatten()
-            .map(|t|child.id_triple_to_string(&t).unwrap())
+            .map(|t| child.id_triple_to_string(&t).unwrap())
             .collect();
 
         assert_eq!(vec![StringTriple::new_value("cow", "says", "moo")], triples);
     }
-
 }

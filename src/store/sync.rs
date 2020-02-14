@@ -3,16 +3,21 @@
 //! Since not everyone likes tokio, or dealing with async code, this
 //! module exposes the same API as the asynchronous store API, only
 //! without any futures.
-use tokio::runtime::Runtime;
-use futures::prelude::*;
 use futures::future;
+use futures::prelude::*;
 use futures::sync::oneshot;
+use tokio::runtime::Runtime;
 
 use std::io;
 use std::path::PathBuf;
 
-use crate::layer::{Layer,ObjectType,StringTriple,IdTriple,SubjectLookup,LayerSubjectLookup,LayerObjectLookup,LayerPredicateLookup};
-use crate::store::{Store, NamedGraph, StoreLayer, StoreLayerBuilder, open_memory_store, open_directory_store};
+use crate::layer::{
+    IdTriple, Layer, LayerObjectLookup, LayerPredicateLookup, LayerSubjectLookup, ObjectType,
+    StringTriple, SubjectLookup,
+};
+use crate::store::{
+    open_directory_store, open_memory_store, NamedGraph, Store, StoreLayer, StoreLayerBuilder,
+};
 
 lazy_static! {
     static ref RUNTIME: Runtime = Runtime::new().unwrap();
@@ -24,18 +29,24 @@ lazy_static! {
 /// directly on the async api functions resulted in a memory leak in
 /// tokio_threadpool. Spawning the future indirectly appears to work
 /// without memory leak.
-fn task_sync<T:'static+Send,F:'static+Future<Item=T,Error=io::Error>+Send>(future: F) -> Result<T,io::Error> {
+fn task_sync<T: 'static + Send, F: 'static + Future<Item = T, Error = io::Error> + Send>(
+    future: F,
+) -> Result<T, io::Error> {
     let (tx, rx) = oneshot::channel();
     let wrapped_future = future::lazy(|| {
-        tokio::spawn(future.then(|r|tx.send(r)).map(|_|()).map_err(|_|()));
-        future::ok::<(),io::Error>(())
+        tokio::spawn(future.then(|r| tx.send(r)).map(|_| ()).map_err(|_| ()));
+        future::ok::<(), io::Error>(())
     });
 
     let receiver_future = rx
-        .map_err(|_|io::Error::new(io::ErrorKind::Other, "canceled"))
-        .and_then(|r|r);
+        .map_err(|_| io::Error::new(io::ErrorKind::Other, "canceled"))
+        .and_then(|r| r);
 
-    oneshot::spawn(wrapped_future.and_then(|_|receiver_future), &RUNTIME.executor()).wait()
+    oneshot::spawn(
+        wrapped_future.and_then(|_| receiver_future),
+        &RUNTIME.executor(),
+    )
+    .wait()
 }
 
 /// A wrapper over a SimpleLayerBuilder, providing a thread-safe sharable interface
@@ -52,13 +63,11 @@ pub struct SyncStoreLayerBuilder {
 
 impl SyncStoreLayerBuilder {
     fn wrap(inner: StoreLayerBuilder) -> Self {
-        SyncStoreLayerBuilder {
-            inner
-        }
+        SyncStoreLayerBuilder { inner }
     }
 
     /// Returns the name of the layer being built
-    pub fn name(&self) -> [u32;5] {
+    pub fn name(&self) -> [u32; 5] {
         self.inner.name()
     }
 
@@ -83,10 +92,10 @@ impl SyncStoreLayerBuilder {
     }
 
     /// Commit the layer to storage
-    pub fn commit(&self) -> Result<SyncStoreLayer,io::Error> {
+    pub fn commit(&self) -> Result<SyncStoreLayer, io::Error> {
         let inner = task_sync(self.inner.commit());
 
-        inner.map(|i|SyncStoreLayer::wrap(i))
+        inner.map(|i| SyncStoreLayer::wrap(i))
     }
 }
 
@@ -98,28 +107,23 @@ pub struct SyncStoreLayer {
 
 impl SyncStoreLayer {
     fn wrap(inner: StoreLayer) -> Self {
-        Self {
-            inner
-        }
+        Self { inner }
     }
 
     /// Create a layer builder based on this layer
-    pub fn open_write(&self) -> Result<SyncStoreLayerBuilder,io::Error> {
+    pub fn open_write(&self) -> Result<SyncStoreLayerBuilder, io::Error> {
         let inner = task_sync(self.inner.open_write());
 
-        inner.map(|i|SyncStoreLayerBuilder::wrap(i))
+        inner.map(|i| SyncStoreLayerBuilder::wrap(i))
     }
 
     pub fn parent(&self) -> Option<SyncStoreLayer> {
-        self.inner.parent()
-            .map(|p| SyncStoreLayer {
-                inner: p
-            })
+        self.inner.parent().map(|p| SyncStoreLayer { inner: p })
     }
 }
 
 impl Layer for SyncStoreLayer {
-    fn name(&self) -> [u32;5] {
+    fn name(&self) -> [u32; 5] {
         self.inner.name()
     }
 
@@ -199,15 +203,15 @@ impl Layer for SyncStoreLayer {
         self.inner.id_object(id)
     }
 
-    fn subjects(&self) -> Box<dyn Iterator<Item=Box<dyn SubjectLookup>>> {
+    fn subjects(&self) -> Box<dyn Iterator<Item = Box<dyn SubjectLookup>>> {
         self.inner.subjects()
     }
 
-    fn subject_additions(&self) -> Box<dyn Iterator<Item=Box<dyn LayerSubjectLookup>>> {
+    fn subject_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>> {
         self.inner.subject_additions()
     }
 
-    fn subject_removals(&self) -> Box<dyn Iterator<Item=Box<dyn LayerSubjectLookup>>> {
+    fn subject_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>> {
         self.inner.subject_removals()
     }
 
@@ -223,11 +227,11 @@ impl Layer for SyncStoreLayer {
         self.inner.lookup_subject_removal(subject)
     }
 
-    fn object_additions(&self) -> Box<dyn Iterator<Item=Box<dyn LayerObjectLookup>>> {
+    fn object_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>> {
         self.inner.object_additions()
     }
 
-    fn object_removals(&self) -> Box<dyn Iterator<Item=Box<dyn LayerObjectLookup>>> {
+    fn object_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>> {
         self.inner.object_removals()
     }
 
@@ -265,9 +269,7 @@ pub struct SyncNamedGraph {
 
 impl SyncNamedGraph {
     fn wrap(inner: NamedGraph) -> Self {
-        Self {
-            inner
-        }
+        Self { inner }
     }
 
     pub fn name(&self) -> &str {
@@ -275,10 +277,10 @@ impl SyncNamedGraph {
     }
 
     /// Returns the layer this database points at
-    pub fn head(&self) -> Result<Option<SyncStoreLayer>,io::Error> {
+    pub fn head(&self) -> Result<Option<SyncStoreLayer>, io::Error> {
         let inner = task_sync(self.inner.head());
 
-        inner.map(|i|i.map(|i|SyncStoreLayer::wrap(i)))
+        inner.map(|i| i.map(|i| SyncStoreLayer::wrap(i)))
     }
 
     /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise
@@ -289,7 +291,7 @@ impl SyncNamedGraph {
 
 /// A store, storing a set of layers and database labels pointing to these layers
 pub struct SyncStore {
-    inner: Store
+    inner: Store,
 }
 
 impl SyncStore {
@@ -298,37 +300,38 @@ impl SyncStore {
     /// The runtime will be constructed on the first call to wrap. Any
     /// subsequent SyncStore will reuse the same runtime.
     pub fn wrap(inner: Store) -> Self {
-        Self {
-            inner,
-        }
+        Self { inner }
     }
 
     /// Create a new database with the given name
     ///
     /// If the database already exists, this will return an error
-    pub fn create(&self, label: &str) -> Result<SyncNamedGraph,io::Error> {
+    pub fn create(&self, label: &str) -> Result<SyncNamedGraph, io::Error> {
         let inner = task_sync(self.inner.create(label));
 
         inner.map(|i| SyncNamedGraph::wrap(i))
     }
 
     /// Open an existing database with the given name, or None if it does not exist
-    pub fn open(&self, label: &str) -> Result<Option<SyncNamedGraph>,io::Error> {
+    pub fn open(&self, label: &str) -> Result<Option<SyncNamedGraph>, io::Error> {
         let inner = task_sync(self.inner.open(label));
 
-        inner.map(|i| i.map(|i|SyncNamedGraph::wrap(i)))
+        inner.map(|i| i.map(|i| SyncNamedGraph::wrap(i)))
     }
 
-    pub fn get_layer_from_id(&self, layer: [u32;5]) -> Result<Option<SyncStoreLayer>,std::io::Error> {
+    pub fn get_layer_from_id(
+        &self,
+        layer: [u32; 5],
+    ) -> Result<Option<SyncStoreLayer>, std::io::Error> {
         let inner = task_sync(self.inner.get_layer_from_id(layer));
 
-        inner.map(|layer| layer.map(|l|SyncStoreLayer::wrap(l)))
+        inner.map(|layer| layer.map(|l| SyncStoreLayer::wrap(l)))
     }
 
     /// Create a base layer builder, unattached to any database label
     ///
     /// After having committed it, use `set_head` on a `NamedGraph` to attach it.
-    pub fn create_base_layer(&self) -> Result<SyncStoreLayerBuilder,io::Error> {
+    pub fn create_base_layer(&self) -> Result<SyncStoreLayerBuilder, io::Error> {
         let inner = task_sync(self.inner.create_base_layer());
 
         inner.map(|i| SyncStoreLayerBuilder::wrap(i))
@@ -343,7 +346,7 @@ pub fn open_sync_memory_store() -> SyncStore {
 }
 
 /// Open a store that stores its data in the given directory
-pub fn open_sync_directory_store<P:Into<PathBuf>>(path: P) -> SyncStore {
+pub fn open_sync_directory_store<P: Into<PathBuf>>(path: P) -> SyncStore {
     SyncStore::wrap(open_directory_store(path))
 }
 
@@ -361,13 +364,17 @@ mod tests {
         assert!(head.is_none());
 
         let mut builder = store.create_base_layer().unwrap();
-        builder.add_string_triple(&StringTriple::new_value("cow","says","moo")).unwrap();
+        builder
+            .add_string_triple(&StringTriple::new_value("cow", "says", "moo"))
+            .unwrap();
 
         let layer = builder.commit().unwrap();
         assert!(database.set_head(&layer).unwrap());
 
         builder = layer.open_write().unwrap();
-        builder.add_string_triple(&StringTriple::new_value("pig","says","oink")).unwrap();
+        builder
+            .add_string_triple(&StringTriple::new_value("pig", "says", "oink"))
+            .unwrap();
 
         let layer2 = builder.commit().unwrap();
         assert!(database.set_head(&layer2).unwrap());
@@ -376,8 +383,8 @@ mod tests {
         let layer = database.head().unwrap().unwrap();
 
         assert_eq!(layer2_name, layer.name());
-        assert!(layer.string_triple_exists(&StringTriple::new_value("cow","says","moo")));
-        assert!(layer.string_triple_exists(&StringTriple::new_value("pig","says","oink")));
+        assert!(layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+        assert!(layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
     }
 
     #[test]
@@ -390,13 +397,17 @@ mod tests {
         assert!(head.is_none());
 
         let mut builder = store.create_base_layer().unwrap();
-        builder.add_string_triple(&StringTriple::new_value("cow","says","moo")).unwrap();
+        builder
+            .add_string_triple(&StringTriple::new_value("cow", "says", "moo"))
+            .unwrap();
 
         let layer = builder.commit().unwrap();
         assert!(database.set_head(&layer).unwrap());
 
         builder = layer.open_write().unwrap();
-        builder.add_string_triple(&StringTriple::new_value("pig","says","oink")).unwrap();
+        builder
+            .add_string_triple(&StringTriple::new_value("pig", "says", "oink"))
+            .unwrap();
 
         let layer2 = builder.commit().unwrap();
         assert!(database.set_head(&layer2).unwrap());
@@ -405,21 +416,23 @@ mod tests {
         let layer = database.head().unwrap().unwrap();
 
         assert_eq!(layer2_name, layer.name());
-        assert!(layer.string_triple_exists(&StringTriple::new_value("cow","says","moo")));
-        assert!(layer.string_triple_exists(&StringTriple::new_value("pig","says","oink")));
+        assert!(layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+        assert!(layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
     }
 
     #[test]
     fn create_sync_layer_and_retrieve_it_by_id() {
         let store = open_sync_memory_store();
         let builder = store.create_base_layer().unwrap();
-        builder.add_string_triple(&StringTriple::new_value("cow","says","moo")).unwrap();
+        builder
+            .add_string_triple(&StringTriple::new_value("cow", "says", "moo"))
+            .unwrap();
 
         let layer = builder.commit().unwrap();
 
         let id = layer.name();
 
         let layer2 = store.get_layer_from_id(id).unwrap().unwrap();
-        assert!(layer2.string_triple_exists(&StringTriple::new_value("cow","says","moo")));
+        assert!(layer2.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
     }
 }

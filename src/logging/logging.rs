@@ -16,7 +16,7 @@ pub trait LoggingSink {
 pub unsafe fn add_debug_hook(hook: &'static dyn DebugSink) {
     match DEBUG_HOOK {
         None => DEBUG_HOOK = Some(hook),
-        Some(_) => ()
+        Some(_) => (),
     };
 }
 
@@ -24,16 +24,15 @@ pub fn debug(topic: &str, content: &str) {
     unsafe {
         match DEBUG_HOOK {
             None => eprintln!("{} {}", topic, content),
-            Some(dh) => dh.debug(topic, content)
+            Some(dh) => dh.debug(topic, content),
         }
     };
 }
 
-
 pub unsafe fn add_logging_hook(hook: &'static dyn LoggingSink) {
     match LOG_HOOK {
         None => LOG_HOOK = Some(hook),
-        Some(_) => ()
+        Some(_) => (),
     };
 }
 
@@ -41,7 +40,7 @@ pub fn log(content: &str) {
     unsafe {
         match LOG_HOOK {
             None => println!("{}", content),
-            Some(lh) => lh.log(content)
+            Some(lh) => lh.log(content),
         }
     };
 }

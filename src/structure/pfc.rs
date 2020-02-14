@@ -1,19 +1,19 @@
 //! Implementation for a Plain Front-Coding (PFC) dictionary.
-use byteorder::{ByteOrder,BigEndian};
-use futures::prelude::*;
+use byteorder::{BigEndian, ByteOrder};
 use futures::future;
+use futures::prelude::*;
+use std::cmp::{Ord, Ordering};
 use std::error::Error;
 use std::fmt::Display;
-use std::cmp::{Ord, Ordering};
 
-use super::vbyte::*;
 use super::logarray::*;
 use super::util::*;
+use super::vbyte::*;
 
 #[derive(Debug)]
 pub enum PfcError {
     InvalidCoding,
-    NotEnoughData
+    NotEnoughData,
 }
 
 impl Display for PfcError {
@@ -34,8 +34,7 @@ impl From<LogArrayError> for PfcError {
     }
 }
 
-impl Error for PfcError {
-}
+impl Error for PfcError {}
 
 impl Into<std::io::Error> for PfcError {
     fn into(self) -> std::io::Error {
@@ -44,21 +43,21 @@ impl Into<std::io::Error> for PfcError {
 }
 
 #[derive(Clone)]
-pub struct PfcBlock<M:AsRef<[u8]>+Clone> {
+pub struct PfcBlock<M: AsRef<[u8]> + Clone> {
     encoded_strings: M,
-    n_strings: usize
+    n_strings: usize,
 }
 
 const BLOCK_SIZE: usize = 8;
 
-pub struct PfcBlockIterator<'a,M:AsRef<[u8]>+Clone> {
+pub struct PfcBlockIterator<'a, M: AsRef<[u8]> + Clone> {
     block: &'a PfcBlock<M>,
     count: usize,
     pos: usize,
-    string: Vec<u8>
+    string: Vec<u8>,
 }
 
-impl<'a, M:AsRef<[u8]>+Clone> Iterator for PfcBlockIterator<'a,M> {
+impl<'a, M: AsRef<[u8]> + Clone> Iterator for PfcBlockIterator<'a, M> {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
@@ -68,22 +67,26 @@ impl<'a, M:AsRef<[u8]>+Clone> Iterator for PfcBlockIterator<'a,M> {
 
             self.count = 1;
             self.pos = self.string.len() + 1;
-        }
-        else if self.count < self.block.n_strings {
+        } else if self.count < self.block.n_strings {
             // at pos we read a vbyte with the length of the common prefix
-            let v = VByte::parse(&self.block.encoded_strings.as_ref()[self.pos..]).expect("encoding error in self-managed data");
+            let v = VByte::parse(&self.block.encoded_strings.as_ref()[self.pos..])
+                .expect("encoding error in self-managed data");
             self.string.truncate(v.unpack() as usize);
             self.pos += v.len();
 
             // next up is the suffix, again as a nul-terminated string.
-            let postfix_end = self.pos + self.block.encoded_strings.as_ref()[self.pos..].iter().position(|&b|b==0).unwrap();
+            let postfix_end = self.pos
+                + self.block.encoded_strings.as_ref()[self.pos..]
+                    .iter()
+                    .position(|&b| b == 0)
+                    .unwrap();
 
-            self.string.extend_from_slice(&self.block.encoded_strings.as_ref()[self.pos..postfix_end]);
+            self.string
+                .extend_from_slice(&self.block.encoded_strings.as_ref()[self.pos..postfix_end]);
 
             self.pos = postfix_end + 1;
             self.count += 1;
-        }
-        else {
+        } else {
             return None;
         }
 
@@ -92,14 +95,14 @@ impl<'a, M:AsRef<[u8]>+Clone> Iterator for PfcBlockIterator<'a,M> {
 }
 
 // the owned version is pretty much equivalent. There should be a way to make this one implementation with generics but I haven't figured out how!
-pub struct OwnedPfcBlockIterator<M:AsRef<[u8]>+Clone> {
+pub struct OwnedPfcBlockIterator<M: AsRef<[u8]> + Clone> {
     block: PfcBlock<M>,
     count: usize,
     pos: usize,
-    string: Vec<u8>
+    string: Vec<u8>,
 }
 
-impl<M:AsRef<[u8]>+Clone> Iterator for OwnedPfcBlockIterator<M> {
+impl<M: AsRef<[u8]> + Clone> Iterator for OwnedPfcBlockIterator<M> {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
@@ -109,22 +112,26 @@ impl<M:AsRef<[u8]>+Clone> Iterator for OwnedPfcBlockIterator<M> {
 
             self.count = 1;
             self.pos = self.string.len() + 1;
-        }
-        else if self.count < self.block.n_strings {
+        } else if self.count < self.block.n_strings {
             // at pos we read a vbyte with the length of the common prefix
-            let v = VByte::parse(&self.block.encoded_strings.as_ref()[self.pos..]).expect("encoding error in self-managed data");
+            let v = VByte::parse(&self.block.encoded_strings.as_ref()[self.pos..])
+                .expect("encoding error in self-managed data");
             self.string.truncate(v.unpack() as usize);
             self.pos += v.len();
 
             // next up is the suffix, again as a nul-terminated string.
-            let postfix_end = self.pos + self.block.encoded_strings.as_ref()[self.pos..].iter().position(|&b|b==0).unwrap();
+            let postfix_end = self.pos
+                + self.block.encoded_strings.as_ref()[self.pos..]
+                    .iter()
+                    .position(|&b| b == 0)
+                    .unwrap();
 
-            self.string.extend_from_slice(&self.block.encoded_strings.as_ref()[self.pos..postfix_end]);
+            self.string
+                .extend_from_slice(&self.block.encoded_strings.as_ref()[self.pos..postfix_end]);
 
             self.pos = postfix_end + 1;
             self.count += 1;
-        }
-        else {
+        } else {
             return None;
         }
 
@@ -132,18 +139,28 @@ impl<M:AsRef<[u8]>+Clone> Iterator for OwnedPfcBlockIterator<M> {
     }
 }
 
-
-impl<M:AsRef<[u8]>+Clone> PfcBlock<M> {
-    pub fn parse(data: M) -> Result<PfcBlock<M>,PfcError> {
-        Ok(PfcBlock { encoded_strings: data, n_strings: BLOCK_SIZE })
+impl<M: AsRef<[u8]> + Clone> PfcBlock<M> {
+    pub fn parse(data: M) -> Result<PfcBlock<M>, PfcError> {
+        Ok(PfcBlock {
+            encoded_strings: data,
+            n_strings: BLOCK_SIZE,
+        })
     }
 
-    pub fn parse_incomplete(data: M, n_strings: usize) -> Result<PfcBlock<M>,PfcError> {
-        Ok(PfcBlock { encoded_strings: data, n_strings })
+    pub fn parse_incomplete(data: M, n_strings: usize) -> Result<PfcBlock<M>, PfcError> {
+        Ok(PfcBlock {
+            encoded_strings: data,
+            n_strings,
+        })
     }
 
     pub fn head(&self) -> Vec<u8> {
-        let first_end = self.encoded_strings.as_ref().iter().position(|&b|b == 0).unwrap();
+        let first_end = self
+            .encoded_strings
+            .as_ref()
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap();
         let mut v = Vec::new();
         v.extend_from_slice(&self.encoded_strings.as_ref()[..first_end]);
 
@@ -155,7 +172,7 @@ impl<M:AsRef<[u8]>+Clone> PfcBlock<M> {
             block: &self,
             count: 0,
             pos: 0,
-            string: Vec::new()
+            string: Vec::new(),
         }
     }
 
@@ -164,7 +181,7 @@ impl<M:AsRef<[u8]>+Clone> PfcBlock<M> {
             block: self,
             count: 0,
             pos: 0,
-            string: Vec::new()
+            string: Vec::new(),
         }
     }
 
@@ -184,33 +201,46 @@ impl<M:AsRef<[u8]>+Clone> PfcBlock<M> {
 }
 
 #[derive(Clone)]
-pub struct PfcDict<M:AsRef<[u8]>+Clone> {
+pub struct PfcDict<M: AsRef<[u8]> + Clone> {
     n_strings: u64,
     block_offsets: LogArray<M>,
-    blocks: M
+    blocks: M,
 }
 
-pub struct PfcDictIterator<'a,M:AsRef<[u8]>+Clone> {
+pub struct PfcDictIterator<'a, M: AsRef<[u8]> + Clone> {
     dict: &'a PfcDict<M>,
     block_index: usize,
-    block: Option<OwnedPfcBlockIterator<&'a [u8]>>
+    block: Option<OwnedPfcBlockIterator<&'a [u8]>>,
 }
 
-impl<'a,M:AsRef<[u8]>+Clone> Iterator for PfcDictIterator<'a,M> {
+impl<'a, M: AsRef<[u8]> + Clone> Iterator for PfcDictIterator<'a, M> {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
         if self.block_index >= self.dict.block_offsets.len() + 1 {
-            return None
-        }
-        else if self.block.is_none() {
-            let block_offset = if self.block_index == 0 { 0 } else { self.dict.block_offsets.entry(self.block_index-1) } as usize;
+            return None;
+        } else if self.block.is_none() {
+            let block_offset = if self.block_index == 0 {
+                0
+            } else {
+                self.dict.block_offsets.entry(self.block_index - 1)
+            } as usize;
             let remainder = self.dict.n_strings as usize - self.block_index * BLOCK_SIZE;
             if remainder >= BLOCK_SIZE {
-                self.block = Some(PfcBlock::parse(&self.dict.blocks.as_ref()[block_offset..]).unwrap().into_strings());
-            }
-            else {
-                self.block = Some(PfcBlock::parse_incomplete(&self.dict.blocks.as_ref()[block_offset..], remainder).unwrap().into_strings());
+                self.block = Some(
+                    PfcBlock::parse(&self.dict.blocks.as_ref()[block_offset..])
+                        .unwrap()
+                        .into_strings(),
+                );
+            } else {
+                self.block = Some(
+                    PfcBlock::parse_incomplete(
+                        &self.dict.blocks.as_ref()[block_offset..],
+                        remainder,
+                    )
+                    .unwrap()
+                    .into_strings(),
+                );
             }
         }
 
@@ -220,21 +250,21 @@ impl<'a,M:AsRef<[u8]>+Clone> Iterator for PfcDictIterator<'a,M> {
                 self.block = None;
                 self.next()
             }
-            Some(s) => Some(s)
+            Some(s) => Some(s),
         }
     }
 }
 
-impl<M:AsRef<[u8]>+Clone> PfcDict<M> {
-    pub fn parse(blocks: M, offsets: M) -> Result<PfcDict<M>,PfcError> {
-        let n_strings = BigEndian::read_u64(&blocks.as_ref()[blocks.as_ref().len()-8..]);
+impl<M: AsRef<[u8]> + Clone> PfcDict<M> {
+    pub fn parse(blocks: M, offsets: M) -> Result<PfcDict<M>, PfcError> {
+        let n_strings = BigEndian::read_u64(&blocks.as_ref()[blocks.as_ref().len() - 8..]);
 
         let block_offsets = LogArray::parse(offsets)?;
 
         Ok(PfcDict {
             n_strings: n_strings,
             block_offsets: block_offsets,
-            blocks: blocks
+            blocks: blocks,
         })
     }
 
@@ -268,9 +298,13 @@ impl<M:AsRef<[u8]>+Clone> PfcDict<M> {
         while min <= max {
             mid = (min + max) / 2;
 
-            let block_offset = if mid == 0 { 0 } else {self.block_offsets.entry(mid-1) as usize};
+            let block_offset = if mid == 0 {
+                0
+            } else {
+                self.block_offsets.entry(mid - 1) as usize
+            };
             let block_slice = &self.blocks.as_ref()[block_offset..]; // this is probably more than one block, but we're only interested in the first string anyway
-            let head_end = block_slice.iter().position(|&b|b==0).unwrap();
+            let head_end = block_slice.iter().position(|&b| b == 0).unwrap();
             let head_slice = &block_slice[..head_end];
 
             let head = String::from_utf8(head_slice.to_vec()).unwrap();
@@ -283,21 +317,26 @@ impl<M:AsRef<[u8]>+Clone> PfcDict<M> {
                         return None;
                     }
                     max = mid - 1;
-                },
+                }
                 Ordering::Greater => min = mid + 1,
-                Ordering::Equal => return Some((mid * BLOCK_SIZE) as u64) // what luck! turns out the string we were looking for was the block head
+                Ordering::Equal => return Some((mid * BLOCK_SIZE) as u64), // what luck! turns out the string we were looking for was the block head
             }
         }
 
         let found = max;
 
         // we found the block the string should be part of.
-        let block_start = if found == 0 { 0 } else {self.block_offsets.entry(found-1) as usize};
+        let block_start = if found == 0 {
+            0
+        } else {
+            self.block_offsets.entry(found - 1) as usize
+        };
         let remainder = self.n_strings as usize - (found * BLOCK_SIZE);
         let block = if remainder >= BLOCK_SIZE {
             PfcBlock::parse(&self.blocks.as_ref()[block_start..]).unwrap()
         } else {
-            PfcBlock::parse_incomplete(&self.blocks.as_ref()[block_start..], remainder as usize).unwrap()
+            PfcBlock::parse_incomplete(&self.blocks.as_ref()[block_start..], remainder as usize)
+                .unwrap()
         };
 
         let mut count = 0;
@@ -315,12 +354,12 @@ impl<M:AsRef<[u8]>+Clone> PfcDict<M> {
         PfcDictIterator {
             dict: &self,
             block_index: 0,
-            block: None
+            block: None,
         }
     }
 }
 
-pub struct PfcDictFileBuilder<W:tokio::io::AsyncWrite+Send> {
+pub struct PfcDictFileBuilder<W: tokio::io::AsyncWrite + Send> {
     /// the file that this builder writes the pfc blocks to
     pfc_blocks_file: W,
     /// the file that this builder writes the block offsets to
@@ -330,10 +369,10 @@ pub struct PfcDictFileBuilder<W:tokio::io::AsyncWrite+Send> {
     /// the size in bytes of the pfc data structure so far
     size: usize,
     last: Option<Vec<u8>>,
-    index: Vec<u64>
+    index: Vec<u64>,
 }
 
-impl<W:'static+tokio::io::AsyncWrite+Send> PfcDictFileBuilder<W> {
+impl<W: 'static + tokio::io::AsyncWrite + Send> PfcDictFileBuilder<W> {
     pub fn new(pfc_blocks_file: W, pfc_block_offsets_file: W) -> PfcDictFileBuilder<W> {
         PfcDictFileBuilder {
             pfc_blocks_file,
@@ -341,10 +380,13 @@ impl<W:'static+tokio::io::AsyncWrite+Send> PfcDictFileBuilder<W> {
             count: 0,
             size: 0,
             last: None,
-            index: Vec::new()
+            index: Vec::new(),
         }
     }
-    pub fn add(self, s: &str) -> impl Future<Item=(u64, PfcDictFileBuilder<W>),Error=std::io::Error>+Send {
+    pub fn add(
+        self,
+        s: &str,
+    ) -> impl Future<Item = (u64, PfcDictFileBuilder<W>), Error = std::io::Error> + Send {
         let count = self.count;
         let size = self.size;
         let mut index = self.index;
@@ -357,89 +399,112 @@ impl<W:'static+tokio::io::AsyncWrite+Send> PfcDictFileBuilder<W> {
                 index.push(size as u64);
             }
             let pfc_block_offsets_file = self.pfc_block_offsets_file;
-            future::Either::A(write_nul_terminated_bytes(self.pfc_blocks_file, bytes.clone())
-                     .and_then(move |(f, len)| future::ok(((count+1) as u64, PfcDictFileBuilder {
-                         pfc_blocks_file: f,
-                         pfc_block_offsets_file,
-                         count: count + 1,
-                         size: size + len,
-                         last: Some(bytes),
-                         index: index
-                     }))))
-        }
-        else {
+            future::Either::A(
+                write_nul_terminated_bytes(self.pfc_blocks_file, bytes.clone()).and_then(
+                    move |(f, len)| {
+                        future::ok((
+                            (count + 1) as u64,
+                            PfcDictFileBuilder {
+                                pfc_blocks_file: f,
+                                pfc_block_offsets_file,
+                                count: count + 1,
+                                size: size + len,
+                                last: Some(bytes),
+                                index: index,
+                            },
+                        ))
+                    },
+                ),
+            )
+        } else {
             let s_bytes = s.as_bytes();
             let common = find_common_prefix(&self.last.unwrap(), s_bytes);
             let postfix = s_bytes[common..].to_vec();
             let pfc_block_offsets_file = self.pfc_block_offsets_file;
-            future::Either::B(VByte::write(common as u64, self.pfc_blocks_file)
-                .and_then(move |(pfc_blocks_file,vbyte_len)| write_nul_terminated_bytes(pfc_blocks_file, postfix)
-                          .map(move |(pfc_blocks_file, slice_len)| ((count+1) as u64, PfcDictFileBuilder {
-                              pfc_blocks_file,
-                              pfc_block_offsets_file,
-                              count: count + 1,
-                              size: size + vbyte_len + slice_len,
-                              last: Some(bytes),
-                              index: index
-                          }))))
+            future::Either::B(VByte::write(common as u64, self.pfc_blocks_file).and_then(
+                move |(pfc_blocks_file, vbyte_len)| {
+                    write_nul_terminated_bytes(pfc_blocks_file, postfix).map(
+                        move |(pfc_blocks_file, slice_len)| {
+                            (
+                                (count + 1) as u64,
+                                PfcDictFileBuilder {
+                                    pfc_blocks_file,
+                                    pfc_block_offsets_file,
+                                    count: count + 1,
+                                    size: size + vbyte_len + slice_len,
+                                    last: Some(bytes),
+                                    index: index,
+                                },
+                            )
+                        },
+                    )
+                },
+            ))
         }
     }
 
-    pub fn add_all<I:'static+Iterator<Item=String>+Send>(self, it:I) -> impl Future<Item=(Vec<u64>, PfcDictFileBuilder<W>), Error=std::io::Error>+Send {
+    pub fn add_all<I: 'static + Iterator<Item = String> + Send>(
+        self,
+        it: I,
+    ) -> impl Future<Item = (Vec<u64>, PfcDictFileBuilder<W>), Error = std::io::Error> + Send {
         future::loop_fn((self, it, Vec::new()), |(builder, mut it, mut result)| {
             let next = it.next();
             match next {
                 None => future::Either::A(future::ok(future::Loop::Break((result, builder)))),
-                Some(s) => future::Either::B(builder.add(&s)
-                                             .and_then(move |(r, b)| {
-                                                 result.push(r);
-                                                 future::ok(future::Loop::Continue((b, it, result)))
-                                             }))
+                Some(s) => future::Either::B(builder.add(&s).and_then(move |(r, b)| {
+                    result.push(r);
+                    future::ok(future::Loop::Continue((b, it, result)))
+                })),
             }
         })
     }
 
     /// finish the data structure
-    pub fn finalize(self) -> impl Future<Item=(),Error=std::io::Error> {
-        let width = if self.index.len() == 0 { 1 } else {64-self.index[self.index.len()-1].leading_zeros()};
+    pub fn finalize(self) -> impl Future<Item = (), Error = std::io::Error> {
+        let width = if self.index.len() == 0 {
+            1
+        } else {
+            64 - self.index[self.index.len() - 1].leading_zeros()
+        };
         let builder = LogArrayFileBuilder::new(self.pfc_block_offsets_file, width as u8);
         let count = self.count;
 
-        let write_offsets = builder.push_all(futures::stream::iter_ok(self.index))
-            .and_then(|b|b.finalize());
+        let write_offsets = builder
+            .push_all(futures::stream::iter_ok(self.index))
+            .and_then(|b| b.finalize());
 
         let finalize_blocks = write_padding(self.pfc_blocks_file, self.size, 8)
             .and_then(move |(w, _n_pad)| {
-                let mut bytes = vec![0;8];
+                let mut bytes = vec![0; 8];
                 BigEndian::write_u64(&mut bytes, count as u64);
                 tokio::io::write_all(w, bytes)
             })
-            .and_then(|(w,_)| tokio::io::flush(w));
+            .and_then(|(w, _)| tokio::io::flush(w));
 
-        write_offsets.join(finalize_blocks)
-            .map(|_|())
+        write_offsets.join(finalize_blocks).map(|_| ())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::*;
     use crate::storage::memory::*;
+    use crate::storage::*;
 
     #[test]
     fn can_create_pfc_dict_small() {
-        let contents = vec!["aaaaa",
-                            "aabbb",
-                            "ccccc"];
+        let contents = vec!["aaaaa", "aabbb", "ccccc"];
         let blocks = MemoryBackedStore::new();
         let offsets = MemoryBackedStore::new();
         let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
-        builder.add_all(contents.into_iter().map(|s|s.to_string()))
-            .and_then(|(_,b)|b.finalize())
-            .wait().unwrap();
+        builder
+            .add_all(contents.into_iter().map(|s| s.to_string()))
+            .and_then(|(_, b)| b.finalize())
+            .wait()
+            .unwrap();
 
-        let p = PfcDict::parse(blocks.map().wait().unwrap(), offsets.map().wait().unwrap()).unwrap();
+        let p =
+            PfcDict::parse(blocks.map().wait().unwrap(), offsets.map().wait().unwrap()).unwrap();
 
         assert_eq!(Some("aaaaa".to_string()), p.get(0));
         assert_eq!(Some("aabbb".to_string()), p.get(1));
@@ -456,27 +521,31 @@ mod tests {
 
     #[test]
     fn can_create_pfc_dict_large() {
-        let contents = vec!["aaaaa",
-                            "aabbb",
-                            "ccccc",
-                            "ddddd asfdl;kfasf opxcvucvkhf asfopihvpvoihfasdfjv;xivh",
-                            "deasdfvv apobk,naf;libpoiujsafd",
-                            "deasdfvv apobk,x",
-                            "ee",
-                            "eee",
-                            "eeee",
-                            "great scott"
+        let contents = vec![
+            "aaaaa",
+            "aabbb",
+            "ccccc",
+            "ddddd asfdl;kfasf opxcvucvkhf asfopihvpvoihfasdfjv;xivh",
+            "deasdfvv apobk,naf;libpoiujsafd",
+            "deasdfvv apobk,x",
+            "ee",
+            "eee",
+            "eeee",
+            "great scott",
         ];
 
         let blocks = MemoryBackedStore::new();
         let offsets = MemoryBackedStore::new();
         let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
 
-        builder.add_all(contents.into_iter().map(|s|s.to_string()))
-            .and_then(|(_,b)|b.finalize())
-            .wait().unwrap();
+        builder
+            .add_all(contents.into_iter().map(|s| s.to_string()))
+            .and_then(|(_, b)| b.finalize())
+            .wait()
+            .unwrap();
 
-        let p = PfcDict::parse(blocks.map().wait().unwrap(), offsets.map().wait().unwrap()).unwrap();
+        let p =
+            PfcDict::parse(blocks.map().wait().unwrap(), offsets.map().wait().unwrap()).unwrap();
 
         assert_eq!(Some("aaaaa".to_string()), p.get(0));
         assert_eq!(Some("aabbb".to_string()), p.get(1));
@@ -506,18 +575,21 @@ mod tests {
             "faadsafdfaf sdfasdf",
             "frumps framps fremps",
             "gahh",
-            "hai hai hai"
-            ];
+            "hai hai hai",
+        ];
 
         let blocks = MemoryBackedStore::new();
         let offsets = MemoryBackedStore::new();
         let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
 
-        builder.add_all(contents.into_iter().map(|s|s.to_string()))
-            .and_then(|(_,b)|b.finalize())
-            .wait().unwrap();
+        builder
+            .add_all(contents.into_iter().map(|s| s.to_string()))
+            .and_then(|(_, b)| b.finalize())
+            .wait()
+            .unwrap();
 
-        let dict = PfcDict::parse(blocks.map().wait().unwrap(), offsets.map().wait().unwrap()).unwrap();
+        let dict =
+            PfcDict::parse(blocks.map().wait().unwrap(), offsets.map().wait().unwrap()).unwrap();
 
         assert_eq!(Some(0), dict.id("aaaaa"));
         assert_eq!(Some(2), dict.id("arf"));
@@ -551,18 +623,21 @@ mod tests {
             "faadsafdfaf sdfasdf",
             "frumps framps fremps",
             "gahh",
-            "hai hai hai"
-            ];
+            "hai hai hai",
+        ];
 
         let blocks = MemoryBackedStore::new();
         let offsets = MemoryBackedStore::new();
         let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
 
-        builder.add_all(contents.clone().into_iter().map(|s|s.to_string()))
-            .and_then(|(_,b)|b.finalize())
-            .wait().unwrap();
+        builder
+            .add_all(contents.clone().into_iter().map(|s| s.to_string()))
+            .and_then(|(_, b)| b.finalize())
+            .wait()
+            .unwrap();
 
-        let dict = PfcDict::parse(blocks.map().wait().unwrap(), offsets.map().wait().unwrap()).unwrap();
+        let dict =
+            PfcDict::parse(blocks.map().wait().unwrap(), offsets.map().wait().unwrap()).unwrap();
 
         let result: Vec<String> = dict.strings().collect();
         assert_eq!(contents, result);
