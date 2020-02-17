@@ -8,7 +8,7 @@ use std::fmt::Display;
 
 use super::logarray::*;
 use super::util::*;
-use super::vbyte::*;
+use super::vbyte;
 
 #[derive(Debug)]
 pub enum PfcError {
@@ -19,12 +19,6 @@ pub enum PfcError {
 impl Display for PfcError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         write!(formatter, "{:?}", self)
-    }
-}
-
-impl From<VByteError> for PfcError {
-    fn from(_err: VByteError) -> PfcError {
-        PfcError::InvalidCoding
     }
 }
 
@@ -69,10 +63,11 @@ impl<'a, M: AsRef<[u8]> + Clone> Iterator for PfcBlockIterator<'a, M> {
             self.pos = self.string.len() + 1;
         } else if self.count < self.block.n_strings {
             // at pos we read a vbyte with the length of the common prefix
-            let v = VByte::parse(&self.block.encoded_strings.as_ref()[self.pos..])
-                .expect("encoding error in self-managed data");
-            self.string.truncate(v.unpack() as usize);
-            self.pos += v.len();
+            let (common, common_len) =
+                vbyte::decode(&self.block.encoded_strings.as_ref()[self.pos..])
+                    .expect("encoding error in self-managed data");
+            self.string.truncate(common as usize);
+            self.pos += common_len;
 
             // next up is the suffix, again as a nul-terminated string.
             let postfix_end = self.pos
@@ -114,10 +109,11 @@ impl<M: AsRef<[u8]> + Clone> Iterator for OwnedPfcBlockIterator<M> {
             self.pos = self.string.len() + 1;
         } else if self.count < self.block.n_strings {
             // at pos we read a vbyte with the length of the common prefix
-            let v = VByte::parse(&self.block.encoded_strings.as_ref()[self.pos..])
-                .expect("encoding error in self-managed data");
-            self.string.truncate(v.unpack() as usize);
-            self.pos += v.len();
+            let (common, common_len) =
+                vbyte::decode(&self.block.encoded_strings.as_ref()[self.pos..])
+                    .expect("encoding error in self-managed data");
+            self.string.truncate(common as usize);
+            self.pos += common_len;
 
             // next up is the suffix, again as a nul-terminated string.
             let postfix_end = self.pos
@@ -194,9 +190,8 @@ impl<M: AsRef<[u8]> + Clone> PfcBlock<M> {
     }
 
     pub fn len(&self) -> usize {
-        let vbyte_len = VByte::required_len(self.encoded_strings.as_ref().len() as u64);
-
-        vbyte_len + self.encoded_strings.as_ref().len()
+        let len = self.encoded_strings.as_ref().len();
+        vbyte::encoding_len(len as u64) + len
     }
 }
 
@@ -421,25 +416,27 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> PfcDictFileBuilder<W> {
             let common = find_common_prefix(&self.last.unwrap(), s_bytes);
             let postfix = s_bytes[common..].to_vec();
             let pfc_block_offsets_file = self.pfc_block_offsets_file;
-            future::Either::B(VByte::write(common as u64, self.pfc_blocks_file).and_then(
-                move |(pfc_blocks_file, vbyte_len)| {
-                    write_nul_terminated_bytes(pfc_blocks_file, postfix).map(
-                        move |(pfc_blocks_file, slice_len)| {
-                            (
-                                (count + 1) as u64,
-                                PfcDictFileBuilder {
-                                    pfc_blocks_file,
-                                    pfc_block_offsets_file,
-                                    count: count + 1,
-                                    size: size + vbyte_len + slice_len,
-                                    last: Some(bytes),
-                                    index: index,
-                                },
-                            )
-                        },
-                    )
-                },
-            ))
+            future::Either::B(
+                vbyte::write_async(self.pfc_blocks_file, common as u64).and_then(
+                    move |(pfc_blocks_file, common_len)| {
+                        write_nul_terminated_bytes(pfc_blocks_file, postfix).map(
+                            move |(pfc_blocks_file, slice_len)| {
+                                (
+                                    (count + 1) as u64,
+                                    PfcDictFileBuilder {
+                                        pfc_blocks_file,
+                                        pfc_block_offsets_file,
+                                        count: count + 1,
+                                        size: size + common_len + slice_len,
+                                        last: Some(bytes),
+                                        index: index,
+                                    },
+                                )
+                            },
+                        )
+                    },
+                ),
+            )
         }
     }
 
