@@ -43,21 +43,21 @@ impl Into<std::io::Error> for PfcError {
 }
 
 #[derive(Clone)]
-pub struct PfcBlock<M: AsRef<[u8]> + Clone> {
+pub struct PfcBlock<M: AsRef<[u8]>> {
     encoded_strings: M,
     n_strings: usize,
 }
 
 const BLOCK_SIZE: usize = 8;
 
-pub struct PfcBlockIterator<'a, M: AsRef<[u8]> + Clone> {
+pub struct PfcBlockIterator<'a, M: AsRef<[u8]>> {
     block: &'a PfcBlock<M>,
     count: usize,
     pos: usize,
     string: Vec<u8>,
 }
 
-impl<'a, M: AsRef<[u8]> + Clone> Iterator for PfcBlockIterator<'a, M> {
+impl<'a, M: AsRef<[u8]>> Iterator for PfcBlockIterator<'a, M> {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
@@ -95,14 +95,14 @@ impl<'a, M: AsRef<[u8]> + Clone> Iterator for PfcBlockIterator<'a, M> {
 }
 
 // the owned version is pretty much equivalent. There should be a way to make this one implementation with generics but I haven't figured out how!
-pub struct OwnedPfcBlockIterator<M: AsRef<[u8]> + Clone> {
+pub struct OwnedPfcBlockIterator<M: AsRef<[u8]>> {
     block: PfcBlock<M>,
     count: usize,
     pos: usize,
     string: Vec<u8>,
 }
 
-impl<M: AsRef<[u8]> + Clone> Iterator for OwnedPfcBlockIterator<M> {
+impl<M: AsRef<[u8]>> Iterator for OwnedPfcBlockIterator<M> {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
@@ -139,7 +139,7 @@ impl<M: AsRef<[u8]> + Clone> Iterator for OwnedPfcBlockIterator<M> {
     }
 }
 
-impl<M: AsRef<[u8]> + Clone> PfcBlock<M> {
+impl<M: AsRef<[u8]>> PfcBlock<M> {
     pub fn parse(data: M) -> Result<PfcBlock<M>, PfcError> {
         Ok(PfcBlock {
             encoded_strings: data,
@@ -201,19 +201,19 @@ impl<M: AsRef<[u8]> + Clone> PfcBlock<M> {
 }
 
 #[derive(Clone)]
-pub struct PfcDict<M: AsRef<[u8]> + Clone> {
+pub struct PfcDict<M: AsRef<[u8]>> {
     n_strings: u64,
     block_offsets: LogArray<M>,
     blocks: M,
 }
 
-pub struct PfcDictIterator<'a, M: AsRef<[u8]> + Clone> {
+pub struct PfcDictIterator<'a, M: AsRef<[u8]>> {
     dict: &'a PfcDict<M>,
     block_index: usize,
     block: Option<OwnedPfcBlockIterator<&'a [u8]>>,
 }
 
-impl<'a, M: AsRef<[u8]> + Clone> Iterator for PfcDictIterator<'a, M> {
+impl<'a, M: AsRef<[u8]>> Iterator for PfcDictIterator<'a, M> {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
@@ -255,7 +255,7 @@ impl<'a, M: AsRef<[u8]> + Clone> Iterator for PfcDictIterator<'a, M> {
     }
 }
 
-impl<M: AsRef<[u8]> + Clone> PfcDict<M> {
+impl<M: AsRef<[u8]>> PfcDict<M> {
     pub fn parse(blocks: M, offsets: M) -> Result<PfcDict<M>, PfcError> {
         let n_strings = BigEndian::read_u64(&blocks.as_ref()[blocks.as_ref().len() - 8..]);
 

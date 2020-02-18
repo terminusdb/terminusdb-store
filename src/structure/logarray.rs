@@ -13,7 +13,7 @@ use std::cmp::Ordering;
 use tokio::codec::{Decoder, FramedRead};
 
 #[derive(Clone)]
-pub struct LogArray<M: AsRef<[u8]> + Clone> {
+pub struct LogArray<M: AsRef<[u8]>> {
     len: u32,
     width: u8,
     len_bytes: usize,
@@ -25,13 +25,13 @@ pub enum LogArrayError {
     InvalidCoding,
 }
 
-pub struct LogArrayIterator<'a, M: AsRef<[u8]> + Clone> {
+pub struct LogArrayIterator<'a, M: AsRef<[u8]>> {
     logarray: &'a LogArray<M>,
     pos: usize,
     end: usize,
 }
 
-impl<'a, M: AsRef<[u8]> + Clone> Iterator for LogArrayIterator<'a, M> {
+impl<'a, M: AsRef<[u8]>> Iterator for LogArrayIterator<'a, M> {
     type Item = u64;
     fn next(&mut self) -> Option<u64> {
         if self.pos == self.end {
@@ -45,13 +45,13 @@ impl<'a, M: AsRef<[u8]> + Clone> Iterator for LogArrayIterator<'a, M> {
     }
 }
 
-pub struct OwnedLogArrayIterator<M: AsRef<[u8]> + Clone> {
+pub struct OwnedLogArrayIterator<M: AsRef<[u8]>> {
     logarray: LogArray<M>,
     pos: usize,
     end: usize,
 }
 
-impl<M: AsRef<[u8]> + Clone> Iterator for OwnedLogArrayIterator<M> {
+impl<M: AsRef<[u8]>> Iterator for OwnedLogArrayIterator<M> {
     type Item = u64;
     fn next(&mut self) -> Option<u64> {
         if self.pos == self.end {
@@ -65,7 +65,7 @@ impl<M: AsRef<[u8]> + Clone> Iterator for OwnedLogArrayIterator<M> {
     }
 }
 
-impl<M: AsRef<[u8]> + Clone> LogArray<M> {
+impl<M: AsRef<[u8]>> LogArray<M> {
     pub fn parse(data: M) -> Result<LogArray<M>, LogArrayError> {
         let len = BigEndian::read_u32(&data.as_ref()[data.as_ref().len() - 8..]);
         let width = data.as_ref()[data.as_ref().len() - 4];
@@ -162,7 +162,10 @@ impl<M: AsRef<[u8]> + Clone> LogArray<M> {
         }
     }
 
-    pub fn slice(&self, offset: usize, length: usize) -> LogArraySlice<M> {
+    pub fn slice(&self, offset: usize, length: usize) -> LogArraySlice<M>
+    where
+        M: Clone,
+    {
         if self.len() < offset + length {
             panic!("slice out of bounds");
         }
@@ -175,13 +178,13 @@ impl<M: AsRef<[u8]> + Clone> LogArray<M> {
 }
 
 #[derive(Clone)]
-pub struct LogArraySlice<M: AsRef<[u8]> + Clone> {
+pub struct LogArraySlice<M: AsRef<[u8]>> {
     original: LogArray<M>,
     offset: usize,
     length: usize,
 }
 
-impl<M: AsRef<[u8]> + Clone> LogArraySlice<M> {
+impl<M: AsRef<[u8]>> LogArraySlice<M> {
     pub fn len(&self) -> usize {
         self.length
     }
@@ -405,9 +408,9 @@ pub fn logarray_stream_entries<F: FileLoad>(
 }
 
 #[derive(Clone)]
-pub struct MonotonicLogArray<M: AsRef<[u8]> + Clone>(LogArray<M>);
+pub struct MonotonicLogArray<M: AsRef<[u8]>>(LogArray<M>);
 
-impl<M: AsRef<[u8]> + Clone> MonotonicLogArray<M> {
+impl<M: AsRef<[u8]>> MonotonicLogArray<M> {
     pub fn from_logarray(logarray: LogArray<M>) -> MonotonicLogArray<M> {
         if cfg!(debug_assertions) {
             let mut iter = logarray.iter();

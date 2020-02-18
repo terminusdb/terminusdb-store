@@ -8,13 +8,13 @@ use tokio::codec::{Decoder, FramedRead};
 use tokio::prelude::*;
 
 #[derive(Clone)]
-pub struct BitArray<M: AsRef<[u8]> + Clone> {
+pub struct BitArray<M: AsRef<[u8]>> {
     bits: M,
     /// how many bits are being used in the last 8 bytes?
     count: u64,
 }
 
-impl<M: AsRef<[u8]> + Clone> BitArray<M> {
+impl<M: AsRef<[u8]>> BitArray<M> {
     pub fn from_bits(bits: M) -> BitArray<M> {
         if bits.as_ref().len() < 8 || bits.as_ref().len() % 8 != 0 {
             panic!("unexpected bitarray length");
@@ -182,9 +182,7 @@ fn block_bits(block: u64) -> Vec<bool> {
     result
 }
 
-pub fn bitarray_stream_bits<F: FileLoad + Clone>(
-    f: F,
-) -> impl Stream<Item = bool, Error = std::io::Error> {
+pub fn bitarray_stream_bits<F: FileLoad>(f: F) -> impl Stream<Item = bool, Error = std::io::Error> {
     bitarray_count_from_file(f.clone())
         .into_stream()
         .map(move |count| {
