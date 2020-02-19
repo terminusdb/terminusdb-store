@@ -17,12 +17,12 @@ use super::logarray::*;
 use crate::storage::*;
 
 #[derive(Clone)]
-pub struct AdjacencyList<M: AsRef<[u8]> + Clone> {
+pub struct AdjacencyList<M: AsRef<[u8]>> {
     pub nums: LogArray<M>,
     pub bits: BitIndex<M>,
 }
 
-impl<M: AsRef<[u8]> + Clone> AdjacencyList<M> {
+impl<M: AsRef<[u8]>> AdjacencyList<M> {
     pub fn from_parts(nums: LogArray<M>, bits: BitIndex<M>) -> AdjacencyList<M> {
         debug_assert_eq!(nums.len(), bits.len());
         AdjacencyList { nums, bits }
@@ -74,7 +74,10 @@ impl<M: AsRef<[u8]> + Clone> AdjacencyList<M> {
         (left, right)
     }
 
-    pub fn get(&self, index: u64) -> LogArraySlice<M> {
+    pub fn get(&self, index: u64) -> LogArraySlice<M>
+    where
+        M: Clone,
+    {
         if index < 1 {
             panic!("minimum index has to be 1");
         }
@@ -86,7 +89,10 @@ impl<M: AsRef<[u8]> + Clone> AdjacencyList<M> {
         self.nums.slice(start as usize, length as usize)
     }
 
-    pub fn iter(&self) -> AdjacencyListIterator<M> {
+    pub fn iter(&self) -> AdjacencyListIterator<M>
+    where
+        M: Clone,
+    {
         AdjacencyListIterator {
             pos: 0,
             left: 1,
@@ -104,14 +110,14 @@ impl<M: AsRef<[u8]> + Clone> AdjacencyList<M> {
     }
 }
 
-pub struct AdjacencyListIterator<M: AsRef<[u8]> + Clone> {
+pub struct AdjacencyListIterator<M: AsRef<[u8]>> {
     pos: usize,
     left: u64,
     bits: BitIndex<M>,
     nums: LogArray<M>,
 }
 
-impl<M: AsRef<[u8]> + Clone> Iterator for AdjacencyListIterator<M> {
+impl<M: AsRef<[u8]>> Iterator for AdjacencyListIterator<M> {
     type Item = (u64, u64);
 
     fn next(&mut self) -> Option<(u64, u64)> {
@@ -175,7 +181,7 @@ impl<S: Stream<Item = bool, Error = std::io::Error>> Stream for AdjacencyBitCoun
     }
 }
 
-pub fn adjacency_list_stream_pairs<F: FileLoad + Clone>(
+pub fn adjacency_list_stream_pairs<F: FileLoad>(
     bits_file: F,
     nums_file: F,
 ) -> impl Stream<Item = (u64, u64), Error = std::io::Error> {

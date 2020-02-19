@@ -14,13 +14,13 @@ const SBLOCK_SIZE: usize = 52;
 
 /// A bitarray with an index, supporting rank and select queries.
 #[derive(Clone)]
-pub struct BitIndex<M: AsRef<[u8]> + Clone> {
+pub struct BitIndex<M: AsRef<[u8]>> {
     array: BitArray<M>,
     blocks: LogArray<M>,
     sblocks: LogArray<M>,
 }
 
-impl<M: AsRef<[u8]> + Clone> BitIndex<M> {
+impl<M: AsRef<[u8]>> BitIndex<M> {
     pub fn from_maps(bitarray_map: M, blocks_map: M, sblocks_map: M) -> BitIndex<M> {
         let bitarray = BitArray::from_bits(bitarray_map);
         let blocks_logarray = LogArray::parse(blocks_map).unwrap();
