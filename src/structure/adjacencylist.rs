@@ -315,7 +315,7 @@ where
             last_right: _,
         } = self;
         let fut: Box<dyn Future<Item = BitArrayFileBuilder<_>, Error = std::io::Error> + Send> =
-            if nums.count == 0 {
+            if nums.count() == 0 {
                 Box::new(future::ok(bitarray))
             } else {
                 Box::new(bitarray.push(true))
