@@ -123,9 +123,14 @@ impl SharedBuf {
     }
 
     #[inline]
-    fn advance_offset(&mut self, index: usize) {
+    fn advance_unchecked(&mut self, index: usize) {
         self.offset += index;
         self.len -= index;
+    }
+
+    #[inline]
+    fn truncate_unchecked(&mut self, len: usize) {
+        self.len = len;
     }
 
     pub fn split_off(&mut self, index: usize) -> SharedBuf {
@@ -145,8 +150,8 @@ impl SharedBuf {
         }
 
         let mut clone = self.clone();
-        clone.advance_offset(index);
-        self.len = index;
+        clone.advance_unchecked(index);
+        self.truncate_unchecked(index);
         clone
     }
 
@@ -167,8 +172,8 @@ impl SharedBuf {
         }
 
         let mut clone = self.clone();
-        self.advance_offset(index);
-        clone.len = index;
+        self.advance_unchecked(index);
+        clone.truncate_unchecked(index);
         clone
     }
 
@@ -180,12 +185,12 @@ impl SharedBuf {
             self.len(),
         );
 
-        self.advance_offset(index);
+        self.advance_unchecked(index);
     }
 
     pub fn truncate(&mut self, len: usize) {
         if len < self.len {
-            self.len = len;
+            self.truncate_unchecked(len);
         }
     }
 }
