@@ -7,6 +7,7 @@ pub mod bitarray;
 pub mod bitindex;
 pub mod logarray;
 pub mod pfc;
+pub mod sharedbuf;
 mod util;
 pub mod vbyte;
 pub mod wavelettree;
