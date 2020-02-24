@@ -7,7 +7,7 @@ use std::sync::Arc;
 #[derive(Debug)]
 enum Buf {
     Mmap(Mmap),
-    Slice(&'static [u8]),
+    Static(&'static [u8]),
     Vec(Vec<u8>),
 }
 
@@ -19,7 +19,7 @@ impl Deref for Buf {
         use Buf::*;
         match self {
             Mmap(m) => m.as_ref(),
-            Slice(s) => s,
+            Static(s) => s,
             Vec(v) => v.as_ref(),
         }
     }
@@ -55,7 +55,7 @@ impl SharedBuf {
 
     #[inline]
     pub fn from_static(s: &'static [u8]) -> Self {
-        SharedBuf::from_buf(Buf::Slice(s))
+        SharedBuf::from_buf(Buf::Static(s))
     }
 
     /// Creates a `SharedBuf` from a slice by copying it.
