@@ -215,31 +215,37 @@ impl AsRef<[u8]> for SharedBuf {
 
 impl PartialEq for SharedBuf {
     fn eq(&self, other: &SharedBuf) -> bool {
-        self.as_slice() == other.as_slice()
+        *self == other.as_slice()
     }
 }
 
 impl PartialEq<[u8]> for SharedBuf {
     fn eq(&self, other: &[u8]) -> bool {
-        self.as_slice() == other
+        *self == other
     }
 }
 
 impl PartialEq<str> for SharedBuf {
     fn eq(&self, other: &str) -> bool {
-        self.as_slice() == other.as_bytes()
+        *self == other.as_bytes()
+    }
+}
+
+impl PartialEq<Vec<u8>> for SharedBuf {
+    fn eq(&self, other: &Vec<u8>) -> bool {
+        *self == other.as_slice()
     }
 }
 
 impl PartialEq<SharedBuf> for [u8] {
     fn eq(&self, other: &SharedBuf) -> bool {
-        *other == *self
+        self == other.as_slice()
     }
 }
 
-impl PartialEq<SharedBuf> for &[u8] {
+impl PartialEq<SharedBuf> for Vec<u8> {
     fn eq(&self, other: &SharedBuf) -> bool {
-        *other == *self
+        *self == other.as_slice()
     }
 }
 
@@ -398,7 +404,7 @@ mod tests {
     #[test]
     fn split_to_2() {
         let mut a = SharedBuf::from(LONG);
-        assert_eq!(LONG, a);
+        assert_eq!(LONG, &a);
 
         let b = a.split_to(1);
 
