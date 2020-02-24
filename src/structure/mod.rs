@@ -17,4 +17,5 @@ pub use bitarray::*;
 pub use bitindex::*;
 pub use logarray::*;
 pub use pfc::*;
+pub use sharedbuf::*;
 pub use wavelettree::*;
