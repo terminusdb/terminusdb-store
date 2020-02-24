@@ -1111,7 +1111,7 @@ pub mod tests {
         base_layer_files
     }
 
-    pub fn example_base_layer() -> BaseLayer<SharedVec> {
+    pub fn example_base_layer() -> BaseLayer<SharedBuf> {
         let base_layer_files = example_base_layer_files();
 
         let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files)
@@ -1121,7 +1121,7 @@ pub mod tests {
         layer
     }
 
-    pub fn empty_base_layer() -> BaseLayer<SharedVec> {
+    pub fn empty_base_layer() -> BaseLayer<SharedBuf> {
         let files = base_layer_files();
         let base_builder = BaseLayerFileBuilder::from_files(&files);
         base_builder

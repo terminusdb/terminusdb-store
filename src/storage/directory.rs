@@ -4,11 +4,11 @@ use locking::*;
 use memmap::*;
 use std::io::{self, Seek, SeekFrom};
 use std::path::PathBuf;
-use std::sync::Arc;
 use tokio::fs::{self, *};
 use tokio::prelude::*;
 
 use super::*;
+use crate::structure::sharedbuf::SharedBuf;
 
 const PREFIX_DIR_SIZE: usize = 3;
 
@@ -33,29 +33,11 @@ impl FileBackedStore {
     }
 }
 
-enum FileBacking {
-    Mmap(Mmap),
-    Vec(Vec<u8>),
-}
-
-#[derive(Clone)]
-pub struct SharedMmap(Option<Arc<FileBacking>>);
-
-impl AsRef<[u8]> for SharedMmap {
-    fn as_ref(&self) -> &[u8] {
-        match &self.0.as_ref().map(|a| a.as_ref()) {
-            None => &[],
-            Some(FileBacking::Mmap(map)) => map.as_ref(),
-            Some(FileBacking::Vec(vec)) => vec.as_ref(),
-        }
-    }
-}
-
 const MMAP_TRESHOLD: usize = 4096 * 16;
 
 impl FileLoad for FileBackedStore {
     type Read = File;
-    type Map = SharedMmap;
+    type Map = SharedBuf;
 
     fn size(&self) -> usize {
         let m = std::fs::metadata(&self.path).unwrap();
@@ -68,23 +50,23 @@ impl FileLoad for FileBackedStore {
         File::from_std(f)
     }
 
-    fn map(&self) -> Box<dyn Future<Item = SharedMmap, Error = std::io::Error> + Send> {
+    fn map(&self) -> Box<dyn Future<Item = SharedBuf, Error = std::io::Error> + Send> {
         let file = self.clone();
         Box::new(future::lazy(move || {
             if file.size() == 0 {
-                future::Either::A(future::ok(SharedMmap(None)))
+                future::Either::A(future::ok(SharedBuf::new()))
             } else if file.size() < MMAP_TRESHOLD {
                 let f = file.open_read_from(0);
                 future::Either::B(
                     tokio::io::read_to_end(f, Vec::with_capacity(file.size()))
-                        .map(|(_, vec)| SharedMmap(Some(Arc::new(FileBacking::Vec(vec))))),
+                        .map(|(_, vec)| SharedBuf::from(vec)),
                 )
             } else {
                 let f = file.open_read_from_std(0);
                 // unsafe justification: we opened this file specifically to do memory mapping, and will do nothing else with it.
-                future::Either::A(future::ok(SharedMmap(Some(Arc::new(FileBacking::Mmap(
+                future::Either::A(future::ok(SharedBuf::from_mmap(
                     unsafe { Mmap::map(&f) }.unwrap(),
-                ))))))
+                )))
             }
         }))
     }
@@ -421,15 +403,11 @@ mod tests {
         let map = oneshot::spawn(task, &runtime.executor()).wait().unwrap();
         runtime.shutdown_now();
 
-        if let SharedMmap(Some(filebacking)) = map {
-            if let FileBacking::Vec(vec) = &*filebacking {
-                assert_eq!(contents, &vec[..]);
-            } else {
-                panic!("expected small file to be read rather than mmapped");
-            }
-        } else {
-            panic!("expected file to have some backing");
-        }
+        assert_eq!(contents, map);
+        assert!(
+            !map.is_mmap(),
+            "file size less than threshold should not be mmapped"
+        );
     }
 
     #[test]
@@ -450,15 +428,11 @@ mod tests {
         let map = oneshot::spawn(task, &runtime.executor()).wait().unwrap();
         runtime.shutdown_now();
 
-        if let SharedMmap(Some(filebacking)) = map {
-            if let FileBacking::Mmap(mmap) = &*filebacking {
-                assert_eq!(contents, mmap.as_ref());
-            } else {
-                panic!("expected file of sufficient size to be mmapped rather than read");
-            }
-        } else {
-            panic!("expected file to have some backing");
-        }
+        assert_eq!(contents, map);
+        assert!(
+            map.is_mmap(),
+            "file size greater than threshold should be mmapped"
+        );
     }
 
     #[test]

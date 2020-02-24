@@ -1,7 +1,5 @@
 use core::ops::{Deref, RangeBounds};
 use memmap::Mmap;
-use std::fs::File;
-use std::io::Error;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -9,6 +7,15 @@ enum Buf {
     Mmap(Mmap),
     Static(&'static [u8]),
     Vec(Vec<u8>),
+}
+
+impl Buf {
+    fn is_mmap(&self) -> bool {
+        match self {
+            Buf::Mmap(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl Deref for Buf {
@@ -64,8 +71,8 @@ impl SharedBuf {
     }
 
     #[inline]
-    pub unsafe fn from_file_mmap(f: &File) -> Result<Self, Error> {
-        Ok(SharedBuf::from_buf(Buf::Mmap(Mmap::map(f)?)))
+    pub fn from_mmap(mmap: Mmap) -> Self {
+        SharedBuf::from_buf(Buf::Mmap(mmap))
     }
 
     #[inline]
@@ -77,6 +84,10 @@ impl SharedBuf {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.len == 0
+    }
+
+    pub fn is_mmap(&self) -> bool {
+        self.buf.is_mmap()
     }
 
     #[inline]
@@ -215,37 +226,43 @@ impl AsRef<[u8]> for SharedBuf {
 
 impl PartialEq for SharedBuf {
     fn eq(&self, other: &SharedBuf) -> bool {
-        *self == other.as_slice()
+        self.as_slice() == other.as_slice()
     }
 }
 
 impl PartialEq<[u8]> for SharedBuf {
     fn eq(&self, other: &[u8]) -> bool {
-        *self == other
+        self.as_slice() == other
     }
 }
 
 impl PartialEq<str> for SharedBuf {
     fn eq(&self, other: &str) -> bool {
-        *self == other.as_bytes()
+        self.as_slice() == other.as_bytes()
     }
 }
 
 impl PartialEq<Vec<u8>> for SharedBuf {
     fn eq(&self, other: &Vec<u8>) -> bool {
-        *self == other.as_slice()
+        self.as_slice() == other.as_slice()
     }
 }
 
 impl PartialEq<SharedBuf> for [u8] {
     fn eq(&self, other: &SharedBuf) -> bool {
-        self == other.as_slice()
+        other == self
+    }
+}
+
+impl PartialEq<SharedBuf> for &[u8] {
+    fn eq(&self, other: &SharedBuf) -> bool {
+        other == *self
     }
 }
 
 impl PartialEq<SharedBuf> for Vec<u8> {
     fn eq(&self, other: &SharedBuf) -> bool {
-        *self == other.as_slice()
+        other == self
     }
 }
 

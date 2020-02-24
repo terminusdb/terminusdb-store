@@ -635,6 +635,6 @@ mod tests {
         let content = store.map().wait().unwrap();
         let logarray = LogArray::parse(&content).unwrap();
         assert_eq!(original, logarray.iter().collect::<Vec<_>>());
-        assert_eq!(16, logarray.data.0.len());
+        assert_eq!(16, logarray.data.len());
     }
 }
