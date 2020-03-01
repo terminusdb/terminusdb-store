@@ -23,13 +23,13 @@
 //! `foo.label`, for database `foo`. This file contains the name of
 //! the layer this label is pointing at.
 mod consts;
-mod file;
-mod layer;
-mod label;
-pub mod memory;
 pub mod directory;
+mod file;
+mod label;
+mod layer;
 mod locking;
+pub mod memory;
 
 pub use file::*;
-pub use layer::*;
 pub use label::*;
+pub use layer::*;

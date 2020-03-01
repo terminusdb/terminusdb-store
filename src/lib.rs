@@ -29,12 +29,12 @@
 #[macro_use]
 extern crate lazy_static;
 
-pub mod structure;
 pub mod layer;
+pub mod logging;
 pub mod storage;
-
 pub mod store;
+pub mod structure;
 
-pub use store::{open_memory_store, open_directory_store, serialize_directory_store};
-pub use store::sync::{open_sync_memory_store, open_sync_directory_store};
 pub use layer::Layer;
+pub use store::sync::{open_sync_directory_store, open_sync_memory_store};
+pub use store::{open_directory_store, open_memory_store, serialize_directory_store};

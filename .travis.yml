@@ -5,6 +5,7 @@ rust:
 
 before_install:
   - curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x86_64.tar.bz2 | tar jxf -
+  - rustup component add rustfmt
 
 script:
     - export CARGO_INCREMENTAL=0
@@ -12,6 +13,7 @@ script:
     - cargo clean
     - cargo build --verbose $CARGO_OPTIONS
     - cargo test --verbose $CARGO_OPTIONS
+    - cargo fmt -- --check
     - |
       zip -0 ccov.zip `find . \( -name "terminus*.gc*" \) -print`;
       ./grcov ccov.zip -s . -t lcov --llvm --branch --ignore-not-existing --ignore "/*" -o lcov.info;
