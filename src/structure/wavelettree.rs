@@ -284,7 +284,7 @@ pub fn build_wavelet_tree_from_logarray<
     destination_blocks: F,
     destination_sblocks: F,
 ) -> impl Future<Item = (), Error = std::io::Error> + Send {
-    logarray_file_get_length_and_width(&source).and_then(|(_, width)| {
+    logarray_file_get_length_and_width(source).and_then(|(source, _, width)| {
         build_wavelet_tree_from_stream(
             width,
             move || logarray_stream_entries(source.clone()),
