@@ -54,6 +54,10 @@ use futures::{future, prelude::*};
 use std::{cmp::Ordering, error, fmt, io};
 use tokio::codec::{Decoder, FramedRead};
 
+// Static assertion: We expect the system architecture bus width to be >= 32 bits. If it is not,
+// the following line will cause a compiler error. (Ignore the unrelated error message itself.)
+const _: usize = 0 - !(std::mem::size_of::<usize>() >= 32 >> 3) as usize;
+
 /// An in-memory log array
 #[derive(Clone)]
 pub struct LogArray<M: AsRef<[u8]>> {
