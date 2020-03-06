@@ -19,32 +19,32 @@ use std::sync::Arc;
 ///
 /// This layer type has a parent. It stores triple additions and removals.
 #[derive(Clone)]
-pub struct ChildLayer<M: 'static + AsRef<[u8]> + Clone + Send + Sync> {
+pub struct ChildLayer {
     name: [u32; 5],
     parent: Arc<dyn Layer>,
 
-    node_dictionary: PfcDict<M>,
-    predicate_dictionary: PfcDict<M>,
-    value_dictionary: PfcDict<M>,
+    node_dictionary: PfcDict,
+    predicate_dictionary: PfcDict,
+    value_dictionary: PfcDict,
 
-    pos_subjects: MonotonicLogArray<M>,
-    pos_objects: MonotonicLogArray<M>,
-    pos_s_p_adjacency_list: AdjacencyList<M>,
-    pos_sp_o_adjacency_list: AdjacencyList<M>,
-    pos_o_ps_adjacency_list: AdjacencyList<M>,
+    pos_subjects: MonotonicLogArray,
+    pos_objects: MonotonicLogArray,
+    pos_s_p_adjacency_list: AdjacencyList,
+    pos_sp_o_adjacency_list: AdjacencyList,
+    pos_o_ps_adjacency_list: AdjacencyList,
 
-    neg_subjects: MonotonicLogArray<M>,
-    neg_objects: MonotonicLogArray<M>,
-    neg_s_p_adjacency_list: AdjacencyList<M>,
-    neg_sp_o_adjacency_list: AdjacencyList<M>,
-    neg_o_ps_adjacency_list: AdjacencyList<M>,
+    neg_subjects: MonotonicLogArray,
+    neg_objects: MonotonicLogArray,
+    neg_s_p_adjacency_list: AdjacencyList,
+    neg_sp_o_adjacency_list: AdjacencyList,
+    neg_o_ps_adjacency_list: AdjacencyList,
 
-    pos_predicate_wavelet_tree: WaveletTree<M>,
-    neg_predicate_wavelet_tree: WaveletTree<M>,
+    pos_predicate_wavelet_tree: WaveletTree,
+    neg_predicate_wavelet_tree: WaveletTree,
 }
 
-impl<M: 'static + AsRef<[u8]> + Clone + Send + Sync> ChildLayer<M> {
-    pub fn load_from_files<F: FileLoad<Map = M> + FileStore + Clone>(
+impl ChildLayer {
+    pub fn load_from_files<F: FileLoad + FileStore + Clone>(
         name: [u32; 5],
         parent: Arc<dyn Layer>,
         files: &ChildLayerFiles<F>,
@@ -54,7 +54,7 @@ impl<M: 'static + AsRef<[u8]> + Clone + Send + Sync> ChildLayer<M> {
             .map(move |maps| Self::load(name, parent, maps))
     }
 
-    pub fn load(name: [u32; 5], parent: Arc<dyn Layer>, maps: ChildLayerMaps<M>) -> ChildLayer<M> {
+    pub fn load(name: [u32; 5], parent: Arc<dyn Layer>, maps: ChildLayerMaps) -> ChildLayer {
         let node_dictionary = PfcDict::parse(
             maps.node_dictionary_maps.blocks_map,
             maps.node_dictionary_maps.offsets_map,
@@ -200,7 +200,7 @@ impl<M: 'static + AsRef<[u8]> + Clone + Send + Sync> ChildLayer<M> {
     }
 }
 
-impl<M: 'static + AsRef<[u8]> + Clone + Send + Sync> Layer for ChildLayer<M> {
+impl Layer for ChildLayer {
     fn name(&self) -> [u32; 5] {
         self.name
     }
@@ -398,43 +398,31 @@ impl<M: 'static + AsRef<[u8]> + Clone + Send + Sync> Layer for ChildLayer<M> {
     fn subject_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>> {
         let s_p_adjacency_list = self.pos_s_p_adjacency_list.clone();
         let sp_o_adjacency_list = self.pos_sp_o_adjacency_list.clone();
-        Box::new(
-            self.pos_subjects
-                .clone()
-                .into_iter()
-                .enumerate()
-                .map(move |(c, s)| {
-                    Box::new(ChildLayerSubjectLookup {
-                        subject: s,
-                        adjacencies: AdjacencyStuff {
-                            predicates: s_p_adjacency_list.get((c as u64) + 1),
-                            sp_offset: s_p_adjacency_list.offset_for((c as u64) + 1),
-                            sp_o_adjacency_list: sp_o_adjacency_list.clone(),
-                        },
-                    }) as Box<dyn LayerSubjectLookup>
-                }),
-        )
+        Box::new(self.pos_subjects.iter().enumerate().map(move |(c, s)| {
+            Box::new(ChildLayerSubjectLookup {
+                subject: s,
+                adjacencies: AdjacencyStuff {
+                    predicates: s_p_adjacency_list.get((c as u64) + 1),
+                    sp_offset: s_p_adjacency_list.offset_for((c as u64) + 1),
+                    sp_o_adjacency_list: sp_o_adjacency_list.clone(),
+                },
+            }) as Box<dyn LayerSubjectLookup>
+        }))
     }
 
     fn subject_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>> {
         let s_p_adjacency_list = self.neg_s_p_adjacency_list.clone();
         let sp_o_adjacency_list = self.neg_sp_o_adjacency_list.clone();
-        Box::new(
-            self.neg_subjects
-                .clone()
-                .into_iter()
-                .enumerate()
-                .map(move |(c, s)| {
-                    Box::new(ChildLayerSubjectLookup {
-                        subject: s,
-                        adjacencies: AdjacencyStuff {
-                            predicates: s_p_adjacency_list.get((c as u64) + 1),
-                            sp_offset: s_p_adjacency_list.offset_for((c as u64) + 1),
-                            sp_o_adjacency_list: sp_o_adjacency_list.clone(),
-                        },
-                    }) as Box<dyn LayerSubjectLookup>
-                }),
-        )
+        Box::new(self.neg_subjects.iter().enumerate().map(move |(c, s)| {
+            Box::new(ChildLayerSubjectLookup {
+                subject: s,
+                adjacencies: AdjacencyStuff {
+                    predicates: s_p_adjacency_list.get((c as u64) + 1),
+                    sp_offset: s_p_adjacency_list.offset_for((c as u64) + 1),
+                    sp_o_adjacency_list: sp_o_adjacency_list.clone(),
+                },
+            }) as Box<dyn LayerSubjectLookup>
+        }))
     }
 
     fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn LayerSubjectLookup>> {
@@ -555,19 +543,19 @@ impl<M: 'static + AsRef<[u8]> + Clone + Send + Sync> Layer for ChildLayer<M> {
 }
 
 #[derive(Clone)]
-struct AdjacencyStuff<M: 'static + AsRef<[u8]> + Clone> {
-    predicates: LogArraySlice<M>,
+struct AdjacencyStuff {
+    predicates: LogArray,
     sp_offset: u64,
-    sp_o_adjacency_list: AdjacencyList<M>,
+    sp_o_adjacency_list: AdjacencyList,
 }
 
-struct ChildLayerSubjectLookup<M: 'static + AsRef<[u8]> + Clone> {
+struct ChildLayerSubjectLookup {
     subject: u64,
 
-    adjacencies: AdjacencyStuff<M>,
+    adjacencies: AdjacencyStuff,
 }
 
-impl<M: AsRef<[u8]> + Clone> LayerSubjectLookup for ChildLayerSubjectLookup<M> {
+impl LayerSubjectLookup for ChildLayerSubjectLookup {
     fn subject(&self) -> u64 {
         self.subject
     }
@@ -579,8 +567,7 @@ impl<M: AsRef<[u8]> + Clone> LayerSubjectLookup for ChildLayerSubjectLookup<M> {
         Box::new(
             self.adjacencies
                 .predicates
-                .clone()
-                .into_iter()
+                .iter()
                 .enumerate()
                 .map(move |(c, p)| {
                     Box::new(ChildLayerSubjectPredicateLookup {
@@ -612,15 +599,13 @@ impl<M: AsRef<[u8]> + Clone> LayerSubjectLookup for ChildLayerSubjectLookup<M> {
     }
 }
 
-struct ChildLayerSubjectPredicateLookup<M: 'static + AsRef<[u8]> + Clone> {
+struct ChildLayerSubjectPredicateLookup {
     subject: u64,
     predicate: u64,
-    objects: LogArraySlice<M>,
+    objects: LogArray,
 }
 
-impl<M: 'static + AsRef<[u8]> + Clone> LayerSubjectPredicateLookup
-    for ChildLayerSubjectPredicateLookup<M>
-{
+impl LayerSubjectPredicateLookup for ChildLayerSubjectPredicateLookup {
     fn subject(&self) -> u64 {
         self.subject
     }
@@ -630,7 +615,7 @@ impl<M: 'static + AsRef<[u8]> + Clone> LayerSubjectPredicateLookup
     }
 
     fn objects(&self) -> Box<dyn Iterator<Item = u64>> {
-        Box::new(self.objects.clone().into_iter())
+        Box::new(self.objects.iter())
     }
 
     fn has_object(&self, object: u64) -> bool {
@@ -638,14 +623,14 @@ impl<M: 'static + AsRef<[u8]> + Clone> LayerSubjectPredicateLookup
     }
 }
 
-struct ChildLayerObjectLookup<M: 'static + AsRef<[u8]> + Clone> {
+struct ChildLayerObjectLookup {
     object: u64,
-    sp_slice: LogArraySlice<M>,
-    s_p_adjacency_list: AdjacencyList<M>,
-    subjects: MonotonicLogArray<M>,
+    sp_slice: LogArray,
+    s_p_adjacency_list: AdjacencyList,
+    subjects: MonotonicLogArray,
 }
 
-impl<M: 'static + AsRef<[u8]> + Clone> LayerObjectLookup for ChildLayerObjectLookup<M> {
+impl LayerObjectLookup for ChildLayerObjectLookup {
     fn object(&self) -> u64 {
         self.object
     }
@@ -656,7 +641,7 @@ impl<M: 'static + AsRef<[u8]> + Clone> LayerObjectLookup for ChildLayerObjectLoo
         let subjects = self.subjects.clone();
         Box::new(
             sp_slice
-                .into_iter()
+                .iter()
                 .map(move |index| s_p_adjacency_list.pair_at_pos(index - 1))
                 .map(move |(mapped_subject, predicate)| {
                     (subjects.entry((mapped_subject as usize) - 1), predicate)
@@ -665,15 +650,15 @@ impl<M: 'static + AsRef<[u8]> + Clone> LayerObjectLookup for ChildLayerObjectLoo
     }
 }
 
-struct ChildLayerPredicateLookup<M: 'static + AsRef<[u8]> + Clone> {
+struct ChildLayerPredicateLookup {
     predicate: u64,
-    lookup: WaveletLookup<M>,
-    subjects: MonotonicLogArray<M>,
-    s_p_adjacency_list: AdjacencyList<M>,
-    sp_o_adjacency_list: AdjacencyList<M>,
+    lookup: WaveletLookup,
+    subjects: MonotonicLogArray,
+    s_p_adjacency_list: AdjacencyList,
+    sp_o_adjacency_list: AdjacencyList,
 }
 
-impl<M: 'static + AsRef<[u8]> + Clone> LayerPredicateLookup for ChildLayerPredicateLookup<M> {
+impl LayerPredicateLookup for ChildLayerPredicateLookup {
     fn predicate(&self) -> u64 {
         self.predicate
     }

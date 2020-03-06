@@ -14,8 +14,8 @@ use tokio::prelude::*;
 /// rounded up to make it an integer. Since we're encoding u64 values,
 /// the number of layers can never be larger than 64.
 #[derive(Clone)]
-pub struct WaveletTree<M: AsRef<[u8]>> {
-    bits: BitIndex<M>,
+pub struct WaveletTree {
+    bits: BitIndex,
     num_layers: u8,
 }
 
@@ -25,14 +25,14 @@ pub struct WaveletTree<M: AsRef<[u8]>> {
 /// positions out of a wavelet tree, allowing for quick iteration over
 /// all positions for a given entry.
 #[derive(Clone)]
-pub struct WaveletLookup<M: AsRef<[u8]>> {
+pub struct WaveletLookup {
     /// the entry this lookup was created for.
     pub entry: u64,
-    tree: WaveletTree<M>,
+    tree: WaveletTree,
     slices: Vec<(bool, u64, u64)>,
 }
 
-impl<M: AsRef<[u8]>> WaveletLookup<M> {
+impl WaveletLookup {
     /// Returns the amount of positions found in this lookup.
     pub fn len(&self) -> usize {
         let (b, start, end) = *self.slices.last().unwrap();
@@ -75,18 +75,15 @@ impl<M: AsRef<[u8]>> WaveletLookup<M> {
     }
 
     /// Returns an Iterator over all positions for the entry of this lookup
-    pub fn iter(&self) -> impl Iterator<Item = u64>
-    where
-        M: Clone,
-    {
+    pub fn iter(&self) -> impl Iterator<Item = u64> {
         let cloned = self.clone();
         (0..self.len()).map(move |i| cloned.entry(i))
     }
 }
 
-impl<M: AsRef<[u8]>> WaveletTree<M> {
+impl WaveletTree {
     /// Construct a wavelet tree from a bitindex and a layer count.
-    pub fn from_parts(bits: BitIndex<M>, num_layers: u8) -> WaveletTree<M> {
+    pub fn from_parts(bits: BitIndex, num_layers: u8) -> WaveletTree {
         if num_layers != 0 && bits.len() % num_layers as usize != 0 {
             panic!("the bitarray length is not a multiple of the number of layers");
         }
@@ -109,10 +106,7 @@ impl<M: AsRef<[u8]>> WaveletTree<M> {
     }
 
     /// Decode the wavelet tree to the original u64 sequence. This returns an iterator.
-    pub fn decode(&self) -> impl Iterator<Item = u64>
-    where
-        M: Clone,
-    {
+    pub fn decode(&self) -> impl Iterator<Item = u64> {
         let owned = self.clone();
         (0..self.len()).map(move |i| owned.decode_one(i))
     }
@@ -159,10 +153,7 @@ impl<M: AsRef<[u8]>> WaveletTree<M> {
     }
 
     /// Lookup the given entry. This returns a `WaveletLookup` which can then be used to find all positions.
-    pub fn lookup(&self, entry: u64) -> Option<WaveletLookup<M>>
-    where
-        M: Clone,
-    {
+    pub fn lookup(&self, entry: u64) -> Option<WaveletLookup> {
         let width = self.len() as u64;
         let mut slices = Vec::with_capacity(self.num_layers as usize);
         let mut alphabet_start = 0;
@@ -200,10 +191,7 @@ impl<M: AsRef<[u8]>> WaveletTree<M> {
     }
 
     /// Lookup the given entry. This returns a single result, even if there's multiple.
-    pub fn lookup_one(&self, entry: u64) -> Option<u64>
-    where
-        M: Clone,
-    {
+    pub fn lookup_one(&self, entry: u64) -> Option<u64> {
         self.lookup(entry).map(|l| l.entry(0))
     }
 }
