@@ -515,14 +515,15 @@ pub fn serialize_directory_store<P: Into<PathBuf>>(
     enc.finish().unwrap()
 }
 
+
 pub fn deserialize_directory_store<P: Into<PathBuf>>(
-    directory_store_path: P,
+    extract_path: P,
     tar_path: P,
 ) -> Result<(), std::io::Error> {
     let tar_gz = std::fs::File::open(tar_path.into())?;
     let tar = GzDecoder::new(tar_gz);
     let mut archive = tar::Archive::new(tar);
-    archive.unpack(directory_store_path.into())
+    archive.unpack(extract_path.into())
 }
 
 #[cfg(test)]
