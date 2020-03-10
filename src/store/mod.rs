@@ -501,14 +501,18 @@ pub fn serialize_directory_store<P: Into<PathBuf>>(
         let p = path.into();
         for id in layer_ids {
             let mut layer_path = p.clone();
-            layer_path.push(&id[0..3]); // TODO: Use the constant
+            let mut tar_path = PathBuf::new();
+            let layer_id_prefix_dir = &id[0..3]; // TODO: Use the constant
+            tar_path.push(layer_id_prefix_dir);
+            tar_path.push(id);
+            layer_path.push(layer_id_prefix_dir);
             layer_path.push(id);
-            tar.append_dir_all(layer_path.clone(), layer_path).unwrap();
+            tar.append_dir_all(tar_path, layer_path).unwrap();
         }
         for name in label_names {
             let mut label_path = p.clone();
             label_path.push(name);
-            tar.append_path(label_path).unwrap();
+            tar.append_path_with_name(label_path, name).unwrap();
         }
     }
     // TODO: Proper error handling
