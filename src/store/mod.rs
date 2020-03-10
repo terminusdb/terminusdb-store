@@ -515,7 +515,6 @@ pub fn serialize_directory_store<P: Into<PathBuf>>(
     enc.finish().unwrap()
 }
 
-
 pub fn deserialize_directory_store<P: Into<PathBuf>>(
     extract_path: P,
     tar_path: P,
