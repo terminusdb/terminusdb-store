@@ -37,7 +37,7 @@ impl AdjacencyList {
         bits_sblock_slice: Bytes,
     ) -> AdjacencyList {
         let nums = LogArray::parse(nums_slice).unwrap();
-        let bit_array = BitArray::from_bits(bits_slice);
+        let bit_array = BitArray::from_bits(bits_slice).unwrap();
         let bits_block_array = LogArray::parse(bits_block_slice).unwrap();
         let bits_sblock_array = LogArray::parse(bits_sblock_slice).unwrap();
         let bits = BitIndex::from_parts(bit_array, bits_block_array, bits_sblock_array);
