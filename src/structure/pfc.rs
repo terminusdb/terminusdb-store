@@ -7,7 +7,7 @@ use std::error::Error;
 use std::fmt::Display;
 
 use super::logarray::*;
-use super::util::*;
+use super::util;
 use super::vbyte;
 
 #[derive(Debug)]
@@ -395,7 +395,7 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> PfcDictFileBuilder<W> {
             }
             let pfc_block_offsets_file = self.pfc_block_offsets_file;
             future::Either::A(
-                write_nul_terminated_bytes(self.pfc_blocks_file, bytes.clone()).and_then(
+                util::write_nul_terminated_bytes(self.pfc_blocks_file, bytes.clone()).and_then(
                     move |(f, len)| {
                         future::ok((
                             (count + 1) as u64,
@@ -413,13 +413,13 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> PfcDictFileBuilder<W> {
             )
         } else {
             let s_bytes = s.as_bytes();
-            let common = find_common_prefix(&self.last.unwrap(), s_bytes);
+            let common = util::find_common_prefix(&self.last.unwrap(), s_bytes);
             let postfix = s_bytes[common..].to_vec();
             let pfc_block_offsets_file = self.pfc_block_offsets_file;
             future::Either::B(
                 vbyte::write_async(self.pfc_blocks_file, common as u64).and_then(
                     move |(pfc_blocks_file, common_len)| {
-                        write_nul_terminated_bytes(pfc_blocks_file, postfix).map(
+                        util::write_nul_terminated_bytes(pfc_blocks_file, postfix).map(
                             move |(pfc_blocks_file, slice_len)| {
                                 (
                                     (count + 1) as u64,
@@ -464,19 +464,15 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> PfcDictFileBuilder<W> {
             64 - self.index[self.index.len() - 1].leading_zeros()
         };
         let builder = LogArrayFileBuilder::new(self.pfc_block_offsets_file, width as u8);
-        let count = self.count;
+        let count = self.count as u64;
 
         let write_offsets = builder
             .push_all(futures::stream::iter_ok(self.index))
             .and_then(|b| b.finalize());
 
-        let finalize_blocks = write_padding(self.pfc_blocks_file, self.size, 8)
-            .and_then(move |(w, _n_pad)| {
-                let mut bytes = vec![0; 8];
-                BigEndian::write_u64(&mut bytes, count as u64);
-                tokio::io::write_all(w, bytes)
-            })
-            .and_then(|(w, _)| tokio::io::flush(w));
+        let finalize_blocks = util::write_padding(self.pfc_blocks_file, self.size, 8)
+            .and_then(move |w| util::write_u64(w, count))
+            .and_then(|w| tokio::io::flush(w));
 
         write_offsets.join(finalize_blocks).map(|_| ())
     }

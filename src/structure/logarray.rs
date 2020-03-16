@@ -47,6 +47,7 @@
 //!
 //! * length: the number of elements in the log array
 
+use super::util;
 use crate::storage::*;
 use byteorder::{BigEndian, ByteOrder};
 use bytes::BytesMut;
@@ -428,29 +429,27 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> LogArrayFileBuilder<W> {
             // Check if the new `offset` is larger than 64.
             if offset >= 64 {
                 // We have filled `current` with a word of data, so write it to the destination.
-                future::Either::A(tokio::io::write_all(file, current.to_be_bytes()).map(
-                    move |(file, _)| {
-                        // Wrap the offset with the word size.
-                        let offset = offset - 64;
+                future::Either::A(util::write_u64(file, current).map(move |file| {
+                    // Wrap the offset with the word size.
+                    let offset = offset - 64;
 
-                        // Initialize the new `current`.
-                        let current = if offset == 0 {
-                            // Zero is needed for bitwise OR-ing new values.
-                            0
-                        } else {
-                            // This is the second part of `val`: the lower bits.
-                            val << 64 - offset
-                        };
+                    // Initialize the new `current`.
+                    let current = if offset == 0 {
+                        // Zero is needed for bitwise OR-ing new values.
+                        0
+                    } else {
+                        // This is the second part of `val`: the lower bits.
+                        val << 64 - offset
+                    };
 
-                        LogArrayFileBuilder {
-                            file,
-                            width,
-                            count,
-                            current,
-                            offset,
-                        }
-                    },
-                ))
+                    LogArrayFileBuilder {
+                        file,
+                        width,
+                        count,
+                        current,
+                        offset,
+                    }
+                }))
             } else {
                 future::Either::B(future::ok(LogArrayFileBuilder {
                     file,
@@ -474,9 +473,7 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> LogArrayFileBuilder<W> {
         if self.count as u64 * self.width as u64 & 0b11_1111 == 0 {
             future::Either::A(future::ok(self.file))
         } else {
-            let mut buf = vec![0; 8];
-            BigEndian::write_u64(&mut buf, self.current);
-            future::Either::B(tokio::io::write_all(self.file, buf).map(|(file, _)| file))
+            future::Either::B(util::write_u64(self.file, self.current))
         }
     }
 
@@ -486,10 +483,10 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> LogArrayFileBuilder<W> {
 
         self.write_last_data().and_then(move |file| {
             // Write the control word.
-            let mut buf = vec![0; 8];
+            let mut buf = [0; 8];
             BigEndian::write_u32(&mut buf, len);
             buf[4] = width;
-            tokio::io::write_all(file, buf).map(|(file, _)| file)
+            util::write_all(file, buf)
         })
     }
 }
@@ -627,8 +624,7 @@ pub fn logarray_file_get_length_and_width<F: FileLoad>(
         .map_or_else(|e| Err(e.into()), |_| Ok(f))
         .into_future()
         .and_then(|f| {
-            tokio::io::read_exact(f.open_read_from(f.size() - 8), vec![0; 8])
-                .map(|(_, buf)| (f, buf))
+            tokio::io::read_exact(f.open_read_from(f.size() - 8), [0; 8]).map(|(_, buf)| (f, buf))
         })
         .and_then(|(f, buf)| {
             read_control_word(&buf, f.size())
