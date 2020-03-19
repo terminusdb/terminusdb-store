@@ -78,3 +78,7 @@ build_script:
 # environment variable.
 test_script:
   - cargo test
+
+artifacts:
+  # pushing a single file
+  - path: target\release\libterminus_store.dll
