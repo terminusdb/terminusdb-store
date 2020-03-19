@@ -72,6 +72,7 @@ install:
 
 build_script:
   - cargo build --release
+  - dir target\release # Just to show me the files in there
 
 # Uses 'cargo test' to run tests and build. Alternatively, the project may call compiled programs
 #directly or perform other testing commands. Rust will automatically be placed in the PATH
