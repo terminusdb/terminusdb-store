@@ -1,5 +1,5 @@
 //! Logic for storing, loading and using arrays of bits.
-use super::util::*;
+use super::util;
 use crate::storage::*;
 use crate::structure::bititer::BitIter;
 use byteorder::{BigEndian, ByteOrder};
@@ -114,8 +114,7 @@ where
     }
 
     fn pad(self) -> impl Future<Item = W, Error = std::io::Error> {
-        write_padding(self.bit_output, (self.count as usize + 7) / 8, 8)
-            .map(|(bit_output, _)| bit_output)
+        util::write_padding(self.bit_output, (self.count as usize + 7) / 8, 8)
     }
 
     pub fn finalize(self) -> impl Future<Item = W, Error = std::io::Error> {
@@ -130,7 +129,7 @@ where
 
         flush_current
             .and_then(|b| b.pad())
-            .and_then(move |w| write_u64(w, count))
+            .and_then(move |w| util::write_u64(w, count))
             .and_then(|w| tokio::io::flush(w))
     }
 

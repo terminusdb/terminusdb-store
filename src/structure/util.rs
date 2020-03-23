@@ -1,5 +1,6 @@
-use byteorder::{BigEndian, ByteOrder};
 use futures::prelude::*;
+use std::io::Error;
+use tokio::io::AsyncWrite;
 
 pub fn find_common_prefix(b1: &[u8], b2: &[u8]) -> usize {
     let mut common = 0;
@@ -14,32 +15,36 @@ pub fn find_common_prefix(b1: &[u8], b2: &[u8]) -> usize {
     common
 }
 
-pub fn write_nul_terminated_bytes<W: tokio::io::AsyncWrite + Send>(
+pub fn write_nul_terminated_bytes<W: AsyncWrite>(
     w: W,
     bytes: Vec<u8>,
-) -> impl Future<Item = (W, usize), Error = std::io::Error> {
+) -> impl Future<Item = (W, usize), Error = Error> {
     tokio::io::write_all(w, bytes).and_then(|(w, slice)| {
         let count = slice.len() + 1;
         tokio::io::write_all(w, [0]).map(move |(w, _)| (w, count))
     })
 }
 
-pub fn write_padding<W: tokio::io::AsyncWrite + Send>(
+/// Write a buffer to `w`. Don't pass the buffer to the result.
+pub fn write_all<W, B>(w: W, b: B) -> impl Future<Item = W, Error = Error>
+where
+    W: AsyncWrite,
+    B: AsRef<[u8]>,
+{
+    tokio::io::write_all(w, b).map(|(w, _)| w)
+}
+
+/// Write a buffer to `w`.
+pub fn write_padding<W: AsyncWrite>(
     w: W,
     current_pos: usize,
     width: u8,
-) -> impl Future<Item = (W, usize), Error = std::io::Error> {
+) -> impl Future<Item = W, Error = Error> {
     let required_padding = (width as usize - current_pos % width as usize) % width as usize;
-    tokio::io::write_all(w, vec![0; required_padding]) // there has to be a better way
-        .map(|(w, slice)| (w, slice.len()))
+    write_all(w, vec![0; required_padding]) // there has to be a better way
 }
 
-pub fn write_u64<W: tokio::io::AsyncWrite + Send>(
-    w: W,
-    num: u64,
-) -> impl Future<Item = W, Error = std::io::Error> {
-    let mut v = vec![0u8; 8];
-    BigEndian::write_u64(&mut v, num);
-
-    tokio::io::write_all(w, v).map(|(w, _)| w)
+/// Write a `u64` in big-endian order to `w`.
+pub fn write_u64<W: AsyncWrite>(w: W, num: u64) -> impl Future<Item = W, Error = Error> {
+    write_all(w, num.to_be_bytes())
 }
