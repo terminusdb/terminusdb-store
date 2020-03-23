@@ -49,7 +49,7 @@
 
 use crate::storage::*;
 use byteorder::{BigEndian, ByteOrder};
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use futures::{future, prelude::*};
 use std::{cmp::Ordering, error, fmt, io};
 use tokio::codec::{Decoder, FramedRead};
@@ -60,15 +60,26 @@ const _: usize = 0 - !(std::mem::size_of::<usize>() >= 32 >> 3) as usize;
 
 /// An in-memory log array
 #[derive(Clone)]
-pub struct LogArray<M: AsRef<[u8]>> {
-    /// Number of elements
+pub struct LogArray {
+    /// Index of the first accessible element
+    ///
+    /// For an original log array, this is initialized to 0. For a slice, this is the index to the
+    /// first element of the slice.
+    first: u32,
+
+    /// Number of accessible elements
+    ///
+    /// For an original log array, this is initialized to the value read from the control word. For
+    /// a slice, it is the length of the slice.
     len: u32,
+
     /// Bit width of each element
     width: u8,
-    /// Owned reference to the data buffer.
+
+    /// Shared reference to the input buffer
     ///
-    /// The `0` index points to the first byte of the first element.
-    data: M,
+    /// Index 0 points to the first byte of the first element. The last word is the control word.
+    input_buf: Bytes,
 }
 
 /// An error that occurred during a log array operation.
@@ -144,33 +155,13 @@ impl From<LogArrayError> for io::Error {
     }
 }
 
-pub struct LogArrayIterator<'a, M: AsRef<[u8]>> {
-    logarray: &'a LogArray<M>,
+pub struct LogArrayIterator {
+    logarray: LogArray,
     pos: usize,
     end: usize,
 }
 
-impl<'a, M: AsRef<[u8]>> Iterator for LogArrayIterator<'a, M> {
-    type Item = u64;
-    fn next(&mut self) -> Option<u64> {
-        if self.pos == self.end {
-            None
-        } else {
-            let result = self.logarray.entry(self.pos);
-            self.pos += 1;
-
-            Some(result)
-        }
-    }
-}
-
-pub struct OwnedLogArrayIterator<M: AsRef<[u8]>> {
-    logarray: LogArray<M>,
-    pos: usize,
-    end: usize,
-}
-
-impl<M: AsRef<[u8]>> Iterator for OwnedLogArrayIterator<M> {
+impl Iterator for LogArrayIterator {
     type Item = u64;
     fn next(&mut self) -> Option<u64> {
         if self.pos == self.end {
@@ -193,17 +184,18 @@ fn read_control_word(buf: &[u8], input_buf_size: usize) -> Result<(u32, u8), Log
     Ok((len, width))
 }
 
-impl<M: AsRef<[u8]>> LogArray<M> {
-    /// Take ownership of a buffer, read the control word, validate it, and construct a log array
-    /// around the buffer.
-    pub fn parse(data: M) -> Result<LogArray<M>, LogArrayError> {
-        let input_buf = data.as_ref();
+impl LogArray {
+    /// Construct a `LogArray` by parsing a `Bytes` buffer.
+    pub fn parse(input_buf: Bytes) -> Result<LogArray, LogArrayError> {
         let input_buf_size = input_buf.len();
         LogArrayError::validate_input_buf_size(input_buf_size)?;
-
         let (len, width) = read_control_word(&input_buf[input_buf_size - 8..], input_buf_size)?;
-
-        Ok(LogArray { len, width, data })
+        Ok(LogArray {
+            first: 0,
+            len,
+            width,
+            input_buf,
+        })
     }
 
     /// Returns the number of elements.
@@ -227,14 +219,14 @@ impl<M: AsRef<[u8]>> LogArray<M> {
             self.len
         );
 
-        let bit_index = self.width as usize * index;
+        let bit_index = self.width as usize * (self.first as usize + index);
 
         // Read the words that contain the element.
         let (first_word, second_word) = {
             // Calculate the byte index from the bit index.
             let byte_index = bit_index >> 6 << 3;
 
-            let buf = self.data.as_ref();
+            let buf = &self.input_buf;
 
             // Read the first word.
             let first_word = BigEndian::read_u64(&buf[byte_index..]);
@@ -280,82 +272,30 @@ impl<M: AsRef<[u8]>> LogArray<M> {
         first_part | second_part
     }
 
-    pub fn iter(&self) -> LogArrayIterator<M> {
+    pub fn iter(&self) -> LogArrayIterator {
         LogArrayIterator {
-            logarray: self,
+            logarray: self.clone(),
             pos: 0,
-            end: self.len(),
-        }
-    }
-
-    pub fn into_iter(self) -> OwnedLogArrayIterator<M> {
-        OwnedLogArrayIterator {
-            end: self.len(),
-            logarray: self,
-            pos: 0,
+            end: self.len as usize,
         }
     }
 
     /// Returns a logical slice of the elements in a log array.
     ///
     /// Panics if `index` + `length` is >= the length of the log array.
-    pub fn slice(&self, offset: usize, length: usize) -> LogArraySlice<M>
-    where
-        M: Clone,
-    {
+    pub fn slice(&self, offset: usize, len: usize) -> LogArray {
         assert!(
-            offset + length <= self.len(),
+            offset + len <= self.len as usize,
             "expected slice offset ({}) + length ({}) <= source length ({})",
             offset,
-            length,
-            self.len()
+            len,
+            self.len
         );
-        LogArraySlice {
-            original: self.clone(),
-            offset,
-            length,
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct LogArraySlice<M: AsRef<[u8]>> {
-    original: LogArray<M>,
-    offset: usize,
-    length: usize,
-}
-
-impl<M: AsRef<[u8]>> LogArraySlice<M> {
-    pub fn len(&self) -> usize {
-        self.length
-    }
-
-    /// Reads the data buffer and returns the element at the given index in the slice.
-    ///
-    /// Panics if `index` is >= the length of the slice.
-    pub fn entry(&self, index: usize) -> u64 {
-        assert!(
-            index < self.length,
-            "expected slice index ({}) < length ({})",
-            index,
-            self.length
-        );
-        self.original.entry(index + self.offset)
-    }
-
-    pub fn iter(&self) -> LogArrayIterator<M> {
-        LogArrayIterator {
-            logarray: &self.original,
-            pos: self.offset,
-            end: self.offset + self.length,
-        }
-    }
-
-    pub fn into_iter(self) -> OwnedLogArrayIterator<M> {
-        OwnedLogArrayIterator {
-            pos: self.offset,
-            end: self.offset + self.length,
-            logarray: self.original,
+        LogArray {
+            first: self.first + offset as u32,
+            len: len as u32,
+            width: self.width,
+            input_buf: self.input_buf.clone(),
         }
     }
 }
@@ -630,8 +570,8 @@ pub fn logarray_file_get_length_and_width<F: FileLoad>(
             tokio::io::read_exact(f.open_read_from(f.size() - 8), vec![0; 8])
                 .map(|(_, buf)| (f, buf))
         })
-        .and_then(|(f, buf)| {
-            read_control_word(&buf, f.size())
+        .and_then(|(f, control_word)| {
+            read_control_word(&control_word, f.size())
                 .map_or_else(|e| Err(e.into()), |(len, width)| Ok((f, len, width)))
                 .into_future()
         })
@@ -647,10 +587,10 @@ pub fn logarray_stream_entries<F: FileLoad>(f: F) -> impl Stream<Item = u64, Err
 }
 
 #[derive(Clone)]
-pub struct MonotonicLogArray<M: AsRef<[u8]>>(LogArray<M>);
+pub struct MonotonicLogArray(LogArray);
 
-impl<M: AsRef<[u8]>> MonotonicLogArray<M> {
-    pub fn from_logarray(logarray: LogArray<M>) -> MonotonicLogArray<M> {
+impl MonotonicLogArray {
+    pub fn from_logarray(logarray: LogArray) -> MonotonicLogArray {
         if cfg!(debug_assertions) {
             // Validate that the elements are monotonically increasing.
             let mut iter = logarray.iter();
@@ -678,12 +618,8 @@ impl<M: AsRef<[u8]>> MonotonicLogArray<M> {
         self.0.entry(index)
     }
 
-    pub fn iter(&self) -> LogArrayIterator<M> {
+    pub fn iter(&self) -> LogArrayIterator {
         self.0.iter()
-    }
-
-    pub fn into_iter(self) -> OwnedLogArrayIterator<M> {
-        self.0.into_iter()
     }
 
     pub fn index_of(&self, element: u64) -> Option<usize> {
@@ -807,7 +743,7 @@ mod tests {
 
         let content = store.map().wait().unwrap();
 
-        let logarray = LogArray::parse(&content).unwrap();
+        let logarray = LogArray::parse(content).unwrap();
 
         assert_eq!(1, logarray.entry(0));
         assert_eq!(3, logarray.entry(1));
@@ -846,7 +782,7 @@ mod tests {
         let mut content = Vec::new();
         content.extend_from_slice(&TEST0_DATA);
         content.extend_from_slice(&TEST0_CONTROL);
-        let logarray = LogArray::parse(&content).unwrap();
+        let logarray = LogArray::parse(Bytes::from(content)).unwrap();
         // Out of bounds
         let _ = logarray.entry(3);
     }
@@ -857,18 +793,18 @@ mod tests {
         let mut content = Vec::new();
         content.extend_from_slice(&TEST0_DATA);
         content.extend_from_slice(&TEST0_CONTROL);
-        let logarray = LogArray::parse(&content).unwrap();
+        let logarray = LogArray::parse(Bytes::from(content)).unwrap();
         // Out of bounds
         let _ = logarray.slice(2, 2);
     }
 
     #[test]
-    #[should_panic(expected = "expected slice index (2) < length (2)")]
+    #[should_panic(expected = "expected index (2) < length (2)")]
     fn slice_entry_panic() {
         let mut content = Vec::new();
         content.extend_from_slice(&TEST0_DATA);
         content.extend_from_slice(&TEST0_CONTROL);
-        let logarray = LogArray::parse(&content).unwrap();
+        let logarray = LogArray::parse(Bytes::from(content)).unwrap();
         let logarray = logarray.slice(1, 2);
         // Out of bounds
         let _ = logarray.entry(2);
@@ -877,8 +813,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "not monotonic: expected predecessor (2) <= successor (1)")]
     fn monotonic_panic() {
-        let content: [u8; 16] = [0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 2, 32, 0, 0, 0];
-        MonotonicLogArray::from_logarray(LogArray::parse(content).unwrap());
+        let content = vec![0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 2, 32, 0, 0, 0];
+        MonotonicLogArray::from_logarray(LogArray::parse(Bytes::from(content)).unwrap());
     }
 
     #[test]
@@ -968,29 +904,9 @@ mod tests {
 
         let content = store.map().wait().unwrap();
 
-        let logarray = LogArray::parse(&content).unwrap();
+        let logarray = LogArray::parse(content).unwrap();
 
         let result: Vec<u64> = logarray.iter().collect();
-
-        assert_eq!(original, result);
-    }
-
-    #[test]
-    fn owned_iterate_over_logarray() {
-        let store = MemoryBackedStore::new();
-        let builder = LogArrayFileBuilder::new(store.open_write(), 5);
-        let original = vec![1, 3, 2, 5, 12, 31, 18];
-        builder
-            .push_all(stream::iter_ok(original.clone()))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
-
-        let content = store.map().wait().unwrap();
-
-        let logarray = LogArray::parse(&content).unwrap();
-
-        let result: Vec<u64> = logarray.into_iter().collect();
 
         assert_eq!(original, result);
     }
@@ -1008,31 +924,10 @@ mod tests {
 
         let content = store.map().wait().unwrap();
 
-        let logarray = LogArray::parse(&content).unwrap();
+        let logarray = LogArray::parse(content).unwrap();
         let slice = logarray.slice(2, 3);
 
         let result: Vec<u64> = slice.iter().collect();
-
-        assert_eq!(vec![2, 5, 12], result);
-    }
-
-    #[test]
-    fn owned_iterate_over_logarray_slice() {
-        let store = MemoryBackedStore::new();
-        let builder = LogArrayFileBuilder::new(store.open_write(), 5);
-        let original = vec![1, 3, 2, 5, 12, 31, 18];
-        builder
-            .push_all(stream::iter_ok(original.clone()))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
-
-        let content = store.map().wait().unwrap();
-
-        let logarray = LogArray::parse(&content).unwrap();
-        let slice = logarray.slice(2, 3);
-
-        let result: Vec<u64> = slice.into_iter().collect();
 
         assert_eq!(vec![2, 5, 12], result);
     }
@@ -1050,7 +945,7 @@ mod tests {
 
         let content = store.map().wait().unwrap();
 
-        let logarray = LogArray::parse(&content).unwrap();
+        let logarray = LogArray::parse(content).unwrap();
         let monotonic = MonotonicLogArray::from_logarray(logarray);
 
         for (i, &val) in original.iter().enumerate() {
@@ -1073,7 +968,7 @@ mod tests {
             .unwrap();
 
         let content = store.map().wait().unwrap();
-        let logarray = LogArray::parse(&content).unwrap();
+        let logarray = LogArray::parse(content).unwrap();
         assert_eq!(original, logarray.iter().collect::<Vec<_>>());
         assert_eq!(16, logarray.len());
         assert_eq!(4, logarray.width());

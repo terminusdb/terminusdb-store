@@ -9,6 +9,8 @@
 //! stores the boundaries between left-hand-sides (storing a 0 if this
 //! left-hand-side has more pairs to follow, or 1 if this was the last
 //! pair).
+
+use bytes::Bytes;
 use tokio::prelude::*;
 
 use super::bitarray::*;
@@ -17,23 +19,23 @@ use super::logarray::*;
 use crate::storage::*;
 
 #[derive(Clone)]
-pub struct AdjacencyList<M: AsRef<[u8]>> {
-    pub nums: LogArray<M>,
-    pub bits: BitIndex<M>,
+pub struct AdjacencyList {
+    pub nums: LogArray,
+    pub bits: BitIndex,
 }
 
-impl<M: AsRef<[u8]>> AdjacencyList<M> {
-    pub fn from_parts(nums: LogArray<M>, bits: BitIndex<M>) -> AdjacencyList<M> {
+impl AdjacencyList {
+    pub fn from_parts(nums: LogArray, bits: BitIndex) -> AdjacencyList {
         debug_assert_eq!(nums.len(), bits.len());
         AdjacencyList { nums, bits }
     }
 
     pub fn parse(
-        nums_slice: M,
-        bits_slice: M,
-        bits_block_slice: M,
-        bits_sblock_slice: M,
-    ) -> AdjacencyList<M> {
+        nums_slice: Bytes,
+        bits_slice: Bytes,
+        bits_block_slice: Bytes,
+        bits_sblock_slice: Bytes,
+    ) -> AdjacencyList {
         let nums = LogArray::parse(nums_slice).unwrap();
         let bit_array = BitArray::from_bits(bits_slice);
         let bits_block_array = LogArray::parse(bits_block_slice).unwrap();
@@ -74,10 +76,7 @@ impl<M: AsRef<[u8]>> AdjacencyList<M> {
         (left, right)
     }
 
-    pub fn get(&self, index: u64) -> LogArraySlice<M>
-    where
-        M: Clone,
-    {
+    pub fn get(&self, index: u64) -> LogArray {
         if index < 1 {
             panic!("minimum index has to be 1");
         }
@@ -89,10 +88,7 @@ impl<M: AsRef<[u8]>> AdjacencyList<M> {
         self.nums.slice(start as usize, length as usize)
     }
 
-    pub fn iter(&self) -> AdjacencyListIterator<M>
-    where
-        M: Clone,
-    {
+    pub fn iter(&self) -> AdjacencyListIterator {
         AdjacencyListIterator {
             pos: 0,
             left: 1,
@@ -101,23 +97,23 @@ impl<M: AsRef<[u8]>> AdjacencyList<M> {
         }
     }
 
-    pub fn bits(&self) -> &BitIndex<M> {
+    pub fn bits(&self) -> &BitIndex {
         &self.bits
     }
 
-    pub fn nums(&self) -> &LogArray<M> {
+    pub fn nums(&self) -> &LogArray {
         &self.nums
     }
 }
 
-pub struct AdjacencyListIterator<M: AsRef<[u8]>> {
+pub struct AdjacencyListIterator {
     pos: usize,
     left: u64,
-    bits: BitIndex<M>,
-    nums: LogArray<M>,
+    bits: BitIndex,
+    nums: LogArray,
 }
 
-impl<M: AsRef<[u8]>> Iterator for AdjacencyListIterator<M> {
+impl Iterator for AdjacencyListIterator {
     type Item = (u64, u64);
 
     fn next(&mut self) -> Option<(u64, u64)> {
@@ -364,10 +360,10 @@ mod tests {
         let nums_contents = nums_file.map().wait().unwrap();
 
         let adjacencylist = AdjacencyList::parse(
-            &nums_contents,
-            &bitfile_contents,
-            &bitindex_blocks_contents,
-            &bitindex_sblocks_contents,
+            nums_contents,
+            bitfile_contents,
+            bitindex_blocks_contents,
+            bitindex_sblocks_contents,
         );
 
         let slice = adjacencylist.get(1);
@@ -426,10 +422,10 @@ mod tests {
         let nums_contents = nums_file.map().wait().unwrap();
 
         let adjacencylist = AdjacencyList::parse(
-            &nums_contents,
-            &bitfile_contents,
-            &bitindex_blocks_contents,
-            &bitindex_sblocks_contents,
+            nums_contents,
+            bitfile_contents,
+            bitindex_blocks_contents,
+            bitindex_sblocks_contents,
         );
 
         assert_eq!(0, adjacencylist.left_count());
@@ -461,10 +457,10 @@ mod tests {
         let nums_contents = nums_file.map().wait().unwrap();
 
         let adjacencylist = AdjacencyList::parse(
-            &nums_contents,
-            &bitfile_contents,
-            &bitindex_blocks_contents,
-            &bitindex_sblocks_contents,
+            nums_contents,
+            bitfile_contents,
+            bitindex_blocks_contents,
+            bitindex_sblocks_contents,
         );
 
         let slice = adjacencylist.get(1);
@@ -524,10 +520,10 @@ mod tests {
         let nums_contents = nums_file.map().wait().unwrap();
 
         let adjacencylist = AdjacencyList::parse(
-            &nums_contents,
-            &bitfile_contents,
-            &bitindex_blocks_contents,
-            &bitindex_sblocks_contents,
+            nums_contents,
+            bitfile_contents,
+            bitindex_blocks_contents,
+            bitindex_sblocks_contents,
         );
 
         assert_eq!(
@@ -604,10 +600,10 @@ mod tests {
         let nums_contents = nums_file.map().wait().unwrap();
 
         let adjacencylist = AdjacencyList::parse(
-            &nums_contents,
-            &bitfile_contents,
-            &bitindex_blocks_contents,
-            &bitindex_sblocks_contents,
+            nums_contents,
+            bitfile_contents,
+            bitindex_blocks_contents,
+            bitindex_sblocks_contents,
         );
 
         let result: Vec<_> = (0..adjacencylist.right_count())
@@ -675,10 +671,10 @@ mod tests {
         let nums_contents = nums_file.map().wait().unwrap();
 
         let adjacencylist = AdjacencyList::parse(
-            &nums_contents,
-            &bitfile_contents,
-            &bitindex_blocks_contents,
-            &bitindex_sblocks_contents,
+            nums_contents,
+            bitfile_contents,
+            bitindex_blocks_contents,
+            bitindex_sblocks_contents,
         );
 
         let result: Vec<_> = (0..adjacencylist.right_count())

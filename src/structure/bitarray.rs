@@ -2,31 +2,32 @@
 use super::util::*;
 use crate::storage::*;
 use byteorder::{BigEndian, ByteOrder};
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use futures::prelude::*;
 use tokio::codec::{Decoder, FramedRead};
 use tokio::prelude::*;
 
 #[derive(Clone)]
-pub struct BitArray<M: AsRef<[u8]>> {
-    bits: M,
+pub struct BitArray {
+    bits: Bytes,
     /// how many bits are being used in the last 8 bytes?
     count: u64,
 }
 
-impl<M: AsRef<[u8]>> BitArray<M> {
-    pub fn from_bits(bits: M) -> BitArray<M> {
-        if bits.as_ref().len() < 8 || bits.as_ref().len() % 8 != 0 {
+impl BitArray {
+    pub fn from_bits(mut bits: Bytes) -> BitArray {
+        let len = bits.len();
+        if len < 8 || len % 8 != 0 {
             panic!("unexpected bitarray length");
         }
 
-        let count = BigEndian::read_u64(&bits.as_ref()[bits.as_ref().len() - 8..]);
+        let count = BigEndian::read_u64(&bits.split_off(len - 8));
 
         BitArray { bits, count }
     }
 
     pub fn bits(&self) -> &[u8] {
-        &self.bits.as_ref()[..self.bits.as_ref().len() - 8]
+        &self.bits
     }
 
     pub fn len(&self) -> usize {
@@ -213,7 +214,7 @@ mod tests {
 
         let loaded = x.map().wait().unwrap();
 
-        let bitarray = BitArray::from_bits(&loaded);
+        let bitarray = BitArray::from_bits(loaded);
 
         assert_eq!(true, bitarray.get(0));
         assert_eq!(true, bitarray.get(1));
@@ -236,7 +237,7 @@ mod tests {
 
         let loaded = x.map().wait().unwrap();
 
-        let bitarray = BitArray::from_bits(&loaded);
+        let bitarray = BitArray::from_bits(loaded);
 
         for i in 0..bitarray.len() {
             assert_eq!(i % 3 == 0, bitarray.get(i));
