@@ -1,6 +1,7 @@
 //! Logic for storing, loading and using arrays of bits.
 use super::util::*;
 use crate::storage::*;
+use crate::structure::bititer::BitIter;
 use byteorder::{BigEndian, ByteOrder};
 use bytes::{Bytes, BytesMut};
 use futures::prelude::*;
@@ -172,23 +173,12 @@ fn bitarray_count_from_file<F: FileLoad>(f: F) -> impl Future<Item = u64, Error 
         .map(|(_, buf)| BigEndian::read_u64(&buf))
 }
 
-fn block_bits(block: u64) -> Vec<bool> {
-    let mut mask = 0x8000000000000000;
-    let mut result = Vec::with_capacity(64);
-    for _ in 0..64 {
-        result.push(block & mask != 0);
-        mask >>= 1;
-    }
-
-    result
-}
-
 pub fn bitarray_stream_bits<F: FileLoad>(f: F) -> impl Stream<Item = bool, Error = std::io::Error> {
     bitarray_count_from_file(f.clone())
         .into_stream()
         .map(move |count| {
             bitarray_stream_blocks(f.open_read())
-                .map(|block| stream::iter_ok(block_bits(block).into_iter()))
+                .map(|block| stream::iter_ok(BitIter::new(block)))
                 .flatten()
                 .take(count)
         })
