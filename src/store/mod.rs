@@ -106,8 +106,10 @@ impl StoreLayerBuilder {
         self.with_builder(move |b| b.remove_id_triple(triple))
     }
 
-    pub fn committed(&self) -> impl Future<Item=bool,Error=std::io::Error>+Send {
-        self.builder.write().then(|b| Ok(b.expect("rwlock write should always succeed").is_none()))
+    pub fn committed(&self) -> impl Future<Item = bool, Error = std::io::Error> + Send {
+        self.builder
+            .write()
+            .then(|b| Ok(b.expect("rwlock write should always succeed").is_none()))
     }
 
     /// Commit the layer to storage
@@ -658,14 +660,18 @@ mod tests {
         .wait()
         .unwrap();
 
-        let is_committed = oneshot::spawn(builder.committed(), &runtime.executor()).wait().unwrap();
+        let is_committed = oneshot::spawn(builder.committed(), &runtime.executor())
+            .wait()
+            .unwrap();
         assert!(!is_committed);
 
         let _layer = oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
             .unwrap();
 
-        let is_committed = oneshot::spawn(builder.committed(), &runtime.executor()).wait().unwrap();
+        let is_committed = oneshot::spawn(builder.committed(), &runtime.executor())
+            .wait()
+            .unwrap();
         assert!(is_committed);
     }
 }
