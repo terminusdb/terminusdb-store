@@ -14,7 +14,6 @@ matrix:
 
 before_install:
   - if [[ $TRAVIS_OS_NAME = "osx" ]]; then echo "Skipping grcov"; else curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x86_64.tar.bz2 | tar jxf -;  fi;
-  - rustup component add rustfmt
 
 script:
     - export CARGO_INCREMENTAL=0
