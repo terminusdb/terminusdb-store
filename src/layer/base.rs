@@ -284,6 +284,14 @@ impl Layer for BaseLayer {
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())
     }
+
+    fn triple_layer_addition_count(&self) -> usize {
+        self.sp_o_adjacency_list.right_count()
+    }
+
+    fn triple_layer_removal_count(&self) -> usize {
+        0
+    }
 }
 
 #[derive(Clone)]
@@ -1409,5 +1417,19 @@ pub mod tests {
             ],
             triples
         );
+    }
+
+    #[test]
+    fn count_triples() {
+        let layer_files = example_base_layer_files();
+        let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &layer_files)
+            .wait()
+            .unwrap();
+
+        assert_eq!(7, layer.triple_layer_addition_count());
+        assert_eq!(0, layer.triple_layer_removal_count());
+        assert_eq!(7, layer.triple_addition_count());
+        assert_eq!(0, layer.triple_removal_count());
+        assert_eq!(7, layer.triple_count());
     }
 }

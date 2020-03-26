@@ -106,6 +106,7 @@ impl StoreLayerBuilder {
         self.with_builder(move |b| b.remove_id_triple(triple))
     }
 
+    /// Returns a Future which will yield true if this layer has been committed, and false otherwise.
     pub fn committed(&self) -> impl Future<Item = bool, Error = std::io::Error> + Send {
         self.builder
             .write()
@@ -298,6 +299,14 @@ impl Layer for StoreLayer {
 
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())
+    }
+
+    fn triple_layer_addition_count(&self) -> usize {
+        self.layer.triple_layer_addition_count()
+    }
+
+    fn triple_layer_removal_count(&self) -> usize {
+        self.layer.triple_layer_removal_count()
     }
 }
 

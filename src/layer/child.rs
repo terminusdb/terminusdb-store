@@ -540,6 +540,14 @@ impl Layer for ChildLayer {
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())
     }
+
+    fn triple_layer_addition_count(&self) -> usize {
+        self.pos_sp_o_adjacency_list.right_count()
+    }
+
+    fn triple_layer_removal_count(&self) -> usize {
+        self.neg_sp_o_adjacency_list.right_count()
+    }
 }
 
 #[derive(Clone)]
@@ -2382,5 +2390,38 @@ pub mod tests {
         );
 
         assert_eq!(vec![(2, 1, 1), (2, 3, 6), (4, 3, 6)], removal_triples);
+    }
+
+    #[test]
+    fn count_triples() {
+        let base_layer = example_base_layer();
+        let parent = Arc::new(base_layer);
+
+        let child_files = child_layer_files();
+        let builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
+
+        let future = builder
+            .into_phase2()
+            .and_then(|b| b.add_triple(1, 2, 1))
+            .and_then(|b| b.add_triple(3, 1, 5))
+            .and_then(|b| b.add_triple(5, 2, 3))
+            .and_then(|b| b.add_triple(5, 2, 4))
+            .and_then(|b| b.add_triple(5, 2, 5))
+            .and_then(|b| b.add_triple(5, 3, 1))
+            .and_then(|b| b.remove_triple(2, 1, 1))
+            .and_then(|b| b.remove_triple(2, 3, 6))
+            .and_then(|b| b.remove_triple(4, 3, 6))
+            .and_then(|b| b.finalize());
+
+        future.wait().unwrap();
+        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
+            .wait()
+            .unwrap();
+
+        assert_eq!(6, child_layer.triple_layer_addition_count());
+        assert_eq!(3, child_layer.triple_layer_removal_count());
+        assert_eq!(13, child_layer.triple_addition_count());
+        assert_eq!(3, child_layer.triple_removal_count());
+        assert_eq!(10, child_layer.triple_count());
     }
 }

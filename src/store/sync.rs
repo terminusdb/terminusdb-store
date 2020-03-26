@@ -91,6 +91,7 @@ impl SyncStoreLayerBuilder {
         task_sync(self.inner.remove_id_triple(triple))
     }
 
+    /// Returns a boolean result which is true if this builder has been committed, and false otherwise.
     pub fn committed(&self) -> Result<bool, io::Error> {
         task_sync(self.inner.committed())
     }
@@ -257,6 +258,14 @@ impl Layer for SyncStoreLayer {
 
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())
+    }
+
+    fn triple_layer_addition_count(&self) -> usize {
+        self.inner.triple_layer_addition_count()
+    }
+
+    fn triple_layer_removal_count(&self) -> usize {
+        self.inner.triple_layer_removal_count()
     }
 }
 

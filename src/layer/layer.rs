@@ -436,6 +436,44 @@ pub trait Layer: Send + Sync {
             Some(parent) => parent.name() == self.name() || self.is_ancestor_of(&*parent),
         }
     }
+
+    /// Returns the total amount of triple additions in this layer and all its parents.
+    fn triple_addition_count(&self) -> usize {
+        let mut additions = self.triple_layer_addition_count();
+
+        let mut parent = self.parent();
+        while parent.is_some() {
+            additions += parent.unwrap().triple_layer_addition_count();
+
+            parent = parent.unwrap().parent();
+        }
+
+        additions
+    }
+
+    /// Returns the total amount of triple removals in this layer and all its parents.
+    fn triple_removal_count(&self) -> usize {
+        let mut removals = self.triple_layer_removal_count();
+
+        let mut parent = self.parent();
+        while parent.is_some() {
+            removals += parent.unwrap().triple_layer_removal_count();
+
+            parent = parent.unwrap().parent();
+        }
+
+        removals
+    }
+
+    /// Returns the total amount of triples in this layer and all its parents.
+    fn triple_count(&self) -> usize {
+        self.triple_addition_count() - self.triple_removal_count()
+    }
+
+    /// Returns the amount of triples that this layer adds.
+    fn triple_layer_addition_count(&self) -> usize;
+    /// Returns the amount of triples that this layer removes.
+    fn triple_layer_removal_count(&self) -> usize;
 }
 
 pub struct LayerCounts {
