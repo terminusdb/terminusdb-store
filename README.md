@@ -58,8 +58,10 @@ let store = terminus_store::open_sync_directory_store("/path/to/store").unwrap()
 
 For more information, [visit the documentation on docs.rs](https://docs.rs/terminus-store/).
 
-## Contributing
+## License
+terminus-store is licensed under GPLv3.
 
+## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## See also
