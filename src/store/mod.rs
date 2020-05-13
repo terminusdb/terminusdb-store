@@ -3,9 +3,6 @@
 //! It is expected that most users of this library will work exclusively with the types contained in this module.
 pub mod sync;
 
-extern crate flate2;
-extern crate tar;
-
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
