@@ -1,6 +1,6 @@
 #!/bin/bash
 export CARGO_INCREMENTAL=0
-export RUSTFLAGS="-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off"
+export RUSTFLAGS="-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads"
 cargo clean
 cargo build --verbose $CARGO_OPTIONS
 cargo test --verbose $CARGO_OPTIONS
