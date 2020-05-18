@@ -19,32 +19,32 @@ use std::sync::Arc;
 ///
 /// This layer type has a parent. It stores triple additions and removals.
 #[derive(Clone)]
-pub struct ChildLayer<M: 'static + AsRef<[u8]> + Clone + Send + Sync> {
+pub struct ChildLayer {
     name: [u32; 5],
     parent: Arc<dyn Layer>,
 
-    node_dictionary: PfcDict<M>,
-    predicate_dictionary: PfcDict<M>,
-    value_dictionary: PfcDict<M>,
+    node_dictionary: PfcDict,
+    predicate_dictionary: PfcDict,
+    value_dictionary: PfcDict,
 
-    pos_subjects: MonotonicLogArray<M>,
-    pos_objects: MonotonicLogArray<M>,
-    pos_s_p_adjacency_list: AdjacencyList<M>,
-    pos_sp_o_adjacency_list: AdjacencyList<M>,
-    pos_o_ps_adjacency_list: AdjacencyList<M>,
+    pos_subjects: MonotonicLogArray,
+    pos_objects: MonotonicLogArray,
+    pos_s_p_adjacency_list: AdjacencyList,
+    pos_sp_o_adjacency_list: AdjacencyList,
+    pos_o_ps_adjacency_list: AdjacencyList,
 
-    neg_subjects: MonotonicLogArray<M>,
-    neg_objects: MonotonicLogArray<M>,
-    neg_s_p_adjacency_list: AdjacencyList<M>,
-    neg_sp_o_adjacency_list: AdjacencyList<M>,
-    neg_o_ps_adjacency_list: AdjacencyList<M>,
+    neg_subjects: MonotonicLogArray,
+    neg_objects: MonotonicLogArray,
+    neg_s_p_adjacency_list: AdjacencyList,
+    neg_sp_o_adjacency_list: AdjacencyList,
+    neg_o_ps_adjacency_list: AdjacencyList,
 
-    pos_predicate_wavelet_tree: WaveletTree<M>,
-    neg_predicate_wavelet_tree: WaveletTree<M>,
+    pos_predicate_wavelet_tree: WaveletTree,
+    neg_predicate_wavelet_tree: WaveletTree,
 }
 
-impl<M: 'static + AsRef<[u8]> + Clone + Send + Sync> ChildLayer<M> {
-    pub fn load_from_files<F: FileLoad<Map = M> + FileStore + Clone>(
+impl ChildLayer {
+    pub fn load_from_files<F: FileLoad + FileStore + Clone>(
         name: [u32; 5],
         parent: Arc<dyn Layer>,
         files: &ChildLayerFiles<F>,
@@ -54,7 +54,7 @@ impl<M: 'static + AsRef<[u8]> + Clone + Send + Sync> ChildLayer<M> {
             .map(move |maps| Self::load(name, parent, maps))
     }
 
-    pub fn load(name: [u32; 5], parent: Arc<dyn Layer>, maps: ChildLayerMaps<M>) -> ChildLayer<M> {
+    pub fn load(name: [u32; 5], parent: Arc<dyn Layer>, maps: ChildLayerMaps) -> ChildLayer {
         let node_dictionary = PfcDict::parse(
             maps.node_dictionary_maps.blocks_map,
             maps.node_dictionary_maps.offsets_map,
@@ -200,7 +200,7 @@ impl<M: 'static + AsRef<[u8]> + Clone + Send + Sync> ChildLayer<M> {
     }
 }
 
-impl<M: 'static + AsRef<[u8]> + Clone + Send + Sync> Layer for ChildLayer<M> {
+impl Layer for ChildLayer {
     fn name(&self) -> [u32; 5] {
         self.name
     }
@@ -409,43 +409,31 @@ impl<M: 'static + AsRef<[u8]> + Clone + Send + Sync> Layer for ChildLayer<M> {
     fn subject_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>> {
         let s_p_adjacency_list = self.pos_s_p_adjacency_list.clone();
         let sp_o_adjacency_list = self.pos_sp_o_adjacency_list.clone();
-        Box::new(
-            self.pos_subjects
-                .clone()
-                .into_iter()
-                .enumerate()
-                .map(move |(c, s)| {
-                    Box::new(ChildLayerSubjectLookup {
-                        subject: s,
-                        adjacencies: AdjacencyStuff {
-                            predicates: s_p_adjacency_list.get((c as u64) + 1),
-                            sp_offset: s_p_adjacency_list.offset_for((c as u64) + 1),
-                            sp_o_adjacency_list: sp_o_adjacency_list.clone(),
-                        },
-                    }) as Box<dyn LayerSubjectLookup>
-                }),
-        )
+        Box::new(self.pos_subjects.iter().enumerate().map(move |(c, s)| {
+            Box::new(ChildLayerSubjectLookup {
+                subject: s,
+                adjacencies: AdjacencyStuff {
+                    predicates: s_p_adjacency_list.get((c as u64) + 1),
+                    sp_offset: s_p_adjacency_list.offset_for((c as u64) + 1),
+                    sp_o_adjacency_list: sp_o_adjacency_list.clone(),
+                },
+            }) as Box<dyn LayerSubjectLookup>
+        }))
     }
 
     fn subject_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>> {
         let s_p_adjacency_list = self.neg_s_p_adjacency_list.clone();
         let sp_o_adjacency_list = self.neg_sp_o_adjacency_list.clone();
-        Box::new(
-            self.neg_subjects
-                .clone()
-                .into_iter()
-                .enumerate()
-                .map(move |(c, s)| {
-                    Box::new(ChildLayerSubjectLookup {
-                        subject: s,
-                        adjacencies: AdjacencyStuff {
-                            predicates: s_p_adjacency_list.get((c as u64) + 1),
-                            sp_offset: s_p_adjacency_list.offset_for((c as u64) + 1),
-                            sp_o_adjacency_list: sp_o_adjacency_list.clone(),
-                        },
-                    }) as Box<dyn LayerSubjectLookup>
-                }),
-        )
+        Box::new(self.neg_subjects.iter().enumerate().map(move |(c, s)| {
+            Box::new(ChildLayerSubjectLookup {
+                subject: s,
+                adjacencies: AdjacencyStuff {
+                    predicates: s_p_adjacency_list.get((c as u64) + 1),
+                    sp_offset: s_p_adjacency_list.offset_for((c as u64) + 1),
+                    sp_o_adjacency_list: sp_o_adjacency_list.clone(),
+                },
+            }) as Box<dyn LayerSubjectLookup>
+        }))
     }
 
     fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn LayerSubjectLookup>> {
@@ -563,22 +551,30 @@ impl<M: 'static + AsRef<[u8]> + Clone + Send + Sync> Layer for ChildLayer<M> {
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())
     }
+
+    fn triple_layer_addition_count(&self) -> usize {
+        self.pos_sp_o_adjacency_list.right_count()
+    }
+
+    fn triple_layer_removal_count(&self) -> usize {
+        self.neg_sp_o_adjacency_list.right_count()
+    }
 }
 
 #[derive(Clone)]
-struct AdjacencyStuff<M: 'static + AsRef<[u8]> + Clone> {
-    predicates: LogArraySlice<M>,
+struct AdjacencyStuff {
+    predicates: LogArray,
     sp_offset: u64,
-    sp_o_adjacency_list: AdjacencyList<M>,
+    sp_o_adjacency_list: AdjacencyList,
 }
 
-struct ChildLayerSubjectLookup<M: 'static + AsRef<[u8]> + Clone> {
+struct ChildLayerSubjectLookup {
     subject: u64,
 
-    adjacencies: AdjacencyStuff<M>,
+    adjacencies: AdjacencyStuff,
 }
 
-impl<M: AsRef<[u8]> + Clone> LayerSubjectLookup for ChildLayerSubjectLookup<M> {
+impl LayerSubjectLookup for ChildLayerSubjectLookup {
     fn subject(&self) -> u64 {
         self.subject
     }
@@ -590,8 +586,7 @@ impl<M: AsRef<[u8]> + Clone> LayerSubjectLookup for ChildLayerSubjectLookup<M> {
         Box::new(
             self.adjacencies
                 .predicates
-                .clone()
-                .into_iter()
+                .iter()
                 .enumerate()
                 .map(move |(c, p)| {
                     Box::new(ChildLayerSubjectPredicateLookup {
@@ -623,15 +618,13 @@ impl<M: AsRef<[u8]> + Clone> LayerSubjectLookup for ChildLayerSubjectLookup<M> {
     }
 }
 
-struct ChildLayerSubjectPredicateLookup<M: 'static + AsRef<[u8]> + Clone> {
+struct ChildLayerSubjectPredicateLookup {
     subject: u64,
     predicate: u64,
-    objects: LogArraySlice<M>,
+    objects: LogArray,
 }
 
-impl<M: 'static + AsRef<[u8]> + Clone> LayerSubjectPredicateLookup
-    for ChildLayerSubjectPredicateLookup<M>
-{
+impl LayerSubjectPredicateLookup for ChildLayerSubjectPredicateLookup {
     fn subject(&self) -> u64 {
         self.subject
     }
@@ -641,7 +634,7 @@ impl<M: 'static + AsRef<[u8]> + Clone> LayerSubjectPredicateLookup
     }
 
     fn objects(&self) -> Box<dyn Iterator<Item = u64>> {
-        Box::new(self.objects.clone().into_iter())
+        Box::new(self.objects.iter())
     }
 
     fn has_object(&self, object: u64) -> bool {
@@ -649,14 +642,14 @@ impl<M: 'static + AsRef<[u8]> + Clone> LayerSubjectPredicateLookup
     }
 }
 
-struct ChildLayerObjectLookup<M: 'static + AsRef<[u8]> + Clone> {
+struct ChildLayerObjectLookup {
     object: u64,
-    sp_slice: LogArraySlice<M>,
-    s_p_adjacency_list: AdjacencyList<M>,
-    subjects: MonotonicLogArray<M>,
+    sp_slice: LogArray,
+    s_p_adjacency_list: AdjacencyList,
+    subjects: MonotonicLogArray,
 }
 
-impl<M: 'static + AsRef<[u8]> + Clone> LayerObjectLookup for ChildLayerObjectLookup<M> {
+impl LayerObjectLookup for ChildLayerObjectLookup {
     fn object(&self) -> u64 {
         self.object
     }
@@ -667,7 +660,7 @@ impl<M: 'static + AsRef<[u8]> + Clone> LayerObjectLookup for ChildLayerObjectLoo
         let subjects = self.subjects.clone();
         Box::new(
             sp_slice
-                .into_iter()
+                .iter()
                 .map(move |index| s_p_adjacency_list.pair_at_pos(index - 1))
                 .map(move |(mapped_subject, predicate)| {
                     (subjects.entry((mapped_subject as usize) - 1), predicate)
@@ -676,15 +669,15 @@ impl<M: 'static + AsRef<[u8]> + Clone> LayerObjectLookup for ChildLayerObjectLoo
     }
 }
 
-struct ChildLayerPredicateLookup<M: 'static + AsRef<[u8]> + Clone> {
+struct ChildLayerPredicateLookup {
     predicate: u64,
-    lookup: WaveletLookup<M>,
-    subjects: MonotonicLogArray<M>,
-    s_p_adjacency_list: AdjacencyList<M>,
-    sp_o_adjacency_list: AdjacencyList<M>,
+    lookup: WaveletLookup,
+    subjects: MonotonicLogArray,
+    s_p_adjacency_list: AdjacencyList,
+    sp_o_adjacency_list: AdjacencyList,
 }
 
-impl<M: 'static + AsRef<[u8]> + Clone> LayerPredicateLookup for ChildLayerPredicateLookup<M> {
+impl LayerPredicateLookup for ChildLayerPredicateLookup {
     fn predicate(&self) -> u64 {
         self.predicate
     }
@@ -1605,84 +1598,82 @@ pub mod tests {
     use crate::layer::base::tests::*;
     use crate::storage::memory::*;
     pub fn child_layer_files() -> ChildLayerFiles<MemoryBackedStore> {
-        let files: Vec<_> = (0..40).map(|_| MemoryBackedStore::new()).collect();
-
         ChildLayerFiles {
             node_dictionary_files: DictionaryFiles {
-                blocks_file: files[0].clone(),
-                offsets_file: files[1].clone(),
+                blocks_file: MemoryBackedStore::new(),
+                offsets_file: MemoryBackedStore::new(),
             },
             predicate_dictionary_files: DictionaryFiles {
-                blocks_file: files[2].clone(),
-                offsets_file: files[3].clone(),
+                blocks_file: MemoryBackedStore::new(),
+                offsets_file: MemoryBackedStore::new(),
             },
             value_dictionary_files: DictionaryFiles {
-                blocks_file: files[4].clone(),
-                offsets_file: files[5].clone(),
+                blocks_file: MemoryBackedStore::new(),
+                offsets_file: MemoryBackedStore::new(),
             },
 
-            pos_subjects_file: files[6].clone(),
-            pos_objects_file: files[7].clone(),
-            neg_subjects_file: files[8].clone(),
-            neg_objects_file: files[9].clone(),
+            pos_subjects_file: MemoryBackedStore::new(),
+            pos_objects_file: MemoryBackedStore::new(),
+            neg_subjects_file: MemoryBackedStore::new(),
+            neg_objects_file: MemoryBackedStore::new(),
 
             pos_s_p_adjacency_list_files: AdjacencyListFiles {
                 bitindex_files: BitIndexFiles {
-                    bits_file: files[10].clone(),
-                    blocks_file: files[11].clone(),
-                    sblocks_file: files[12].clone(),
+                    bits_file: MemoryBackedStore::new(),
+                    blocks_file: MemoryBackedStore::new(),
+                    sblocks_file: MemoryBackedStore::new(),
                 },
-                nums_file: files[13].clone(),
+                nums_file: MemoryBackedStore::new(),
             },
             pos_sp_o_adjacency_list_files: AdjacencyListFiles {
                 bitindex_files: BitIndexFiles {
-                    bits_file: files[14].clone(),
-                    blocks_file: files[15].clone(),
-                    sblocks_file: files[16].clone(),
+                    bits_file: MemoryBackedStore::new(),
+                    blocks_file: MemoryBackedStore::new(),
+                    sblocks_file: MemoryBackedStore::new(),
                 },
-                nums_file: files[17].clone(),
+                nums_file: MemoryBackedStore::new(),
             },
             pos_o_ps_adjacency_list_files: AdjacencyListFiles {
                 bitindex_files: BitIndexFiles {
-                    bits_file: files[18].clone(),
-                    blocks_file: files[19].clone(),
-                    sblocks_file: files[20].clone(),
+                    bits_file: MemoryBackedStore::new(),
+                    blocks_file: MemoryBackedStore::new(),
+                    sblocks_file: MemoryBackedStore::new(),
                 },
-                nums_file: files[21].clone(),
+                nums_file: MemoryBackedStore::new(),
             },
             neg_s_p_adjacency_list_files: AdjacencyListFiles {
                 bitindex_files: BitIndexFiles {
-                    bits_file: files[22].clone(),
-                    blocks_file: files[23].clone(),
-                    sblocks_file: files[24].clone(),
+                    bits_file: MemoryBackedStore::new(),
+                    blocks_file: MemoryBackedStore::new(),
+                    sblocks_file: MemoryBackedStore::new(),
                 },
-                nums_file: files[25].clone(),
+                nums_file: MemoryBackedStore::new(),
             },
             neg_sp_o_adjacency_list_files: AdjacencyListFiles {
                 bitindex_files: BitIndexFiles {
-                    bits_file: files[26].clone(),
-                    blocks_file: files[27].clone(),
-                    sblocks_file: files[28].clone(),
+                    bits_file: MemoryBackedStore::new(),
+                    blocks_file: MemoryBackedStore::new(),
+                    sblocks_file: MemoryBackedStore::new(),
                 },
-                nums_file: files[29].clone(),
+                nums_file: MemoryBackedStore::new(),
             },
             neg_o_ps_adjacency_list_files: AdjacencyListFiles {
                 bitindex_files: BitIndexFiles {
-                    bits_file: files[30].clone(),
-                    blocks_file: files[31].clone(),
-                    sblocks_file: files[32].clone(),
+                    bits_file: MemoryBackedStore::new(),
+                    blocks_file: MemoryBackedStore::new(),
+                    sblocks_file: MemoryBackedStore::new(),
                 },
-                nums_file: files[33].clone(),
+                nums_file: MemoryBackedStore::new(),
             },
             pos_predicate_wavelet_tree_files: BitIndexFiles {
-                bits_file: files[34].clone(),
-                blocks_file: files[35].clone(),
-                sblocks_file: files[36].clone(),
+                bits_file: MemoryBackedStore::new(),
+                blocks_file: MemoryBackedStore::new(),
+                sblocks_file: MemoryBackedStore::new(),
             },
             neg_predicate_wavelet_tree_files: BitIndexFiles {
-                bits_file: files[37].clone(),
-                blocks_file: files[38].clone(),
-                sblocks_file: files[39].clone(),
+                bits_file: MemoryBackedStore::new(),
+                blocks_file: MemoryBackedStore::new(),
+                sblocks_file: MemoryBackedStore::new(),
             },
         }
     }
@@ -2410,5 +2401,38 @@ pub mod tests {
         );
 
         assert_eq!(vec![(2, 1, 1), (2, 3, 6), (4, 3, 6)], removal_triples);
+    }
+
+    #[test]
+    fn count_triples() {
+        let base_layer = example_base_layer();
+        let parent = Arc::new(base_layer);
+
+        let child_files = child_layer_files();
+        let builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
+
+        let future = builder
+            .into_phase2()
+            .and_then(|b| b.add_triple(1, 2, 1))
+            .and_then(|b| b.add_triple(3, 1, 5))
+            .and_then(|b| b.add_triple(5, 2, 3))
+            .and_then(|b| b.add_triple(5, 2, 4))
+            .and_then(|b| b.add_triple(5, 2, 5))
+            .and_then(|b| b.add_triple(5, 3, 1))
+            .and_then(|b| b.remove_triple(2, 1, 1))
+            .and_then(|b| b.remove_triple(2, 3, 6))
+            .and_then(|b| b.remove_triple(4, 3, 6))
+            .and_then(|b| b.finalize());
+
+        future.wait().unwrap();
+        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
+            .wait()
+            .unwrap();
+
+        assert_eq!(6, child_layer.triple_layer_addition_count());
+        assert_eq!(3, child_layer.triple_layer_removal_count());
+        assert_eq!(13, child_layer.triple_addition_count());
+        assert_eq!(3, child_layer.triple_removal_count());
+        assert_eq!(10, child_layer.triple_count());
     }
 }

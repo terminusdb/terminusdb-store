@@ -1,5 +1,6 @@
 //! Logic for building and using an index over a bitarray which provides rank and select.
 use byteorder::{BigEndian, ByteOrder};
+use bytes::Bytes;
 
 use super::bitarray::*;
 use super::logarray::*;
@@ -14,14 +15,14 @@ const SBLOCK_SIZE: usize = 52;
 
 /// A bitarray with an index, supporting rank and select queries.
 #[derive(Clone)]
-pub struct BitIndex<M: AsRef<[u8]>> {
-    array: BitArray<M>,
-    blocks: LogArray<M>,
-    sblocks: LogArray<M>,
+pub struct BitIndex {
+    array: BitArray,
+    blocks: LogArray,
+    sblocks: LogArray,
 }
 
-impl<M: AsRef<[u8]>> BitIndex<M> {
-    pub fn from_maps(bitarray_map: M, blocks_map: M, sblocks_map: M) -> BitIndex<M> {
+impl BitIndex {
+    pub fn from_maps(bitarray_map: Bytes, blocks_map: Bytes, sblocks_map: Bytes) -> BitIndex {
         let bitarray = BitArray::from_bits(bitarray_map);
         let blocks_logarray = LogArray::parse(blocks_map).unwrap();
         let sblocks_logarray = LogArray::parse(sblocks_map).unwrap();
@@ -29,11 +30,7 @@ impl<M: AsRef<[u8]>> BitIndex<M> {
         BitIndex::from_parts(bitarray, blocks_logarray, sblocks_logarray)
     }
 
-    pub fn from_parts(
-        array: BitArray<M>,
-        blocks: LogArray<M>,
-        sblocks: LogArray<M>,
-    ) -> BitIndex<M> {
+    pub fn from_parts(array: BitArray, blocks: LogArray, sblocks: LogArray) -> BitIndex {
         assert!(sblocks.len() == (blocks.len() + SBLOCK_SIZE - 1) / SBLOCK_SIZE);
         assert!(blocks.len() == (array.len() + 63) / 64);
 

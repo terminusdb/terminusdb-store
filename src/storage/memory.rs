@@ -1,4 +1,6 @@
 //! In-memory implementation of storage traits.
+
+use bytes::Bytes;
 use futures::prelude::*;
 use futures_locks;
 use std::collections::HashMap;
@@ -69,15 +71,6 @@ impl Read for MemoryBackedStoreReader {
 
 impl AsyncRead for MemoryBackedStoreReader {}
 
-#[derive(Clone, Debug)]
-pub struct SharedVec(pub Arc<Vec<u8>>);
-
-impl AsRef<[u8]> for SharedVec {
-    fn as_ref(&self) -> &[u8] {
-        &*self.0
-    }
-}
-
 #[derive(Clone)]
 pub struct MemoryBackedStore {
     vec: Arc<sync::RwLock<Vec<u8>>>,
@@ -104,7 +97,6 @@ impl FileStore for MemoryBackedStore {
 
 impl FileLoad for MemoryBackedStore {
     type Read = MemoryBackedStoreReader;
-    type Map = SharedVec;
 
     fn size(&self) -> usize {
         self.vec.read().unwrap().len()
@@ -117,10 +109,10 @@ impl FileLoad for MemoryBackedStore {
         }
     }
 
-    fn map(&self) -> Box<dyn Future<Item = SharedVec, Error = std::io::Error> + Send> {
+    fn map(&self) -> Box<dyn Future<Item = Bytes, Error = std::io::Error> + Send> {
         let vec = self.vec.clone();
         Box::new(future::lazy(move || {
-            future::ok(SharedVec(Arc::new(vec.read().unwrap().clone())))
+            future::ok(Bytes::from(vec.read().unwrap().clone()))
         }))
     }
 }
@@ -247,49 +239,47 @@ impl LayerStore for MemoryLayerStore {
         &self,
     ) -> Box<dyn Future<Item = Box<dyn LayerBuilder>, Error = io::Error> + Send> {
         let name = rand::random();
-
-        let files: Vec<_> = (0..21).map(|_| MemoryBackedStore::new()).collect();
         let blf = BaseLayerFiles {
             node_dictionary_files: DictionaryFiles {
-                blocks_file: files[0].clone(),
-                offsets_file: files[1].clone(),
+                blocks_file: MemoryBackedStore::new(),
+                offsets_file: MemoryBackedStore::new(),
             },
             predicate_dictionary_files: DictionaryFiles {
-                blocks_file: files[2].clone(),
-                offsets_file: files[3].clone(),
+                blocks_file: MemoryBackedStore::new(),
+                offsets_file: MemoryBackedStore::new(),
             },
             value_dictionary_files: DictionaryFiles {
-                blocks_file: files[4].clone(),
-                offsets_file: files[5].clone(),
+                blocks_file: MemoryBackedStore::new(),
+                offsets_file: MemoryBackedStore::new(),
             },
             s_p_adjacency_list_files: AdjacencyListFiles {
                 bitindex_files: BitIndexFiles {
-                    bits_file: files[6].clone(),
-                    blocks_file: files[7].clone(),
-                    sblocks_file: files[8].clone(),
+                    bits_file: MemoryBackedStore::new(),
+                    blocks_file: MemoryBackedStore::new(),
+                    sblocks_file: MemoryBackedStore::new(),
                 },
-                nums_file: files[9].clone(),
+                nums_file: MemoryBackedStore::new(),
             },
             sp_o_adjacency_list_files: AdjacencyListFiles {
                 bitindex_files: BitIndexFiles {
-                    bits_file: files[10].clone(),
-                    blocks_file: files[11].clone(),
-                    sblocks_file: files[12].clone(),
+                    bits_file: MemoryBackedStore::new(),
+                    blocks_file: MemoryBackedStore::new(),
+                    sblocks_file: MemoryBackedStore::new(),
                 },
-                nums_file: files[13].clone(),
+                nums_file: MemoryBackedStore::new(),
             },
             o_ps_adjacency_list_files: AdjacencyListFiles {
                 bitindex_files: BitIndexFiles {
-                    bits_file: files[14].clone(),
-                    blocks_file: files[15].clone(),
-                    sblocks_file: files[16].clone(),
+                    bits_file: MemoryBackedStore::new(),
+                    blocks_file: MemoryBackedStore::new(),
+                    sblocks_file: MemoryBackedStore::new(),
                 },
-                nums_file: files[17].clone(),
+                nums_file: MemoryBackedStore::new(),
             },
             predicate_wavelet_tree_files: BitIndexFiles {
-                bits_file: files[18].clone(),
-                blocks_file: files[19].clone(),
-                sblocks_file: files[20].clone(),
+                bits_file: MemoryBackedStore::new(),
+                blocks_file: MemoryBackedStore::new(),
+                sblocks_file: MemoryBackedStore::new(),
             },
         };
 
@@ -318,84 +308,82 @@ impl LayerStore for MemoryLayerStore {
                 })
                 .and_then(move |parent_layer| {
                     let name = rand::random();
-                    let files: Vec<_> = (0..40).map(|_| MemoryBackedStore::new()).collect();
-
                     let clf = ChildLayerFiles {
                         node_dictionary_files: DictionaryFiles {
-                            blocks_file: files[0].clone(),
-                            offsets_file: files[1].clone(),
+                            blocks_file: MemoryBackedStore::new(),
+                            offsets_file: MemoryBackedStore::new(),
                         },
                         predicate_dictionary_files: DictionaryFiles {
-                            blocks_file: files[2].clone(),
-                            offsets_file: files[3].clone(),
+                            blocks_file: MemoryBackedStore::new(),
+                            offsets_file: MemoryBackedStore::new(),
                         },
                         value_dictionary_files: DictionaryFiles {
-                            blocks_file: files[4].clone(),
-                            offsets_file: files[5].clone(),
+                            blocks_file: MemoryBackedStore::new(),
+                            offsets_file: MemoryBackedStore::new(),
                         },
 
-                        pos_subjects_file: files[6].clone(),
-                        pos_objects_file: files[7].clone(),
-                        neg_subjects_file: files[8].clone(),
-                        neg_objects_file: files[9].clone(),
+                        pos_subjects_file: MemoryBackedStore::new(),
+                        pos_objects_file: MemoryBackedStore::new(),
+                        neg_subjects_file: MemoryBackedStore::new(),
+                        neg_objects_file: MemoryBackedStore::new(),
 
                         pos_s_p_adjacency_list_files: AdjacencyListFiles {
                             bitindex_files: BitIndexFiles {
-                                bits_file: files[10].clone(),
-                                blocks_file: files[11].clone(),
-                                sblocks_file: files[12].clone(),
+                                bits_file: MemoryBackedStore::new(),
+                                blocks_file: MemoryBackedStore::new(),
+                                sblocks_file: MemoryBackedStore::new(),
                             },
-                            nums_file: files[13].clone(),
+                            nums_file: MemoryBackedStore::new(),
                         },
                         pos_sp_o_adjacency_list_files: AdjacencyListFiles {
                             bitindex_files: BitIndexFiles {
-                                bits_file: files[14].clone(),
-                                blocks_file: files[15].clone(),
-                                sblocks_file: files[16].clone(),
+                                bits_file: MemoryBackedStore::new(),
+                                blocks_file: MemoryBackedStore::new(),
+                                sblocks_file: MemoryBackedStore::new(),
                             },
-                            nums_file: files[17].clone(),
+                            nums_file: MemoryBackedStore::new(),
                         },
                         pos_o_ps_adjacency_list_files: AdjacencyListFiles {
                             bitindex_files: BitIndexFiles {
-                                bits_file: files[18].clone(),
-                                blocks_file: files[19].clone(),
-                                sblocks_file: files[20].clone(),
+                                bits_file: MemoryBackedStore::new(),
+                                blocks_file: MemoryBackedStore::new(),
+                                sblocks_file: MemoryBackedStore::new(),
                             },
-                            nums_file: files[21].clone(),
+                            nums_file: MemoryBackedStore::new(),
                         },
                         neg_s_p_adjacency_list_files: AdjacencyListFiles {
                             bitindex_files: BitIndexFiles {
-                                bits_file: files[22].clone(),
-                                blocks_file: files[23].clone(),
-                                sblocks_file: files[24].clone(),
+                                bits_file: MemoryBackedStore::new(),
+                                blocks_file: MemoryBackedStore::new(),
+                                sblocks_file: MemoryBackedStore::new(),
                             },
-                            nums_file: files[25].clone(),
+                            nums_file: MemoryBackedStore::new(),
                         },
                         neg_sp_o_adjacency_list_files: AdjacencyListFiles {
                             bitindex_files: BitIndexFiles {
-                                bits_file: files[26].clone(),
-                                blocks_file: files[27].clone(),
-                                sblocks_file: files[28].clone(),
+                                bits_file: MemoryBackedStore::new(),
+                                blocks_file: MemoryBackedStore::new(),
+                                sblocks_file: MemoryBackedStore::new(),
                             },
-                            nums_file: files[29].clone(),
+                            nums_file: MemoryBackedStore::new(),
                         },
                         neg_o_ps_adjacency_list_files: AdjacencyListFiles {
                             bitindex_files: BitIndexFiles {
-                                bits_file: files[30].clone(),
-                                blocks_file: files[31].clone(),
-                                sblocks_file: files[32].clone(),
+                                bits_file: MemoryBackedStore::new(),
+                                blocks_file: MemoryBackedStore::new(),
+                                sblocks_file: MemoryBackedStore::new(),
                             },
-                            nums_file: files[33].clone(),
+                            nums_file: MemoryBackedStore::new(),
                         },
                         pos_predicate_wavelet_tree_files: BitIndexFiles {
-                            bits_file: files[34].clone(),
-                            blocks_file: files[35].clone(),
-                            sblocks_file: files[36].clone(),
+                            bits_file: MemoryBackedStore::new(),
+                            blocks_file: MemoryBackedStore::new(),
+                            sblocks_file: MemoryBackedStore::new(),
                         },
                         neg_predicate_wavelet_tree_files: BitIndexFiles {
-                            bits_file: files[37].clone(),
-                            blocks_file: files[38].clone(),
-                            sblocks_file: files[39].clone(),
+                            bits_file: MemoryBackedStore::new(),
+                            blocks_file: MemoryBackedStore::new(),
+                            sblocks_file: MemoryBackedStore::new(),
                         },
                     };
 
@@ -523,7 +511,7 @@ mod tests {
         let w = file.open_write();
         tokio::io::write_all(w, [1, 2, 3]).wait().unwrap();
 
-        assert_eq!(vec![1, 2, 3], *file.map().wait().unwrap().0);
+        assert_eq!(vec![1, 2, 3], file.map().wait().unwrap().as_ref());
     }
 
     #[test]

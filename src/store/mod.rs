@@ -110,6 +110,13 @@ impl StoreLayerBuilder {
         self.with_builder(move |b| b.remove_id_triple(triple))
     }
 
+    /// Returns a Future which will yield true if this layer has been committed, and false otherwise.
+    pub fn committed(&self) -> impl Future<Item = bool, Error = std::io::Error> + Send {
+        self.builder
+            .write()
+            .then(|b| Ok(b.expect("rwlock write should always succeed").is_none()))
+    }
+
     /// Commit the layer to storage
     pub fn commit(&self) -> impl Future<Item = StoreLayer, Error = std::io::Error> + Send {
         let store = self.store.clone();
@@ -300,6 +307,14 @@ impl Layer for StoreLayer {
 
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())
+    }
+
+    fn triple_layer_addition_count(&self) -> usize {
+        self.layer.triple_layer_addition_count()
+    }
+
+    fn triple_layer_removal_count(&self) -> usize {
+        self.layer.triple_layer_removal_count()
     }
 }
 
@@ -686,5 +701,35 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(layer2.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+    }
+
+    #[test]
+    fn commit_builder_makes_builder_committed() {
+        let runtime = Runtime::new().unwrap();
+
+        let store = open_memory_store();
+        let builder = oneshot::spawn(store.create_base_layer(), &runtime.executor())
+            .wait()
+            .unwrap();
+        oneshot::spawn(
+            builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo")),
+            &runtime.executor(),
+        )
+        .wait()
+        .unwrap();
+
+        let is_committed = oneshot::spawn(builder.committed(), &runtime.executor())
+            .wait()
+            .unwrap();
+        assert!(!is_committed);
+
+        let _layer = oneshot::spawn(builder.commit(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        let is_committed = oneshot::spawn(builder.committed(), &runtime.executor())
+            .wait()
+            .unwrap();
+        assert!(is_committed);
     }
 }

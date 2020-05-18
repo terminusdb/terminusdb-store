@@ -91,6 +91,11 @@ impl SyncStoreLayerBuilder {
         task_sync(self.inner.remove_id_triple(triple))
     }
 
+    /// Returns a boolean result which is true if this builder has been committed, and false otherwise.
+    pub fn committed(&self) -> Result<bool, io::Error> {
+        task_sync(self.inner.committed())
+    }
+
     /// Commit the layer to storage
     pub fn commit(&self) -> Result<SyncStoreLayer, io::Error> {
         let inner = task_sync(self.inner.commit());
@@ -257,6 +262,14 @@ impl Layer for SyncStoreLayer {
 
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())
+    }
+
+    fn triple_layer_addition_count(&self) -> usize {
+        self.inner.triple_layer_addition_count()
+    }
+
+    fn triple_layer_removal_count(&self) -> usize {
+        self.inner.triple_layer_removal_count()
     }
 }
 
@@ -438,5 +451,20 @@ mod tests {
 
         let layer2 = store.get_layer_from_id(id).unwrap().unwrap();
         assert!(layer2.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+    }
+
+    #[test]
+    fn commit_builder_makes_builder_committed() {
+        let store = open_sync_memory_store();
+        let builder = store.create_base_layer().unwrap();
+        builder
+            .add_string_triple(&StringTriple::new_value("cow", "says", "moo"))
+            .unwrap();
+
+        assert!(!builder.committed().unwrap());
+
+        let _layer = builder.commit().unwrap();
+
+        assert!(builder.committed().unwrap());
     }
 }

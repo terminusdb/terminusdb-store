@@ -1,5 +1,7 @@
 //! Implementation for a Plain Front-Coding (PFC) dictionary.
+
 use byteorder::{BigEndian, ByteOrder};
+use bytes::Bytes;
 use futures::future;
 use futures::prelude::*;
 use std::cmp::{Ord, Ordering};
@@ -7,7 +9,7 @@ use std::error::Error;
 use std::fmt::Display;
 
 use super::logarray::*;
-use super::util::*;
+use super::util;
 use super::vbyte;
 
 #[derive(Debug)]
@@ -37,67 +39,22 @@ impl Into<std::io::Error> for PfcError {
 }
 
 #[derive(Clone)]
-pub struct PfcBlock<M: AsRef<[u8]>> {
-    encoded_strings: M,
+pub struct PfcBlock {
+    encoded_strings: Bytes,
     n_strings: usize,
 }
 
 const BLOCK_SIZE: usize = 8;
 
-pub struct PfcBlockIterator<'a, M: AsRef<[u8]>> {
-    block: &'a PfcBlock<M>,
-    count: usize,
-    pos: usize,
-    string: Vec<u8>,
-}
-
-impl<'a, M: AsRef<[u8]>> Iterator for PfcBlockIterator<'a, M> {
-    type Item = String;
-
-    fn next(&mut self) -> Option<String> {
-        if self.pos == 0 {
-            // we gotta read the initial prefix first (a nul-terminated string)
-            self.string = self.block.head();
-
-            self.count = 1;
-            self.pos = self.string.len() + 1;
-        } else if self.count < self.block.n_strings {
-            // at pos we read a vbyte with the length of the common prefix
-            let (common, common_len) =
-                vbyte::decode(&self.block.encoded_strings.as_ref()[self.pos..])
-                    .expect("encoding error in self-managed data");
-            self.string.truncate(common as usize);
-            self.pos += common_len;
-
-            // next up is the suffix, again as a nul-terminated string.
-            let postfix_end = self.pos
-                + self.block.encoded_strings.as_ref()[self.pos..]
-                    .iter()
-                    .position(|&b| b == 0)
-                    .unwrap();
-
-            self.string
-                .extend_from_slice(&self.block.encoded_strings.as_ref()[self.pos..postfix_end]);
-
-            self.pos = postfix_end + 1;
-            self.count += 1;
-        } else {
-            return None;
-        }
-
-        Some(String::from_utf8(self.string.clone()).unwrap())
-    }
-}
-
 // the owned version is pretty much equivalent. There should be a way to make this one implementation with generics but I haven't figured out how!
-pub struct OwnedPfcBlockIterator<M: AsRef<[u8]>> {
-    block: PfcBlock<M>,
+pub struct PfcBlockIterator {
+    block: PfcBlock,
     count: usize,
     pos: usize,
     string: Vec<u8>,
 }
 
-impl<M: AsRef<[u8]>> Iterator for OwnedPfcBlockIterator<M> {
+impl Iterator for PfcBlockIterator {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
@@ -135,15 +92,15 @@ impl<M: AsRef<[u8]>> Iterator for OwnedPfcBlockIterator<M> {
     }
 }
 
-impl<M: AsRef<[u8]>> PfcBlock<M> {
-    pub fn parse(data: M) -> Result<PfcBlock<M>, PfcError> {
+impl PfcBlock {
+    pub fn parse(data: Bytes) -> Result<PfcBlock, PfcError> {
         Ok(PfcBlock {
             encoded_strings: data,
             n_strings: BLOCK_SIZE,
         })
     }
 
-    pub fn parse_incomplete(data: M, n_strings: usize) -> Result<PfcBlock<M>, PfcError> {
+    pub fn parse_incomplete(data: Bytes, n_strings: usize) -> Result<PfcBlock, PfcError> {
         Ok(PfcBlock {
             encoded_strings: data,
             n_strings,
@@ -163,18 +120,9 @@ impl<M: AsRef<[u8]>> PfcBlock<M> {
         v
     }
 
-    pub fn strings(&self) -> PfcBlockIterator<M> {
+    pub fn strings(&self) -> PfcBlockIterator {
         PfcBlockIterator {
-            block: &self,
-            count: 0,
-            pos: 0,
-            string: Vec::new(),
-        }
-    }
-
-    pub fn into_strings(self) -> OwnedPfcBlockIterator<M> {
-        OwnedPfcBlockIterator {
-            block: self,
+            block: self.clone(),
             count: 0,
             pos: 0,
             string: Vec::new(),
@@ -196,19 +144,19 @@ impl<M: AsRef<[u8]>> PfcBlock<M> {
 }
 
 #[derive(Clone)]
-pub struct PfcDict<M: AsRef<[u8]>> {
+pub struct PfcDict {
     n_strings: u64,
-    block_offsets: LogArray<M>,
-    blocks: M,
+    block_offsets: LogArray,
+    blocks: Bytes,
 }
 
-pub struct PfcDictIterator<'a, M: AsRef<[u8]>> {
-    dict: &'a PfcDict<M>,
+pub struct PfcDictIterator {
+    dict: PfcDict,
     block_index: usize,
-    block: Option<OwnedPfcBlockIterator<&'a [u8]>>,
+    block: Option<PfcBlockIterator>,
 }
 
-impl<'a, M: AsRef<[u8]>> Iterator for PfcDictIterator<'a, M> {
+impl Iterator for PfcDictIterator {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
@@ -221,20 +169,15 @@ impl<'a, M: AsRef<[u8]>> Iterator for PfcDictIterator<'a, M> {
                 self.dict.block_offsets.entry(self.block_index - 1)
             } as usize;
             let remainder = self.dict.n_strings as usize - self.block_index * BLOCK_SIZE;
+            let mut block = self.dict.blocks.clone();
+            block.advance(block_offset);
             if remainder >= BLOCK_SIZE {
-                self.block = Some(
-                    PfcBlock::parse(&self.dict.blocks.as_ref()[block_offset..])
-                        .unwrap()
-                        .into_strings(),
-                );
+                self.block = Some(PfcBlock::parse(block).unwrap().strings());
             } else {
                 self.block = Some(
-                    PfcBlock::parse_incomplete(
-                        &self.dict.blocks.as_ref()[block_offset..],
-                        remainder,
-                    )
-                    .unwrap()
-                    .into_strings(),
+                    PfcBlock::parse_incomplete(block, remainder)
+                        .unwrap()
+                        .strings(),
                 );
             }
         }
@@ -250,8 +193,8 @@ impl<'a, M: AsRef<[u8]>> Iterator for PfcDictIterator<'a, M> {
     }
 }
 
-impl<M: AsRef<[u8]>> PfcDict<M> {
-    pub fn parse(blocks: M, offsets: M) -> Result<PfcDict<M>, PfcError> {
+impl PfcDict {
+    pub fn parse(blocks: Bytes, offsets: Bytes) -> Result<PfcDict, PfcError> {
         let n_strings = BigEndian::read_u64(&blocks.as_ref()[blocks.as_ref().len() - 8..]);
 
         let block_offsets = LogArray::parse(offsets)?;
@@ -275,7 +218,9 @@ impl<M: AsRef<[u8]>> PfcDict<M> {
             } else {
                 self.block_offsets.entry(block_index - 1)
             };
-            let block = PfcBlock::parse(&self.blocks.as_ref()[block_offset as usize..]).unwrap();
+            let mut block = self.blocks.clone();
+            block.advance(block_offset as usize);
+            let block = PfcBlock::parse(block).unwrap();
 
             let index_in_block = ix % BLOCK_SIZE;
             block.get(index_in_block)
@@ -327,11 +272,12 @@ impl<M: AsRef<[u8]>> PfcDict<M> {
             self.block_offsets.entry(found - 1) as usize
         };
         let remainder = self.n_strings as usize - (found * BLOCK_SIZE);
+        let mut block = self.blocks.clone();
+        block.advance(block_start);
         let block = if remainder >= BLOCK_SIZE {
-            PfcBlock::parse(&self.blocks.as_ref()[block_start..]).unwrap()
+            PfcBlock::parse(block).unwrap()
         } else {
-            PfcBlock::parse_incomplete(&self.blocks.as_ref()[block_start..], remainder as usize)
-                .unwrap()
+            PfcBlock::parse_incomplete(block, remainder as usize).unwrap()
         };
 
         let mut count = 0;
@@ -345,9 +291,9 @@ impl<M: AsRef<[u8]>> PfcDict<M> {
         None
     }
 
-    pub fn strings(&self) -> PfcDictIterator<M> {
+    pub fn strings(&self) -> PfcDictIterator {
         PfcDictIterator {
-            dict: &self,
+            dict: self.clone(),
             block_index: 0,
             block: None,
         }
@@ -395,7 +341,7 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> PfcDictFileBuilder<W> {
             }
             let pfc_block_offsets_file = self.pfc_block_offsets_file;
             future::Either::A(
-                write_nul_terminated_bytes(self.pfc_blocks_file, bytes.clone()).and_then(
+                util::write_nul_terminated_bytes(self.pfc_blocks_file, bytes.clone()).and_then(
                     move |(f, len)| {
                         future::ok((
                             (count + 1) as u64,
@@ -413,13 +359,13 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> PfcDictFileBuilder<W> {
             )
         } else {
             let s_bytes = s.as_bytes();
-            let common = find_common_prefix(&self.last.unwrap(), s_bytes);
+            let common = util::find_common_prefix(&self.last.unwrap(), s_bytes);
             let postfix = s_bytes[common..].to_vec();
             let pfc_block_offsets_file = self.pfc_block_offsets_file;
             future::Either::B(
                 vbyte::write_async(self.pfc_blocks_file, common as u64).and_then(
                     move |(pfc_blocks_file, common_len)| {
-                        write_nul_terminated_bytes(pfc_blocks_file, postfix).map(
+                        util::write_nul_terminated_bytes(pfc_blocks_file, postfix).map(
                             move |(pfc_blocks_file, slice_len)| {
                                 (
                                     (count + 1) as u64,
@@ -464,19 +410,15 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> PfcDictFileBuilder<W> {
             64 - self.index[self.index.len() - 1].leading_zeros()
         };
         let builder = LogArrayFileBuilder::new(self.pfc_block_offsets_file, width as u8);
-        let count = self.count;
+        let count = self.count as u64;
 
         let write_offsets = builder
             .push_all(futures::stream::iter_ok(self.index))
             .and_then(|b| b.finalize());
 
-        let finalize_blocks = write_padding(self.pfc_blocks_file, self.size, 8)
-            .and_then(move |(w, _n_pad)| {
-                let mut bytes = vec![0; 8];
-                BigEndian::write_u64(&mut bytes, count as u64);
-                tokio::io::write_all(w, bytes)
-            })
-            .and_then(|(w, _)| tokio::io::flush(w));
+        let finalize_blocks = util::write_padding(self.pfc_blocks_file, self.size, 8)
+            .and_then(move |w| util::write_u64(w, count))
+            .and_then(|w| tokio::io::flush(w));
 
         write_offsets.join(finalize_blocks).map(|_| ())
     }

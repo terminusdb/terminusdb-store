@@ -1,5 +1,6 @@
 //! storage traits that the builders and loaders can rely on
 
+use bytes::Bytes;
 use futures::prelude::*;
 use tokio::prelude::*;
 
@@ -13,14 +14,13 @@ pub trait FileStore: Clone + Send + Sync {
 
 pub trait FileLoad: Clone + Send + Sync {
     type Read: AsyncRead + Send;
-    type Map: AsRef<[u8]> + Clone + Send + Sync;
 
     fn size(&self) -> usize;
     fn open_read(&self) -> Self::Read {
         self.open_read_from(0)
     }
     fn open_read_from(&self, offset: usize) -> Self::Read;
-    fn map(&self) -> Box<dyn Future<Item = Self::Map, Error = std::io::Error> + Send>;
+    fn map(&self) -> Box<dyn Future<Item = Bytes, Error = std::io::Error> + Send>;
 }
 
 /// The files required for storing a layer
@@ -61,21 +61,21 @@ pub struct BaseLayerFiles<F: 'static + FileLoad + FileStore> {
 }
 
 #[derive(Clone)]
-pub struct BaseLayerMaps<M: 'static + AsRef<[u8]> + Clone + Send + Sync> {
-    pub node_dictionary_maps: DictionaryMaps<M>,
-    pub predicate_dictionary_maps: DictionaryMaps<M>,
-    pub value_dictionary_maps: DictionaryMaps<M>,
+pub struct BaseLayerMaps {
+    pub node_dictionary_maps: DictionaryMaps,
+    pub predicate_dictionary_maps: DictionaryMaps,
+    pub value_dictionary_maps: DictionaryMaps,
 
-    pub s_p_adjacency_list_maps: AdjacencyListMaps<M>,
-    pub sp_o_adjacency_list_maps: AdjacencyListMaps<M>,
+    pub s_p_adjacency_list_maps: AdjacencyListMaps,
+    pub sp_o_adjacency_list_maps: AdjacencyListMaps,
 
-    pub o_ps_adjacency_list_maps: AdjacencyListMaps<M>,
+    pub o_ps_adjacency_list_maps: AdjacencyListMaps,
 
-    pub predicate_wavelet_tree_maps: BitIndexMaps<M>,
+    pub predicate_wavelet_tree_maps: BitIndexMaps,
 }
 
 impl<F: FileLoad + FileStore> BaseLayerFiles<F> {
-    pub fn map_all(&self) -> impl Future<Item = BaseLayerMaps<F::Map>, Error = std::io::Error> {
+    pub fn map_all(&self) -> impl Future<Item = BaseLayerMaps, Error = std::io::Error> {
         let dict_futs = vec![
             self.node_dictionary_files.map_all(),
             self.predicate_dictionary_files.map_all(),
@@ -131,29 +131,29 @@ pub struct ChildLayerFiles<F: 'static + FileLoad + FileStore + Clone + Send + Sy
 }
 
 #[derive(Clone)]
-pub struct ChildLayerMaps<M: 'static + AsRef<[u8]> + Clone + Send + Sync> {
-    pub node_dictionary_maps: DictionaryMaps<M>,
-    pub predicate_dictionary_maps: DictionaryMaps<M>,
-    pub value_dictionary_maps: DictionaryMaps<M>,
+pub struct ChildLayerMaps {
+    pub node_dictionary_maps: DictionaryMaps,
+    pub predicate_dictionary_maps: DictionaryMaps,
+    pub value_dictionary_maps: DictionaryMaps,
 
-    pub pos_subjects_map: M,
-    pub pos_objects_map: M,
-    pub neg_subjects_map: M,
-    pub neg_objects_map: M,
+    pub pos_subjects_map: Bytes,
+    pub pos_objects_map: Bytes,
+    pub neg_subjects_map: Bytes,
+    pub neg_objects_map: Bytes,
 
-    pub pos_s_p_adjacency_list_maps: AdjacencyListMaps<M>,
-    pub pos_sp_o_adjacency_list_maps: AdjacencyListMaps<M>,
-    pub pos_o_ps_adjacency_list_maps: AdjacencyListMaps<M>,
-    pub neg_s_p_adjacency_list_maps: AdjacencyListMaps<M>,
-    pub neg_sp_o_adjacency_list_maps: AdjacencyListMaps<M>,
-    pub neg_o_ps_adjacency_list_maps: AdjacencyListMaps<M>,
+    pub pos_s_p_adjacency_list_maps: AdjacencyListMaps,
+    pub pos_sp_o_adjacency_list_maps: AdjacencyListMaps,
+    pub pos_o_ps_adjacency_list_maps: AdjacencyListMaps,
+    pub neg_s_p_adjacency_list_maps: AdjacencyListMaps,
+    pub neg_sp_o_adjacency_list_maps: AdjacencyListMaps,
+    pub neg_o_ps_adjacency_list_maps: AdjacencyListMaps,
 
-    pub pos_predicate_wavelet_tree_maps: BitIndexMaps<M>,
-    pub neg_predicate_wavelet_tree_maps: BitIndexMaps<M>,
+    pub pos_predicate_wavelet_tree_maps: BitIndexMaps,
+    pub neg_predicate_wavelet_tree_maps: BitIndexMaps,
 }
 
 impl<F: FileLoad + FileStore + Clone> ChildLayerFiles<F> {
-    pub fn map_all(&self) -> impl Future<Item = ChildLayerMaps<F::Map>, Error = std::io::Error> {
+    pub fn map_all(&self) -> impl Future<Item = ChildLayerMaps, Error = std::io::Error> {
         let dict_futs = vec![
             self.node_dictionary_files.map_all(),
             self.predicate_dictionary_files.map_all(),
@@ -211,15 +211,15 @@ impl<F: FileLoad + FileStore + Clone> ChildLayerFiles<F> {
 }
 
 #[derive(Clone)]
-pub struct DictionaryMaps<M: 'static + AsRef<[u8]> + Clone + Send + Sync> {
-    pub blocks_map: M,
-    pub offsets_map: M,
+pub struct DictionaryMaps {
+    pub blocks_map: Bytes,
+    pub offsets_map: Bytes,
 }
 
 #[derive(Clone)]
-pub struct AdjacencyListMaps<M: 'static + AsRef<[u8]> + Clone + Send + Sync> {
-    pub bitindex_maps: BitIndexMaps<M>,
-    pub nums_map: M,
+pub struct AdjacencyListMaps {
+    pub bitindex_maps: BitIndexMaps,
+    pub nums_map: Bytes,
 }
 
 #[derive(Clone)]
@@ -229,7 +229,7 @@ pub struct DictionaryFiles<F: 'static + FileLoad + FileStore> {
 }
 
 impl<F: 'static + FileLoad + FileStore> DictionaryFiles<F> {
-    pub fn map_all(&self) -> impl Future<Item = DictionaryMaps<F::Map>, Error = std::io::Error> {
+    pub fn map_all(&self) -> impl Future<Item = DictionaryMaps, Error = std::io::Error> {
         let futs = vec![self.blocks_file.map(), self.offsets_file.map()];
         future::join_all(futs).map(|results| DictionaryMaps {
             blocks_map: results[0].clone(),
@@ -245,7 +245,7 @@ pub struct AdjacencyListFiles<F: 'static + FileLoad + FileStore> {
 }
 
 impl<F: 'static + FileLoad + FileStore> AdjacencyListFiles<F> {
-    pub fn map_all(&self) -> impl Future<Item = AdjacencyListMaps<F::Map>, Error = std::io::Error> {
+    pub fn map_all(&self) -> impl Future<Item = AdjacencyListMaps, Error = std::io::Error> {
         self.bitindex_files
             .map_all()
             .join(self.nums_file.map())
@@ -257,10 +257,10 @@ impl<F: 'static + FileLoad + FileStore> AdjacencyListFiles<F> {
 }
 
 #[derive(Clone)]
-pub struct BitIndexMaps<M: 'static + AsRef<[u8]> + Clone + Send + Sync> {
-    pub bits_map: M,
-    pub blocks_map: M,
-    pub sblocks_map: M,
+pub struct BitIndexMaps {
+    pub bits_map: Bytes,
+    pub blocks_map: Bytes,
+    pub sblocks_map: Bytes,
 }
 
 #[derive(Clone)]
@@ -271,7 +271,7 @@ pub struct BitIndexFiles<F: 'static + FileLoad + FileStore> {
 }
 
 impl<F: 'static + FileLoad + FileStore> BitIndexFiles<F> {
-    pub fn map_all(&self) -> impl Future<Item = BitIndexMaps<F::Map>, Error = std::io::Error> {
+    pub fn map_all(&self) -> impl Future<Item = BitIndexMaps, Error = std::io::Error> {
         let futs = vec![
             self.bits_file.map(),
             self.blocks_file.map(),

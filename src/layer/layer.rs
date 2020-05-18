@@ -91,6 +91,14 @@ pub trait Layer: Send + Sync {
     /// predicate-object pair.
     fn subject_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>>;
 
+    /// A convenience wrapper around `subject_additions`, which returns an iterator over `SubjectLookup`s rather than over `LayerSubjectLookup`s.
+    fn subject_additions_generic(&self) -> Box<dyn Iterator<Item = Box<dyn SubjectLookup>>> {
+        Box::new(
+            GenericSubjectIterator::from_layer_iterator(self.subject_additions())
+                .map(|lookup| Box::new(lookup) as Box<dyn SubjectLookup>),
+        )
+    }
+
     /// Returns an iterator over all triple data removed by this layer.
     ///
     /// This data is returned by
@@ -98,6 +106,14 @@ pub trait Layer: Send + Sync {
     /// subject id, and knows how to retrieve any linked
     /// predicate-object pair.
     fn subject_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>>;
+
+    /// A convenience wrapper around `subject_removals`, which returns an iterator over `SubjectLookup`s rather than over `LayerSubjectLookup`s.
+    fn subject_removals_generic(&self) -> Box<dyn Iterator<Item = Box<dyn SubjectLookup>>> {
+        Box::new(
+            GenericSubjectIterator::from_layer_iterator(self.subject_removals())
+                .map(|lookup| Box::new(lookup) as Box<dyn SubjectLookup>),
+        )
+    }
 
     /// Returns a `SubjectLookup` object for the given subject, or None if it cannot be constructed.
     ///
@@ -138,7 +154,9 @@ pub trait Layer: Send + Sync {
         }
     }
 
-    /// Returns a `SubjectLookup` object for the given subject, or None if it cannot be constructed.
+    /// Returns a `LayerSubjectLookup` object for the given subject, or None if it cannot be constructed.
+    ///
+    /// This will only lookup additions in the current layer.
     ///
     /// Note that even if a value is returned here, that doesn't
     /// necessarily mean that there will be triples for the given
@@ -148,10 +166,31 @@ pub trait Layer: Send + Sync {
     /// subject.
 
     fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn LayerSubjectLookup>>;
-    /// Returns a `SubjectLookup` object for the given subject, or None if it cannot be constructed.
+
+    /// A convenience wrapper around `lookup_subject_addition`, which returns a `SubjectLookup` rather than a `LayerSubjectLookup`.
     ///
-    /// This will only lookup in the current layer.
+    /// The returned object will look like a lookup into a single
+    /// layer that contains just the triples added in this layer.
+    fn lookup_subject_addition_generic(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
+        self.lookup_subject_addition(subject).map(|lookup| {
+            Box::new(GenericSubjectLookup::from_layer_lookup(lookup)) as Box<dyn SubjectLookup>
+        })
+    }
+
+    /// Returns a `LayerSubjectLookup` object for the given subject, or None if it cannot be constructed.
+    ///
+    /// This will only lookup removals in the current layer.
     fn lookup_subject_removal(&self, subject: u64) -> Option<Box<dyn LayerSubjectLookup>>;
+
+    /// A convenience wrapper around `lookup_subject_removal`, which returns a `SubjectLookup` rather than a `LayerSubjectLookup`.
+    ///
+    /// The returned object will look like a lookup into a single
+    /// layer that contains just the triples removed in this layer.
+    fn lookup_subject_removal_generic(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
+        self.lookup_subject_removal(subject).map(|lookup| {
+            Box::new(GenericSubjectLookup::from_layer_lookup(lookup)) as Box<dyn SubjectLookup>
+        })
+    }
 
     /// Returns an iterator over all objects known to this layer.
     ///
@@ -186,12 +225,28 @@ pub trait Layer: Send + Sync {
     /// object.
     fn object_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>>;
 
+    /// A convenience wrapper around `object_additions`, which returns an iterator over `ObjectLookup`s rather than over `LayerObjectLookup`s.
+    fn object_additions_generic(&self) -> Box<dyn Iterator<Item = Box<dyn ObjectLookup>>> {
+        Box::new(
+            GenericObjectIterator::from_layer_iterator(self.object_additions())
+                .map(|lookup| Box::new(lookup) as Box<dyn ObjectLookup>),
+        )
+    }
+
     /// Returns an iterator over all objects removed by this layer.
     ///
     /// Objects are returned as an `ObjectLookup`, an object that can
     /// then be queried for subject-predicate pairs pointing to that
     /// object.
     fn object_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>>;
+
+    /// A convenience wrapper around `object_removals`, which returns an iterator over `ObjectLookup`s rather than over `LayerObjectLookup`s.
+    fn object_removals_generic(&self) -> Box<dyn Iterator<Item = Box<dyn ObjectLookup>>> {
+        Box::new(
+            GenericObjectIterator::from_layer_iterator(self.object_removals())
+                .map(|lookup| Box::new(lookup) as Box<dyn ObjectLookup>),
+        )
+    }
 
     /// Returns an `ObjectLookup` for the given object, or None if it could not be constructed.
     ///
@@ -230,15 +285,35 @@ pub trait Layer: Send + Sync {
         }
     }
 
-    /// Returns an `ObjectLookup` for the given object, or None if it could not be constructed.
+    /// Returns a `LayerObjectLookup` for the given object, or None if it could not be constructed.
     ///
     /// This will only lookup in the current layer.
     fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn LayerObjectLookup>>;
 
-    /// Returns an `ObjectLookup` for the given object, or None if it could not be constructed.
+    /// A convenience wrapper around `lookup_object_addition`, which returns an `ObjectLookup` rather than a `LayerObjectLookup`.
+    ///
+    /// The returned object will look like a lookup into a single
+    /// layer that contains just the triples added in this layer.
+    fn lookup_object_addition_generic(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+        self.lookup_object_addition(object).map(|lookup| {
+            Box::new(GenericObjectLookup::from_layer_lookup(lookup)) as Box<dyn ObjectLookup>
+        })
+    }
+
+    /// Returns a `LayerObjectLookup` for the given object, or None if it could not be constructed.
     ///
     /// This will only lookup in the current layer.
     fn lookup_object_removal(&self, object: u64) -> Option<Box<dyn LayerObjectLookup>>;
+
+    /// A convenience wrapper around `lookup_object_removal`, which returns an `ObjectLookup` rather than a `LayerObjectLookup`.
+    ///
+    /// The returned object will look like a lookup into a single
+    /// layer that contains just the triples removed in this layer.
+    fn lookup_object_removal_generic(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+        self.lookup_object_removal(object).map(|lookup| {
+            Box::new(GenericObjectLookup::from_layer_lookup(lookup)) as Box<dyn ObjectLookup>
+        })
+    }
 
     /// Returns a `PredicateLookup` for the given predicate, or None if it could not be constructed.
     ///
@@ -279,15 +354,29 @@ pub trait Layer: Send + Sync {
         }
     }
 
-    /// Returns a `PredicateLookup` for the given predicate, or None if it could not be constructed.
+    /// Returns a `LayerPredicateLookup` for the given predicate, or None if it could not be constructed.
     ///
     /// This will only lookup in the current layer.
     fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn LayerPredicateLookup>>;
+    fn lookup_predicate_addition_generic(
+        &self,
+        predicate: u64,
+    ) -> Option<Box<dyn PredicateLookup>> {
+        self.lookup_predicate_addition(predicate).map(|lookup| {
+            Box::new(GenericPredicateLookup::from_layer_lookup(lookup)) as Box<dyn PredicateLookup>
+        })
+    }
 
-    /// Returns a `PredicateLookup` for the given predicate, or None if it could not be constructed.
+    /// Returns a `LayerPredicateLookup` for the given predicate, or None if it could not be constructed.
     ///
     /// This will only lookup in the current layer.
     fn lookup_predicate_removal(&self, predicate: u64) -> Option<Box<dyn LayerPredicateLookup>>;
+
+    fn lookup_predicate_removal_generic(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+        self.lookup_predicate_removal(predicate).map(|lookup| {
+            Box::new(GenericPredicateLookup::from_layer_lookup(lookup)) as Box<dyn PredicateLookup>
+        })
+    }
 
     /// Create a struct with all the counts
     fn all_counts(&self) -> LayerCounts {
@@ -326,6 +415,12 @@ pub trait Layer: Send + Sync {
         )
     }
 
+    fn predicate_additions_generic(&self) -> Box<dyn Iterator<Item = Box<dyn PredicateLookup>>> {
+        Box::new(self.predicate_additions().map(|lookup| {
+            Box::new(GenericPredicateLookup::from_layer_lookup(lookup)) as Box<dyn PredicateLookup>
+        }))
+    }
+
     fn predicate_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerPredicateLookup>>> {
         let cloned = self.clone_boxed();
         Box::new(
@@ -333,6 +428,12 @@ pub trait Layer: Send + Sync {
                 .map(move |p| cloned.lookup_predicate_removal(p as u64))
                 .flatten(),
         )
+    }
+
+    fn predicate_removals_generic(&self) -> Box<dyn Iterator<Item = Box<dyn PredicateLookup>>> {
+        Box::new(self.predicate_removals().map(|lookup| {
+            Box::new(GenericPredicateLookup::from_layer_lookup(lookup)) as Box<dyn PredicateLookup>
+        }))
     }
 
     /// Return a clone of this layer in a box.
@@ -437,6 +538,44 @@ pub trait Layer: Send + Sync {
             Some(parent) => parent.name() == self.name() || self.is_ancestor_of(&*parent),
         }
     }
+
+    /// Returns the total amount of triple additions in this layer and all its parents.
+    fn triple_addition_count(&self) -> usize {
+        let mut additions = self.triple_layer_addition_count();
+
+        let mut parent = self.parent();
+        while parent.is_some() {
+            additions += parent.unwrap().triple_layer_addition_count();
+
+            parent = parent.unwrap().parent();
+        }
+
+        additions
+    }
+
+    /// Returns the total amount of triple removals in this layer and all its parents.
+    fn triple_removal_count(&self) -> usize {
+        let mut removals = self.triple_layer_removal_count();
+
+        let mut parent = self.parent();
+        while parent.is_some() {
+            removals += parent.unwrap().triple_layer_removal_count();
+
+            parent = parent.unwrap().parent();
+        }
+
+        removals
+    }
+
+    /// Returns the total amount of triples in this layer and all its parents.
+    fn triple_count(&self) -> usize {
+        self.triple_addition_count() - self.triple_removal_count()
+    }
+
+    /// Returns the amount of triples that this layer adds.
+    fn triple_layer_addition_count(&self) -> usize;
+    /// Returns the amount of triples that this layer removes.
+    fn triple_layer_removal_count(&self) -> usize;
 }
 
 pub struct LayerCounts {
@@ -457,6 +596,16 @@ struct GenericSubjectIterator {
         Peekable<Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>>>,
         Peekable<Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>>>,
     )>,
+}
+
+impl GenericSubjectIterator {
+    fn from_layer_iterator(iter: Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>>) -> Self {
+        let empty =
+            Box::new(std::iter::empty()) as Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>>;
+        Self {
+            layers: vec![(iter.peekable(), empty.peekable())],
+        }
+    }
 }
 
 impl Iterator for GenericSubjectIterator {
@@ -532,6 +681,15 @@ pub trait LayerSubjectLookup {
     }
 }
 
+pub fn layer_subject_lookup_into_generic(
+    lookup: Box<dyn LayerSubjectLookup>,
+) -> Box<dyn SubjectLookup> {
+    Box::new(GenericSubjectLookup {
+        subject: lookup.subject(),
+        lookups: vec![(Some(lookup), None)],
+    })
+}
+
 /// a trait that caches a lookup in a layer by subject and predicate, but only for that layer and not its parents.
 ///
 /// This is returned by `SubjectLookup::predicates`
@@ -597,12 +755,21 @@ pub trait SubjectLookup {
 }
 
 /// A SubjectLookup that is implemented in terms of addition and removal lookups
-struct GenericSubjectLookup {
+pub struct GenericSubjectLookup {
     subject: u64,
     lookups: Vec<(
         Option<Box<dyn LayerSubjectLookup>>,
         Option<Box<dyn LayerSubjectLookup>>,
     )>,
+}
+
+impl GenericSubjectLookup {
+    fn from_layer_lookup(lookup: Box<dyn LayerSubjectLookup>) -> GenericSubjectLookup {
+        GenericSubjectLookup {
+            subject: lookup.subject(),
+            lookups: vec![(Some(lookup), None)],
+        }
+    }
 }
 
 impl SubjectLookup for GenericSubjectLookup {
@@ -992,6 +1159,16 @@ struct GenericObjectIterator {
     )>,
 }
 
+impl GenericObjectIterator {
+    fn from_layer_iterator(iter: Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>>) -> Self {
+        let empty =
+            Box::new(std::iter::empty()) as Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>>;
+        GenericObjectIterator {
+            layers: vec![(iter.peekable(), empty.peekable())],
+        }
+    }
+}
+
 impl Iterator for GenericObjectIterator {
     type Item = GenericObjectLookup;
 
@@ -1051,6 +1228,15 @@ struct GenericObjectLookup {
         Option<Box<dyn LayerObjectLookup>>,
         Option<Box<dyn LayerObjectLookup>>,
     )>,
+}
+
+impl GenericObjectLookup {
+    fn from_layer_lookup(lookup: Box<dyn LayerObjectLookup>) -> Self {
+        Self {
+            object: lookup.object(),
+            lookups: vec![(Some(lookup), None)],
+        }
+    }
 }
 
 impl ObjectLookup for GenericObjectLookup {
@@ -1173,6 +1359,15 @@ struct GenericPredicateLookup {
         Option<Box<dyn LayerPredicateLookup>>,
         Option<Box<dyn LayerPredicateLookup>>,
     )>,
+}
+
+impl GenericPredicateLookup {
+    fn from_layer_lookup(lookup: Box<dyn LayerPredicateLookup>) -> Self {
+        Self {
+            predicate: lookup.predicate(),
+            lookups: vec![(Some(lookup), None)],
+        }
+    }
 }
 
 impl PredicateLookup for GenericPredicateLookup {

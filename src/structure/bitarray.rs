@@ -1,32 +1,34 @@
 //! Logic for storing, loading and using arrays of bits.
-use super::util::*;
+use super::util;
 use crate::storage::*;
+use crate::structure::bititer::BitIter;
 use byteorder::{BigEndian, ByteOrder};
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use futures::prelude::*;
 use tokio::codec::{Decoder, FramedRead};
 use tokio::prelude::*;
 
 #[derive(Clone)]
-pub struct BitArray<M: AsRef<[u8]>> {
-    bits: M,
+pub struct BitArray {
+    bits: Bytes,
     /// how many bits are being used in the last 8 bytes?
     count: u64,
 }
 
-impl<M: AsRef<[u8]>> BitArray<M> {
-    pub fn from_bits(bits: M) -> BitArray<M> {
-        if bits.as_ref().len() < 8 || bits.as_ref().len() % 8 != 0 {
+impl BitArray {
+    pub fn from_bits(mut bits: Bytes) -> BitArray {
+        let len = bits.len();
+        if len < 8 || len % 8 != 0 {
             panic!("unexpected bitarray length");
         }
 
-        let count = BigEndian::read_u64(&bits.as_ref()[bits.as_ref().len() - 8..]);
+        let count = BigEndian::read_u64(&bits.split_off(len - 8));
 
         BitArray { bits, count }
     }
 
     pub fn bits(&self) -> &[u8] {
-        &self.bits.as_ref()[..self.bits.as_ref().len() - 8]
+        &self.bits
     }
 
     pub fn len(&self) -> usize {
@@ -112,8 +114,7 @@ where
     }
 
     fn pad(self) -> impl Future<Item = W, Error = std::io::Error> {
-        write_padding(self.bit_output, (self.count as usize + 7) / 8, 8)
-            .map(|(bit_output, _)| bit_output)
+        util::write_padding(self.bit_output, (self.count as usize + 7) / 8, 8)
     }
 
     pub fn finalize(self) -> impl Future<Item = W, Error = std::io::Error> {
@@ -128,7 +129,7 @@ where
 
         flush_current
             .and_then(|b| b.pad())
-            .and_then(move |w| write_u64(w, count))
+            .and_then(move |w| util::write_u64(w, count))
             .and_then(|w| tokio::io::flush(w))
     }
 
@@ -171,23 +172,12 @@ fn bitarray_count_from_file<F: FileLoad>(f: F) -> impl Future<Item = u64, Error 
         .map(|(_, buf)| BigEndian::read_u64(&buf))
 }
 
-fn block_bits(block: u64) -> Vec<bool> {
-    let mut mask = 0x8000000000000000;
-    let mut result = Vec::with_capacity(64);
-    for _ in 0..64 {
-        result.push(block & mask != 0);
-        mask >>= 1;
-    }
-
-    result
-}
-
 pub fn bitarray_stream_bits<F: FileLoad>(f: F) -> impl Stream<Item = bool, Error = std::io::Error> {
     bitarray_count_from_file(f.clone())
         .into_stream()
         .map(move |count| {
             bitarray_stream_blocks(f.open_read())
-                .map(|block| stream::iter_ok(block_bits(block).into_iter()))
+                .map(|block| stream::iter_ok(BitIter::new(block)))
                 .flatten()
                 .take(count)
         })
@@ -213,7 +203,7 @@ mod tests {
 
         let loaded = x.map().wait().unwrap();
 
-        let bitarray = BitArray::from_bits(&loaded);
+        let bitarray = BitArray::from_bits(loaded);
 
         assert_eq!(true, bitarray.get(0));
         assert_eq!(true, bitarray.get(1));
@@ -236,7 +226,7 @@ mod tests {
 
         let loaded = x.map().wait().unwrap();
 
-        let bitarray = BitArray::from_bits(&loaded);
+        let bitarray = BitArray::from_bits(loaded);
 
         for i in 0..bitarray.len() {
             assert_eq!(i % 3 == 0, bitarray.get(i));
