@@ -1,10 +1,15 @@
 //! Directory-based implementation of storage traits.
 
 use bytes::Bytes;
+use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 use futures::prelude::*;
 use locking::*;
+use std::collections::{HashMap,HashSet};
 use std::io::{self, Seek, SeekFrom};
 use std::path::PathBuf;
+use tar::Archive;
 use tokio::fs::{self, *};
 use tokio::prelude::*;
 
@@ -90,7 +95,7 @@ impl DirectoryLayerStore {
 
 impl PersistentLayerStore for DirectoryLayerStore {
     type File = FileBackedStore;
-    fn directories(&self) -> Box<dyn Future<Item = Vec<[u32; 5]>, Error = std::io::Error> + Send> {
+    fn directories(&self) -> Box<dyn Future<Item = Vec<[u32; 5]>, Error = io::Error> + Send> {
         Box::new(
             fs::read_dir(self.path.clone())
                 .flatten_stream()
@@ -170,6 +175,64 @@ impl PersistentLayerStore for DirectoryLayerStore {
             Err(_) => Ok(false),
         }))
     }
+
+    fn export_layers(
+        &self,
+        layer_ids: Box<dyn Iterator<Item=[u32;5]>>,
+        destination: Box<dyn io::Write>,
+    ) -> Box<dyn io::Write> {
+        let path = &self.path;
+        let mut enc = GzEncoder::new(destination, Compression::default());
+        {
+            let mut tar = tar::Builder::new(&mut enc);
+            for id in layer_ids {
+                let id_string = name_to_string(id);
+                let mut layer_path: PathBuf = path.into();
+                let layer_id_prefix_dir = &id_string[0..PREFIX_DIR_SIZE];
+                layer_path.push(layer_id_prefix_dir);
+                layer_path.push(&id_string);
+
+                let mut tar_path = PathBuf::new();
+                tar_path.push(&id_string);
+                tar.append_dir_all(tar_path, layer_path).unwrap();
+            }
+        }
+        // TODO: Proper error handling
+        enc.finish().unwrap()
+    }
+    fn import_layers(
+        &self,
+        pack_readable: Box<dyn io::Read>,
+        layer_ids:Box<dyn Iterator<Item=[u32;5]>> 
+    ) -> Result<(), io::Error> {
+        let tar = GzDecoder::new(pack_readable);
+        let mut archive = Archive::new(tar);
+
+        // collect layer ids into a set
+        let layer_id_set: HashSet<String> = layer_ids.map(name_to_string).collect();
+
+        // TODO we actually need to validate that these layers, when extracted, will make for a valid store.
+        // In terminus-server we are currently already doing this validation. Due to time constraints, we're not implementing it here.
+        //
+        // This should definitely be done in the future though, to make this part of the library independently usable in a safe manner.
+        for e in archive.entries()? {
+            let mut entry = e?;
+            let path = entry.path();
+
+            // check if entry is prefixed with a layer id we are interested in
+            let layer_id = path.iter().next().and_then(|p|p.to_str()).unwrap_or("");
+            if layer_id_set.contains(layer_id) {
+                let mut path: PathBuf = (&self.path).into();
+                let prefix = &layer_id[0..PREFIX_DIR_SIZE];
+                path.push(prefix);
+
+                // extract!
+                entry.unpack_in(path)?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -183,7 +246,7 @@ impl DirectoryLabelStore {
     }
 }
 
-fn get_label_from_file(path: PathBuf) -> impl Future<Item = Label, Error = std::io::Error> + Send {
+fn get_label_from_file(path: PathBuf) -> impl Future<Item = Label, Error = io::Error> + Send {
     let label = path.file_stem().unwrap().to_str().unwrap().to_owned();
 
     LockedFile::open(path)
@@ -234,7 +297,7 @@ fn get_label_from_file(path: PathBuf) -> impl Future<Item = Label, Error = std::
 }
 
 impl LabelStore for DirectoryLabelStore {
-    fn labels(&self) -> Box<dyn Future<Item = Vec<Label>, Error = std::io::Error> + Send> {
+    fn labels(&self) -> Box<dyn Future<Item = Vec<Label>, Error = io::Error> + Send> {
         Box::new(
             fs::read_dir(self.path.clone())
                 .flatten_stream()
@@ -254,7 +317,7 @@ impl LabelStore for DirectoryLabelStore {
     fn create_label(
         &self,
         label: &str,
-    ) -> Box<dyn Future<Item = Label, Error = std::io::Error> + Send> {
+    ) -> Box<dyn Future<Item = Label, Error = io::Error> + Send> {
         let mut p = self.path.clone();
         let label = label.to_owned();
         p.push(format!("{}.label", label));
@@ -282,7 +345,7 @@ impl LabelStore for DirectoryLabelStore {
     fn get_label(
         &self,
         label: &str,
-    ) -> Box<dyn Future<Item = Option<Label>, Error = std::io::Error> + Send> {
+    ) -> Box<dyn Future<Item = Option<Label>, Error = io::Error> + Send> {
         let label = label.to_owned();
         let mut p = self.path.clone();
         p.push(format!("{}.label", label));
@@ -304,7 +367,7 @@ impl LabelStore for DirectoryLabelStore {
         &self,
         label: &Label,
         layer: Option<[u32; 5]>,
-    ) -> Box<dyn Future<Item = Option<Label>, Error = std::io::Error> + Send> {
+    ) -> Box<dyn Future<Item = Option<Label>, Error = io::Error> + Send> {
         let mut p = self.path.clone();
         p.push(format!("{}.label", label.name));
 
@@ -332,6 +395,64 @@ impl LabelStore for DirectoryLabelStore {
             }
         }))
     }
+}
+
+pub enum PackError {
+    LayerNotFound,
+    Io(io::Error),
+    Utf8Error(std::str::Utf8Error),
+}
+
+impl From<io::Error> for PackError {
+    fn from(err: io::Error) -> Self {
+        Self::Io(err)
+    }
+}
+impl From<std::str::Utf8Error> for PackError {
+    fn from(err: std::str::Utf8Error) -> Self {
+        Self::Utf8Error(err)
+    }
+}
+
+pub fn pack_layer_parents<'a, R: io::Read, I: Iterator<Item = [u32; 5]>>(
+    readable: R
+) -> Result<HashMap<[u32; 5], Option<[u32; 5]>>, PackError> {
+    let tar = GzDecoder::new(readable);
+    let mut archive = Archive::new(tar);
+
+    // build a set out of the layer ids for easy retrieval
+    let mut result_map = HashMap::new();
+
+    for e in archive.entries()? {
+        let mut entry = e?;
+        let path = entry.path()?;
+
+        let id = string_to_name(
+            path.iter()
+                .next()
+                .expect("expected path to have at least one component")
+                .to_str()
+                .expect("expected proper unicode path"),
+        )?;
+
+        if path.file_name().expect("expected path to have a filename") == "parent.hex" {
+            // this is an element we want to know the parent of
+            // lets read it
+            let mut parent_id_bytes = [0u8; 40];
+            entry.read_exact(&mut parent_id_bytes)?;
+            let parent_id_str = std::str::from_utf8(&parent_id_bytes)?;
+            let parent_id = string_to_name(parent_id_str)?;
+
+            result_map.insert(id, Some(parent_id));
+        } else if !result_map.contains_key(&id) {
+            // Ensure that an entry for this layer exists
+            // If we encounter the parent file later on, this'll be overwritten with the parent id.
+            // If not, it can be assumed to not have a parent.
+            result_map.insert(id, None);
+        }
+    }
+
+    Ok(result_map)
 }
 
 #[cfg(test)]

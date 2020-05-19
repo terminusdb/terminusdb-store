@@ -399,6 +399,21 @@ impl LayerStore for MemoryLayerStore {
                 }),
         )
     }
+
+    fn export_layers(
+        &self,
+        _layer_ids: Box<dyn Iterator<Item=[u32;5]>>,
+        _destination: Box<dyn io::Write>,
+    ) -> Box<dyn io::Write> {
+        unimplemented!();
+    }
+    fn import_layers(
+        &self,
+        _pack_readable: Box<dyn io::Read>,
+        _layer_ids:Box<dyn Iterator<Item=[u32;5]>> 
+    ) -> Result<(), io::Error> {
+        unimplemented!();
+    }
 }
 
 #[derive(Clone)]

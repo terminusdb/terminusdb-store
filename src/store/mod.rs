@@ -3,10 +3,6 @@
 //! It is expected that most users of this library will work exclusively with the types contained in this module.
 pub mod sync;
 
-use flate2::read::GzDecoder;
-use flate2::write::GzEncoder;
-use flate2::Compression;
-
 use futures::future;
 use futures::prelude::*;
 use std::path::PathBuf;
@@ -479,6 +475,22 @@ impl Store {
     ) -> impl Future<Item = StoreLayerBuilder, Error = io::Error> + Send {
         StoreLayerBuilder::new(self.clone())
     }
+
+    
+    pub fn export_layers(
+        &self,
+        layer_ids: Box<dyn Iterator<Item=[u32;5]>>,
+        destination: Box<dyn io::Write>,
+    ) -> Box<dyn io::Write> {
+        self.layer_store.export_layers(layer_ids, destination)
+    }
+    pub fn import_layers(
+        &self,
+        pack_readable: Box<dyn io::Read>,
+        layer_ids:Box<dyn Iterator<Item=[u32;5]>> 
+    ) -> Result<(), io::Error> {
+        self.layer_store.import_layers(pack_readable, layer_ids)
+    }
 }
 
 /// Open a store that is entirely in memory
@@ -498,47 +510,6 @@ pub fn open_directory_store<P: Into<PathBuf>>(path: P) -> Store {
         DirectoryLabelStore::new(p.clone()),
         CachedLayerStore::new(DirectoryLayerStore::new(p), LockingHashMapLayerCache::new()),
     )
-}
-
-/// Creates a tar.gz of specific labels and layers
-pub fn serialize_directory_store<P: Into<PathBuf>>(
-    path: P,
-    label_names: &[&str],
-    layer_ids: &[&str],
-) -> Vec<u8> {
-    let tar_gz: Vec<u8> = vec![];
-    let mut enc = GzEncoder::new(tar_gz, Compression::default());
-    {
-        let mut tar = tar::Builder::new(&mut enc);
-        let p = path.into();
-        for id in layer_ids {
-            let mut layer_path = p.clone();
-            let mut tar_path = PathBuf::new();
-            let layer_id_prefix_dir = &id[0..3]; // TODO: Use the constant
-            tar_path.push(layer_id_prefix_dir);
-            tar_path.push(id);
-            layer_path.push(layer_id_prefix_dir);
-            layer_path.push(id);
-            tar.append_dir_all(tar_path, layer_path).unwrap();
-        }
-        for name in label_names {
-            let mut label_path = p.clone();
-            label_path.push(name);
-            tar.append_path_with_name(label_path, name).unwrap();
-        }
-    }
-    // TODO: Proper error handling
-    enc.finish().unwrap()
-}
-
-pub fn deserialize_directory_store<P: Into<PathBuf>>(
-    extract_path: P,
-    tar_path: P,
-) -> Result<(), std::io::Error> {
-    let tar_gz = std::fs::File::open(tar_path.into())?;
-    let tar = GzDecoder::new(tar_gz);
-    let mut archive = tar::Archive::new(tar);
-    archive.unpack(extract_path.into())
 }
 
 #[cfg(test)]

@@ -57,12 +57,34 @@ pub trait LayerStore: 'static + Send + Sync {
     ) -> Box<dyn Future<Item = Box<dyn LayerBuilder>, Error = io::Error> + Send> {
         self.create_child_layer_with_cache(parent, NOCACHE.clone())
     }
+
+    fn export_layers(
+        &self,
+        layer_ids: Box<dyn Iterator<Item=[u32;5]>>,
+        destination: Box<dyn io::Write>,
+    ) -> Box<dyn io::Write>;
+    fn import_layers(
+        &self,
+        pack_readable: Box<dyn io::Read>,
+        layer_ids:Box<dyn Iterator<Item=[u32;5]>> 
+    ) -> Result<(), io::Error>;
 }
 
 pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
     type File: FileLoad + FileStore + Clone;
     fn directories(&self) -> Box<dyn Future<Item = Vec<[u32; 5]>, Error = io::Error> + Send>;
     fn create_directory(&self) -> Box<dyn Future<Item = [u32; 5], Error = io::Error> + Send>;
+    fn export_layers(
+        &self,
+        layer_ids: Box<dyn Iterator<Item=[u32;5]>>,
+        destination: Box<dyn io::Write>,
+    ) -> Box<dyn io::Write>;
+    fn import_layers(
+        &self,
+        pack_readable: Box<dyn io::Read>,
+        layer_ids:Box<dyn Iterator<Item=[u32;5]>> 
+    ) -> Result<(), io::Error>;
+
     fn directory_exists(
         &self,
         name: [u32; 5],
@@ -537,6 +559,20 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                 }),
         )
     }
+    fn export_layers(
+        &self,
+        layer_ids: Box<dyn Iterator<Item=[u32;5]>>,
+        destination: Box<dyn io::Write>,
+    ) -> Box<dyn io::Write> {
+        Self::export_layers(self, layer_ids, destination)
+    }
+    fn import_layers(
+        &self,
+        pack_readable: Box<dyn io::Read>,
+        layer_ids:Box<dyn Iterator<Item=[u32;5]>> 
+    ) -> Result<(), io::Error> {
+        Self::import_layers(self, pack_readable, layer_ids)
+    }
 }
 
 // locking isn't really ideal but the lock window will be relatively small so it shouldn't hurt performance too much except on heavy updates.
@@ -635,6 +671,21 @@ impl LayerStore for CachedLayerStore {
         cache: Arc<dyn LayerCache>,
     ) -> Box<dyn Future<Item = Box<dyn LayerBuilder>, Error = io::Error> + Send> {
         self.inner.create_child_layer_with_cache(parent, cache)
+    }
+
+    fn export_layers(
+        &self,
+        layer_ids: Box<dyn Iterator<Item=[u32;5]>>,
+        destination: Box<dyn io::Write>,
+    ) -> Box<dyn io::Write> {
+        self.inner.export_layers(layer_ids, destination)
+    }
+    fn import_layers(
+        &self,
+        pack_readable: Box<dyn io::Read>,
+        layer_ids:Box<dyn Iterator<Item=[u32;5]>> 
+    ) -> Result<(), io::Error> {
+        self.inner.import_layers(pack_readable, layer_ids)
     }
 }
 
