@@ -480,16 +480,15 @@ impl Store {
     pub fn export_layers(
         &self,
         layer_ids: Box<dyn Iterator<Item=[u32;5]>>,
-        destination: Box<dyn io::Write>,
-    ) -> Box<dyn io::Write> {
-        self.layer_store.export_layers(layer_ids, destination)
+    ) -> Vec<u8> {
+        self.layer_store.export_layers(layer_ids)
     }
     pub fn import_layers(
         &self,
-        pack_readable: Box<dyn io::Read>,
+        pack: &[u8],
         layer_ids:Box<dyn Iterator<Item=[u32;5]>> 
     ) -> Result<(), io::Error> {
-        self.layer_store.import_layers(pack_readable, layer_ids)
+        self.layer_store.import_layers(pack, layer_ids)
     }
 }
 

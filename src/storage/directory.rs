@@ -179,10 +179,9 @@ impl PersistentLayerStore for DirectoryLayerStore {
     fn export_layers(
         &self,
         layer_ids: Box<dyn Iterator<Item=[u32;5]>>,
-        destination: Box<dyn io::Write>,
-    ) -> Box<dyn io::Write> {
+    ) -> Vec<u8> {
         let path = &self.path;
-        let mut enc = GzEncoder::new(destination, Compression::default());
+        let mut enc = GzEncoder::new(Vec::new(), Compression::default());
         {
             let mut tar = tar::Builder::new(&mut enc);
             for id in layer_ids {
@@ -202,14 +201,16 @@ impl PersistentLayerStore for DirectoryLayerStore {
     }
     fn import_layers(
         &self,
-        pack_readable: Box<dyn io::Read>,
+        pack: &[u8],
         layer_ids:Box<dyn Iterator<Item=[u32;5]>> 
     ) -> Result<(), io::Error> {
-        let tar = GzDecoder::new(pack_readable);
+        let cursor = io::Cursor::new(pack);
+        let tar = GzDecoder::new(cursor);
         let mut archive = Archive::new(tar);
 
         // collect layer ids into a set
         let layer_id_set: HashSet<String> = layer_ids.map(name_to_string).collect();
+        println!("layer id set is {:?}", layer_id_set);
 
         // TODO we actually need to validate that these layers, when extracted, will make for a valid store.
         // In terminus-server we are currently already doing this validation. Due to time constraints, we're not implementing it here.
@@ -217,7 +218,7 @@ impl PersistentLayerStore for DirectoryLayerStore {
         // This should definitely be done in the future though, to make this part of the library independently usable in a safe manner.
         for e in archive.entries()? {
             let mut entry = e?;
-            let path = entry.path();
+            let path = entry.path()?;
 
             // check if entry is prefixed with a layer id we are interested in
             let layer_id = path.iter().next().and_then(|p|p.to_str()).unwrap_or("");
@@ -397,6 +398,7 @@ impl LabelStore for DirectoryLabelStore {
     }
 }
 
+#[derive(Debug)]
 pub enum PackError {
     LayerNotFound,
     Io(io::Error),
@@ -414,7 +416,7 @@ impl From<std::str::Utf8Error> for PackError {
     }
 }
 
-pub fn pack_layer_parents<'a, R: io::Read, I: Iterator<Item = [u32; 5]>>(
+pub fn pack_layer_parents<'a, R: io::Read>(
     readable: R
 ) -> Result<HashMap<[u32; 5], Option<[u32; 5]>>, PackError> {
     let tar = GzDecoder::new(readable);
