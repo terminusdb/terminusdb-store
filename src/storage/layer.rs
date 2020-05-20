@@ -58,14 +58,11 @@ pub trait LayerStore: 'static + Send + Sync {
         self.create_child_layer_with_cache(parent, NOCACHE.clone())
     }
 
-    fn export_layers(
-        &self,
-        layer_ids: Box<dyn Iterator<Item=[u32;5]>>,
-    ) -> Vec<u8>;
+    fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8>;
     fn import_layers(
         &self,
         pack: &[u8],
-        layer_ids:Box<dyn Iterator<Item=[u32;5]>> 
+        layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
     ) -> Result<(), io::Error>;
 }
 
@@ -73,14 +70,11 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
     type File: FileLoad + FileStore + Clone;
     fn directories(&self) -> Box<dyn Future<Item = Vec<[u32; 5]>, Error = io::Error> + Send>;
     fn create_directory(&self) -> Box<dyn Future<Item = [u32; 5], Error = io::Error> + Send>;
-    fn export_layers(
-        &self,
-        layer_ids: Box<dyn Iterator<Item=[u32;5]>>,
-    ) -> Vec<u8>;
+    fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8>;
     fn import_layers(
         &self,
         pack: &[u8],
-        layer_ids:Box<dyn Iterator<Item=[u32;5]>> 
+        layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
     ) -> Result<(), io::Error>;
 
     fn directory_exists(
@@ -557,16 +551,13 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                 }),
         )
     }
-    fn export_layers(
-        &self,
-        layer_ids: Box<dyn Iterator<Item=[u32;5]>>,
-    ) -> Vec<u8> {
+    fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
         Self::export_layers(self, layer_ids)
     }
     fn import_layers(
         &self,
         pack: &[u8],
-        layer_ids:Box<dyn Iterator<Item=[u32;5]>> 
+        layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
     ) -> Result<(), io::Error> {
         Self::import_layers(self, pack, layer_ids)
     }
@@ -670,16 +661,13 @@ impl LayerStore for CachedLayerStore {
         self.inner.create_child_layer_with_cache(parent, cache)
     }
 
-    fn export_layers(
-        &self,
-        layer_ids: Box<dyn Iterator<Item=[u32;5]>>,
-    ) -> Vec<u8> {
+    fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
         self.inner.export_layers(layer_ids)
     }
     fn import_layers(
         &self,
         pack: &[u8],
-        layer_ids:Box<dyn Iterator<Item=[u32;5]>> 
+        layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
     ) -> Result<(), io::Error> {
         self.inner.import_layers(pack, layer_ids)
     }

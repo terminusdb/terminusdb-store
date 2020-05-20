@@ -354,16 +354,13 @@ impl SyncStore {
         inner.map(|i| SyncStoreLayerBuilder::wrap(i))
     }
 
-    pub fn export_layers(
-        &self,
-        layer_ids: Box<dyn Iterator<Item=[u32;5]>>,
-    ) -> Vec<u8> {
+    pub fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
         self.inner.layer_store.export_layers(layer_ids)
     }
     pub fn import_layers(
         &self,
         pack: &[u8],
-        layer_ids:Box<dyn Iterator<Item=[u32;5]>> 
+        layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
     ) -> Result<(), io::Error> {
         self.inner.layer_store.import_layers(pack, layer_ids)
     }
@@ -492,15 +489,21 @@ mod tests {
         let store2 = open_sync_directory_store(dir2.path());
 
         let builder1 = store1.create_base_layer().unwrap();
-        builder1.add_string_triple(&StringTriple::new_value("cow","says","moo")).unwrap();
+        builder1
+            .add_string_triple(&StringTriple::new_value("cow", "says", "moo"))
+            .unwrap();
         let layer1 = builder1.commit().unwrap();
 
         let builder2 = store1.create_base_layer().unwrap();
-        builder2.add_string_triple(&StringTriple::new_value("duck","says","quack")).unwrap();
+        builder2
+            .add_string_triple(&StringTriple::new_value("duck", "says", "quack"))
+            .unwrap();
         let layer2 = builder2.commit().unwrap();
 
         let builder3 = layer2.open_write().unwrap();
-        builder3.add_string_triple(&StringTriple::new_value("horse", "says", "neigh")).unwrap();
+        builder3
+            .add_string_triple(&StringTriple::new_value("horse", "says", "neigh"))
+            .unwrap();
         let layer3 = builder3.commit().unwrap();
 
         let ids = vec![layer1.name(), layer2.name(), layer3.name()];
@@ -513,10 +516,16 @@ mod tests {
         assert_eq!(None, parents_map[&layer2.name()]);
         assert_eq!(Some(layer2.name()), parents_map[&layer3.name()]);
 
-        store2.import_layers(&pack, Box::new(ids.into_iter())).unwrap();
+        store2
+            .import_layers(&pack, Box::new(ids.into_iter()))
+            .unwrap();
 
         let result_layer = store2.get_layer_from_id(layer3.name()).unwrap().unwrap();
-        assert!(result_layer.string_triple_exists(&StringTriple::new_value("duck","says","quack")));
-        assert!(result_layer.string_triple_exists(&StringTriple::new_value("horse","says","neigh")));
+        assert!(
+            result_layer.string_triple_exists(&StringTriple::new_value("duck", "says", "quack"))
+        );
+        assert!(
+            result_layer.string_triple_exists(&StringTriple::new_value("horse", "says", "neigh"))
+        );
     }
 }

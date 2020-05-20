@@ -400,16 +400,13 @@ impl LayerStore for MemoryLayerStore {
         )
     }
 
-    fn export_layers(
-        &self,
-        _layer_ids: Box<dyn Iterator<Item=[u32;5]>>,
-    ) -> Vec<u8> {
+    fn export_layers(&self, _layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
         unimplemented!();
     }
     fn import_layers(
         &self,
         _pack: &[u8],
-        _layer_ids:Box<dyn Iterator<Item=[u32;5]>> 
+        _layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
     ) -> Result<(), io::Error> {
         unimplemented!();
     }

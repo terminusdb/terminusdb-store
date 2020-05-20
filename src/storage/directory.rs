@@ -6,7 +6,8 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 use futures::prelude::*;
 use locking::*;
-use std::collections::{HashMap,HashSet};
+use std::collections::{HashMap, HashSet};
+use std::fmt::Display;
 use std::io::{self, Seek, SeekFrom};
 use std::path::PathBuf;
 use tar::Archive;
@@ -176,10 +177,7 @@ impl PersistentLayerStore for DirectoryLayerStore {
         }))
     }
 
-    fn export_layers(
-        &self,
-        layer_ids: Box<dyn Iterator<Item=[u32;5]>>,
-    ) -> Vec<u8> {
+    fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
         let path = &self.path;
         let mut enc = GzEncoder::new(Vec::new(), Compression::default());
         {
@@ -202,7 +200,7 @@ impl PersistentLayerStore for DirectoryLayerStore {
     fn import_layers(
         &self,
         pack: &[u8],
-        layer_ids:Box<dyn Iterator<Item=[u32;5]>> 
+        layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
     ) -> Result<(), io::Error> {
         let cursor = io::Cursor::new(pack);
         let tar = GzDecoder::new(cursor);
@@ -221,7 +219,7 @@ impl PersistentLayerStore for DirectoryLayerStore {
             let path = entry.path()?;
 
             // check if entry is prefixed with a layer id we are interested in
-            let layer_id = path.iter().next().and_then(|p|p.to_str()).unwrap_or("");
+            let layer_id = path.iter().next().and_then(|p| p.to_str()).unwrap_or("");
             if layer_id_set.contains(layer_id) {
                 let mut path: PathBuf = (&self.path).into();
                 let prefix = &layer_id[0..PREFIX_DIR_SIZE];
@@ -315,10 +313,7 @@ impl LabelStore for DirectoryLabelStore {
         )
     }
 
-    fn create_label(
-        &self,
-        label: &str,
-    ) -> Box<dyn Future<Item = Label, Error = io::Error> + Send> {
+    fn create_label(&self, label: &str) -> Box<dyn Future<Item = Label, Error = io::Error> + Send> {
         let mut p = self.path.clone();
         let label = label.to_owned();
         p.push(format!("{}.label", label));
@@ -405,6 +400,12 @@ pub enum PackError {
     Utf8Error(std::str::Utf8Error),
 }
 
+impl Display for PackError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(formatter, "{:?}", self)
+    }
+}
+
 impl From<io::Error> for PackError {
     fn from(err: io::Error) -> Self {
         Self::Io(err)
@@ -417,7 +418,7 @@ impl From<std::str::Utf8Error> for PackError {
 }
 
 pub fn pack_layer_parents<'a, R: io::Read>(
-    readable: R
+    readable: R,
 ) -> Result<HashMap<[u32; 5], Option<[u32; 5]>>, PackError> {
     let tar = GzDecoder::new(readable);
     let mut archive = Archive::new(tar);

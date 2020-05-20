@@ -476,17 +476,13 @@ impl Store {
         StoreLayerBuilder::new(self.clone())
     }
 
-    
-    pub fn export_layers(
-        &self,
-        layer_ids: Box<dyn Iterator<Item=[u32;5]>>,
-    ) -> Vec<u8> {
+    pub fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
         self.layer_store.export_layers(layer_ids)
     }
     pub fn import_layers(
         &self,
         pack: &[u8],
-        layer_ids:Box<dyn Iterator<Item=[u32;5]>> 
+        layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
     ) -> Result<(), io::Error> {
         self.layer_store.import_layers(pack, layer_ids)
     }
