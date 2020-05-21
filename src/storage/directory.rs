@@ -208,7 +208,6 @@ impl PersistentLayerStore for DirectoryLayerStore {
 
         // collect layer ids into a set
         let layer_id_set: HashSet<String> = layer_ids.map(name_to_string).collect();
-        println!("layer id set is {:?}", layer_id_set);
 
         // TODO we actually need to validate that these layers, when extracted, will make for a valid store.
         // In terminus-server we are currently already doing this validation. Due to time constraints, we're not implementing it here.
