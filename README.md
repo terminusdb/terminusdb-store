@@ -1,6 +1,6 @@
-# terminus-store, a tokio-enabled data store for triple data
+# terminusdb-store, a tokio-enabled data store for triple data
 
-[![Build Status](https://travis-ci.com/terminusdb/terminus-store.svg?branch=master)](https://travis-ci.com/terminusdb/terminus-store)
+[![Build Status](https://travis-ci.com/terminusdb/terminusdb-store.svg?branch=master)](https://travis-ci.com/terminusdb/terminus-store)
 [![Crate](https://img.shields.io/crates/v/terminus-store.svg)](https://crates.io/crates/terminus-store")
 [![Documentation](https://docs.rs/terminus-store/badge.svg)](https://docs.rs/terminus-store/)
 [![codecov](https://codecov.io/gh/terminusdb/terminus-store/branch/master/graph/badge.svg)](https://codecov.io/gh/terminusdb/terminus-store)
@@ -24,7 +24,7 @@ predicate, and `value(moo)` is the object.
 In `cow likes node(duck)`, `cow` is the subject, `likes` is the
 predicate, and `node(duck)` is the object.
 
-terminus-store allows you to store a lot of such facts, and search
+terminusdb-store allows you to store a lot of such facts, and search
 through them efficiently.
 
 This library is intended as a common base for anyone who wishes to
@@ -67,4 +67,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md)
 ## See also
 - The Terminus database, for which this library was written: [Website](https://terminusdb.com) - [GitHub](https://github.com/terminusdb/)
 - Our prolog bindings for this library: [terminus_store_prolog](https://github.com/terminusdb/terminus_store_prolog/)
-- The HDT format, which the terminus-store layer format is based on: [Website](http://www.rdfhdt.org/)
+- The HDT format, which the terminusdb-store layer format is based on: [Website](http://www.rdfhdt.org/)
