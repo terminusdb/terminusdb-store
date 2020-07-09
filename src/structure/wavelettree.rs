@@ -196,30 +196,24 @@ impl WaveletTree {
     }
 }
 
-fn build_wavelet_fragment<
-    S: Stream<Item = u64, Error = std::io::Error> + Send,
-    W: AsyncWrite + Send,
->(
+fn build_wavelet_fragment<S: Stream<Item = u64, Error = std::io::Error>, W: AsyncWrite>(
     stream: S,
     write: BitArrayFileBuilder<W>,
     alphabet: usize,
     layer: usize,
     fragment: usize,
-) -> impl Future<Item = BitArrayFileBuilder<W>, Error = std::io::Error> + Send {
+) -> impl Future<Item = BitArrayFileBuilder<W>, Error = std::io::Error> {
     let step = (alphabet / 2_usize.pow(layer as u32)) as u64;
     let alphabet_start = step * fragment as u64;
     let alphabet_end = step * (fragment + 1) as u64;
     let alphabet_mid = ((alphabet_start + alphabet_end) / 2) as u64;
 
     stream.fold(write, move |w, num| {
-        let result: Box<dyn Future<Item = BitArrayFileBuilder<W>, Error = std::io::Error> + Send> =
-            if num >= alphabet_start && num < alphabet_end {
-                Box::new(w.push(num >= alphabet_mid))
-            } else {
-                Box::new(future::ok(w))
-            };
-
-        result
+        if num >= alphabet_start && num < alphabet_end {
+            future::Either::A(w.push(num >= alphabet_mid))
+        } else {
+            future::Either::B(future::ok(w))
+        }
     })
 }
 

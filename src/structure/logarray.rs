@@ -1,3 +1,5 @@
+#![allow(clippy::precedence, clippy::verbose_bit_mask)]
+
 //! Code for storing, loading, and using log arrays.
 //!
 //! A log array is a contiguous sequence of N unsigned integers, with each value occupying exactly
@@ -16,13 +18,13 @@
 //!       and
 //!    3. 24 unused bits.
 //!
-//! Notes:
+//! # Notes
 //!
 //! * All integers are stored in a standard big-endian encoding.
 //! * The maximum bit width W is 64.
 //! * The maximum number of elements is 2^32-1.
 //!
-//! Naming:
+//! # Naming
 //!
 //! Because of the ambiguity of the English language and possibility to confuse the meanings of the
 //! words used to describe aspects of this code, we try to use the following definitions
@@ -52,7 +54,7 @@ use crate::storage::*;
 use byteorder::{BigEndian, ByteOrder};
 use bytes::{Bytes, BytesMut};
 use futures::{future, prelude::*};
-use std::{cmp::Ordering, error, fmt, io};
+use std::{cmp::Ordering, convert::TryFrom, error, fmt, io};
 use tokio::codec::{Decoder, FramedRead};
 
 // Static assertion: We expect the system architecture bus width to be >= 32 bits. If it is not,
@@ -86,9 +88,9 @@ pub struct LogArray {
 /// An error that occurred during a log array operation.
 #[derive(Debug, PartialEq)]
 pub enum LogArrayError {
-    InputBufTooSmall(usize),
+    InputBufferTooSmall(usize),
     WidthTooLarge(u8),
-    UnexpectedBufSize(usize, usize, u32, u8),
+    UnexpectedInputBufferSize(u64, u64, u32, u8),
 }
 
 impl LogArrayError {
@@ -97,7 +99,7 @@ impl LogArrayError {
     /// It must have at least the control word.
     fn validate_input_buf_size(input_buf_size: usize) -> Result<(), Self> {
         if input_buf_size < 8 {
-            return Err(LogArrayError::InputBufTooSmall(input_buf_size));
+            return Err(LogArrayError::InputBufferTooSmall(input_buf_size));
         }
         Ok(())
     }
@@ -114,12 +116,12 @@ impl LogArrayError {
         }
 
         // Calculate the expected input buffer size. This includes the control word.
-        let minimum_buf_bit_size = len as usize * width as usize;
-        let minimum_buf_size = minimum_buf_bit_size + 7 >> 3;
-        let expected_buf_size = minimum_buf_size + 15 >> 3 << 3;
+        // To avoid overflow, convert `len: u32` to `u64` and do the addition in `u64`.
+        let expected_buf_size = u64::from(len) * u64::from(width) + 127 >> 6 << 3;
+        let input_buf_size = u64::try_from(input_buf_size).unwrap();
 
         if input_buf_size != expected_buf_size {
-            return Err(LogArrayError::UnexpectedBufSize(
+            return Err(LogArrayError::UnexpectedInputBufferSize(
                 input_buf_size,
                 expected_buf_size,
                 len,
@@ -135,11 +137,11 @@ impl fmt::Display for LogArrayError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use LogArrayError::*;
         match self {
-            InputBufTooSmall(input_buf_size) => {
+            InputBufferTooSmall(input_buf_size) => {
                 write!(f, "expected input buffer size ({}) >= 8", input_buf_size)
             }
             WidthTooLarge(width) => write!(f, "expected width ({}) <= 64", width),
-            UnexpectedBufSize(input_buf_size, expected_buf_size, len, width) => write!(
+            UnexpectedInputBufferSize(input_buf_size, expected_buf_size, len, width) => write!(
                 f,
                 "expected input buffer size ({}) to be {} for {} elements and width {}",
                 input_buf_size, expected_buf_size, len, width
@@ -201,7 +203,13 @@ impl LogArray {
 
     /// Returns the number of elements.
     pub fn len(&self) -> usize {
-        self.len as usize
+        // `usize::try_from` succeeds if `std::mem::size_of::<usize>()` >= 4.
+        usize::try_from(self.len).unwrap()
+    }
+
+    /// Returns `true` if there are no elements.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
     }
 
     /// Returns the bit width.
@@ -209,18 +217,19 @@ impl LogArray {
         self.width
     }
 
-    /// Reads the data buffer and returns the element at the given index.
+    /// Reads the data buffer and returns the element at the `index`.
     ///
     /// Panics if `index` is >= the length of the log array.
     pub fn entry(&self, index: usize) -> u64 {
         assert!(
-            index < self.len as usize,
+            index < self.len(),
             "expected index ({}) < length ({})",
             index,
             self.len
         );
 
-        let bit_index = self.width as usize * (self.first as usize + index);
+        // `usize::try_from` succeeds if `std::mem::size_of::<usize>()` >= 4.
+        let bit_index = usize::from(self.width) * (usize::try_from(self.first).unwrap() + index);
 
         // Read the words that contain the element.
         let (first_word, second_word) = {
@@ -277,7 +286,7 @@ impl LogArray {
         LogArrayIterator {
             logarray: self.clone(),
             pos: 0,
-            end: self.len as usize,
+            end: self.len(),
         }
     }
 
@@ -285,16 +294,23 @@ impl LogArray {
     ///
     /// Panics if `index` + `length` is >= the length of the log array.
     pub fn slice(&self, offset: usize, len: usize) -> LogArray {
+        let offset = u32::try_from(offset)
+            .unwrap_or_else(|_| panic!("expected 32-bit slice offset ({})", offset));
+        let len =
+            u32::try_from(len).unwrap_or_else(|_| panic!("expected 32-bit slice length ({})", len));
+        let slice_end = offset.checked_add(len).unwrap_or_else(|| {
+            panic!("overflow from slice offset ({}) + length ({})", offset, len)
+        });
         assert!(
-            offset + len <= self.len as usize,
+            slice_end <= self.len,
             "expected slice offset ({}) + length ({}) <= source length ({})",
             offset,
             len,
             self.len
         );
         LogArray {
-            first: self.first + offset as u32,
-            len: len as u32,
+            first: self.first + offset,
+            len,
             width: self.width,
             input_buf: self.input_buf.clone(),
         }
@@ -302,7 +318,7 @@ impl LogArray {
 }
 
 /// write a logarray directly to an AsyncWrite
-pub struct LogArrayFileBuilder<W: 'static + tokio::io::AsyncWrite + Send> {
+pub struct LogArrayFileBuilder<W: tokio::io::AsyncWrite> {
     /// Destination of the log array data
     file: W,
     /// Bit width of an element
@@ -315,11 +331,11 @@ pub struct LogArrayFileBuilder<W: 'static + tokio::io::AsyncWrite + Send> {
     count: u32,
 }
 
-impl<W: 'static + tokio::io::AsyncWrite + Send> LogArrayFileBuilder<W> {
+impl<W: tokio::io::AsyncWrite> LogArrayFileBuilder<W> {
     pub fn new(w: W, width: u8) -> LogArrayFileBuilder<W> {
         LogArrayFileBuilder {
             file: w,
-            width: width,
+            width,
             // Zero is needed for bitwise OR-ing new values.
             current: 0,
             // Start at the beginning of `current`.
@@ -346,7 +362,7 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> LogArrayFileBuilder<W> {
         let leading_zeros = 64 - width;
 
         // If `val` does not fit in the `width`, return an error.
-        future::result(if val.leading_zeros() < leading_zeros as u32 {
+        future::result(if val.leading_zeros() < u32::from(leading_zeros) {
             Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("expected value ({}) to fit in {} bits", val, width),
@@ -368,7 +384,7 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> LogArrayFileBuilder<W> {
 
             // Check if the new `offset` is larger than 64.
             if offset >= 64 {
-                // We have filled `current` with a word of data, so write it to the destination.
+                // We have filled `current`, so write it to the destination.
                 future::Either::A(util::write_u64(file, current).map(move |file| {
                     // Wrap the offset with the word size.
                     let offset = offset - 64;
@@ -391,6 +407,7 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> LogArrayFileBuilder<W> {
                     }
                 }))
             } else {
+                // We have not filled `current`, so return and wait for another `push`.
                 future::Either::B(future::ok(LogArrayFileBuilder {
                     file,
                     width,
@@ -409,8 +426,8 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> LogArrayFileBuilder<W> {
         vals.fold(self, |x, val| x.push(val))
     }
 
-    fn write_last_data(self) -> impl Future<Item = W, Error = io::Error> {
-        if self.count as u64 * self.width as u64 & 0b11_1111 == 0 {
+    fn finalize_data(self) -> impl Future<Item = W, Error = io::Error> {
+        if u64::from(self.count) * u64::from(self.width) & 0b11_1111 == 0 {
             future::Either::A(future::ok(self.file))
         } else {
             future::Either::B(util::write_u64(self.file, self.current))
@@ -421,13 +438,17 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> LogArrayFileBuilder<W> {
         let len = self.count;
         let width = self.width;
 
-        self.write_last_data().and_then(move |file| {
+        // Write the final data word.
+        self.finalize_data()
             // Write the control word.
-            let mut buf = [0; 8];
-            BigEndian::write_u32(&mut buf, len);
-            buf[4] = width;
-            util::write_all(file, buf)
-        })
+            .and_then(move |file| {
+                let mut buf = [0; 8];
+                BigEndian::write_u32(&mut buf, len);
+                buf[4] = width;
+                util::write_all(file, buf)
+            })
+            // Flush the destination.
+            .and_then(tokio::io::flush)
     }
 }
 
@@ -610,6 +631,10 @@ impl MonotonicLogArray {
         self.0.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     pub fn entry(&self, index: usize) -> u64 {
         self.0.entry(index)
     }
@@ -619,7 +644,7 @@ impl MonotonicLogArray {
     }
 
     pub fn index_of(&self, element: u64) -> Option<usize> {
-        if self.len() == 0 {
+        if self.is_empty() {
             return None;
         }
 
@@ -654,7 +679,7 @@ mod tests {
         // Display
         assert_eq!(
             "expected input buffer size (7) >= 8",
-            LogArrayError::InputBufTooSmall(7).to_string()
+            LogArrayError::InputBufferTooSmall(7).to_string()
         );
         assert_eq!(
             "expected width (69) <= 64",
@@ -662,27 +687,28 @@ mod tests {
         );
         assert_eq!(
             "expected input buffer size (9) to be 8 for 0 elements and width 17",
-            LogArrayError::UnexpectedBufSize(9, 8, 0, 17).to_string()
+            LogArrayError::UnexpectedInputBufferSize(9, 8, 0, 17).to_string()
         );
 
         // From<LogArrayError> for io::Error
         assert_eq!(
             io::Error::new(
                 io::ErrorKind::InvalidData,
-                LogArrayError::InputBufTooSmall(7)
+                LogArrayError::InputBufferTooSmall(7)
             )
             .to_string(),
-            io::Error::from(LogArrayError::InputBufTooSmall(7)).to_string()
+            io::Error::from(LogArrayError::InputBufferTooSmall(7)).to_string()
         );
     }
 
     #[test]
     fn validate_input_buf_size() {
         let val = |buf_size| LogArrayError::validate_input_buf_size(buf_size);
-        let err = |buf_size| Err(LogArrayError::InputBufTooSmall(buf_size));
+        let err = |buf_size| Err(LogArrayError::InputBufferTooSmall(buf_size));
         assert_eq!(err(7), val(7));
         assert_eq!(Ok(()), val(8));
         assert_eq!(Ok(()), val(9));
+        assert_eq!(Ok(()), val(usize::max_value()));
     }
 
     #[test]
@@ -696,7 +722,7 @@ mod tests {
         assert_eq!(err(65), val(0, 0, 65));
 
         let err = |buf_size, expected, len, width| {
-            Err(LogArrayError::UnexpectedBufSize(
+            Err(LogArrayError::UnexpectedInputBufferSize(
                 buf_size, expected, len, width,
             ))
         };
@@ -714,9 +740,26 @@ mod tests {
         assert_eq!(err(16, 24, 2, 64), val(16, 2, 64));
         assert_eq!(err(24, 16, 1, 64), val(24, 1, 64));
 
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(
+            Ok(()),
+            val(
+                usize::try_from(u64::from(u32::max_value()) + 1 << 3).unwrap(),
+                u32::max_value(),
+                64
+            )
+        );
+
         // width: 5
         assert_eq!(err(16, 24, 13, 5), val(16, 13, 5));
         assert_eq!(Ok(()), val(24, 13, 5));
+    }
+
+    #[test]
+    pub fn empty() {
+        let logarray = LogArray::parse(Bytes::from([0u8; 8].as_ref())).unwrap();
+        assert!(logarray.is_empty());
+        assert!(MonotonicLogArray::from_logarray(logarray).is_empty());
     }
 
     #[test]
@@ -772,55 +815,66 @@ mod tests {
         0b00000000,
     ];
 
-    #[test]
-    #[should_panic(expected = "expected index (3) < length (3)")]
-    fn entry_panic() {
+    fn test0_logarray() -> LogArray {
         let mut content = Vec::new();
         content.extend_from_slice(&TEST0_DATA);
         content.extend_from_slice(&TEST0_CONTROL);
-        let logarray = LogArray::parse(Bytes::from(content)).unwrap();
-        // Out of bounds
-        let _ = logarray.entry(3);
+        LogArray::parse(Bytes::from(content)).unwrap()
+    }
+
+    #[test]
+    #[should_panic(expected = "expected index (3) < length (3)")]
+    fn entry_panic() {
+        let _ = test0_logarray().entry(3);
     }
 
     #[test]
     #[should_panic(expected = "expected slice offset (2) + length (2) <= source length (3)")]
-    fn slice_panic() {
-        let mut content = Vec::new();
-        content.extend_from_slice(&TEST0_DATA);
-        content.extend_from_slice(&TEST0_CONTROL);
-        let logarray = LogArray::parse(Bytes::from(content)).unwrap();
-        // Out of bounds
-        let _ = logarray.slice(2, 2);
+    fn slice_panic1() {
+        let _ = test0_logarray().slice(2, 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "expected 32-bit slice offset (4294967296)")]
+    #[cfg(target_pointer_width = "64")]
+    fn slice_panic2() {
+        let _ = test0_logarray().slice(usize::try_from(u32::max_value()).unwrap() + 1, 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "expected 32-bit slice length (4294967296)")]
+    #[cfg(target_pointer_width = "64")]
+    fn slice_panic3() {
+        let _ = test0_logarray().slice(0, usize::try_from(u32::max_value()).unwrap() + 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "overflow from slice offset (4294967295) + length (1)")]
+    fn slice_panic4() {
+        let _ = test0_logarray().slice(usize::try_from(u32::max_value()).unwrap(), 1);
     }
 
     #[test]
     #[should_panic(expected = "expected index (2) < length (2)")]
     fn slice_entry_panic() {
-        let mut content = Vec::new();
-        content.extend_from_slice(&TEST0_DATA);
-        content.extend_from_slice(&TEST0_CONTROL);
-        let logarray = LogArray::parse(Bytes::from(content)).unwrap();
-        let logarray = logarray.slice(1, 2);
-        // Out of bounds
-        let _ = logarray.entry(2);
+        let _ = test0_logarray().slice(1, 2).entry(2);
     }
 
     #[test]
     #[should_panic(expected = "not monotonic: expected predecessor (2) <= successor (1)")]
     fn monotonic_panic() {
-        let content = vec![0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 2, 32, 0, 0, 0];
+        let content = [0u8, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 2, 32, 0, 0, 0].as_ref();
         MonotonicLogArray::from_logarray(LogArray::parse(Bytes::from(content)).unwrap());
     }
 
     #[test]
     fn decode() {
         let mut decoder = LogArrayDecoder::new_unchecked(17, 1);
-        let mut bytes = BytesMut::from(&TEST0_DATA as &[u8]);
+        let mut bytes = BytesMut::from(TEST0_DATA.as_ref());
         assert_eq!(Some(1), Decoder::decode(&mut decoder, &mut bytes).unwrap());
         assert_eq!(None, Decoder::decode(&mut decoder, &mut bytes).unwrap());
         decoder = LogArrayDecoder::new_unchecked(17, 4);
-        bytes = BytesMut::from(&TEST0_DATA as &[u8]);
+        bytes = BytesMut::from(TEST0_DATA.as_ref());
         assert_eq!(Some(1), Decoder::decode(&mut decoder, &mut bytes).unwrap());
         assert_eq!(
             "LogArrayDecoder { current: \
@@ -841,7 +895,7 @@ mod tests {
         let store = MemoryBackedStore::new();
         let _ = tokio::io::write_all(store.open_write(), [0, 0, 0]).wait();
         assert_eq!(
-            io::Error::from(LogArrayError::InputBufTooSmall(3)).to_string(),
+            io::Error::from(LogArrayError::InputBufferTooSmall(3)).to_string(),
             logarray_file_get_length_and_width(store)
                 .wait()
                 .err()
@@ -863,7 +917,7 @@ mod tests {
         let store = MemoryBackedStore::new();
         let _ = tokio::io::write_all(store.open_write(), [0, 0, 0, 1, 17, 0, 0, 0]).wait();
         assert_eq!(
-            io::Error::from(LogArrayError::UnexpectedBufSize(8, 16, 1, 17)).to_string(),
+            io::Error::from(LogArrayError::UnexpectedInputBufferSize(8, 16, 1, 17)).to_string(),
             logarray_file_get_length_and_width(store)
                 .wait()
                 .err()
@@ -913,7 +967,7 @@ mod tests {
         let builder = LogArrayFileBuilder::new(store.open_write(), 5);
         let original = vec![1, 3, 2, 5, 12, 31, 18];
         builder
-            .push_all(stream::iter_ok(original.clone()))
+            .push_all(stream::iter_ok(original))
             .and_then(|b| b.finalize())
             .wait()
             .unwrap();
@@ -925,7 +979,7 @@ mod tests {
 
         let result: Vec<u64> = slice.iter().collect();
 
-        assert_eq!(vec![2, 5, 12], result);
+        assert_eq!([2, 5, 12], result.as_ref());
     }
 
     #[test]

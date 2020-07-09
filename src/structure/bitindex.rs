@@ -23,7 +23,7 @@ pub struct BitIndex {
 
 impl BitIndex {
     pub fn from_maps(bitarray_map: Bytes, blocks_map: Bytes, sblocks_map: Bytes) -> BitIndex {
-        let bitarray = BitArray::from_bits(bitarray_map);
+        let bitarray = BitArray::from_bits(bitarray_map).unwrap();
         let blocks_logarray = LogArray::parse(blocks_map).unwrap();
         let sblocks_logarray = LogArray::parse(sblocks_map).unwrap();
 
