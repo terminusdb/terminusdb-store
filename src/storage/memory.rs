@@ -1,11 +1,10 @@
 //! In-memory implementation of storage traits.
 
 use bytes::Bytes;
-use futures::prelude::*;
 use futures_locks;
 use std::collections::HashMap;
 use std::io;
-use std::sync::{self, Arc};
+use std::sync::{self, Arc, RwLock};
 use tokio::prelude::*;
 
 use super::*;
@@ -73,13 +72,15 @@ impl AsyncRead for MemoryBackedStoreReader {}
 
 #[derive(Clone)]
 pub struct MemoryBackedStore {
-    vec: Arc<sync::RwLock<Vec<u8>>>,
+    exists: Arc<RwLock<bool>>,
+    vec: Arc<sync::RwLock<Vec<u8>>>
 }
 
 impl MemoryBackedStore {
     pub fn new() -> MemoryBackedStore {
         MemoryBackedStore {
             vec: Default::default(),
+            exists: Arc::new(RwLock::new(false))
         }
     }
 }
@@ -88,15 +89,20 @@ impl FileStore for MemoryBackedStore {
     type Write = MemoryBackedStoreWriter;
 
     fn open_write_from(&self, pos: usize) -> MemoryBackedStoreWriter {
+        *self.exists.write().unwrap() = true;
         MemoryBackedStoreWriter {
             vec: self.vec.clone(),
-            pos,
+            pos
         }
     }
 }
 
 impl FileLoad for MemoryBackedStore {
     type Read = MemoryBackedStoreReader;
+
+    fn exists(&self) -> bool {
+        return *self.exists.read().unwrap()
+    }
 
     fn size(&self) -> usize {
         self.vec.read().unwrap().len()

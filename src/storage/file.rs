@@ -15,6 +15,8 @@ pub trait FileStore: Clone + Send + Sync {
 pub trait FileLoad: Clone + Send + Sync {
     type Read: AsyncRead + Send;
 
+    // TODO - exists and size should also be future-enabled
+    fn exists(&self) -> bool;
     fn size(&self) -> usize;
     fn open_read(&self) -> Self::Read {
         self.open_read_from(0)
@@ -226,6 +228,7 @@ pub struct AdjacencyListMaps {
 pub struct DictionaryFiles<F: 'static + FileLoad + FileStore> {
     pub blocks_file: F,
     pub offsets_file: F,
+//    pub map_files: Option<BitIndexFiles<F>>
 }
 
 impl<F: 'static + FileLoad + FileStore> DictionaryFiles<F> {

@@ -1,6 +1,8 @@
 use futures::prelude::*;
 use std::io::Error;
 use tokio::io::AsyncWrite;
+use futures::stream::{Peekable,Stream};
+use byteorder::{ByteOrder,BigEndian};
 
 pub fn find_common_prefix(b1: &[u8], b2: &[u8]) -> usize {
     let mut common = 0;
@@ -47,4 +49,73 @@ pub fn write_padding<W: AsyncWrite>(
 /// Write a `u64` in big-endian order to `w`.
 pub fn write_u64<W: AsyncWrite>(w: W, num: u64) -> impl Future<Item = W, Error = Error> {
     write_all(w, num.to_be_bytes())
+}
+
+struct SortedStream<T,E,S:'static+Stream<Item=T,Error=E>+Send, F:'static+Fn(&[Option<&T>])->Option<usize>> {
+    streams: Vec<Peekable<S>>,
+    pick_fn: F
+}
+
+impl<T,E,S:'static+Stream<Item=T,Error=E>+Send, F:'static+Fn(&[Option<&T>])->Option<usize>> Stream for SortedStream<T,E,S,F> {
+    type Item = T;
+    type Error = E;
+
+    fn poll(&mut self) -> Result<Async<Option<T>>, E> {
+        let mut v = Vec::with_capacity(self.streams.len());
+        for s in self.streams.iter_mut() {
+            match s.peek() {
+                Ok(Async::Ready(val)) => v.push(val),
+                Ok(Async::NotReady) => return Ok(Async::NotReady),
+                Err(e) => return Err(e)
+            }
+        }
+
+        let ix = (self.pick_fn)(&v[..]);
+
+        match ix {
+            None => Ok(Async::Ready(None)),
+            Some(ix) => {
+                let next = self.streams[ix].poll();
+                match next {
+                    Ok(Async::Ready(next)) => Ok(Async::Ready(next)),
+                    _ => panic!("unexpected result in stream polling - reported ready earlier but not on later poll")
+                }
+            }
+        }
+    }
+}
+
+pub fn sorted_stream<T,E,S:'static+Stream<Item=T,Error=E>+Send, F:'static+Fn(&[Option<&T>])->Option<usize>>(streams: Vec<S>, pick_fn: F) -> impl Stream<Item=T,Error=E> {
+    let peekable_streams = streams.into_iter().map(|s|s.peekable()).collect();
+    SortedStream {
+        streams: peekable_streams,
+        pick_fn
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sort_some_streams() {
+        let v1 = vec![1,3,5,8,12];
+        let v2 = vec![7,9,15];
+        let v3 = vec![0,1,2,3,4];
+
+        let streams = vec![futures::stream::iter_ok::<_,()>(v1),
+                           futures::stream::iter_ok(v2),
+                           futures::stream::iter_ok(v3)];
+
+
+        let sorted = sorted_stream(streams, |results| results.iter()
+                                   .enumerate()
+                                   .filter(|&(_, item)| item.is_some())
+                                   .min_by_key(|&(_, item)| item)
+                                   .map(|x|x.0));
+
+        let result = sorted.collect().wait().unwrap();
+
+        assert_eq!(vec![0,1,1,2,3,3,4,5,7,8,9,12,15], result);
+    }
 }

@@ -11,6 +11,7 @@ pub mod pfc;
 mod util;
 pub mod vbyte;
 pub mod wavelettree;
+pub mod mapped_dict;
 
 pub use adjacencylist::*;
 pub use bitarray::*;
