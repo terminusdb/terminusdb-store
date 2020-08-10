@@ -2,7 +2,6 @@ use futures::prelude::*;
 use std::io::Error;
 use tokio::io::AsyncWrite;
 use futures::stream::{Peekable,Stream};
-use byteorder::{ByteOrder,BigEndian};
 
 pub fn find_common_prefix(b1: &[u8], b2: &[u8]) -> usize {
     let mut common = 0;

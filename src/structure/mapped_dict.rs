@@ -9,13 +9,13 @@ use crate::storage::*;
 use super::util::*;
 use super::bitindex::*;
 
-pub struct MappedPfcDict<M:AsRef<[u8]>+Clone> {
-    inner: PfcDict<M>,
-    id_wtree: Option<WaveletTree<M>>
+pub struct MappedPfcDict {
+    inner: PfcDict,
+    id_wtree: Option<WaveletTree>
 }
 
-impl<M:AsRef<[u8]>+Clone> MappedPfcDict<M> {
-    pub fn from_parts(dict: PfcDict<M>, wtree: Option<WaveletTree<M>>) -> MappedPfcDict<M> {
+impl MappedPfcDict {
+    pub fn from_parts(dict: PfcDict, wtree: Option<WaveletTree>) -> MappedPfcDict {
         MappedPfcDict {
             inner: dict,
             id_wtree: wtree
@@ -26,13 +26,16 @@ impl<M:AsRef<[u8]>+Clone> MappedPfcDict<M> {
         self.inner.len()
     }
 
-    pub fn get(&self, ix: usize) -> String {
-        if ix >= self.len() {
-            panic!("index too large for mapped pfc dict");
+    pub fn get(&self, index: usize) -> Option<String> {
+        if index < self.len() {
+            let mapped_id = self.id_wtree.as_ref().map(|wtree|wtree.lookup_one(index as u64).unwrap()).unwrap_or(index as u64);
+            self.inner.get(mapped_id as usize)
+
+        }
+        else {
+            None
         }
 
-        let mapped_id = self.id_wtree.as_ref().map(|wtree|wtree.lookup_one(ix as u64).unwrap()).unwrap_or(ix as u64);
-        self.inner.get(mapped_id as usize)
     }
 
     pub fn id(&self, s: &str) -> Option<u64> {
@@ -133,7 +136,7 @@ mod tests {
         let mapped_dict = MappedPfcDict::from_parts(dict, None);
 
         for i in 0..contents.len() {
-            let s = mapped_dict.get(i);
+            let s = mapped_dict.get(i).unwrap();
             assert_eq!(contents[i], s);
             let id = mapped_dict.id(&s).unwrap();
             assert_eq!(i as u64, id);
@@ -205,7 +208,7 @@ mod tests {
         total_contents.extend(contents2);
 
         for i in 0..total_contents.len() {
-            let s = mapped_dict.get(i);
+            let s = mapped_dict.get(i).unwrap();
             assert_eq!(total_contents[i], s);
             let id = mapped_dict.id(&s).unwrap();
             assert_eq!(i as u64, id);
@@ -305,7 +308,7 @@ mod tests {
         total_contents.extend(contents3);
 
         for i in 0..total_contents.len() {
-            let s = mapped_dict.get(i);
+            let s = mapped_dict.get(i).unwrap();
             assert_eq!(total_contents[i], s);
             let id = mapped_dict.id(&s).unwrap();
             assert_eq!(i as u64, id);

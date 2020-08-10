@@ -345,7 +345,7 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> PfcDictFileBuilder<W> {
             }
             let pfc_block_offsets_file = self.pfc_block_offsets_file;
             future::Either::A(
-                util::write_nul_terminated_bytes(self.pfc_blocks_file, bytes.clone()).and_then(
+                write_nul_terminated_bytes(self.pfc_blocks_file, bytes.clone()).and_then(
                     move |(f, len)| {
                         future::ok((
                             (count + 1) as u64,
@@ -363,13 +363,13 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> PfcDictFileBuilder<W> {
             )
         } else {
             let s_bytes = s.as_bytes();
-            let common = util::find_common_prefix(&self.last.unwrap(), s_bytes);
+            let common = find_common_prefix(&self.last.unwrap(), s_bytes);
             let postfix = s_bytes[common..].to_vec();
             let pfc_block_offsets_file = self.pfc_block_offsets_file;
             future::Either::B(
                 vbyte::write_async(self.pfc_blocks_file, common as u64).and_then(
                     move |(pfc_blocks_file, common_len)| {
-                        util::write_nul_terminated_bytes(pfc_blocks_file, postfix).map(
+                        write_nul_terminated_bytes(pfc_blocks_file, postfix).map(
                             move |(pfc_blocks_file, slice_len)| {
                                 (
                                     (count + 1) as u64,
@@ -420,8 +420,8 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> PfcDictFileBuilder<W> {
             .push_all(futures::stream::iter_ok(self.index))
             .and_then(|b| b.finalize());
 
-        let finalize_blocks = util::write_padding(self.pfc_blocks_file, self.size, 8)
-            .and_then(move |w| util::write_u64(w, count))
+        let finalize_blocks = write_padding(self.pfc_blocks_file, self.size, 8)
+            .and_then(move |w| write_u64(w, count))
             .and_then(|w| tokio::io::flush(w));
 
         write_offsets.join(finalize_blocks).map(|_| ())
@@ -477,10 +477,7 @@ impl Decoder for PfcDecoder {
                 false => {
                     // This is in the middle of some block. we expect a vbyte followed by some 0-delimited cstring
                     let last = self.last.as_ref().unwrap();
-                    let (vbyte_len, prefix_len) = {
-                        let vbyte = VByte::parse(&bytes).expect("expected vbyte");
-                        (vbyte.len(), vbyte.unpack())
-                    };
+                    let (prefix_len, vbyte_len) = vbyte::decode(&bytes).expect("expected vbyte");
                     bytes.advance(vbyte_len);
                     let b = bytes.split_to(pos-vbyte_len);
                     bytes.advance(1);
@@ -518,7 +515,6 @@ pub fn dict_reader_to_indexed_stream<A:'static+AsyncRead+Send>(r: A, offset: u64
 mod tests {
     use super::*;
     use crate::storage::memory::*;
-    use crate::storage::*;
 
     #[test]
     fn can_create_pfc_dict_small() {
