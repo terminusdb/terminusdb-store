@@ -174,6 +174,27 @@ impl StoreLayer {
             store: self.store.clone(),
         })
     }
+
+    pub fn squash(&self) -> Option<StoreLayer> {
+        let store = self.store.clone();
+        let new_builder = store
+            .create_base_layer()
+            .wait()
+            .unwrap();
+        let iter = self.triples()
+            .map(|t| self.id_triple_to_string(&t).unwrap());
+
+        for st in iter {
+            new_builder
+                .add_string_triple(&st)
+                .wait()
+                .unwrap();
+        }
+
+        new_builder.commit()
+            .wait()
+            .ok()
+    }
 }
 
 impl Layer for StoreLayer {
@@ -698,4 +719,49 @@ mod tests {
             .unwrap();
         assert!(is_committed);
     }
+
+    #[test]
+    fn create_two_layers_and_squash() {
+        let runtime = Runtime::new().unwrap();
+
+        let store = open_memory_store();
+        let builder = oneshot::spawn(store.create_base_layer(), &runtime.executor())
+            .wait()
+            .unwrap();
+        oneshot::spawn(
+            builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo")),
+            &runtime.executor(),
+        )
+        .wait()
+        .unwrap();
+
+        let layer = oneshot::spawn(builder.commit(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        let builder2 = oneshot::spawn(layer.open_write(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        oneshot::spawn(
+            builder2.add_string_triple(&StringTriple::new_value("dog", "says", "woof")),
+            &runtime.executor(),
+        )
+        .wait()
+        .unwrap();
+
+        let layer2 = oneshot::spawn(builder2.commit(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        let new = layer2.squash()
+            .unwrap();
+
+
+        assert!(new.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+        assert!(new.string_triple_exists(&StringTriple::new_value("dog", "says", "woof")));
+        assert!(new.parent().is_none());
+
+    }
+
 }
