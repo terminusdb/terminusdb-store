@@ -125,6 +125,13 @@ impl SyncStoreLayer {
     pub fn parent(&self) -> Option<SyncStoreLayer> {
         self.inner.parent().map(|p| SyncStoreLayer { inner: p })
     }
+
+    pub fn squash(&self) -> Result<SyncStoreLayer, io::Error>  {
+        let inner = task_sync(self.inner.clone().squash());
+
+        inner.map(|i| SyncStoreLayer::wrap(i))
+    }
+
 }
 
 impl Layer for SyncStoreLayer {

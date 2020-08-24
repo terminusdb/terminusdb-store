@@ -165,20 +165,25 @@ impl StoreLayer {
         })
     }
 
-    pub fn squash(&self) -> Option<StoreLayer> {
+    pub fn squash(self) -> impl Future<Item = StoreLayer, Error = io::Error> + Send {
         // TODO check if we already committed
-        let store = self.store.clone();
-        let new_builder = store.create_base_layer().wait().unwrap();
-        let iter = self
-            .triples()
-            .map(|t| self.id_triple_to_string(&t).unwrap());
+        self.store
+            .create_base_layer()
+            .and_then(move |new_builder : StoreLayerBuilder| {
 
-        for st in iter {
-            new_builder.add_string_triple(&st).unwrap();
-        }
+                let iter = self.triples()
+                    .map(|t| self.id_triple_to_string(&t).unwrap());
 
-        new_builder.commit().wait().ok()
+                for st in iter {
+                    new_builder
+                        .add_string_triple(&st).unwrap()
+                };
+
+                new_builder.commit().map(|c| c.clone())
+            })
+
     }
+
 }
 
 impl Layer for StoreLayer {
