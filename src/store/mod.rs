@@ -6,9 +6,7 @@ pub mod sync;
 use futures::future;
 use futures::prelude::*;
 use std::path::PathBuf;
-use std::sync::Arc;
-
-use futures_locks::RwLock;
+use std::sync::{Arc,RwLock};
 
 use crate::layer::{
     IdTriple, Layer, LayerBuilder, LayerObjectLookup, LayerPredicateLookup, LayerSubjectLookup,
@@ -51,20 +49,18 @@ impl StoreLayerBuilder {
         }
     }
 
-    fn with_builder<R: Send + Sync, F: FnOnce(&mut Box<dyn LayerBuilder>) -> R + Send + Sync>(
+    fn with_builder<R, F: FnOnce(&mut Box<dyn LayerBuilder>) -> R>(
         &self,
         f: F,
-    ) -> impl Future<Item = R, Error = io::Error> + Send {
-        self.builder.write().then(|b| {
-            let mut builder = b.expect("rwlock write should always succeed");
-            match (*builder).as_mut() {
-                None => future::err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "builder has already been committed",
-                )),
-                Some(builder) => future::ok(f(builder)),
-            }
-        })
+    ) -> Result<R,io::Error> {
+        let mut builder = self.builder.write().expect("rwlock write should always succeed");
+        match (*builder).as_mut() {
+            None => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "builder has already been committed",
+            )),
+            Some(builder) => Ok(f(builder)),
+        }
     }
 
     /// Returns the name of the layer being built
@@ -76,7 +72,7 @@ impl StoreLayerBuilder {
     pub fn add_string_triple(
         &self,
         triple: &StringTriple,
-    ) -> impl Future<Item = (), Error = io::Error> + Send {
+    ) -> Result<(), io::Error> {
         let triple = triple.clone();
         self.with_builder(move |b| b.add_string_triple(&triple))
     }
@@ -85,7 +81,7 @@ impl StoreLayerBuilder {
     pub fn add_id_triple(
         &self,
         triple: IdTriple,
-    ) -> impl Future<Item = bool, Error = io::Error> + Send {
+    ) -> Result<bool,io::Error> {
         self.with_builder(move |b| b.add_id_triple(triple))
     }
 
@@ -93,7 +89,7 @@ impl StoreLayerBuilder {
     pub fn remove_string_triple(
         &self,
         triple: &StringTriple,
-    ) -> impl Future<Item = bool, Error = io::Error> + Send {
+    ) -> Result<bool,io::Error> {
         let triple = triple.clone();
         self.with_builder(move |b| b.remove_string_triple(&triple))
     }
@@ -102,44 +98,44 @@ impl StoreLayerBuilder {
     pub fn remove_id_triple(
         &self,
         triple: IdTriple,
-    ) -> impl Future<Item = bool, Error = io::Error> + Send {
+    ) -> Result<bool,io::Error> {
         self.with_builder(move |b| b.remove_id_triple(triple))
     }
 
     /// Returns a Future which will yield true if this layer has been committed, and false otherwise.
-    pub fn committed(&self) -> impl Future<Item = bool, Error = std::io::Error> + Send {
+    pub fn committed(&self) -> bool {
         self.builder
-            .write()
-            .then(|b| Ok(b.expect("rwlock write should always succeed").is_none()))
+            .read()
+            .expect("rwlock write should always succeed")
+            .is_none()
     }
 
     /// Commit the layer to storage
     pub fn commit(&self) -> impl Future<Item = StoreLayer, Error = std::io::Error> + Send {
         let store = self.store.clone();
         let name = self.name;
-        self.builder.write().then(move |b| {
-            let mut swap = b.expect("rwlock write should always succeed");
-            let mut builder = None;
+        let mut guard = self.builder.write().expect("rwlock write should always succeed");
+        let mut builder = None;
 
-            std::mem::swap(&mut builder, &mut swap);
+        // Setting the builder to None ensures that committed() detects we already committed (or tried to do so anyway)
+        std::mem::swap(&mut builder, &mut guard);
 
-            let result: Box<dyn Future<Item = _, Error = _> + Send> = match builder {
-                None => Box::new(future::err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "builder has already been committed",
-                ))),
-                Some(builder) => Box::new(builder.commit_boxed().and_then(move |_| {
-                    store.layer_store.get_layer(name).map(move |layer| {
-                        StoreLayer::wrap(
-                            layer.expect("layer that was just created was not found in store"),
-                            store,
-                        )
-                    })
-                })),
-            };
+        let result: Box<dyn Future<Item = _, Error = _> + Send> = match builder {
+            None => Box::new(future::err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "builder has already been committed",
+            ))),
+            Some(builder) => Box::new(builder.commit_boxed().and_then(move |_| {
+                store.layer_store.get_layer(name).map(move |layer| {
+                    StoreLayer::wrap(
+                        layer.expect("layer that was just created was not found in store"),
+                        store,
+                    )
+                })
+            })),
+        };
 
-            result
-        })
+        result
     }
 }
 
@@ -552,12 +548,7 @@ mod tests {
         let mut builder = oneshot::spawn(store.create_base_layer(), &runtime.executor())
             .wait()
             .unwrap();
-        oneshot::spawn(
-            builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo")),
-            &runtime.executor(),
-        )
-        .wait()
-        .unwrap();
+        builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo")).unwrap();
 
         let layer = oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
@@ -571,12 +562,7 @@ mod tests {
         builder = oneshot::spawn(layer.open_write(), &runtime.executor())
             .wait()
             .unwrap();
-        oneshot::spawn(
-            builder.add_string_triple(&StringTriple::new_value("pig", "says", "oink")),
-            &runtime.executor(),
-        )
-        .wait()
-        .unwrap();
+        builder.add_string_triple(&StringTriple::new_value("pig", "says", "oink")).unwrap();
 
         let layer2 = oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
@@ -616,12 +602,7 @@ mod tests {
         let mut builder = oneshot::spawn(store.create_base_layer(), &runtime.executor())
             .wait()
             .unwrap();
-        oneshot::spawn(
-            builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo")),
-            &runtime.executor(),
-        )
-        .wait()
-        .unwrap();
+        builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo")).unwrap();
 
         let layer = oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
@@ -635,12 +616,7 @@ mod tests {
         builder = oneshot::spawn(layer.open_write(), &runtime.executor())
             .wait()
             .unwrap();
-        oneshot::spawn(
-            builder.add_string_triple(&StringTriple::new_value("pig", "says", "oink")),
-            &runtime.executor(),
-        )
-        .wait()
-        .unwrap();
+        builder.add_string_triple(&StringTriple::new_value("pig", "says", "oink")).unwrap();
 
         let layer2 = oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
@@ -670,12 +646,7 @@ mod tests {
         let builder = oneshot::spawn(store.create_base_layer(), &runtime.executor())
             .wait()
             .unwrap();
-        oneshot::spawn(
-            builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo")),
-            &runtime.executor(),
-        )
-        .wait()
-        .unwrap();
+        builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo")).unwrap();
 
         let layer = oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
@@ -698,26 +669,15 @@ mod tests {
         let builder = oneshot::spawn(store.create_base_layer(), &runtime.executor())
             .wait()
             .unwrap();
-        oneshot::spawn(
-            builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo")),
-            &runtime.executor(),
-        )
-        .wait()
-        .unwrap();
+        builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo")).unwrap();
 
-        let is_committed = oneshot::spawn(builder.committed(), &runtime.executor())
-            .wait()
-            .unwrap();
-        assert!(!is_committed);
+        assert!(!builder.committed());
 
         let _layer = oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
             .unwrap();
 
-        let is_committed = oneshot::spawn(builder.committed(), &runtime.executor())
-            .wait()
-            .unwrap();
-        assert!(is_committed);
+        assert!(builder.committed());
     }
 
     #[test]
@@ -765,3 +725,5 @@ mod tests {
     }
 
 }
+
+

@@ -73,27 +73,27 @@ impl SyncStoreLayerBuilder {
 
     /// Add a string triple
     pub fn add_string_triple(&self, triple: &StringTriple) -> Result<(), io::Error> {
-        task_sync(self.inner.add_string_triple(triple))
+        self.inner.add_string_triple(triple)
     }
 
     /// Add an id triple
     pub fn add_id_triple(&self, triple: IdTriple) -> Result<bool, io::Error> {
-        task_sync(self.inner.add_id_triple(triple))
+        self.inner.add_id_triple(triple)
     }
 
     /// Remove a string triple
     pub fn remove_string_triple(&self, triple: &StringTriple) -> Result<bool, io::Error> {
-        task_sync(self.inner.remove_string_triple(triple))
+        self.inner.remove_string_triple(triple)
     }
 
     /// Remove an id triple
     pub fn remove_id_triple(&self, triple: IdTriple) -> Result<bool, io::Error> {
-        task_sync(self.inner.remove_id_triple(triple))
+        self.inner.remove_id_triple(triple)
     }
 
     /// Returns a boolean result which is true if this builder has been committed, and false otherwise.
-    pub fn committed(&self) -> Result<bool, io::Error> {
-        task_sync(self.inner.committed())
+    pub fn committed(&self) -> bool {
+        self.inner.committed()
     }
 
     /// Commit the layer to storage
@@ -472,11 +472,11 @@ mod tests {
             .add_string_triple(&StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
-        assert!(!builder.committed().unwrap());
+        assert!(!builder.committed());
 
         let _layer = builder.commit().unwrap();
 
-        assert!(builder.committed().unwrap());
+        assert!(builder.committed());
     }
 
     use crate::storage::directory::pack_layer_parents;
