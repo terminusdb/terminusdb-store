@@ -172,6 +172,7 @@ impl StoreLayer {
     }
 
     pub fn squash(&self) -> Option<StoreLayer> {
+        // TODO check if we already committed
         let store = self.store.clone();
         let new_builder = store
             .create_base_layer()
@@ -183,7 +184,6 @@ impl StoreLayer {
         for st in iter {
             new_builder
                 .add_string_triple(&st)
-                .wait()
                 .unwrap();
         }
 
@@ -688,12 +688,7 @@ mod tests {
         let builder = oneshot::spawn(store.create_base_layer(), &runtime.executor())
             .wait()
             .unwrap();
-        oneshot::spawn(
-            builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo")),
-            &runtime.executor(),
-        )
-        .wait()
-        .unwrap();
+            builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo")).unwrap();
 
         let layer = oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
@@ -703,12 +698,7 @@ mod tests {
             .wait()
             .unwrap();
 
-        oneshot::spawn(
-            builder2.add_string_triple(&StringTriple::new_value("dog", "says", "woof")),
-            &runtime.executor(),
-        )
-        .wait()
-        .unwrap();
+            builder2.add_string_triple(&StringTriple::new_value("dog", "says", "woof")).unwrap();
 
         let layer2 = oneshot::spawn(builder2.commit(), &runtime.executor())
             .wait()
