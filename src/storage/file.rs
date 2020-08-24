@@ -228,7 +228,7 @@ pub struct AdjacencyListMaps {
 pub struct DictionaryFiles<F: 'static + FileLoad + FileStore> {
     pub blocks_file: F,
     pub offsets_file: F,
-//    pub map_files: Option<BitIndexFiles<F>>
+    //    pub map_files: Option<BitIndexFiles<F>>
 }
 
 impl<F: 'static + FileLoad + FileStore> DictionaryFiles<F> {

@@ -2,18 +2,18 @@
 
 use byteorder::{BigEndian, ByteOrder};
 use bytes::Bytes;
+use bytes::BytesMut;
 use futures::future;
-use tokio::prelude::*;
+use std::cmp::{Ord, Ordering};
 use std::error::Error;
 use std::fmt::Display;
-use std::cmp::{Ord, Ordering};
 use std::io;
-use tokio::codec::{FramedRead,Decoder};
-use bytes::BytesMut;
+use tokio::codec::{Decoder, FramedRead};
+use tokio::prelude::*;
 
 use super::logarray::*;
-use super::vbyte;
 use super::util::*;
+use super::vbyte;
 use crate::storage::*;
 
 #[derive(Debug)]
@@ -431,7 +431,7 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> PfcDictFileBuilder<W> {
 struct PfcDecoder {
     last: Option<BytesMut>,
     index: usize,
-    done: bool
+    done: bool,
 }
 
 impl PfcDecoder {
@@ -439,7 +439,7 @@ impl PfcDecoder {
         Self {
             last: None,
             index: 0,
-            done: false
+            done: false,
         }
     }
 }
@@ -473,13 +473,13 @@ impl Decoder for PfcDecoder {
                     self.index += 1;
 
                     Ok(Some(s))
-                },
+                }
                 false => {
                     // This is in the middle of some block. we expect a vbyte followed by some 0-delimited cstring
                     let last = self.last.as_ref().unwrap();
                     let (prefix_len, vbyte_len) = vbyte::decode(&bytes).expect("expected vbyte");
                     bytes.advance(vbyte_len);
-                    let b = bytes.split_to(pos-vbyte_len);
+                    let b = bytes.split_to(pos - vbyte_len);
                     bytes.advance(1);
                     let mut full = BytesMut::with_capacity(prefix_len as usize + b.len());
                     full.extend_from_slice(&last[..prefix_len as usize]);
@@ -491,22 +491,29 @@ impl Decoder for PfcDecoder {
 
                     Ok(Some(s))
                 }
-            }
+            },
         }
     }
 }
 
-pub fn dict_file_get_count<F:'static+FileLoad>(file: F) -> impl Future<Item=u64, Error=io::Error>+Send {
-    tokio::io::read_exact(file.open_read_from(file.size()-8), vec![0;8])
-        .map(|(_,buf)| BigEndian::read_u64(&buf))
+pub fn dict_file_get_count<F: 'static + FileLoad>(
+    file: F,
+) -> impl Future<Item = u64, Error = io::Error> + Send {
+    tokio::io::read_exact(file.open_read_from(file.size() - 8), vec![0; 8])
+        .map(|(_, buf)| BigEndian::read_u64(&buf))
 }
 
-pub fn dict_reader_to_stream<A:'static+AsyncRead+Send>(r: A) -> impl Stream<Item=String,Error=io::Error>+Send {
+pub fn dict_reader_to_stream<A: 'static + AsyncRead + Send>(
+    r: A,
+) -> impl Stream<Item = String, Error = io::Error> + Send {
     FramedRead::new(r, PfcDecoder::new())
 }
 
-pub fn dict_reader_to_indexed_stream<A:'static+AsyncRead+Send>(r: A, offset: u64) -> impl Stream<Item=(u64,String),Error=io::Error>+Send {
-    let count_stream = futures::stream::unfold(offset, |c| Some(Ok((c+1, c+1))));
+pub fn dict_reader_to_indexed_stream<A: 'static + AsyncRead + Send>(
+    r: A,
+    offset: u64,
+) -> impl Stream<Item = (u64, String), Error = io::Error> + Send {
+    let count_stream = futures::stream::unfold(offset, |c| Some(Ok((c + 1, c + 1))));
     let dict_stream = dict_reader_to_stream(r);
     count_stream.zip(dict_stream)
 }
@@ -688,16 +695,18 @@ mod tests {
             "faadsafdfaf sdfasdf",
             "frumps framps fremps",
             "gahh",
-            "hai hai hai"
-            ];
+            "hai hai hai",
+        ];
 
         let blocks = MemoryBackedStore::new();
         let offsets = MemoryBackedStore::new();
         let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
 
-        builder.add_all(contents.clone().into_iter().map(|s|s.to_string()))
-            .and_then(|(_,b)|b.finalize())
-            .wait().unwrap();
+        builder
+            .add_all(contents.clone().into_iter().map(|s| s.to_string()))
+            .and_then(|(_, b)| b.finalize())
+            .wait()
+            .unwrap();
 
         let stream = dict_reader_to_stream(blocks.open_read());
 
@@ -724,15 +733,17 @@ mod tests {
             "eeeee ee e eee",
             "faadsafdfaf sdfasdf",
             "frumps framps fremps",
-            ];
+        ];
 
         let blocks = MemoryBackedStore::new();
         let offsets = MemoryBackedStore::new();
         let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
 
-        builder.add_all(contents.clone().into_iter().map(|s|s.to_string()))
-            .and_then(|(_,b)|b.finalize())
-            .wait().unwrap();
+        builder
+            .add_all(contents.clone().into_iter().map(|s| s.to_string()))
+            .and_then(|(_, b)| b.finalize())
+            .wait()
+            .unwrap();
 
         let stream = dict_reader_to_stream(blocks.open_read());
 
@@ -760,16 +771,18 @@ mod tests {
             "faadsafdfaf sdfasdf",
             "frumps framps fremps",
             "gahh",
-            "hai hai hai"
-            ];
+            "hai hai hai",
+        ];
 
         let blocks = MemoryBackedStore::new();
         let offsets = MemoryBackedStore::new();
         let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
 
-        builder.add_all(contents.clone().into_iter().map(|s|s.to_string()))
-            .and_then(|(_,b)|b.finalize())
-            .wait().unwrap();
+        builder
+            .add_all(contents.clone().into_iter().map(|s| s.to_string()))
+            .and_then(|(_, b)| b.finalize())
+            .wait()
+            .unwrap();
 
         let stream = dict_reader_to_indexed_stream(blocks.open_read(), 0);
 
@@ -799,16 +812,18 @@ mod tests {
             "faadsafdfaf sdfasdf",
             "frumps framps fremps",
             "gahh",
-            "hai hai hai"
-            ];
+            "hai hai hai",
+        ];
 
         let blocks = MemoryBackedStore::new();
         let offsets = MemoryBackedStore::new();
         let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
 
-        builder.add_all(contents.clone().into_iter().map(|s|s.to_string()))
-            .and_then(|(_,b)|b.finalize())
-            .wait().unwrap();
+        builder
+            .add_all(contents.clone().into_iter().map(|s| s.to_string()))
+            .and_then(|(_, b)| b.finalize())
+            .wait()
+            .unwrap();
 
         let count = dict_file_get_count(blocks).wait().unwrap();
 

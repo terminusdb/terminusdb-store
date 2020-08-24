@@ -7,11 +7,11 @@ pub mod bitarray;
 pub mod bitindex;
 pub mod bititer;
 pub mod logarray;
+pub mod mapped_dict;
 pub mod pfc;
 mod util;
 pub mod vbyte;
 pub mod wavelettree;
-pub mod mapped_dict;
 
 pub use adjacencylist::*;
 pub use bitarray::*;

@@ -73,14 +73,14 @@ impl AsyncRead for MemoryBackedStoreReader {}
 #[derive(Clone)]
 pub struct MemoryBackedStore {
     exists: Arc<RwLock<bool>>,
-    vec: Arc<sync::RwLock<Vec<u8>>>
+    vec: Arc<sync::RwLock<Vec<u8>>>,
 }
 
 impl MemoryBackedStore {
     pub fn new() -> MemoryBackedStore {
         MemoryBackedStore {
             vec: Default::default(),
-            exists: Arc::new(RwLock::new(false))
+            exists: Arc::new(RwLock::new(false)),
         }
     }
 }
@@ -92,7 +92,7 @@ impl FileStore for MemoryBackedStore {
         *self.exists.write().unwrap() = true;
         MemoryBackedStoreWriter {
             vec: self.vec.clone(),
-            pos
+            pos,
         }
     }
 }
@@ -101,7 +101,7 @@ impl FileLoad for MemoryBackedStore {
     type Read = MemoryBackedStoreReader;
 
     fn exists(&self) -> bool {
-        return *self.exists.read().unwrap()
+        return *self.exists.read().unwrap();
     }
 
     fn size(&self) -> usize {
