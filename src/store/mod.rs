@@ -713,7 +713,7 @@ mod tests {
             .wait()
             .unwrap();
 
-        let new = layer2.squash().unwrap();
+        let new = layer2.squash().wait().unwrap();
 
         assert!(new.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(new.string_triple_exists(&StringTriple::new_value("dog", "says", "woof")));
