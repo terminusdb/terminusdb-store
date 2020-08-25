@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use crate::layer::{
     IdTriple, Layer, LayerObjectLookup, LayerPredicateLookup, LayerSubjectLookup, ObjectType,
-    StringTriple, SubjectLookup,
+    StringTriple, SubjectLookup, LayerCounts
 };
 use crate::store::{
     open_directory_store, open_memory_store, NamedGraph, Store, StoreLayer, StoreLayerBuilder,
@@ -152,44 +152,8 @@ impl Layer for SyncStoreLayer {
         (&self.inner as &dyn Layer).parent()
     }
 
-    fn node_dict_id(&self, subject: &str) -> Option<u64> {
-        self.inner.node_dict_id(subject)
-    }
-
-    fn value_dict_id(&self, value: &str) -> Option<u64> {
-        self.inner.value_dict_id(value)
-    }
-
-    fn node_dict_len(&self) -> usize {
-        self.inner.node_dict_len()
-    }
-
-    fn value_dict_len(&self) -> usize {
-        self.inner.value_dict_len()
-    }
-
-    fn value_dict_get(&self, id: usize) -> Option<String> {
-        self.inner.value_dict_get(id)
-    }
-
-    fn node_dict_get(&self, id: usize) -> Option<String> {
-        self.inner.node_dict_get(id)
-    }
-
     fn node_and_value_count(&self) -> usize {
         self.inner.node_and_value_count()
-    }
-
-    fn predicate_dict_id(&self, predicate: &str) -> Option<u64> {
-        self.inner.predicate_dict_id(predicate)
-    }
-
-    fn predicate_dict_get(&self, id: usize) -> Option<String> {
-        self.inner.predicate_dict_get(id)
-    }
-
-    fn predicate_dict_len(&self) -> usize {
-        self.inner.predicate_dict_len()
     }
 
     fn predicate_count(&self) -> usize {
@@ -282,6 +246,10 @@ impl Layer for SyncStoreLayer {
 
     fn triple_layer_removal_count(&self) -> usize {
         self.inner.triple_layer_removal_count()
+    }
+
+    fn all_counts(&self) -> LayerCounts {
+        self.inner.all_counts()
     }
 }
 

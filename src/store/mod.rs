@@ -10,7 +10,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::layer::{
     IdTriple, Layer, LayerBuilder, LayerObjectLookup, LayerPredicateLookup, LayerSubjectLookup,
-    ObjectType, StringTriple,
+    ObjectType, StringTriple, LayerCounts
 };
 use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore};
 use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
@@ -232,42 +232,6 @@ impl Layer for StoreLayer {
         self.layer.node_and_value_count()
     }
 
-    fn node_dict_id(&self, subject: &str) -> Option<u64> {
-        self.layer.node_dict_id(subject)
-    }
-
-    fn node_dict_len(&self) -> usize {
-        self.layer.node_dict_len()
-    }
-
-    fn node_dict_get(&self, id: usize) -> Option<String> {
-        self.layer.node_dict_get(id)
-    }
-
-    fn value_dict_len(&self) -> usize {
-        self.layer.value_dict_len()
-    }
-
-    fn value_dict_id(&self, value: &str) -> Option<u64> {
-        self.layer.value_dict_id(value)
-    }
-
-    fn value_dict_get(&self, id: usize) -> Option<String> {
-        self.layer.value_dict_get(id)
-    }
-
-    fn predicate_dict_id(&self, predicate: &str) -> Option<u64> {
-        self.layer.predicate_dict_id(predicate)
-    }
-
-    fn predicate_dict_len(&self) -> usize {
-        self.layer.predicate_dict_len()
-    }
-
-    fn predicate_dict_get(&self, id: usize) -> Option<String> {
-        self.layer.predicate_dict_get(id)
-    }
-
     fn predicate_count(&self) -> usize {
         self.layer.predicate_count()
     }
@@ -350,6 +314,10 @@ impl Layer for StoreLayer {
 
     fn triple_layer_removal_count(&self) -> usize {
         self.layer.triple_layer_removal_count()
+    }
+
+    fn all_counts(&self) -> LayerCounts {
+        self.layer.all_counts()
     }
 }
 

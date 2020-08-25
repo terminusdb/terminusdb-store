@@ -54,52 +54,6 @@ pub trait InternalLayerImpl {
     fn pos_objects(&self) -> Option<&MonotonicLogArray>;
     fn neg_subjects(&self) -> Option<&MonotonicLogArray>;
     fn neg_objects(&self) -> Option<&MonotonicLogArray>;
-}
-
-impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
-    fn name(&self) -> [u32; 5] {
-        Self::name(self)
-    }
-
-    fn names(&self) -> Vec<[u32; 5]> {
-        let mut result = Vec::new();
-        result.push(self.name());
-
-        let mut parent_option = self.parent();
-        while let Some(parent) = parent_option {
-            result.push(parent.name());
-            parent_option = parent.parent();
-        }
-
-        result.reverse();
-
-        result
-    }
-
-    fn parent(&self) -> Option<&dyn Layer> {
-        self.immediate_parent()
-            .map(|layer| layer.as_layer())
-    }
-
-    fn node_and_value_count(&self) -> usize {
-        let mut parent_option = self.parent();
-        let mut count = self.node_dictionary().len() + self.value_dictionary().len();
-        while let Some(parent) = parent_option {
-            count += parent.node_dict_len() + parent.value_dict_len();
-            parent_option = parent.parent();
-        }
-        count
-    }
-
-    fn predicate_count(&self) -> usize {
-        let mut parent_option = self.parent();
-        let mut count = self.predicate_dictionary().len();
-        while let Some(parent) = parent_option {
-            count += parent.predicate_dict_len();
-            parent_option = parent.parent();
-        }
-        count
-    }
 
     fn predicate_dict_get(&self, id: usize) -> Option<String> {
         self.predicate_dictionary().get(id)
@@ -137,8 +91,55 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
         self.value_dictionary().get(id)
     }
 
+}
+
+impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
+    fn name(&self) -> [u32; 5] {
+        Self::name(self)
+    }
+
+    fn names(&self) -> Vec<[u32; 5]> {
+        let mut result = Vec::new();
+        result.push(InternalLayerImpl::name(self));
+
+        let mut parent_option = self.immediate_parent();
+        while let Some(parent) = parent_option {
+            result.push(InternalLayerImpl::name(parent));
+            parent_option = parent.immediate_parent();
+        }
+
+        result.reverse();
+
+        result
+    }
+
+    fn parent(&self) -> Option<&dyn Layer> {
+        self.immediate_parent()
+            .map(|layer| layer.as_layer())
+    }
+
+    fn node_and_value_count(&self) -> usize {
+        let mut parent_option = self.immediate_parent();
+        let mut count = self.node_dictionary().len() + self.value_dictionary().len();
+        while let Some(parent) = parent_option {
+            count += parent.node_dict_len() + parent.value_dict_len();
+            parent_option = parent.immediate_parent();
+        }
+        count
+    }
+
+    fn predicate_count(&self) -> usize {
+        let mut parent_option = self.immediate_parent();
+        let mut count = self.predicate_dictionary().len();
+        while let Some(parent) = parent_option {
+            count += parent.predicate_dict_len();
+            parent_option = parent.immediate_parent();
+        }
+        count
+    }
+
     fn subject_id<'a>(&'a self, subject: &str) -> Option<u64> {
-        let to_result = |layer: &'a dyn Layer| (layer.node_dict_id(subject), layer.parent());
+        let to_result = |layer: &'a dyn InternalLayerImpl| (layer.node_dict_id(subject), layer.immediate_parent());
         let mut result = to_result(self);
         while let (None, Some(layer)) = result {
             result = to_result(layer);
@@ -148,7 +149,7 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
     }
 
     fn predicate_id<'a>(&'a self, predicate: &str) -> Option<u64> {
-        let to_result = |layer: &'a dyn Layer| (layer.predicate_dict_id(predicate), layer.parent());
+        let to_result = |layer: &'a dyn InternalLayerImpl| (layer.predicate_dict_id(predicate), layer.immediate_parent());
         let mut result = to_result(self);
         while let (None, Some(layer)) = result {
             result = to_result(layer);
@@ -158,7 +159,7 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
     }
 
     fn object_node_id<'a>(&'a self, object: &str) -> Option<u64> {
-        let to_result = |layer: &'a dyn Layer| (layer.node_dict_id(object), layer.parent());
+        let to_result = |layer: &'a dyn InternalLayerImpl| (layer.node_dict_id(object), layer.immediate_parent());
         let mut result = to_result(self);
         while let (None, Some(layer)) = result {
             result = to_result(layer);
@@ -168,12 +169,12 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
     }
 
     fn object_value_id<'a>(&'a self, object: &str) -> Option<u64> {
-        let to_result = |layer: &'a dyn Layer| {
+        let to_result = |layer: &'a dyn InternalLayerImpl| {
             (
                 layer
                     .value_dict_id(object)
                     .map(|i| i + layer.node_dict_len() as u64),
-                layer.parent(),
+                layer.immediate_parent(),
             )
         };
         let mut result = to_result(self);
@@ -189,10 +190,10 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
             return None;
         }
         let mut corrected_id = id - 1;
-        let mut current_option: Option<&dyn Layer> = Some(self);
+        let mut current_option: Option<&dyn InternalLayerImpl> = Some(self);
         let mut parent_count = self.node_and_value_count() as u64;
         while let Some(current_layer) = current_option {
-            if let Some(parent) = current_layer.parent() {
+            if let Some(parent) = current_layer.immediate_parent() {
                 parent_count = parent_count
                     - current_layer.node_dict_len() as u64
                     - current_layer.value_dict_len() as u64;
@@ -216,11 +217,11 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
         if id == 0 {
             return None;
         }
-        let mut current_option: Option<&dyn Layer> = Some(self);
+        let mut current_option: Option<&dyn InternalLayerImpl> = Some(self);
         let mut parent_count = self.predicate_count() as u64;
         while let Some(current_layer) = current_option {
             let mut corrected_id = id - 1;
-            if let Some(parent) = current_layer.parent() {
+            if let Some(parent) = current_layer.immediate_parent() {
                 parent_count = parent_count - current_layer.predicate_dict_len() as u64;
                 if corrected_id >= parent_count as u64 {
                     // subject, if it exists, is in this layer
@@ -243,10 +244,10 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
             return None;
         }
         let mut corrected_id = id - 1;
-        let mut current_option: Option<&dyn Layer> = Some(self);
+        let mut current_option: Option<&dyn InternalLayerImpl> = Some(self);
         let mut parent_count = self.node_and_value_count() as u64;
         while let Some(current_layer) = current_option {
-            if let Some(parent) = current_layer.parent() {
+            if let Some(parent) = current_layer.immediate_parent() {
                 parent_count = parent_count
                     - current_layer.node_dict_len() as u64
                     - current_layer.value_dict_len() as u64;
@@ -497,7 +498,23 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
             .unwrap_or(0)
     }
 
-
+    fn all_counts(&self) -> LayerCounts {
+        let mut node_count = self.node_dict_len();
+        let mut predicate_count = self.predicate_dict_len();
+        let mut value_count = self.value_dict_len();
+        let mut parent_option = self.immediate_parent();
+        while let Some(parent) = parent_option {
+            node_count += parent.node_dict_len();
+            predicate_count += parent.predicate_dict_len();
+            value_count += parent.value_dict_len();
+            parent_option = parent.immediate_parent();
+        }
+        LayerCounts {
+            node_count,
+            predicate_count,
+            value_count,
+        }
+    }
 }
 
 #[derive(Clone)]
