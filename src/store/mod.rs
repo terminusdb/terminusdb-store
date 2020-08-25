@@ -165,21 +165,23 @@ impl StoreLayer {
         })
     }
 
-    pub fn squash(self) -> impl Future<Item = StoreLayer, Error = io::Error> + Send {
+    pub fn squash(&self) -> impl Future<Item = StoreLayer, Error = io::Error> + Send {
+        let self_clone = self.clone();
+
         // TODO check if we already committed
         self.store
             .create_base_layer()
             .and_then(move |new_builder : StoreLayerBuilder| {
 
-                let iter = self.triples()
-                    .map(|t| self.id_triple_to_string(&t).unwrap());
+                let iter = self_clone.triples()
+                    .map(|t| self_clone.id_triple_to_string(&t).unwrap());
 
                 for st in iter {
                     new_builder
                         .add_string_triple(&st).unwrap()
                 };
 
-                new_builder.commit().map(|c| c.clone())
+                new_builder.commit() /* .map(|c| c.clone())*/
             })
 
     }
