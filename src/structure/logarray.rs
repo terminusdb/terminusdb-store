@@ -861,6 +861,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     #[should_panic(expected = "not monotonic: expected predecessor (2) <= successor (1)")]
     fn monotonic_panic() {
         let content = [0u8, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 2, 32, 0, 0, 0].as_ref();
