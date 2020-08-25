@@ -293,6 +293,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layer::internal::InternalLayer;
     use crate::storage::memory::*;
 
     fn new_base_files() -> BaseLayerFiles<MemoryBackedStore> {
@@ -422,7 +423,7 @@ mod tests {
         }
     }
 
-    fn example_base_layer() -> Arc<dyn Layer> {
+    fn example_base_layer() -> Arc<InternalLayer> {
         let name = [1, 2, 3, 4, 5];
         let files = new_base_files();
         let mut builder = SimpleLayerBuilder::new(name, files.clone());
@@ -434,7 +435,7 @@ mod tests {
         builder.commit().wait().unwrap();
 
         let layer = BaseLayer::load_from_files(name, &files).wait().unwrap();
-        Arc::new(layer)
+        Arc::new(layer.into())
     }
 
     #[test]
@@ -488,10 +489,11 @@ mod tests {
         builder.remove_string_triple(&StringTriple::new_value("duck", "says", "quack"));
 
         builder.commit().wait().unwrap();
-        let layer2 = Arc::new(
+        let layer2: Arc<InternalLayer> = Arc::new(
             ChildLayer::load_from_files(name2, base_layer, &files2)
                 .wait()
-                .unwrap(),
+                .unwrap()
+                .into(),
         );
 
         let name3 = [0, 0, 0, 0, 1];
@@ -502,10 +504,11 @@ mod tests {
         builder.add_string_triple(&StringTriple::new_value("duck", "says", "quack"));
 
         builder.commit().wait().unwrap();
-        let layer3 = Arc::new(
+        let layer3: Arc<InternalLayer> = Arc::new(
             ChildLayer::load_from_files(name3, layer2, &files3)
                 .wait()
-                .unwrap(),
+                .unwrap()
+                .into(),
         );
 
         let name4 = [0, 0, 0, 0, 1];

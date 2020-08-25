@@ -1,6 +1,6 @@
 use super::consts::FILENAMES;
 use super::file::*;
-use crate::layer::{BaseLayer, ChildLayer, Layer, LayerBuilder, LayerType, SimpleLayerBuilder};
+use crate::layer::{BaseLayer, ChildLayer, Layer, LayerBuilder, LayerType, SimpleLayerBuilder, InternalLayer};
 use std::io;
 use std::sync::{Arc, Weak};
 
@@ -11,18 +11,18 @@ use std::sync::RwLock;
 use std::collections::HashMap;
 
 pub trait LayerCache: 'static + Send + Sync {
-    fn get_layer_from_cache(&self, name: [u32; 5]) -> Option<Arc<dyn Layer>>;
-    fn cache_layer(&self, layer: Arc<dyn Layer>);
+    fn get_layer_from_cache(&self, name: [u32; 5]) -> Option<Arc<InternalLayer>>;
+    fn cache_layer(&self, layer: Arc<InternalLayer>);
 }
 
 pub struct NoCache;
 
 impl LayerCache for NoCache {
-    fn get_layer_from_cache(&self, _name: [u32; 5]) -> Option<Arc<dyn Layer>> {
+    fn get_layer_from_cache(&self, _name: [u32; 5]) -> Option<Arc<InternalLayer>> {
         None
     }
 
-    fn cache_layer(&self, _layer: Arc<dyn Layer>) {}
+    fn cache_layer(&self, _layer: Arc<InternalLayer>) {}
 }
 
 lazy_static! {
@@ -420,7 +420,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         cache: Arc<dyn LayerCache>,
     ) -> Box<dyn Future<Item = Option<Arc<dyn Layer>>, Error = io::Error> + Send> {
         if let Some(layer) = cache.get_layer_from_cache(name) {
-            return Box::new(future::ok(Some(layer)));
+            return Box::new(future::ok(Some(layer as Arc<dyn Layer>)));
         }
 
         let cloned = self.clone();
@@ -479,7 +479,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                                     .base_layer_files(base)
                                     .and_then(move |files| BaseLayer::load_from_files(base, &files))
                                     .map(move |l| {
-                                        let result = Arc::new(l) as Arc<dyn Layer>;
+                                        let result = Arc::new(l.into()) as Arc<InternalLayer>;
                                         cache.cache_layer(result.clone());
                                         (result, ids, cache)
                                     }),
@@ -496,7 +496,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                                         ChildLayer::load_from_files(id, parent, &files)
                                     })
                                     .map(move |l| {
-                                        let result = Arc::new(l) as Arc<dyn Layer>;
+                                        let result = Arc::new(l.into()) as Arc<InternalLayer>;
                                         cache.cache_layer(result.clone());
                                         result
                                     })
@@ -505,7 +505,8 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                     }),
                 ),
             }
-        }))
+        })
+        .map(|l| l.map(|layer| layer as Arc<dyn Layer>)))
     }
 
     fn create_base_layer(
@@ -565,9 +566,9 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
 
 // locking isn't really ideal but the lock window will be relatively small so it shouldn't hurt performance too much except on heavy updates.
 // ideally we should be using some concurrent hashmap implementation instead.
-// furthermore, there shouldbe some logic to remove stale entries, like a periodic pass. right now, there isn't.
+// furthermore, there should be some logic to remove stale entries, like a periodic pass. right now, there isn't.
 pub struct LockingHashMapLayerCache {
-    cache: RwLock<HashMap<[u32; 5], Weak<dyn Layer>>>,
+    cache: RwLock<HashMap<[u32; 5], Weak<InternalLayer>>>,
 }
 
 impl LockingHashMapLayerCache {
@@ -579,7 +580,7 @@ impl LockingHashMapLayerCache {
 }
 
 impl LayerCache for LockingHashMapLayerCache {
-    fn get_layer_from_cache(&self, name: [u32; 5]) -> Option<Arc<dyn Layer>> {
+    fn get_layer_from_cache(&self, name: [u32; 5]) -> Option<Arc<InternalLayer>> {
         let cache = self
             .cache
             .read()
@@ -603,7 +604,7 @@ impl LayerCache for LockingHashMapLayerCache {
         }
     }
 
-    fn cache_layer(&self, layer: Arc<dyn Layer>) {
+    fn cache_layer(&self, layer: Arc<InternalLayer>) {
         let mut cache = self
             .cache
             .write()
@@ -683,6 +684,16 @@ pub mod tests {
     use tempfile::tempdir;
     use tokio::runtime::Runtime;
 
+    fn cached_layer_eq(layer1: &dyn Layer, layer2: &dyn Layer) -> bool {
+        // a trait object consists of two parts, a pointer to the concrete data, followed by a vtable.
+        // we consider two layers equal if that first part, the pointer to the concrete data, is equal.
+        unsafe {
+            let ptr1 = *(layer1 as *const dyn Layer as *const usize);
+            let ptr2 = *(layer2 as *const dyn Layer as *const usize);
+            ptr1 == ptr2
+        }
+    }
+
     #[test]
     fn cached_memory_layer_store_returns_same_layer_multiple_times() {
         let store = CachedLayerStore::new(MemoryLayerStore::new(), LockingHashMapLayerCache::new());
@@ -706,13 +717,11 @@ pub mod tests {
         let layer1 = store.get_layer(child_name).wait().unwrap().unwrap();
         let layer2 = store.get_layer(child_name).wait().unwrap().unwrap();
 
-        let base_layer = store.get_layer(base_name).wait().unwrap().unwrap();
+        let base_layer = store.cache.get_layer_from_cache(base_name).unwrap();
+        let base_layer_2 = store.get_layer(base_name).wait().unwrap().unwrap();
 
-        assert!(Arc::ptr_eq(&layer1, &layer2));
-        assert_eq!(
-            &*base_layer as *const dyn Layer,
-            layer1.parent().unwrap() as *const dyn Layer
-        );
+        assert!(cached_layer_eq(&*layer1, &*layer2));
+        assert!(cached_layer_eq(&*base_layer, &*base_layer_2));
     }
 
     #[test]
@@ -757,16 +766,14 @@ pub mod tests {
             .unwrap()
             .unwrap();
 
-        let base_layer = oneshot::spawn(store.get_layer(base_name), &runtime.executor())
+        let base_layer = store.cache.get_layer_from_cache(base_name).unwrap();
+        let base_layer_2 = oneshot::spawn(store.get_layer(base_name), &runtime.executor())
             .wait()
             .unwrap()
             .unwrap();
 
-        assert!(Arc::ptr_eq(&layer1, &layer2));
-        assert_eq!(
-            &*base_layer as *const dyn Layer,
-            layer1.parent().unwrap() as *const dyn Layer
-        );
+        assert!(cached_layer_eq(&*layer1, &*layer2));
+        assert!(cached_layer_eq(&*base_layer, &*base_layer_2));
     }
 
     #[test]

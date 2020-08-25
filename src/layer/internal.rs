@@ -500,13 +500,14 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
 
 }
 
+#[derive(Clone)]
 pub enum InternalLayer {
     Base(BaseLayer),
     Child(ChildLayer)
 }
 
 impl InternalLayer {
-    fn as_layer(&self) -> &dyn Layer {
+    pub fn as_layer(&self) -> &dyn Layer {
         match self {
             Self::Base(base) => base as &dyn Layer,
             Self::Child(child) => child as &dyn Layer
@@ -517,7 +518,84 @@ impl InternalLayer {
 impl Deref for InternalLayer {
     type Target = dyn InternalLayerImpl+Send+Sync;
     fn deref(&self) -> &Self::Target {
-        unimplemented!();
+        match self {
+            Self::Base(base) => base as &Self::Target,
+            Self::Child(child) => child as &Self::Target,
+        }
+    }
+}
+
+impl From<BaseLayer> for InternalLayer {
+    fn from(layer: BaseLayer) -> InternalLayer {
+        InternalLayer::Base(layer)
+    }
+}
+
+impl From<ChildLayer> for InternalLayer {
+    fn from(layer: ChildLayer) -> InternalLayer {
+        InternalLayer::Child(layer)
+    }
+}
+
+impl InternalLayerImpl for InternalLayer {
+    fn name(&self) -> [u32;5] {
+        InternalLayerImpl::name(&**self)
+    }
+    fn layer_type(&self) -> LayerType {
+        (&**self).layer_type()
+    }
+    fn immediate_parent(&self) -> Option<&InternalLayer> {
+        (&**self).immediate_parent()
+    }
+
+    fn node_dictionary(&self) -> &PfcDict {
+        (&**self).node_dictionary()
+    }
+    fn predicate_dictionary(&self) -> &PfcDict {
+        (&**self).predicate_dictionary()
+    }
+    fn value_dictionary(&self) -> &PfcDict {
+        (&**self).value_dictionary()
+    }
+
+    fn pos_s_p_adjacency_list(&self) -> &AdjacencyList {
+        (&**self).pos_s_p_adjacency_list()
+    }
+    fn pos_sp_o_adjacency_list(&self) -> &AdjacencyList {
+        (&**self).pos_sp_o_adjacency_list()
+    }
+    fn pos_o_ps_adjacency_list(&self) -> &AdjacencyList {
+        (&**self).pos_o_ps_adjacency_list()
+    }
+
+    fn neg_s_p_adjacency_list(&self) -> Option<&AdjacencyList> {
+        (&**self).neg_s_p_adjacency_list()
+    }
+    fn neg_sp_o_adjacency_list(&self) -> Option<&AdjacencyList> {
+        (&**self).neg_sp_o_adjacency_list()
+    }
+    fn neg_o_ps_adjacency_list(&self) -> Option<&AdjacencyList> {
+        (&**self).neg_o_ps_adjacency_list()
+    }
+
+    fn pos_predicate_wavelet_tree(&self) -> &WaveletTree {
+        (&**self).pos_predicate_wavelet_tree()
+    }
+    fn neg_predicate_wavelet_tree(&self) -> Option<&WaveletTree> {
+        (&**self).neg_predicate_wavelet_tree()
+    }
+
+    fn pos_subjects(&self) -> Option<&MonotonicLogArray> {
+        (&**self).pos_subjects()
+    }
+    fn pos_objects(&self) -> Option<&MonotonicLogArray> {
+        (&**self).pos_objects()
+    }
+    fn neg_subjects(&self) -> Option<&MonotonicLogArray> {
+        (&**self).neg_subjects()
+    }
+    fn neg_objects(&self) -> Option<&MonotonicLogArray> {
+        (&**self).neg_objects()
     }
 }
 

@@ -1624,6 +1624,7 @@ mod tests {
     use crate::layer::builder::{LayerBuilder, SimpleLayerBuilder};
     use crate::layer::child::tests::child_layer_files;
     use crate::layer::child::ChildLayer;
+    use crate::layer::internal::InternalLayer;
     use futures::prelude::*;
     use std::sync::Arc;
 
@@ -1637,11 +1638,12 @@ mod tests {
 
         builder.commit().wait().unwrap();
 
-        let base = Arc::new(
+        let base: Arc<InternalLayer> = Arc::new(
             BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
                 .wait()
-                .unwrap(),
-        ) as Arc<dyn Layer>;
+                .unwrap()
+                .into(),
+        );
 
         let files = child_layer_files();
         let mut builder =
@@ -1649,11 +1651,12 @@ mod tests {
         builder.remove_string_triple(&StringTriple::new_value("cow", "says", "moo"));
         builder.commit().wait().unwrap();
 
-        let child = Arc::new(
+        let child: Arc<InternalLayer> = Arc::new(
             ChildLayer::load_from_files([5, 4, 3, 2, 1], base, &files)
                 .wait()
-                .unwrap(),
-        ) as Arc<dyn Layer>;
+                .unwrap()
+                .into(),
+        );
 
         let triples: Vec<_> = child
             .triples()
@@ -1675,11 +1678,12 @@ mod tests {
 
         builder.commit().wait().unwrap();
 
-        let base = Arc::new(
+        let base: Arc<InternalLayer> = Arc::new(
             BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
                 .wait()
-                .unwrap(),
-        ) as Arc<dyn Layer>;
+                .unwrap()
+                .into(),
+        );
 
         let files = child_layer_files();
         let mut builder =
@@ -1687,11 +1691,12 @@ mod tests {
         builder.remove_string_triple(&StringTriple::new_value("cow", "says", "moo"));
         builder.commit().wait().unwrap();
 
-        let child = Arc::new(
+        let child: Arc<InternalLayer> = Arc::new(
             ChildLayer::load_from_files([5, 4, 3, 2, 1], base, &files)
                 .wait()
-                .unwrap(),
-        ) as Arc<dyn Layer>;
+                .unwrap()
+                .into(),
+        );
 
         let files = child_layer_files();
         let mut builder =
@@ -1699,11 +1704,12 @@ mod tests {
         builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
         builder.commit().wait().unwrap();
 
-        let child = Arc::new(
+        let child: Arc<InternalLayer> = Arc::new(
             ChildLayer::load_from_files([5, 4, 3, 2, 2], child, &files)
                 .wait()
-                .unwrap(),
-        ) as Arc<dyn Layer>;
+                .unwrap()
+                .into(),
+        );
 
         let triples: Vec<_> = child
             .triples()
@@ -1723,11 +1729,12 @@ mod tests {
 
         builder.commit().wait().unwrap();
 
-        let base = Arc::new(
+        let base: Arc<InternalLayer> = Arc::new(
             BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
                 .wait()
-                .unwrap(),
-        ) as Arc<dyn Layer>;
+                .unwrap()
+                .into(),
+        );
 
         let files = child_layer_files();
         let mut builder =
@@ -1760,11 +1767,12 @@ mod tests {
 
         builder.commit().wait().unwrap();
 
-        let base = Arc::new(
+        let base: Arc<InternalLayer> = Arc::new(
             BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
                 .wait()
-                .unwrap(),
-        ) as Arc<dyn Layer>;
+                .unwrap()
+                .into()
+        );
 
         let files = child_layer_files();
         let mut builder =
@@ -1772,11 +1780,12 @@ mod tests {
         builder.remove_string_triple(&StringTriple::new_value("cow", "says", "moo"));
         builder.commit().wait().unwrap();
 
-        let child = Arc::new(
+        let child: Arc<InternalLayer> = Arc::new(
             ChildLayer::load_from_files([5, 4, 3, 2, 1], base, &files)
                 .wait()
-                .unwrap(),
-        ) as Arc<dyn Layer>;
+                .unwrap()
+                .into()
+        );
 
         let files = child_layer_files();
         let mut builder =
@@ -1784,11 +1793,12 @@ mod tests {
         builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
         builder.commit().wait().unwrap();
 
-        let child = Arc::new(
+        let child: Arc<InternalLayer> = Arc::new(
             ChildLayer::load_from_files([5, 4, 3, 2, 2], child, &files)
                 .wait()
-                .unwrap(),
-        ) as Arc<dyn Layer>;
+                .unwrap()
+                .into()
+        );
 
         let triples: Vec<_> = child
             .objects()

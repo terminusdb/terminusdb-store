@@ -4,6 +4,7 @@
 //! triple additions and removals, and any new dictionary entries that
 //! this layer needs for its additions.
 use super::layer::*;
+use super::internal::*;
 use crate::storage::*;
 use crate::structure::*;
 use futures::future;
@@ -21,7 +22,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct ChildLayer {
     name: [u32; 5],
-    parent: Arc<dyn Layer>,
+    parent: Arc<InternalLayer>,
 
     node_dictionary: PfcDict,
     predicate_dictionary: PfcDict,
@@ -46,7 +47,7 @@ pub struct ChildLayer {
 impl ChildLayer {
     pub fn load_from_files<F: FileLoad + FileStore + Clone>(
         name: [u32; 5],
-        parent: Arc<dyn Layer>,
+        parent: Arc<InternalLayer>,
         files: &ChildLayerFiles<F>,
     ) -> impl Future<Item = Self, Error = std::io::Error> {
         files
@@ -54,7 +55,7 @@ impl ChildLayer {
             .map(move |maps| Self::load(name, parent, maps))
     }
 
-    pub fn load(name: [u32; 5], parent: Arc<dyn Layer>, maps: ChildLayerMaps) -> ChildLayer {
+    pub fn load(name: [u32; 5], parent: Arc<InternalLayer>, maps: ChildLayerMaps) -> ChildLayer {
         let node_dictionary = PfcDict::parse(
             maps.node_dictionary_maps.blocks_map,
             maps.node_dictionary_maps.offsets_map,
@@ -162,542 +163,79 @@ impl ChildLayer {
             neg_predicate_wavelet_tree,
         }
     }
-
-    fn lookup_layer_object_addition_mapped(&self, mapped_object: u64) -> impl LayerObjectLookup {
-        if mapped_object == 0 || mapped_object as usize > self.pos_objects.len() {
-            panic!("unknown mapped object requested");
-        }
-        let object = self.pos_objects.entry((mapped_object - 1) as usize);
-
-        let sp_slice = self.pos_o_ps_adjacency_list.get(mapped_object);
-        let subjects = self.pos_subjects.clone();
-        let s_p_adjacency_list = self.pos_s_p_adjacency_list.clone();
-
-        ChildLayerObjectLookup {
-            object,
-            sp_slice,
-            s_p_adjacency_list,
-            subjects,
-        }
-    }
-
-    fn lookup_layer_object_removal_mapped(&self, mapped_object: u64) -> impl LayerObjectLookup {
-        if mapped_object == 0 || mapped_object as usize > self.neg_objects.len() {
-            panic!("unknown mapped object requested");
-        }
-        let object = self.neg_objects.entry((mapped_object - 1) as usize);
-
-        let sp_slice = self.neg_o_ps_adjacency_list.get(mapped_object);
-        let subjects = self.neg_subjects.clone();
-        let s_p_adjacency_list = self.neg_s_p_adjacency_list.clone();
-
-        ChildLayerObjectLookup {
-            object,
-            sp_slice,
-            s_p_adjacency_list,
-            subjects,
-        }
-    }
 }
 
-impl Layer for ChildLayer {
-    fn name(&self) -> [u32; 5] {
+impl InternalLayerImpl for ChildLayer {
+    fn name(&self) -> [u32;5] {
         self.name
     }
 
-    fn names(&self) -> Vec<[u32; 5]> {
-        let mut names = Vec::new();
-        names.push(self.name());
-        let mut parent_option = self.parent();
-        while let Some(parent) = parent_option {
-            parent_option = parent.parent();
-            names.push(parent.name());
-        }
-        names
+    fn layer_type(&self) -> LayerType {
+        LayerType::Base
     }
 
-    fn parent(&self) -> Option<&dyn Layer> {
+    fn immediate_parent(&self) -> Option<&InternalLayer> {
         Some(&*self.parent)
     }
 
-    fn node_dict_id(&self, subject: &str) -> Option<u64> {
-        self.node_dictionary.id(subject)
+    fn node_dictionary(&self) -> &PfcDict {
+        &self.node_dictionary
     }
 
-    fn node_dict_len(&self) -> usize {
-        self.node_dictionary.len()
+    fn predicate_dictionary(&self) -> &PfcDict {
+        &self.predicate_dictionary
     }
 
-    fn node_dict_get(&self, id: usize) -> Option<String> {
-        self.node_dictionary.get(id)
+    fn value_dictionary(&self) -> &PfcDict {
+        &self.value_dictionary
     }
 
-    fn value_dict_get(&self, id: usize) -> Option<String> {
-        self.value_dictionary.get(id)
+    fn pos_s_p_adjacency_list(&self) -> &AdjacencyList {
+        &self.pos_s_p_adjacency_list
     }
 
-    fn value_dict_id(&self, value: &str) -> Option<u64> {
-        self.value_dictionary.id(value)
+    fn pos_sp_o_adjacency_list(&self) -> &AdjacencyList {
+        &self.pos_sp_o_adjacency_list
     }
 
-    fn value_dict_len(&self) -> usize {
-        self.value_dictionary.len()
+    fn pos_o_ps_adjacency_list(&self) -> &AdjacencyList {
+        &self.pos_o_ps_adjacency_list
     }
 
-    fn node_and_value_count(&self) -> usize {
-        let mut parent_option = self.parent();
-        let mut count = self.node_dictionary.len() + self.value_dictionary.len();
-        while let Some(parent) = parent_option {
-            count += parent.node_dict_len() + parent.value_dict_len();
-            parent_option = parent.parent();
-        }
-        count
+    fn neg_s_p_adjacency_list(&self) -> Option<&AdjacencyList> {
+        Some(&self.neg_s_p_adjacency_list)
     }
 
-    fn predicate_dict_len(&self) -> usize {
-        self.predicate_dictionary.len()
+    fn neg_sp_o_adjacency_list(&self) -> Option<&AdjacencyList> {
+        Some(&self.neg_sp_o_adjacency_list)
     }
 
-    fn predicate_dict_id(&self, predicate: &str) -> Option<u64> {
-        self.predicate_dictionary.id(predicate)
+    fn neg_o_ps_adjacency_list(&self) -> Option<&AdjacencyList> {
+        Some(&self.neg_o_ps_adjacency_list)
     }
 
-    fn predicate_dict_get(&self, id: usize) -> Option<String> {
-        self.predicate_dictionary.get(id)
+    fn pos_predicate_wavelet_tree(&self) -> &WaveletTree {
+        &self.pos_predicate_wavelet_tree
     }
 
-    fn predicate_count(&self) -> usize {
-        let mut parent_option = self.parent();
-        let mut count = self.predicate_dictionary.len();
-        while let Some(parent) = parent_option {
-            count += parent.predicate_dict_len();
-            parent_option = parent.parent();
-        }
-        count
+    fn neg_predicate_wavelet_tree(&self) -> Option<&WaveletTree> {
+        Some(&self.neg_predicate_wavelet_tree)
     }
 
-    fn subject_id<'a>(&'a self, subject: &str) -> Option<u64> {
-        let to_result = |layer: &'a dyn Layer| (layer.node_dict_id(subject), layer.parent());
-        let mut result = to_result(self);
-        while let (None, Some(layer)) = result {
-            result = to_result(layer);
-        }
-        let (id_option, parent_option) = result;
-        id_option.map(|id| 1 + id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
+    fn pos_subjects(&self) -> Option<&MonotonicLogArray> {
+        Some(&self.pos_subjects)
     }
 
-    fn predicate_id<'a>(&'a self, predicate: &str) -> Option<u64> {
-        let to_result = |layer: &'a dyn Layer| (layer.predicate_dict_id(predicate), layer.parent());
-        let mut result = to_result(self);
-        while let (None, Some(layer)) = result {
-            result = to_result(layer);
-        }
-        let (id_option, parent_option) = result;
-        id_option.map(|id| 1 + id + parent_option.map_or(0, |p| p.predicate_count() as u64))
+    fn pos_objects(&self) -> Option<&MonotonicLogArray> {
+        Some(&self.pos_objects)
     }
 
-    fn object_node_id<'a>(&'a self, subject: &str) -> Option<u64> {
-        let to_result = |layer: &'a dyn Layer| (layer.node_dict_id(subject), layer.parent());
-        let mut result = to_result(self);
-        while let (None, Some(layer)) = result {
-            result = to_result(layer);
-        }
-        let (id_option, parent_option) = result;
-        id_option.map(|id| 1 + id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
+    fn neg_subjects(&self) -> Option<&MonotonicLogArray> {
+        Some(&self.neg_subjects)
     }
 
-    fn object_value_id<'a>(&'a self, value: &str) -> Option<u64> {
-        let to_result = |layer: &'a dyn Layer| {
-            (
-                layer
-                    .value_dict_id(value)
-                    .map(|i| i + layer.node_dict_len() as u64),
-                layer.parent(),
-            )
-        };
-        let mut result = to_result(self);
-        while let (None, Some(layer)) = result {
-            result = to_result(layer);
-        }
-        let (id_option, parent_option) = result;
-        id_option.map(|id| 1 + id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
-    }
-
-    fn id_subject(&self, id: u64) -> Option<String> {
-        if id == 0 {
-            return None;
-        }
-        let mut corrected_id = id - 1;
-        let mut current_option: Option<&dyn Layer> = Some(self);
-        let mut parent_count = self.node_and_value_count() as u64;
-        while let Some(current_layer) = current_option {
-            parent_count = parent_count
-                - current_layer.node_dict_len() as u64
-                - current_layer.value_dict_len() as u64;
-            if corrected_id >= parent_count as u64 {
-                // subject, if it exists, is in this layer
-                corrected_id -= parent_count;
-                return current_layer.node_dict_get(corrected_id as usize);
-            } else {
-                current_option = current_layer.parent();
-            }
-        }
-        return None;
-    }
-
-    fn id_predicate(&self, id: u64) -> Option<String> {
-        if id == 0 {
-            return None;
-        }
-        let mut corrected_id = id - 1;
-        let mut current_option: Option<&dyn Layer> = Some(self);
-        let mut parent_count = self.predicate_count() as u64;
-        while let Some(current_layer) = current_option {
-            let parent = current_layer.parent();
-            if parent.is_none() {
-                return current_layer.id_predicate(id);
-            }
-            parent_count = parent_count - current_layer.predicate_dict_len() as u64;
-            if corrected_id >= parent_count as u64 {
-                // subject, if it exists, is in this layer
-                corrected_id -= parent_count;
-                return current_layer.predicate_dict_get(corrected_id as usize);
-            } else {
-                current_option = current_layer.parent();
-            }
-        }
-        return None;
-    }
-
-    fn id_object(&self, id: u64) -> Option<ObjectType> {
-        if id == 0 {
-            return None;
-        }
-        let mut corrected_id = id - 1;
-        let mut current_option: Option<&dyn Layer> = Some(self);
-        let mut parent_count = self.node_and_value_count() as u64;
-        while let Some(current_layer) = current_option {
-            let parent = current_layer.parent();
-            if parent.is_none() {
-                return current_layer.id_object(id);
-            }
-            parent_count = parent_count
-                - current_layer.node_dict_len() as u64
-                - current_layer.value_dict_len() as u64;
-
-            if corrected_id >= parent_count {
-                // object, if it exists, is in this layer
-                corrected_id -= parent_count;
-                if corrected_id >= current_layer.node_dict_len() as u64 {
-                    // object, if it exists, must be a value
-                    corrected_id -= current_layer.node_dict_len() as u64;
-                    return current_layer
-                        .value_dict_get(corrected_id as usize)
-                        .map(ObjectType::Value);
-                } else {
-                    return current_layer
-                        .node_dict_get(corrected_id as usize)
-                        .map(ObjectType::Node);
-                }
-            } else {
-                current_option = current_layer.parent();
-            }
-        }
-        return None;
-    }
-
-    fn subject_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>> {
-        let s_p_adjacency_list = self.pos_s_p_adjacency_list.clone();
-        let sp_o_adjacency_list = self.pos_sp_o_adjacency_list.clone();
-        Box::new(self.pos_subjects.iter().enumerate().map(move |(c, s)| {
-            Box::new(ChildLayerSubjectLookup {
-                subject: s,
-                adjacencies: AdjacencyStuff {
-                    predicates: s_p_adjacency_list.get((c as u64) + 1),
-                    sp_offset: s_p_adjacency_list.offset_for((c as u64) + 1),
-                    sp_o_adjacency_list: sp_o_adjacency_list.clone(),
-                },
-            }) as Box<dyn LayerSubjectLookup>
-        }))
-    }
-
-    fn subject_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>> {
-        let s_p_adjacency_list = self.neg_s_p_adjacency_list.clone();
-        let sp_o_adjacency_list = self.neg_sp_o_adjacency_list.clone();
-        Box::new(self.neg_subjects.iter().enumerate().map(move |(c, s)| {
-            Box::new(ChildLayerSubjectLookup {
-                subject: s,
-                adjacencies: AdjacencyStuff {
-                    predicates: s_p_adjacency_list.get((c as u64) + 1),
-                    sp_offset: s_p_adjacency_list.offset_for((c as u64) + 1),
-                    sp_o_adjacency_list: sp_o_adjacency_list.clone(),
-                },
-            }) as Box<dyn LayerSubjectLookup>
-        }))
-    }
-
-    fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn LayerSubjectLookup>> {
-        if subject == 0 {
-            return None;
-        }
-
-        let index = self.pos_subjects.index_of(subject);
-        if index.is_none() {
-            return None;
-        }
-
-        let mapped_subject = index.unwrap() as u64 + 1;
-        if mapped_subject <= self.pos_s_p_adjacency_list.left_count() as u64 {
-            let predicates = self.pos_s_p_adjacency_list.get(mapped_subject);
-            let sp_offset = self.pos_s_p_adjacency_list.offset_for(mapped_subject);
-            Some(Box::new(ChildLayerSubjectLookup {
-                subject,
-                adjacencies: AdjacencyStuff {
-                    predicates,
-                    sp_offset,
-                    sp_o_adjacency_list: self.pos_sp_o_adjacency_list.clone(),
-                },
-            }))
-        } else {
-            None
-        }
-    }
-
-    fn lookup_subject_removal(&self, subject: u64) -> Option<Box<dyn LayerSubjectLookup>> {
-        if subject == 0 {
-            return None;
-        }
-
-        let index = self.neg_subjects.index_of(subject);
-        if index.is_none() {
-            return None;
-        }
-
-        let mapped_subject = index.unwrap() as u64 + 1;
-        if mapped_subject <= self.neg_s_p_adjacency_list.left_count() as u64 {
-            let predicates = self.neg_s_p_adjacency_list.get(mapped_subject);
-            let sp_offset = self.neg_s_p_adjacency_list.offset_for(mapped_subject);
-            Some(Box::new(ChildLayerSubjectLookup {
-                subject,
-                adjacencies: AdjacencyStuff {
-                    predicates,
-                    sp_offset,
-                    sp_o_adjacency_list: self.neg_sp_o_adjacency_list.clone(),
-                },
-            }))
-        } else {
-            None
-        }
-    }
-
-    fn object_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>> {
-        let cloned = self.clone();
-        Box::new((0..self.pos_objects.len()).map(move |mapped_object| {
-            Box::new(cloned.lookup_layer_object_addition_mapped((mapped_object + 1) as u64))
-                as Box<dyn LayerObjectLookup>
-        }))
-    }
-
-    fn object_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>> {
-        let cloned = self.clone();
-        Box::new((0..self.neg_objects.len()).map(move |mapped_object| {
-            Box::new(cloned.lookup_layer_object_removal_mapped((mapped_object + 1) as u64))
-                as Box<dyn LayerObjectLookup>
-        }))
-    }
-
-    fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn LayerObjectLookup>> {
-        self.pos_objects.index_of(object).map(|index| {
-            Box::new(self.lookup_layer_object_addition_mapped((index as u64) + 1))
-                as Box<dyn LayerObjectLookup>
-        })
-    }
-
-    fn lookup_object_removal(&self, object: u64) -> Option<Box<dyn LayerObjectLookup>> {
-        self.neg_objects.index_of(object).map(|index| {
-            Box::new(self.lookup_layer_object_removal_mapped((index as u64) + 1))
-                as Box<dyn LayerObjectLookup>
-        })
-    }
-
-    fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn LayerPredicateLookup>> {
-        self.pos_predicate_wavelet_tree
-            .lookup(predicate)
-            .map(|lookup| {
-                Box::new(ChildLayerPredicateLookup {
-                    predicate,
-                    lookup,
-                    subjects: self.pos_subjects.clone(),
-                    s_p_adjacency_list: self.pos_s_p_adjacency_list.clone(),
-                    sp_o_adjacency_list: self.pos_sp_o_adjacency_list.clone(),
-                }) as Box<dyn LayerPredicateLookup>
-            })
-    }
-
-    fn lookup_predicate_removal(&self, predicate: u64) -> Option<Box<dyn LayerPredicateLookup>> {
-        self.neg_predicate_wavelet_tree
-            .lookup(predicate)
-            .map(|lookup| {
-                Box::new(ChildLayerPredicateLookup {
-                    predicate,
-                    lookup,
-                    subjects: self.neg_subjects.clone(),
-                    s_p_adjacency_list: self.neg_s_p_adjacency_list.clone(),
-                    sp_o_adjacency_list: self.neg_sp_o_adjacency_list.clone(),
-                }) as Box<dyn LayerPredicateLookup>
-            })
-    }
-
-    fn clone_boxed(&self) -> Box<dyn Layer> {
-        Box::new(self.clone())
-    }
-
-    fn triple_layer_addition_count(&self) -> usize {
-        self.pos_sp_o_adjacency_list.right_count()
-    }
-
-    fn triple_layer_removal_count(&self) -> usize {
-        self.neg_sp_o_adjacency_list.right_count()
-    }
-}
-
-#[derive(Clone)]
-struct AdjacencyStuff {
-    predicates: LogArray,
-    sp_offset: u64,
-    sp_o_adjacency_list: AdjacencyList,
-}
-
-struct ChildLayerSubjectLookup {
-    subject: u64,
-
-    adjacencies: AdjacencyStuff,
-}
-
-impl LayerSubjectLookup for ChildLayerSubjectLookup {
-    fn subject(&self) -> u64 {
-        self.subject
-    }
-
-    fn predicates(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectPredicateLookup>>> {
-        let subject = self.subject;
-        let offset = self.adjacencies.sp_offset;
-        let aj = self.adjacencies.sp_o_adjacency_list.clone();
-        Box::new(
-            self.adjacencies
-                .predicates
-                .iter()
-                .enumerate()
-                .map(move |(c, p)| {
-                    Box::new(ChildLayerSubjectPredicateLookup {
-                        subject: subject,
-                        predicate: p,
-                        objects: aj.get(offset + (c as u64) + 1),
-                    }) as Box<dyn LayerSubjectPredicateLookup>
-                }),
-        )
-    }
-
-    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn LayerSubjectPredicateLookup>> {
-        self.adjacencies
-            .predicates
-            .iter()
-            .position(|p| p == predicate)
-            .map(|pos| {
-                self.adjacencies
-                    .sp_o_adjacency_list
-                    .get(self.adjacencies.sp_offset + (pos as u64) + 1)
-            })
-            .map(|objects| {
-                Box::new(ChildLayerSubjectPredicateLookup {
-                    subject: self.subject,
-                    predicate: predicate,
-                    objects: objects,
-                }) as Box<dyn LayerSubjectPredicateLookup>
-            })
-    }
-}
-
-struct ChildLayerSubjectPredicateLookup {
-    subject: u64,
-    predicate: u64,
-    objects: LogArray,
-}
-
-impl LayerSubjectPredicateLookup for ChildLayerSubjectPredicateLookup {
-    fn subject(&self) -> u64 {
-        self.subject
-    }
-
-    fn predicate(&self) -> u64 {
-        self.predicate
-    }
-
-    fn objects(&self) -> Box<dyn Iterator<Item = u64>> {
-        Box::new(self.objects.iter())
-    }
-
-    fn has_object(&self, object: u64) -> bool {
-        self.objects.iter().find(|&x| x == object).is_some()
-    }
-}
-
-struct ChildLayerObjectLookup {
-    object: u64,
-    sp_slice: LogArray,
-    s_p_adjacency_list: AdjacencyList,
-    subjects: MonotonicLogArray,
-}
-
-impl LayerObjectLookup for ChildLayerObjectLookup {
-    fn object(&self) -> u64 {
-        self.object
-    }
-
-    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item = (u64, u64)>> {
-        let sp_slice = self.sp_slice.clone();
-        let s_p_adjacency_list = self.s_p_adjacency_list.clone();
-        let subjects = self.subjects.clone();
-        Box::new(
-            sp_slice
-                .iter()
-                .map(move |index| s_p_adjacency_list.pair_at_pos(index - 1))
-                .map(move |(mapped_subject, predicate)| {
-                    (subjects.entry((mapped_subject as usize) - 1), predicate)
-                }),
-        )
-    }
-}
-
-struct ChildLayerPredicateLookup {
-    predicate: u64,
-    lookup: WaveletLookup,
-    subjects: MonotonicLogArray,
-    s_p_adjacency_list: AdjacencyList,
-    sp_o_adjacency_list: AdjacencyList,
-}
-
-impl LayerPredicateLookup for ChildLayerPredicateLookup {
-    fn predicate(&self) -> u64 {
-        self.predicate
-    }
-
-    fn subject_predicate_pairs(
-        &self,
-    ) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectPredicateLookup>>> {
-        let predicate = self.predicate;
-        let subjects = self.subjects.clone();
-        let s_p_adjacency_list = self.s_p_adjacency_list.clone();
-        let sp_o_adjacency_list = self.sp_o_adjacency_list.clone();
-
-        Box::new(self.lookup.iter().map(move |pos| {
-            let (mapped_subject, _predicate) = s_p_adjacency_list.pair_at_pos(pos);
-            Box::new(ChildLayerSubjectPredicateLookup {
-                subject: subjects.entry((mapped_subject as usize) - 1),
-                predicate: predicate,
-                objects: sp_o_adjacency_list.get(pos + 1),
-            }) as Box<dyn LayerSubjectPredicateLookup>
-        }))
+    fn neg_objects(&self) -> Option<&MonotonicLogArray> {
+        Some(&self.neg_objects)
     }
 }
 
@@ -1682,7 +1220,7 @@ pub mod tests {
     fn empty_child_layer_equivalent_to_parent() {
         let base_layer = example_base_layer();
 
-        let parent = Arc::new(base_layer);
+        let parent:Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
@@ -1712,7 +1250,7 @@ pub mod tests {
     fn child_layer_can_have_inserts() {
         let base_layer = example_base_layer();
 
-        let parent = Arc::new(base_layer);
+        let parent:Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
@@ -1746,7 +1284,7 @@ pub mod tests {
     fn child_layer_can_have_deletes() {
         let base_layer = example_base_layer();
 
-        let parent = Arc::new(base_layer);
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
@@ -1777,7 +1315,7 @@ pub mod tests {
     #[test]
     fn child_layer_can_have_inserts_and_deletes() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(base_layer);
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
@@ -1811,7 +1349,7 @@ pub mod tests {
     #[test]
     fn iterate_child_layer_triples() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(base_layer);
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
@@ -1852,7 +1390,7 @@ pub mod tests {
     #[test]
     fn iterate_child_layer_triples_by_object() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(base_layer);
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
@@ -1895,7 +1433,7 @@ pub mod tests {
     #[test]
     fn iterate_child_layer_triples_by_objects_with_equal_predicates() {
         let base_layer = empty_base_layer();
-        let parent = Arc::new(base_layer);
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
@@ -1935,7 +1473,7 @@ pub mod tests {
     #[test]
     fn lookup_child_layer_triples_by_predicate() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(base_layer);
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
@@ -1991,7 +1529,7 @@ pub mod tests {
     #[test]
     fn adding_new_nodes_predicates_and_values_in_child() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(base_layer);
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
@@ -2015,7 +1553,7 @@ pub mod tests {
     #[test]
     fn old_dictionary_entries_in_child() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(base_layer);
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
@@ -2053,7 +1591,7 @@ pub mod tests {
     #[test]
     fn new_dictionary_entries_in_child() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(base_layer);
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
@@ -2091,7 +1629,7 @@ pub mod tests {
     #[test]
     fn lookup_additions_by_subject() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(base_layer);
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
@@ -2123,7 +1661,7 @@ pub mod tests {
     #[test]
     fn lookup_additions_by_predicate() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(base_layer);
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
@@ -2155,7 +1693,7 @@ pub mod tests {
     #[test]
     fn lookup_additions_by_object() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(base_layer);
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
@@ -2187,7 +1725,7 @@ pub mod tests {
     #[test]
     fn lookup_removals_by_subject() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(base_layer);
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
@@ -2219,7 +1757,7 @@ pub mod tests {
     #[test]
     fn lookup_removals_by_predicate() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(base_layer);
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
@@ -2251,7 +1789,7 @@ pub mod tests {
     #[test]
     fn lookup_removals_by_object() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(base_layer);
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
@@ -2283,7 +1821,7 @@ pub mod tests {
     #[test]
     fn create_empty_child_layer() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(base_layer);
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
@@ -2313,7 +1851,7 @@ pub mod tests {
     #[test]
     fn child_layer_with_multiple_pairs_pointing_at_same_object_lookup_by_objects() {
         let base_layer = empty_base_layer();
-        let parent = Arc::new(base_layer);
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
         let builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
@@ -2354,7 +1892,7 @@ pub mod tests {
     #[test]
     fn stream_child_triples() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(base_layer);
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
         let builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
@@ -2406,7 +1944,7 @@ pub mod tests {
     #[test]
     fn count_triples() {
         let base_layer = example_base_layer();
-        let parent = Arc::new(base_layer);
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
         let builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);

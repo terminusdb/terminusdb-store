@@ -7,6 +7,7 @@ use futures::stream;
 use futures::stream::Peekable;
 
 use super::layer::*;
+use super::internal::*;
 use crate::storage::*;
 use crate::structure::*;
 
@@ -101,430 +102,77 @@ impl BaseLayer {
     }
 }
 
-impl Layer for BaseLayer {
-    fn name(&self) -> [u32; 5] {
+impl InternalLayerImpl for BaseLayer {
+    fn name(&self) -> [u32;5] {
         self.name
     }
 
-    fn names(&self) -> Vec<[u32; 5]> {
-        vec![self.name()]
+    fn layer_type(&self) -> LayerType {
+        LayerType::Base
     }
 
-    fn parent(&self) -> Option<&dyn Layer> {
+    fn immediate_parent(&self) -> Option<&InternalLayer> {
         None
     }
 
-    fn subject_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>> {
-        Box::new(BaseLayerSubjectIterator {
-            pos: 0,
-            s_p_adjacency_list: self.s_p_adjacency_list.clone(),
-            sp_o_adjacency_list: self.sp_o_adjacency_list.clone(),
-        })
+    fn node_dictionary(&self) -> &PfcDict {
+        &self.node_dictionary
     }
 
-    fn subject_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>> {
-        Box::new(std::iter::empty())
+    fn predicate_dictionary(&self) -> &PfcDict {
+        &self.predicate_dictionary
     }
 
-    fn node_dict_len(&self) -> usize {
-        self.node_dictionary.len()
+    fn value_dictionary(&self) -> &PfcDict {
+        &self.value_dictionary
     }
 
-    fn node_dict_get(&self, id: usize) -> Option<String> {
-        self.node_dictionary.get(id)
+    fn pos_s_p_adjacency_list(&self) -> &AdjacencyList {
+        &self.s_p_adjacency_list
     }
 
-    fn predicate_dict_get(&self, id: usize) -> Option<String> {
-        self.predicate_dictionary.get(id)
+    fn pos_sp_o_adjacency_list(&self) -> &AdjacencyList {
+        &self.sp_o_adjacency_list
     }
 
-    fn value_dict_get(&self, id: usize) -> Option<String> {
-        self.value_dictionary.get(id)
+    fn pos_o_ps_adjacency_list(&self) -> &AdjacencyList {
+        &self.o_ps_adjacency_list
     }
 
-    fn predicate_dict_len(&self) -> usize {
-        self.predicate_dictionary.len()
-    }
-
-    fn value_dict_len(&self) -> usize {
-        self.value_dictionary.len()
-    }
-
-    fn node_and_value_count(&self) -> usize {
-        self.node_dictionary.len() + self.value_dictionary.len()
-    }
-
-    fn predicate_count(&self) -> usize {
-        self.predicate_dictionary.len()
-    }
-
-    fn node_dict_id(&self, subject: &str) -> Option<u64> {
-        self.node_dictionary.id(&subject)
-    }
-
-    fn predicate_dict_id(&self, predicate: &str) -> Option<u64> {
-        self.predicate_dictionary.id(predicate)
-    }
-
-    fn value_dict_id(&self, value: &str) -> Option<u64> {
-        self.value_dictionary.id(value)
-    }
-
-    fn subject_id(&self, subject: &str) -> Option<u64> {
-        self.node_dictionary.id(subject).map(|id| id + 1)
-    }
-
-    fn predicate_id(&self, predicate: &str) -> Option<u64> {
-        self.predicate_dictionary.id(predicate).map(|id| id + 1)
-    }
-
-    fn object_node_id(&self, object: &str) -> Option<u64> {
-        self.node_dictionary.id(object).map(|id| id + 1)
-    }
-
-    fn object_value_id(&self, value: &str) -> Option<u64> {
-        self.value_dictionary
-            .id(value)
-            .map(|id| id + self.node_dictionary.len() as u64 + 1)
-    }
-
-    fn id_subject(&self, id: u64) -> Option<String> {
-        if id == 0 {
-            return None;
-        }
-        let corrected_id = id - 1;
-        self.node_dict_get(corrected_id as usize)
-    }
-
-    fn id_predicate(&self, id: u64) -> Option<String> {
-        if id == 0 {
-            return None;
-        }
-        let corrected_id = id - 1;
-        self.predicate_dict_get(corrected_id as usize)
-    }
-
-    fn id_object(&self, id: u64) -> Option<ObjectType> {
-        if id == 0 {
-            return None;
-        }
-        let corrected_id = id - 1;
-
-        if corrected_id >= (self.node_dictionary.len() as u64) {
-            let val_id = corrected_id - (self.node_dictionary.len() as u64);
-            self.value_dict_get(val_id as usize).map(ObjectType::Value)
-        } else {
-            self.node_dictionary
-                .get(corrected_id as usize)
-                .map(ObjectType::Node)
-        }
-    }
-
-    fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn LayerSubjectLookup>> {
-        if subject == 0 || subject >= (self.s_p_adjacency_list.left_count() + 1) as u64 {
-            None
-        } else {
-            Some(Box::new(BaseLayerSubjectLookup {
-                subject: subject,
-                predicates: self.s_p_adjacency_list.get(subject),
-                sp_offset: self.s_p_adjacency_list.offset_for(subject),
-                sp_o_adjacency_list: self.sp_o_adjacency_list.clone(),
-            }))
-        }
-    }
-
-    fn lookup_subject_removal(&self, _subject: u64) -> Option<Box<dyn LayerSubjectLookup>> {
+    fn neg_s_p_adjacency_list(&self) -> Option<&AdjacencyList> {
         None
     }
 
-    fn object_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>> {
-        // todo: there might be a more efficient method than doing
-        // this lookup over and over, due to sequentiality of the
-        // underlying data structures
-        let cloned = self.clone();
-        Box::new(
-            (0..self.node_and_value_count())
-                .map(move |object| cloned.lookup_object_addition((object + 1) as u64).unwrap()),
-        )
-    }
-
-    fn object_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>> {
-        Box::new(std::iter::empty())
-    }
-
-    fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn LayerObjectLookup>> {
-        if object == 0 || object > self.node_and_value_count() as u64 {
-            None
-        } else {
-            let sp_slice = self.o_ps_adjacency_list.get(object);
-            Some(Box::new(BaseLayerObjectLookup {
-                object,
-                sp_slice,
-                s_p_adjacency_list: self.s_p_adjacency_list.clone(),
-            }))
-        }
-    }
-
-    fn lookup_object_removal(&self, _object: u64) -> Option<Box<dyn LayerObjectLookup>> {
+    fn neg_sp_o_adjacency_list(&self) -> Option<&AdjacencyList> {
         None
     }
 
-    fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn LayerPredicateLookup>> {
-        let s_p_adjacency_list = self.s_p_adjacency_list.clone();
-        let sp_o_adjacency_list = self.sp_o_adjacency_list.clone();
-        self.predicate_wavelet_tree.lookup(predicate).map(|lookup| {
-            Box::new(BaseLayerPredicateLookup {
-                lookup,
-                s_p_adjacency_list,
-                sp_o_adjacency_list,
-            }) as Box<dyn LayerPredicateLookup>
-        })
-    }
-
-    fn lookup_predicate_removal(&self, _predicate: u64) -> Option<Box<dyn LayerPredicateLookup>> {
+    fn neg_o_ps_adjacency_list(&self) -> Option<&AdjacencyList> {
         None
     }
 
-    fn clone_boxed(&self) -> Box<dyn Layer> {
-        Box::new(self.clone())
+    fn pos_predicate_wavelet_tree(&self) -> &WaveletTree {
+        &self.predicate_wavelet_tree
     }
 
-    fn triple_layer_addition_count(&self) -> usize {
-        self.sp_o_adjacency_list.right_count()
+    fn neg_predicate_wavelet_tree(&self) -> Option<&WaveletTree> {
+        None
     }
 
-    fn triple_layer_removal_count(&self) -> usize {
-        0
-    }
-}
-
-#[derive(Clone)]
-struct BaseLayerSubjectIterator {
-    s_p_adjacency_list: AdjacencyList,
-    sp_o_adjacency_list: AdjacencyList,
-    pos: u64,
-}
-
-impl Iterator for BaseLayerSubjectIterator {
-    type Item = Box<dyn LayerSubjectLookup>;
-
-    fn next(&mut self) -> Option<Box<dyn LayerSubjectLookup>> {
-        loop {
-            if self.pos >= self.s_p_adjacency_list.left_count() as u64 {
-                return None;
-            } else {
-                let subject = self.pos + 1;
-                self.pos += 1;
-                let predicates = self.s_p_adjacency_list.get(subject);
-                if predicates.entry(0) == 0 {
-                    // stub slice, skip
-                    continue;
-                } else {
-                    return Some(Box::new(BaseLayerSubjectLookup {
-                        subject,
-                        predicates: self.s_p_adjacency_list.get(subject),
-                        sp_offset: self.s_p_adjacency_list.offset_for(subject),
-                        sp_o_adjacency_list: self.sp_o_adjacency_list.clone(),
-                    }));
-                }
-            }
-        }
-    }
-}
-
-#[derive(Clone)]
-struct BaseLayerSubjectLookup {
-    subject: u64,
-    predicates: LogArray,
-    sp_offset: u64,
-    sp_o_adjacency_list: AdjacencyList,
-}
-
-impl LayerSubjectLookup for BaseLayerSubjectLookup {
-    fn subject(&self) -> u64 {
-        self.subject
+    fn pos_subjects(&self) -> Option<&MonotonicLogArray> {
+        None
     }
 
-    fn predicates(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectPredicateLookup>>> {
-        Box::new(BaseLayerPredicateIterator {
-            subject: self.subject,
-            pos: 0,
-            predicates: self.predicates.clone(),
-            sp_offset: self.sp_offset,
-            sp_o_adjacency_list: self.sp_o_adjacency_list.clone(),
-        })
+    fn pos_objects(&self) -> Option<&MonotonicLogArray> {
+        None
     }
 
-    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn LayerSubjectPredicateLookup>> {
-        let pos = self.predicates.iter().position(|p| p == predicate);
-        match pos {
-            None => None,
-            Some(pos) => Some(Box::new(BaseLayerSubjectPredicateLookup {
-                subject: self.subject,
-                predicate: predicate,
-                objects: self
-                    .sp_o_adjacency_list
-                    .get(self.sp_offset + (pos as u64) + 1),
-            })),
-        }
-    }
-}
-
-#[derive(Clone)]
-struct BaseLayerPredicateIterator {
-    subject: u64,
-    pos: usize,
-    predicates: LogArray,
-    sp_offset: u64,
-    sp_o_adjacency_list: AdjacencyList,
-}
-
-impl Iterator for BaseLayerPredicateIterator {
-    type Item = Box<dyn LayerSubjectPredicateLookup>;
-
-    fn next(&mut self) -> Option<Box<dyn LayerSubjectPredicateLookup>> {
-        if self.pos >= self.predicates.len() {
-            None
-        } else {
-            let predicate = self.predicates.entry(self.pos);
-            let objects = self
-                .sp_o_adjacency_list
-                .get(self.sp_offset + (self.pos as u64) + 1);
-            self.pos += 1;
-
-            if objects.entry(0) == 0 {
-                // stub slice, ignore
-                self.next()
-            } else {
-                Some(Box::new(BaseLayerSubjectPredicateLookup {
-                    subject: self.subject,
-                    predicate,
-                    objects,
-                }))
-            }
-        }
-    }
-}
-
-#[derive(Clone)]
-struct BaseLayerSubjectPredicateLookup {
-    subject: u64,
-    predicate: u64,
-    objects: LogArray,
-}
-
-impl LayerSubjectPredicateLookup for BaseLayerSubjectPredicateLookup {
-    fn subject(&self) -> u64 {
-        self.subject
+    fn neg_subjects(&self) -> Option<&MonotonicLogArray> {
+        None
     }
 
-    fn predicate(&self) -> u64 {
-        self.predicate
-    }
-
-    fn objects(&self) -> Box<dyn Iterator<Item = u64>> {
-        Box::new(BaseLayerObjectIterator {
-            subject: self.subject,
-            predicate: self.predicate,
-            objects: self.objects.clone(),
-            pos: 0,
-        })
-    }
-
-    fn has_object(&self, object: u64) -> bool {
-        // todo: use monotoniclogarray here to find object quicker
-        self.objects.iter().find(|&o| o == object).is_some()
-    }
-}
-
-#[derive(Clone)]
-struct BaseLayerObjectIterator {
-    pub subject: u64,
-    pub predicate: u64,
-    objects: LogArray,
-    pos: usize,
-}
-
-impl Iterator for BaseLayerObjectIterator {
-    type Item = u64;
-
-    fn next(&mut self) -> Option<u64> {
-        if self.pos >= self.objects.len() {
-            None
-        } else {
-            let object = self.objects.entry(self.pos);
-            self.pos += 1;
-
-            if object == 0 {
-                None
-            } else {
-                Some(object)
-            }
-        }
-    }
-}
-
-#[derive(Clone)]
-struct BaseLayerObjectLookup {
-    object: u64,
-    sp_slice: LogArray,
-    s_p_adjacency_list: AdjacencyList,
-}
-
-impl LayerObjectLookup for BaseLayerObjectLookup {
-    fn object(&self) -> u64 {
-        self.object
-    }
-
-    fn subject_predicate_pairs(&self) -> Box<dyn Iterator<Item = (u64, u64)>> {
-        let cloned = self.clone();
-        Box::new(self.sp_slice.iter().filter_map(move |i| {
-            if i == 0 {
-                None
-            } else {
-                Some(cloned.s_p_adjacency_list.pair_at_pos(i - 1))
-            }
-        }))
-    }
-}
-
-struct BaseLayerPredicateLookup {
-    lookup: WaveletLookup,
-    s_p_adjacency_list: AdjacencyList,
-    sp_o_adjacency_list: AdjacencyList,
-}
-
-impl BaseLayerPredicateLookup {
-    fn base_subject_predicate_pairs(
-        &self,
-    ) -> impl Iterator<Item = BaseLayerSubjectPredicateLookup> {
-        let predicate = LayerPredicateLookup::predicate(self);
-        let s_p_adjacency_list = self.s_p_adjacency_list.clone();
-        let sp_o_adjacency_list = self.sp_o_adjacency_list.clone();
-        Box::new(self.lookup.iter().map(move |pos| {
-            let (subject, _) = s_p_adjacency_list.pair_at_pos(pos);
-            let objects = sp_o_adjacency_list.get(pos + 1);
-
-            BaseLayerSubjectPredicateLookup {
-                subject,
-                predicate,
-                objects,
-            }
-        }))
-    }
-}
-impl LayerPredicateLookup for BaseLayerPredicateLookup {
-    fn predicate(&self) -> u64 {
-        self.lookup.entry
-    }
-
-    fn subject_predicate_pairs(
-        &self,
-    ) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectPredicateLookup>>> {
-        Box::new(
-            self.base_subject_predicate_pairs()
-                .map(|l| Box::new(l) as Box<dyn LayerSubjectPredicateLookup>),
-        )
+    fn neg_objects(&self) -> Option<&MonotonicLogArray> {
+        None
     }
 }
 

@@ -8,7 +8,7 @@ use std::sync::{self, Arc, RwLock};
 use tokio::prelude::*;
 
 use super::*;
-use crate::layer::{BaseLayer, ChildLayer, Layer, LayerBuilder, SimpleLayerBuilder};
+use crate::layer::{BaseLayer, ChildLayer, Layer, LayerBuilder, SimpleLayerBuilder, InternalLayer};
 
 pub struct MemoryBackedStoreWriter {
     vec: Arc<sync::RwLock<Vec<u8>>>,
@@ -154,7 +154,7 @@ impl LayerStore for MemoryLayerStore {
         cache: Arc<dyn LayerCache>,
     ) -> Box<dyn Future<Item = Option<Arc<dyn Layer>>, Error = io::Error> + Send> {
         if let Some(layer) = cache.get_layer_from_cache(name) {
-            return Box::new(future::ok(Some(layer)));
+            return Box::new(future::ok(Some(layer as Arc<dyn Layer>)));
         }
 
         // not in cache, time to do a clever
@@ -209,7 +209,7 @@ impl LayerStore for MemoryLayerStore {
                     future::Either::A(
                         BaseLayer::load_from_files(base_id, &files.clone().into_base()).map(
                             move |l| {
-                                let result = Arc::new(l) as Arc<dyn Layer>;
+                                let result = Arc::new(l.into()) as Arc<InternalLayer>;
                                 cache.cache_layer(result.clone());
 
                                 result
@@ -230,7 +230,7 @@ impl LayerStore for MemoryLayerStore {
                             let cache = cache2.clone();
                             ChildLayer::load_from_files(name, layer, &files.clone().into_child())
                                 .map(move |l| {
-                                    let result = Arc::new(l) as Arc<dyn Layer>;
+                                    let result = Arc::new(l.into()) as Arc<InternalLayer>;
                                     cache.cache_layer(result.clone());
                                     result
                                 })
@@ -238,7 +238,8 @@ impl LayerStore for MemoryLayerStore {
                     })
                     .map(move |l| Some(l)),
             )
-        }))
+        })
+        .map(|l|l.map(|layer|layer as Arc<dyn Layer>)))
     }
 
     fn create_base_layer(
