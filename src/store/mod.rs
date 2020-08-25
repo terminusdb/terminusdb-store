@@ -10,7 +10,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::layer::{
     IdTriple, Layer, LayerBuilder, LayerObjectLookup, LayerPredicateLookup, LayerSubjectLookup,
-    ObjectType, StringTriple, LayerCounts
+    ObjectType, StringTriple, LayerCounts, SubjectLookup, ObjectLookup, PredicateLookup
 };
 use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore};
 use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
@@ -182,13 +182,15 @@ impl StoreLayer {
             .map(move |layer| StoreLayerBuilder::wrap(layer, store))
     }
 
-    pub fn parent(&self) -> Option<StoreLayer> {
-        let parent = self.layer.parent();
+    pub fn parent(&self) -> Box<dyn Future<Item=Option<StoreLayer>, Error=io::Error>+Send> {
+        let parent_name = self.layer.parent_name();
 
-        parent.map(|p| StoreLayer {
-            // TODO Arc here is not great because of this particular clone
-            layer: p.clone_boxed().into(),
-            store: self.store.clone(),
+        let store = self.store.clone();
+
+        Box::new(match parent_name {
+            None => future::Either::A(future::ok(None)),
+            Some(parent_name) => future::Either::B(self.store.layer_store.get_layer(parent_name)
+                                                   .map(move |l| l.map(|layer|StoreLayer::wrap(layer, store))))
         })
     }
 
@@ -220,12 +222,8 @@ impl Layer for StoreLayer {
         self.layer.name()
     }
 
-    fn names(&self) -> Vec<[u32; 5]> {
-        self.layer.names()
-    }
-
-    fn parent(&self) -> Option<&dyn Layer> {
-        self.layer.parent()
+    fn parent_name(&self) -> Option<[u32; 5]> {
+        self.layer.parent_name()
     }
 
     fn node_and_value_count(&self) -> usize {
@@ -264,12 +262,20 @@ impl Layer for StoreLayer {
         self.layer.id_object(id)
     }
 
+    fn subjects(&self) -> Box<dyn Iterator<Item = Box<dyn SubjectLookup>>> {
+        self.layer.subjects()
+    }
+
     fn subject_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>> {
         self.layer.subject_additions()
     }
 
     fn subject_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>> {
         self.layer.subject_removals()
+    }
+
+    fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
+        self.layer.lookup_subject(subject)
     }
 
     fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn LayerSubjectLookup>> {
@@ -280,6 +286,10 @@ impl Layer for StoreLayer {
         self.layer.lookup_subject_removal(subject)
     }
 
+    fn objects(&self) -> Box<dyn Iterator<Item = Box<dyn ObjectLookup>>> {
+        self.layer.objects()
+    }
+
     fn object_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>> {
         self.layer.object_additions()
     }
@@ -288,12 +298,33 @@ impl Layer for StoreLayer {
         self.layer.object_removals()
     }
 
+    fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+        self.layer.lookup_object(object)
+    }
+
     fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn LayerObjectLookup>> {
         self.layer.lookup_object_addition(object)
     }
 
     fn lookup_object_removal(&self, object: u64) -> Option<Box<dyn LayerObjectLookup>> {
         self.layer.lookup_object_removal(object)
+    }
+
+    fn predicates(&self) -> Box<dyn Iterator<Item = Box<dyn PredicateLookup>>> {
+        self.layer.predicates()
+    }
+    
+    fn predicate_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerPredicateLookup>>> {
+        self.layer.predicate_additions()
+    }
+
+    fn predicate_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerPredicateLookup>>> {
+        self.layer.predicate_removals()
+    }
+ 
+
+    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+        self.layer.lookup_predicate(predicate)
     }
 
     fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn LayerPredicateLookup>> {
@@ -314,6 +345,14 @@ impl Layer for StoreLayer {
 
     fn triple_layer_removal_count(&self) -> usize {
         self.layer.triple_layer_removal_count()
+    }
+
+    fn triple_addition_count(&self) -> usize {
+        self.layer.triple_addition_count()
+    }
+
+    fn triple_removal_count(&self) -> usize {
+        self.layer.triple_removal_count()
     }
 
     fn all_counts(&self) -> LayerCounts {
@@ -374,6 +413,7 @@ impl NamedGraph {
         layer: &StoreLayer,
     ) -> impl Future<Item = bool, Error = io::Error> + Send {
         let store = self.store.clone();
+        let store2 = self.store.clone();
         let layer_name = layer.name();
         let cloned_layer = layer.layer.clone();
         store
@@ -392,8 +432,11 @@ impl NamedGraph {
                             {
                                 None => Box::new(future::ok(true)),
                                 Some(layer_name) => Box::new(
-                                    store.layer_store.get_layer(layer_name).map(move |l| {
-                                        l.map(|l| l.is_ancestor_of(&*cloned_layer)).unwrap_or(false)
+                                    store.layer_store.get_layer(layer_name).and_then(move |l| {
+                                        l.map(|l|
+                                              future::Either::A(store.layer_store
+                                                                .layer_is_ancestor_of(cloned_layer.name(), l.name())))
+                                            .unwrap_or(future::Either::B(future::ok(false)))
                                     }),
                                 ),
                             };
@@ -403,7 +446,7 @@ impl NamedGraph {
                         .and_then(move |b| {
                             let result: Box<dyn Future<Item = _, Error = _> + Send> = if b {
                                 Box::new(
-                                    store
+                                    store2
                                         .label_store
                                         .set_label(&label, layer_name)
                                         .map(|_| true),
@@ -795,7 +838,7 @@ mod tests {
 
         assert!(new.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(new.string_triple_exists(&StringTriple::new_value("dog", "says", "woof")));
-        assert!(new.parent().is_none());
+        assert!(oneshot::spawn(new.parent(), &runtime.executor()).wait().unwrap().is_none());
     }
 
     #[test]

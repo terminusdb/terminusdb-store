@@ -417,6 +417,26 @@ impl LayerStore for MemoryLayerStore {
     ) -> Result<(), io::Error> {
         unimplemented!();
     }
+
+    fn layer_is_ancestor_of(&self, descendant: [u32; 5], ancestor: [u32; 5]) -> Box<dyn Future<Item=bool, Error=io::Error>+Send> {
+        Box::new(
+            self.layers.read()
+                .map(move |layers| {
+                    let mut d = descendant;
+                    loop {
+                        if d == ancestor {
+                            return true;
+                        }
+
+                        match layers.get(&d) {
+                            Some((Some(parent), _)) => d = *parent,
+                            _ => return false
+                        }
+                    }
+                })
+                .map_err(|_| panic!("no errors expected"))
+        )
+    }
 }
 
 #[derive(Clone)]

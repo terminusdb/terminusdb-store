@@ -174,6 +174,10 @@ impl InternalLayerImpl for ChildLayer {
         LayerType::Base
     }
 
+    fn parent_name(&self) -> Option<[u32;5]> {
+        Some(InternalLayerImpl::name(&*self.parent))
+    }
+
     fn immediate_parent(&self) -> Option<&InternalLayer> {
         Some(&*self.parent)
     }

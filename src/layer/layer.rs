@@ -11,10 +11,7 @@ use std::iter::Peekable;
 pub trait Layer: Send + Sync {
     /// The name of this layer.
     fn name(&self) -> [u32; 5];
-    /// Name of the layer including its parents
-    fn names(&self) -> Vec<[u32; 5]>;
-    /// The parent of this layer, or None if this is a base layer.
-    fn parent(&self) -> Option<&dyn Layer>;
+    fn parent_name(&self) -> Option<[u32; 5]>;
 
     /// The amount of nodes and values known to this layer.
     /// This also counts entries in the parent.
@@ -44,26 +41,7 @@ pub trait Layer: Send + Sync {
     /// `SubjectLookup`. Each such object stores a
     /// subject id, and knows how to retrieve any linked
     /// predicate-object pair.
-    fn subjects(&self) -> Box<dyn Iterator<Item = Box<dyn SubjectLookup>>> {
-        let mut layers = Vec::new();
-        layers.push((
-            self.subject_additions().peekable(),
-            self.subject_removals().peekable(),
-        ));
-        let mut cur = self.parent();
-
-        while cur.is_some() {
-            layers.push((
-                cur.unwrap().subject_additions().peekable(),
-                cur.unwrap().subject_removals().peekable(),
-            ));
-            cur = cur.unwrap().parent();
-        }
-
-        let it = GenericSubjectIterator { layers };
-
-        Box::new(it.map(|s| Box::new(s) as Box<dyn SubjectLookup>))
-    }
+    fn subjects(&self) -> Box<dyn Iterator<Item = Box<dyn SubjectLookup>>>;
 
     /// Returns an iterator over all triple data added by this layer.
     ///
@@ -105,36 +83,7 @@ pub trait Layer: Send + Sync {
     /// registered an addition involving this subject. However, later
     /// layers may have then removed every triple involving this
     /// subject.
-    fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
-        let mut lookups = Vec::new();
-
-        let addition = self.lookup_subject_addition(subject);
-        let removal = self.lookup_subject_removal(subject);
-        if addition.is_some() || removal.is_some() {
-            lookups.push((addition, removal));
-        }
-
-        let mut cur = self.parent();
-        while cur.is_some() {
-            let addition = cur.unwrap().lookup_subject_addition(subject);
-            let removal = cur.unwrap().lookup_subject_removal(subject);
-
-            if addition.is_some() || removal.is_some() {
-                lookups.push((addition, removal));
-            }
-
-            cur = cur.unwrap().parent();
-        }
-
-        if lookups.iter().any(|(pos, _neg)| pos.is_some()) {
-            Some(Box::new(GenericSubjectLookup {
-                subject: subject,
-                lookups: lookups,
-            }) as Box<dyn SubjectLookup>)
-        } else {
-            None
-        }
-    }
+    fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>>;
 
     /// Returns a `LayerSubjectLookup` object for the given subject, or None if it cannot be constructed.
     ///
@@ -179,26 +128,7 @@ pub trait Layer: Send + Sync {
     /// Objects are returned as an `ObjectLookup`, an object that can
     /// then be queried for subject-predicate pairs pointing to that
     /// object.
-    fn objects(&self) -> Box<dyn Iterator<Item = Box<dyn ObjectLookup>>> {
-        let mut layers = Vec::new();
-        layers.push((
-            self.object_additions().peekable(),
-            self.object_removals().peekable(),
-        ));
-        let mut cur = self.parent();
-
-        while cur.is_some() {
-            layers.push((
-                cur.unwrap().object_additions().peekable(),
-                cur.unwrap().object_removals().peekable(),
-            ));
-            cur = cur.unwrap().parent();
-        }
-
-        let it = GenericObjectIterator { layers };
-
-        Box::new(it.map(|s| Box::new(s) as Box<dyn ObjectLookup>))
-    }
+    fn objects(&self) -> Box<dyn Iterator<Item = Box<dyn ObjectLookup>>>;
 
     /// Returns an iterator over all objects added by this layer.
     ///
@@ -239,33 +169,7 @@ pub trait Layer: Send + Sync {
     /// registered an addition involving this object. However, later
     /// layers may have then removed every triple involving this
     /// object.
-    fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
-        let mut lookups = Vec::new();
-
-        let addition = self.lookup_object_addition(object);
-        let removal = self.lookup_object_removal(object);
-        if addition.is_some() || removal.is_some() {
-            lookups.push((addition, removal));
-        }
-
-        let mut cur = self.parent();
-        while cur.is_some() {
-            let addition = cur.unwrap().lookup_object_addition(object);
-            let removal = cur.unwrap().lookup_object_removal(object);
-
-            if addition.is_some() || removal.is_some() {
-                lookups.push((addition, removal));
-            }
-
-            cur = cur.unwrap().parent();
-        }
-
-        if lookups.iter().any(|(pos, _neg)| pos.is_some()) {
-            Some(Box::new(GenericObjectLookup { object, lookups }))
-        } else {
-            None
-        }
-    }
+    fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>>;
 
     /// Returns a `LayerObjectLookup` for the given object, or None if it could not be constructed.
     ///
@@ -305,36 +209,7 @@ pub trait Layer: Send + Sync {
     /// has registered an addition involving this predicate. However,
     /// later layers may have then removed every triple involving this
     /// predicate.
-    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
-        let mut lookups = Vec::new();
-
-        let addition = self.lookup_predicate_addition(predicate);
-        let removal = self.lookup_predicate_removal(predicate);
-        if addition.is_some() || removal.is_some() {
-            lookups.push((addition, removal));
-        }
-
-        let mut cur = self.parent();
-        while cur.is_some() {
-            let addition = cur.unwrap().lookup_predicate_addition(predicate);
-            let removal = cur.unwrap().lookup_predicate_removal(predicate);
-
-            if addition.is_some() || removal.is_some() {
-                lookups.push((addition, removal));
-            }
-
-            cur = cur.unwrap().parent();
-        }
-
-        if lookups.iter().any(|(pos, _neg)| pos.is_some()) {
-            Some(Box::new(GenericPredicateLookup {
-                predicate: predicate,
-                lookups: lookups,
-            }) as Box<dyn PredicateLookup>)
-        } else {
-            None
-        }
-    }
+    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>>;
 
     /// Returns a `LayerPredicateLookup` for the given predicate, or None if it could not be constructed.
     ///
@@ -363,23 +238,9 @@ pub trait Layer: Send + Sync {
     /// Create a struct with all the counts
     fn all_counts(&self) -> LayerCounts;
 
-    fn predicates(&self) -> Box<dyn Iterator<Item = Box<dyn PredicateLookup>>> {
-        let cloned = self.clone_boxed();
-        Box::new(
-            (1..=self.predicate_count())
-                .map(move |p| cloned.lookup_predicate(p as u64))
-                .flatten(),
-        )
-    }
+    fn predicates(&self) -> Box<dyn Iterator<Item = Box<dyn PredicateLookup>>>;
 
-    fn predicate_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerPredicateLookup>>> {
-        let cloned = self.clone_boxed();
-        Box::new(
-            (1..=self.predicate_count())
-                .map(move |p| cloned.lookup_predicate_addition(p as u64))
-                .flatten(),
-        )
-    }
+    fn predicate_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerPredicateLookup>>>;
 
     fn predicate_additions_generic(&self) -> Box<dyn Iterator<Item = Box<dyn PredicateLookup>>> {
         Box::new(self.predicate_additions().map(|lookup| {
@@ -387,14 +248,7 @@ pub trait Layer: Send + Sync {
         }))
     }
 
-    fn predicate_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerPredicateLookup>>> {
-        let cloned = self.clone_boxed();
-        Box::new(
-            (1..=self.predicate_count())
-                .map(move |p| cloned.lookup_predicate_removal(p as u64))
-                .flatten(),
-        )
-    }
+    fn predicate_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerPredicateLookup>>>;
 
     fn predicate_removals_generic(&self) -> Box<dyn Iterator<Item = Box<dyn PredicateLookup>>> {
         Box::new(self.predicate_removals().map(|lookup| {
@@ -497,41 +351,11 @@ pub trait Layer: Send + Sync {
         })
     }
 
-    /// Returns true if the given layer is an ancestor of this layer, false otherwise.
-    fn is_ancestor_of(&self, other: &dyn Layer) -> bool {
-        match other.parent() {
-            None => false,
-            Some(parent) => parent.name() == self.name() || self.is_ancestor_of(&*parent),
-        }
-    }
-
     /// Returns the total amount of triple additions in this layer and all its parents.
-    fn triple_addition_count(&self) -> usize {
-        let mut additions = self.triple_layer_addition_count();
-
-        let mut parent = self.parent();
-        while parent.is_some() {
-            additions += parent.unwrap().triple_layer_addition_count();
-
-            parent = parent.unwrap().parent();
-        }
-
-        additions
-    }
+    fn triple_addition_count(&self) -> usize;
 
     /// Returns the total amount of triple removals in this layer and all its parents.
-    fn triple_removal_count(&self) -> usize {
-        let mut removals = self.triple_layer_removal_count();
-
-        let mut parent = self.parent();
-        while parent.is_some() {
-            removals += parent.unwrap().triple_layer_removal_count();
-
-            parent = parent.unwrap().parent();
-        }
-
-        removals
-    }
+    fn triple_removal_count(&self) -> usize;
 
     /// Returns the total amount of triples in this layer and all its parents.
     fn triple_count(&self) -> usize {
@@ -557,8 +381,8 @@ pub enum LayerType {
     Child,
 }
 
-struct GenericSubjectIterator {
-    layers: Vec<(
+pub struct GenericSubjectIterator {
+    pub layers: Vec<(
         Peekable<Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>>>,
         Peekable<Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>>>,
     )>,
@@ -722,8 +546,8 @@ pub trait SubjectLookup {
 
 /// A SubjectLookup that is implemented in terms of addition and removal lookups
 pub struct GenericSubjectLookup {
-    subject: u64,
-    lookups: Vec<(
+    pub subject: u64,
+    pub lookups: Vec<(
         Option<Box<dyn LayerSubjectLookup>>,
         Option<Box<dyn LayerSubjectLookup>>,
     )>,
@@ -801,7 +625,7 @@ impl SubjectLookup for GenericSubjectLookup {
     }
 }
 
-struct GenericSubjectPredicateIterator {
+pub struct GenericSubjectPredicateIterator {
     subject: u64,
     layers: Vec<(
         Peekable<Box<dyn Iterator<Item = Box<dyn LayerSubjectPredicateLookup>>>>,
@@ -909,7 +733,7 @@ pub trait SubjectPredicateLookup {
     }
 }
 
-struct GenericSubjectPredicateLookup {
+pub struct GenericSubjectPredicateLookup {
     subject: u64,
     predicate: u64,
     lookups: Vec<(
@@ -978,7 +802,7 @@ impl SubjectPredicateLookup for GenericSubjectPredicateLookup {
     }
 }
 
-struct GenericSubjectPredicateObjectIterator {
+pub struct GenericSubjectPredicateObjectIterator {
     layers: Vec<(
         Peekable<Box<dyn Iterator<Item = u64>>>,
         Peekable<Box<dyn Iterator<Item = u64>>>,
@@ -1118,8 +942,8 @@ pub trait ObjectLookup {
     }
 }
 
-struct GenericObjectIterator {
-    layers: Vec<(
+pub struct GenericObjectIterator {
+    pub layers: Vec<(
         Peekable<Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>>>,
         Peekable<Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>>>,
     )>,
@@ -1188,9 +1012,9 @@ impl Iterator for GenericObjectIterator {
     }
 }
 
-struct GenericObjectLookup {
-    object: u64,
-    lookups: Vec<(
+pub struct GenericObjectLookup {
+    pub object: u64,
+    pub lookups: Vec<(
         Option<Box<dyn LayerObjectLookup>>,
         Option<Box<dyn LayerObjectLookup>>,
     )>,
@@ -1232,7 +1056,7 @@ impl ObjectLookup for GenericObjectLookup {
     }
 }
 
-struct ObjectSubjectPredicatePairIterator {
+pub struct ObjectSubjectPredicatePairIterator {
     layers: Vec<(
         Peekable<Box<dyn Iterator<Item = (u64, u64)>>>,
         Peekable<Box<dyn Iterator<Item = (u64, u64)>>>,
@@ -1319,9 +1143,9 @@ pub trait PredicateLookup {
     }
 }
 
-struct GenericPredicateLookup {
-    predicate: u64,
-    lookups: Vec<(
+pub struct GenericPredicateLookup {
+    pub predicate: u64,
+    pub lookups: Vec<(
         Option<Box<dyn LayerPredicateLookup>>,
         Option<Box<dyn LayerPredicateLookup>>,
     )>,
@@ -1369,7 +1193,7 @@ impl PredicateLookup for GenericPredicateLookup {
     }
 }
 
-struct GenericSubjectPredicatePairIterator {
+pub struct GenericSubjectPredicatePairIterator {
     predicate: u64,
     layers: Vec<(
         Peekable<Box<dyn Iterator<Item = Box<dyn LayerSubjectPredicateLookup>>>>,

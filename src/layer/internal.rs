@@ -32,6 +32,7 @@ fn id_iter(array_option: Option<&MonotonicLogArray>, adjacency_list_option: Opti
 
 pub trait InternalLayerImpl {
     fn name(&self) -> [u32;5];
+    fn parent_name(&self) -> Option<[u32;5]>;
     fn layer_type(&self) -> LayerType;
     fn immediate_parent(&self) -> Option<&InternalLayer>;
 
@@ -98,24 +99,8 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
         Self::name(self)
     }
 
-    fn names(&self) -> Vec<[u32; 5]> {
-        let mut result = Vec::new();
-        result.push(InternalLayerImpl::name(self));
-
-        let mut parent_option = self.immediate_parent();
-        while let Some(parent) = parent_option {
-            result.push(InternalLayerImpl::name(parent));
-            parent_option = parent.immediate_parent();
-        }
-
-        result.reverse();
-
-        result
-    }
-
-    fn parent(&self) -> Option<&dyn Layer> {
-        self.immediate_parent()
-            .map(|layer| layer.as_layer())
+    fn parent_name(&self) -> Option<[u32; 5]> {
+        Self::parent_name(self)
     }
 
     fn node_and_value_count(&self) -> usize {
@@ -278,6 +263,27 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
         None
     }
 
+    fn subjects(&self) -> Box<dyn Iterator<Item = Box<dyn SubjectLookup>>> {
+        let mut layers = Vec::new();
+        layers.push((
+            self.subject_additions().peekable(),
+            self.subject_removals().peekable(),
+        ));
+        let mut cur = self.immediate_parent();
+
+        while cur.is_some() {
+            layers.push((
+                cur.unwrap().subject_additions().peekable(),
+                cur.unwrap().subject_removals().peekable(),
+            ));
+            cur = cur.unwrap().immediate_parent();
+        }
+
+        let it = GenericSubjectIterator { layers };
+
+        Box::new(it.map(|s| Box::new(s) as Box<dyn SubjectLookup>))
+    }
+
     fn subject_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>> {
         let s_p_adjacency_list = self.pos_s_p_adjacency_list().clone();
         let sp_o_adjacency_list = self.pos_sp_o_adjacency_list().clone();
@@ -315,6 +321,37 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
                 },
             }) as Box<dyn LayerSubjectLookup>
         }))
+    }
+
+    fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
+        let mut lookups = Vec::new();
+
+        let addition = self.lookup_subject_addition(subject);
+        let removal = self.lookup_subject_removal(subject);
+        if addition.is_some() || removal.is_some() {
+            lookups.push((addition, removal));
+        }
+
+        let mut cur = self.immediate_parent();
+        while cur.is_some() {
+            let addition = cur.unwrap().lookup_subject_addition(subject);
+            let removal = cur.unwrap().lookup_subject_removal(subject);
+
+            if addition.is_some() || removal.is_some() {
+                lookups.push((addition, removal));
+            }
+
+            cur = cur.unwrap().immediate_parent();
+        }
+
+        if lookups.iter().any(|(pos, _neg)| pos.is_some()) {
+            Some(Box::new(GenericSubjectLookup {
+                subject: subject,
+                lookups: lookups,
+            }) as Box<dyn SubjectLookup>)
+        } else {
+            None
+        }
     }
 
     fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn LayerSubjectLookup>> {
@@ -382,6 +419,27 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
         }
     }
 
+    fn objects(&self) -> Box<dyn Iterator<Item = Box<dyn ObjectLookup>>> {
+        let mut layers = Vec::new();
+        layers.push((
+            self.object_additions().peekable(),
+            self.object_removals().peekable(),
+        ));
+        let mut cur = self.immediate_parent();
+
+        while cur.is_some() {
+            layers.push((
+                cur.unwrap().object_additions().peekable(),
+                cur.unwrap().object_removals().peekable(),
+            ));
+            cur = cur.unwrap().immediate_parent();
+        }
+
+        let it = GenericObjectIterator { layers };
+
+        Box::new(it.map(|s| Box::new(s) as Box<dyn ObjectLookup>))
+    }
+
     fn object_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>> {
         // TODO make more efficient
         let cloned = self.clone_boxed();
@@ -394,6 +452,34 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
         let cloned = self.clone_boxed();
         Box::new(id_iter(self.neg_objects(), self.neg_o_ps_adjacency_list())
                  .filter_map(move |object| cloned.lookup_object_removal(object)))
+    }
+
+    fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+        let mut lookups = Vec::new();
+
+        let addition = self.lookup_object_addition(object);
+        let removal = self.lookup_object_removal(object);
+        if addition.is_some() || removal.is_some() {
+            lookups.push((addition, removal));
+        }
+
+        let mut cur = self.immediate_parent();
+        while cur.is_some() {
+            let addition = cur.unwrap().lookup_object_addition(object);
+            let removal = cur.unwrap().lookup_object_removal(object);
+
+            if addition.is_some() || removal.is_some() {
+                lookups.push((addition, removal));
+            }
+
+            cur = cur.unwrap().immediate_parent();
+        }
+
+        if lookups.iter().any(|(pos, _neg)| pos.is_some()) {
+            Some(Box::new(GenericObjectLookup { object, lookups }))
+        } else {
+            None
+        }
     }
 
     fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn LayerObjectLookup>> {
@@ -446,6 +532,37 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
         })
     }
 
+    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+        let mut lookups = Vec::new();
+
+        let addition = self.lookup_predicate_addition(predicate);
+        let removal = self.lookup_predicate_removal(predicate);
+        if addition.is_some() || removal.is_some() {
+            lookups.push((addition, removal));
+        }
+
+        let mut cur = self.immediate_parent();
+        while cur.is_some() {
+            let addition = cur.unwrap().lookup_predicate_addition(predicate);
+            let removal = cur.unwrap().lookup_predicate_removal(predicate);
+
+            if addition.is_some() || removal.is_some() {
+                lookups.push((addition, removal));
+            }
+
+            cur = cur.unwrap().immediate_parent();
+        }
+
+        if lookups.iter().any(|(pos, _neg)| pos.is_some()) {
+            Some(Box::new(GenericPredicateLookup {
+                predicate: predicate,
+                lookups: lookups,
+            }) as Box<dyn PredicateLookup>)
+        } else {
+            None
+        }
+    }
+
     fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn LayerPredicateLookup>> {
         self.pos_predicate_wavelet_tree()
             .lookup(predicate)
@@ -485,6 +602,33 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
         }
     }
 
+    fn predicates(&self) -> Box<dyn Iterator<Item = Box<dyn PredicateLookup>>> {
+        let cloned = self.clone_boxed();
+        Box::new(
+            (1..=self.predicate_count())
+                .map(move |p| cloned.lookup_predicate(p as u64))
+                .flatten(),
+        )
+    }
+
+    fn predicate_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerPredicateLookup>>> {
+        let cloned = self.clone_boxed();
+        Box::new(
+            (1..=self.predicate_count())
+                .map(move |p| cloned.lookup_predicate_addition(p as u64))
+                .flatten(),
+        )
+    }
+
+    fn predicate_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerPredicateLookup>>> {
+        let cloned = self.clone_boxed();
+        Box::new(
+            (1..=self.predicate_count())
+                .map(move |p| cloned.lookup_predicate_removal(p as u64))
+                .flatten(),
+        )
+    }
+
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())
     }
@@ -496,6 +640,32 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
     fn triple_layer_removal_count(&self) -> usize {
         self.neg_sp_o_adjacency_list().map(|aj|aj.right_count())
             .unwrap_or(0)
+    }
+
+    fn triple_addition_count(&self) -> usize {
+        let mut additions = self.triple_layer_addition_count();
+
+        let mut parent = self.immediate_parent();
+        while parent.is_some() {
+            additions += parent.unwrap().triple_layer_addition_count();
+
+            parent = parent.unwrap().immediate_parent();
+        }
+
+        additions
+    }
+
+    fn triple_removal_count(&self) -> usize {
+        let mut removals = self.triple_layer_removal_count();
+
+        let mut parent = self.immediate_parent();
+        while parent.is_some() {
+            removals += parent.unwrap().triple_layer_removal_count();
+
+            parent = parent.unwrap().immediate_parent();
+        }
+
+        removals
     }
 
     fn all_counts(&self) -> LayerCounts {
@@ -560,6 +730,9 @@ impl InternalLayerImpl for InternalLayer {
     }
     fn layer_type(&self) -> LayerType {
         (&**self).layer_type()
+    }
+    fn parent_name(&self) -> Option<[u32;5]> {
+        (&**self).parent_name()
     }
     fn immediate_parent(&self) -> Option<&InternalLayer> {
         (&**self).immediate_parent()

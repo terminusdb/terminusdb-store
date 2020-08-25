@@ -111,6 +111,10 @@ impl InternalLayerImpl for BaseLayer {
         LayerType::Base
     }
 
+    fn parent_name(&self) -> Option<[u32;5]> {
+        None
+    }
+
     fn immediate_parent(&self) -> Option<&InternalLayer> {
         None
     }

@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use crate::layer::{
     IdTriple, Layer, LayerObjectLookup, LayerPredicateLookup, LayerSubjectLookup, ObjectType,
-    StringTriple, SubjectLookup, LayerCounts
+    StringTriple, SubjectLookup, LayerCounts, PredicateLookup, ObjectLookup
 };
 use crate::store::{
     open_directory_store, open_memory_store, NamedGraph, Store, StoreLayer, StoreLayerBuilder,
@@ -127,8 +127,8 @@ impl SyncStoreLayer {
         inner.map(|i| SyncStoreLayerBuilder::wrap(i))
     }
 
-    pub fn parent(&self) -> Option<SyncStoreLayer> {
-        self.inner.parent().map(|p| SyncStoreLayer { inner: p })
+    pub fn parent(&self) -> Box<dyn Future<Item=Option<SyncStoreLayer>,Error=io::Error>+Send> {
+        Box::new(self.inner.parent().map(|p| p.map(|p| SyncStoreLayer { inner: p })))
     }
 
     pub fn squash(&self) -> Result<SyncStoreLayer, io::Error>  {
@@ -144,12 +144,8 @@ impl Layer for SyncStoreLayer {
         self.inner.name()
     }
 
-    fn names(&self) -> Vec<[u32; 5]> {
-        self.inner.names()
-    }
-
-    fn parent(&self) -> Option<&dyn Layer> {
-        (&self.inner as &dyn Layer).parent()
+    fn parent_name(&self) -> Option<[u32; 5]> {
+        self.inner.parent_name()
     }
 
     fn node_and_value_count(&self) -> usize {
@@ -212,6 +208,10 @@ impl Layer for SyncStoreLayer {
         self.inner.lookup_subject_removal(subject)
     }
 
+    fn objects(&self) -> Box<dyn Iterator<Item = Box<dyn ObjectLookup>>> {
+        self.inner.objects()
+    }
+
     fn object_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>> {
         self.inner.object_additions()
     }
@@ -220,12 +220,32 @@ impl Layer for SyncStoreLayer {
         self.inner.object_removals()
     }
 
+    fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
+        self.inner.lookup_object(object)
+    }
+
     fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn LayerObjectLookup>> {
         self.inner.lookup_object_addition(object)
     }
 
     fn lookup_object_removal(&self, object: u64) -> Option<Box<dyn LayerObjectLookup>> {
         self.inner.lookup_object_removal(object)
+    }
+
+    fn predicates(&self) -> Box<dyn Iterator<Item = Box<dyn PredicateLookup>>> {
+        self.inner.predicates()
+    }
+
+    fn predicate_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerPredicateLookup>>> {
+        self.inner.predicate_additions()
+    }
+
+    fn predicate_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerPredicateLookup>>> {
+        self.inner.predicate_removals()
+    }
+
+    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
+        self.inner.lookup_predicate(predicate)
     }
 
     fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn LayerPredicateLookup>> {
@@ -246,6 +266,14 @@ impl Layer for SyncStoreLayer {
 
     fn triple_layer_removal_count(&self) -> usize {
         self.inner.triple_layer_removal_count()
+    }
+
+    fn triple_addition_count(&self) -> usize {
+        self.inner.triple_addition_count()
+    }
+
+    fn triple_removal_count(&self) -> usize {
+        self.inner.triple_removal_count()
     }
 
     fn all_counts(&self) -> LayerCounts {

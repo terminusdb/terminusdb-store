@@ -64,6 +64,8 @@ pub trait LayerStore: 'static + Send + Sync {
         pack: &[u8],
         layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
     ) -> Result<(), io::Error>;
+
+    fn layer_is_ancestor_of(&self, descendant: [u32; 5], ancestor: [u32; 5]) -> Box<dyn Future<Item=bool, Error=io::Error>+Send>;
 }
 
 pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
@@ -562,6 +564,30 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
     ) -> Result<(), io::Error> {
         Self::import_layers(self, pack, layer_ids)
     }
+
+    fn layer_is_ancestor_of(&self, descendant: [u32; 5], ancestor: [u32; 5]) -> Box<dyn Future<Item=bool, Error=io::Error>+Send> {
+        let cloned = self.clone();
+        Box::new(future::loop_fn(
+            (cloned, descendant),
+            move |(retriever, descendant)| {
+                if ancestor == descendant {
+                    future::Either::A(future::ok(future::Loop::Break(true)))
+                }
+                else {
+                    future::Either::B(
+                        retriever.read_parent_file(descendant)
+                            .map(|parent| future::Loop::Continue((retriever, parent)))
+                            .or_else(|e| {
+                                if e.kind() == io::ErrorKind::NotFound {
+                                    future::ok(future::Loop::Break(false))
+                                }
+                                else {
+                                    future::err(e)
+                                }
+                            }))
+                }
+            }))
+    }
 }
 
 // locking isn't really ideal but the lock window will be relatively small so it shouldn't hurt performance too much except on heavy updates.
@@ -671,6 +697,10 @@ impl LayerStore for CachedLayerStore {
         layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
     ) -> Result<(), io::Error> {
         self.inner.import_layers(pack, layer_ids)
+    }
+
+    fn layer_is_ancestor_of(&self, descendant: [u32; 5], ancestor: [u32; 5]) -> Box<dyn Future<Item=bool, Error=io::Error>+Send> {
+        self.inner.layer_is_ancestor_of(descendant, ancestor)
     }
 }
 
