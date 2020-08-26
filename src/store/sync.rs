@@ -311,6 +311,11 @@ impl SyncNamedGraph {
     pub fn set_head(&self, layer: &SyncStoreLayer) -> Result<bool, io::Error> {
         task_sync(self.inner.set_head(&layer.inner))
     }
+
+    pub fn force_set_head(&self, layer: &SyncStoreLayer) -> Result<bool, io::Error> {
+        task_sync(self.inner.force_set_head(&layer.inner))
+    }
+
 }
 
 /// A store, storing a set of layers and database labels pointing to these layers

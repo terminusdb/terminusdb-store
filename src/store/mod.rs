@@ -424,6 +424,34 @@ impl NamedGraph {
                 result
             })
     }
+
+    /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise
+    pub fn force_set_head(
+        &self,
+        layer: &StoreLayer,
+    ) -> impl Future<Item = bool, Error = io::Error> + Send {
+        let store = self.store.clone();
+        let layer_name = layer.name();
+        store
+            .label_store
+            .get_label(&self.label)
+            .and_then(move |label| {
+                let result: Box<dyn Future<Item = _, Error = _> + Send> = match label {
+                    None => Box::new(future::err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "label not found",
+                    ))),
+                    Some(label) => Box::new(
+                        {
+                            store
+                                .label_store
+                                .set_label(&label, layer_name)
+                                .map(|_| true)
+                        }),
+                };
+                result
+            })
+    }
 }
 
 /// A store, storing a set of layers and database labels pointing to these layers
@@ -685,6 +713,59 @@ mod tests {
             .unwrap();
 
         assert!(builder.committed());
+    }
+
+    #[test]
+    fn hard_reset() {
+        let runtime = Runtime::new().unwrap();
+
+        let store = open_memory_store();
+        let database = oneshot::spawn(store.create("foodb"), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        let builder1 = oneshot::spawn(store.create_base_layer(), &runtime.executor())
+            .wait()
+            .unwrap();
+        builder1
+            .add_string_triple(&StringTriple::new_value("cow", "says", "moo"))
+            .unwrap();
+
+        let layer1 = oneshot::spawn(builder1.commit(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        assert!(
+            oneshot::spawn(database.set_head(&layer1), &runtime.executor())
+                .wait()
+                .unwrap()
+        );
+
+        let builder2 = oneshot::spawn(store.create_base_layer(), &runtime.executor())
+            .wait()
+            .unwrap();
+        builder2
+            .add_string_triple(&StringTriple::new_value("duck", "says", "quack"))
+            .unwrap();
+
+        let layer2 = oneshot::spawn(builder2.commit(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        assert!(
+            oneshot::spawn(database.force_set_head(&layer2), &runtime.executor())
+                .wait()
+                .unwrap()
+        );
+
+        let new_layer = oneshot::spawn(database.head(), &runtime.executor())
+            .wait()
+            .unwrap()
+            .unwrap();
+
+        assert!(new_layer.string_triple_exists(&StringTriple::new_value("duck", "says", "quack")));
+        assert!(!new_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+
     }
 
     #[test]
