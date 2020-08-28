@@ -132,7 +132,7 @@ impl StoreLayerBuilder {
         result
     }
 
-    pub fn apply_delta(&self, delta : &StoreLayer) -> impl Future<Item = (), Error = io::Error> + Send{
+    pub fn apply_delta(&self, delta : &StoreLayer) -> Result<(), io::Error> {
         delta.subject_additions()
             .map(|sl| {
                 sl.predicates()
@@ -179,7 +179,7 @@ impl StoreLayerBuilder {
                     })
             }).for_each(|_| ());
 
-        future::ok(())
+        Ok(())
     }
 
 }
