@@ -25,6 +25,10 @@ pub struct BaseLayer {
     node_dictionary: PfcDict,
     predicate_dictionary: PfcDict,
     value_dictionary: PfcDict,
+
+    subjects: Option<MonotonicLogArray>,
+    objects: Option<MonotonicLogArray>,
+
     s_p_adjacency_list: AdjacencyList,
     sp_o_adjacency_list: AdjacencyList,
     o_ps_adjacency_list: AdjacencyList,
@@ -56,6 +60,11 @@ impl BaseLayer {
             maps.value_dictionary_maps.offsets_map,
         )
         .unwrap();
+
+        let subjects =
+            maps.subjects_map.map(|subjects_map|MonotonicLogArray::from_logarray(LogArray::parse(subjects_map).unwrap()));
+        let objects =
+            maps.objects_map.map(|objects_map|MonotonicLogArray::from_logarray(LogArray::parse(objects_map).unwrap()));
 
         let s_p_adjacency_list = AdjacencyList::parse(
             maps.s_p_adjacency_list_maps.nums_map,
@@ -91,6 +100,9 @@ impl BaseLayer {
             node_dictionary,
             predicate_dictionary,
             value_dictionary,
+
+            subjects,
+            objects,
 
             s_p_adjacency_list,
             sp_o_adjacency_list,
@@ -164,11 +176,11 @@ impl InternalLayerImpl for BaseLayer {
     }
 
     fn pos_subjects(&self) -> Option<&MonotonicLogArray> {
-        None
+        self.subjects.as_ref()
     }
 
     fn pos_objects(&self) -> Option<&MonotonicLogArray> {
-        None
+        self.objects.as_ref()
     }
 
     fn neg_subjects(&self) -> Option<&MonotonicLogArray> {
@@ -714,6 +726,10 @@ pub mod tests {
                 blocks_file: MemoryBackedStore::new(),
                 offsets_file: MemoryBackedStore::new(),
             },
+
+            subjects_file: MemoryBackedStore::new(),
+            objects_file: MemoryBackedStore::new(),
+
             s_p_adjacency_list_files: AdjacencyListFiles {
                 bitindex_files: BitIndexFiles {
                     bits_file: MemoryBackedStore::new(),

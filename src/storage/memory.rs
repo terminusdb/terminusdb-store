@@ -259,6 +259,10 @@ impl LayerStore for MemoryLayerStore {
                 blocks_file: MemoryBackedStore::new(),
                 offsets_file: MemoryBackedStore::new(),
             },
+
+            subjects_file: MemoryBackedStore::new(),
+            objects_file: MemoryBackedStore::new(),
+
             s_p_adjacency_list_files: AdjacencyListFiles {
                 bitindex_files: BitIndexFiles {
                     bits_file: MemoryBackedStore::new(),

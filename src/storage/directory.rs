@@ -44,7 +44,7 @@ impl FileLoad for FileBackedStore {
 
     fn exists(&self) -> bool {
         let metadata = std::fs::metadata(&self.path);
-        metadata.is_err() && metadata.err().unwrap().kind() == io::ErrorKind::NotFound
+        !(metadata.is_err() && metadata.err().unwrap().kind() == io::ErrorKind::NotFound)
     }
 
     fn size(&self) -> usize {
@@ -647,5 +647,11 @@ mod tests {
 
         let error = result.err().unwrap();
         assert_eq!(io::ErrorKind::InvalidInput, error.kind());
+    }
+
+    #[test]
+    fn nonexistent_file_is_nonexistent() {
+        let file = FileBackedStore::new("asdfasfopivbuzxcvopiuvpoawehkafpouzvxv");
+        assert!(!file.exists());
     }
 }

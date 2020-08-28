@@ -11,6 +11,9 @@ pub struct Filenames {
     pub node_value_remap: &'static str,
     pub predicate_remap: &'static str,
 
+    pub base_subjects: &'static str,
+    pub base_objects: &'static str,
+
     pub base_s_p_adjacency_list_nums: &'static str,
     pub base_s_p_adjacency_list_bits: &'static str,
     pub base_s_p_adjacency_list_bit_index_blocks: &'static str,
@@ -89,6 +92,9 @@ pub const FILENAMES: Filenames = Filenames {
 
     node_value_remap: "node_value_remap.logarray",
     predicate_remap: "predicate_remap.logarray",
+
+    base_subjects: "base_subjects.logarray",
+    base_objects: "base_objects.logarray",
 
     base_s_p_adjacency_list_nums: "base_s_p_adjacency_list_nums.logarray",
     base_s_p_adjacency_list_bits: "base_s_p_adjacency_list_bits.bitarray",
