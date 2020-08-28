@@ -134,48 +134,24 @@ impl StoreLayerBuilder {
 
     pub fn apply_delta(&self, delta : &StoreLayer) -> Result<(), io::Error> {
         delta.subject_additions()
-            .map(|sl| {
-                sl.predicates()
-                    .map(|spl| {
-                        let subject = spl.subject();
-                        let predicate = spl.predicate();
-                        spl.objects()
-                            .map(move |object|{
-                                let id_triple = IdTriple::new(
-                                    subject,
-                                    predicate,
-                                    object,
-                                );
-                                delta
-                                    .id_triple_to_string(&id_triple)
-                                    .map(|st|{
-                                        self.add_string_triple(&st)
-                                    })
-
-                            })
+            .map(|sl| sl.triples())
+            .flatten()
+            .map(|t| {
+                delta
+                    .id_triple_to_string(&t)
+                    .map(|st|{
+                        self.add_string_triple(&st)
                     })
             }).for_each(|_| ());
 
         delta.subject_removals()
-            .map(|sl| {
-                sl.predicates()
-                    .map(|spl| {
-                        let subject = spl.subject();
-                        let predicate = spl.predicate();
-                        spl.objects()
-                            .map(move |object|{
-                                let id_triple = IdTriple::new(
-                                    subject,
-                                    predicate,
-                                    object,
-                                );
-                                delta
-                                    .id_triple_to_string(&id_triple)
-                                    .map(|st|{
-                                        self.remove_string_triple(&st)
-                                    })
-
-                            })
+            .map(|sl| sl.triples())
+            .flatten()
+            .map(|t| {
+                delta
+                    .id_triple_to_string(&t)
+                    .map(|st|{
+                        self.remove_string_triple(&st)
                     })
             }).for_each(|_| ());
 
@@ -852,5 +828,85 @@ mod tests {
         assert!(new.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(new.string_triple_exists(&StringTriple::new_value("dog", "says", "woof")));
         assert!(new.parent().is_none());
+    }
+
+    #[test]
+    fn apply_a_base_delta() {
+
+        let runtime = Runtime::new().unwrap();
+
+        let store = open_memory_store();
+        let builder = oneshot::spawn(store.create_base_layer(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        builder
+            .add_string_triple(&StringTriple::new_value("cow", "says", "moo"))
+            .unwrap();
+
+        let layer = oneshot::spawn(builder.commit(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        let builder2 = oneshot::spawn(layer.open_write(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        builder2
+            .add_string_triple(&StringTriple::new_value("dog", "says", "woof"))
+            .unwrap();
+
+        let layer2 = oneshot::spawn(builder2.commit(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+
+        let delta_builder_1 = oneshot::spawn(store.create_base_layer(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        delta_builder_1
+            .add_string_triple(&StringTriple::new_value("dog", "says", "woof"))
+            .unwrap();
+        delta_builder_1
+            .add_string_triple(&StringTriple::new_value("cat", "says", "meow"))
+            .unwrap();
+
+        let delta_1 = oneshot::spawn(delta_builder_1.commit(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        let delta_builder_2 = oneshot::spawn(delta_1.open_write(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        delta_builder_2
+            .add_string_triple(&StringTriple::new_value("crow", "says", "caw"))
+            .unwrap();
+        delta_builder_2
+            .remove_string_triple(&StringTriple::new_value("cat", "says", "meow"))
+            .unwrap();
+
+        let delta = oneshot::spawn(delta_builder_2.commit(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        let rebase_builder = oneshot::spawn(layer2.open_write(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        let _ = rebase_builder.apply_delta(&delta)
+            .unwrap();
+
+        let rebase_layer = oneshot::spawn(rebase_builder.commit(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        assert!(rebase_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+        assert!(rebase_layer.string_triple_exists(&StringTriple::new_value("crow", "says", "caw")));
+        assert!(rebase_layer.string_triple_exists(&StringTriple::new_value("dog", "says", "woof")));
+        assert!(!rebase_layer.string_triple_exists(&StringTriple::new_value("cat", "says", "meow")));
+
+
     }
 }

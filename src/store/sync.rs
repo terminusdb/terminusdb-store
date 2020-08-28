@@ -102,6 +102,11 @@ impl SyncStoreLayerBuilder {
 
         inner.map(|i| SyncStoreLayer::wrap(i))
     }
+
+    pub fn apply_delta(&self, delta : &SyncStoreLayer) -> Result<(), io::Error> {
+        self.inner.apply_delta(&delta.inner)
+    }
+
 }
 
 /// A layer that keeps track of the store it came out of, allowing the creation of a layer builder on top of this layer
