@@ -5,12 +5,12 @@
 //! set. On top of that, each layer stores additions and removals.
 mod internal;
 mod base;
-mod builder;
 mod child;
+mod simple_builder;
 mod layer;
 
 pub use internal::*;
 pub use base::*;
-pub use builder::*;
 pub use child::*;
+pub use simple_builder::*;
 pub use layer::*;

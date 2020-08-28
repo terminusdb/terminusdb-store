@@ -1411,7 +1411,7 @@ mod tests {
     use super::*;
     use crate::layer::base::tests::base_layer_files;
     use crate::layer::base::BaseLayer;
-    use crate::layer::builder::{LayerBuilder, SimpleLayerBuilder};
+    use crate::layer::simple_builder::{LayerBuilder, SimpleLayerBuilder};
     use crate::layer::child::tests::child_layer_files;
     use crate::layer::child::ChildLayer;
     use crate::layer::internal::InternalLayer;
