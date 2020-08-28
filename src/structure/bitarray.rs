@@ -193,6 +193,12 @@ impl BitArray {
 
         byte & mask != 0
     }
+
+    pub fn iter(&self) -> impl Iterator<Item=bool> {
+        let bits = self.clone();
+        (0..bits.len())
+            .map(move |index|bits.get(index))
+    }
 }
 
 pub struct BitArrayFileBuilder<W> {

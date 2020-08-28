@@ -306,6 +306,10 @@ impl BitIndex {
             Some(result)
         }
     }
+
+    pub fn iter(&self) -> impl Iterator<Item=bool> {
+        self.array.iter()
+    }
 }
 
 pub fn build_bitindex<

@@ -12,7 +12,6 @@ use futures::future;
 use futures::prelude::*;
 use futures::stream;
 
-use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::io;
 use std::sync::Arc;
@@ -510,18 +509,9 @@ pub struct ChildLayerFileBuilderPhase2<F: 'static + FileLoad + FileStore + Clone
     parent: Arc<dyn Layer>,
 
     files: ChildLayerFiles<F>,
-    pos_subjects: Vec<u64>,
-    neg_subjects: Vec<u64>,
 
-    pos_s_p_adjacency_list_builder: AdjacencyListBuilder<F, F::Write, F::Write, F::Write>,
-    pos_sp_o_adjacency_list_builder: AdjacencyListBuilder<F, F::Write, F::Write, F::Write>,
-    pos_last_subject: u64,
-    pos_last_predicate: u64,
-
-    neg_s_p_adjacency_list_builder: AdjacencyListBuilder<F, F::Write, F::Write, F::Write>,
-    neg_sp_o_adjacency_list_builder: AdjacencyListBuilder<F, F::Write, F::Write, F::Write>,
-    neg_last_subject: u64,
-    neg_last_predicate: u64,
+    pos_builder: TripleFileBuilder<F>,
+    neg_builder: TripleFileBuilder<F>,
 }
 
 impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuilderPhase2<F> {
@@ -533,99 +523,31 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         num_predicates: usize,
         num_values: usize,
     ) -> Self {
-        let pos_subjects = Vec::new();
-        let neg_subjects = Vec::new();
         let parent_counts = parent.all_counts();
-        let s_p_width = ((parent_counts.predicate_count + num_predicates + 1) as f32)
-            .log2()
-            .ceil() as u8;
-        let sp_o_width =
-            ((parent_counts.node_count + parent_counts.value_count + num_nodes + num_values + 1)
-                as f32)
-                .log2()
-                .ceil() as u8;
-
-        let f = files.clone();
-
-        let pos_s_p_adjacency_list_builder = AdjacencyListBuilder::new(
-            files.pos_s_p_adjacency_list_files.bitindex_files.bits_file,
-            files
-                .pos_s_p_adjacency_list_files
-                .bitindex_files
-                .blocks_file
-                .open_write(),
-            files
-                .pos_s_p_adjacency_list_files
-                .bitindex_files
-                .sblocks_file
-                .open_write(),
-            files.pos_s_p_adjacency_list_files.nums_file.open_write(),
-            s_p_width,
+        let pos_builder = TripleFileBuilder::new(
+            files.pos_s_p_adjacency_list_files.clone(),
+            files.pos_sp_o_adjacency_list_files.clone(),
+            num_nodes + parent_counts.node_count,
+            num_predicates + parent_counts.predicate_count,
+            num_values + parent_counts.value_count,
+            Some(files.pos_subjects_file.clone())
         );
 
-        let pos_sp_o_adjacency_list_builder = AdjacencyListBuilder::new(
-            files.pos_sp_o_adjacency_list_files.bitindex_files.bits_file,
-            files
-                .pos_sp_o_adjacency_list_files
-                .bitindex_files
-                .blocks_file
-                .open_write(),
-            files
-                .pos_sp_o_adjacency_list_files
-                .bitindex_files
-                .sblocks_file
-                .open_write(),
-            files.pos_sp_o_adjacency_list_files.nums_file.open_write(),
-            sp_o_width,
-        );
-
-        let neg_s_p_adjacency_list_builder = AdjacencyListBuilder::new(
-            files.neg_s_p_adjacency_list_files.bitindex_files.bits_file,
-            files
-                .neg_s_p_adjacency_list_files
-                .bitindex_files
-                .blocks_file
-                .open_write(),
-            files
-                .neg_s_p_adjacency_list_files
-                .bitindex_files
-                .sblocks_file
-                .open_write(),
-            files.neg_s_p_adjacency_list_files.nums_file.open_write(),
-            s_p_width,
-        );
-
-        let neg_sp_o_adjacency_list_builder = AdjacencyListBuilder::new(
-            files.neg_sp_o_adjacency_list_files.bitindex_files.bits_file,
-            files
-                .neg_sp_o_adjacency_list_files
-                .bitindex_files
-                .blocks_file
-                .open_write(),
-            files
-                .neg_sp_o_adjacency_list_files
-                .bitindex_files
-                .sblocks_file
-                .open_write(),
-            files.neg_sp_o_adjacency_list_files.nums_file.open_write(),
-            sp_o_width,
+        let neg_builder = TripleFileBuilder::new(
+            files.neg_s_p_adjacency_list_files.clone(),
+            files.neg_sp_o_adjacency_list_files.clone(),
+            num_nodes + parent_counts.node_count,
+            num_predicates + parent_counts.predicate_count,
+            num_values + parent_counts.value_count,
+            Some(files.neg_subjects_file.clone())
         );
 
         ChildLayerFileBuilderPhase2 {
             parent,
-            files: f,
-            pos_subjects,
-            neg_subjects,
+            files,
 
-            pos_s_p_adjacency_list_builder,
-            pos_sp_o_adjacency_list_builder,
-            pos_last_subject: 0,
-            pos_last_predicate: 0,
-
-            neg_s_p_adjacency_list_builder,
-            neg_sp_o_adjacency_list_builder,
-            neg_last_subject: 0,
-            neg_last_predicate: 0,
+            pos_builder,
+            neg_builder
         }
     }
 
@@ -638,88 +560,30 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         subject: u64,
         predicate: u64,
         object: u64,
-    ) -> Box<dyn Future<Item = Self, Error = std::io::Error> + Send> {
+    ) -> impl Future<Item = Self, Error = std::io::Error> + Send {
         if self.parent.triple_exists(subject, predicate, object) {
             // no need to do anything
-            // TODO maybe return an error instead?
-            return Box::new(future::ok(self));
+            return future::Either::A(future::ok(self))
         }
 
         let ChildLayerFileBuilderPhase2 {
             parent,
             files,
-            mut pos_subjects,
-            neg_subjects,
 
-            pos_s_p_adjacency_list_builder,
-            pos_sp_o_adjacency_list_builder,
-            pos_last_subject,
-            pos_last_predicate,
-
-            neg_s_p_adjacency_list_builder,
-            neg_sp_o_adjacency_list_builder,
-            neg_last_subject,
-            neg_last_predicate,
+            pos_builder,
+            neg_builder,
         } = self;
 
-        // TODO make this a proper error, rather than a panic
-        match subject.cmp(&pos_last_subject) {
-            Ordering::Less => panic!("layer builder got addition in wrong order (subject is {} while previously {} was pushed)", subject, pos_last_subject),
-            Ordering::Equal => {},
-            Ordering::Greater => pos_subjects.push(subject)
-        };
-
-        if pos_last_subject == subject && pos_last_predicate == predicate {
-            // only the second adjacency list has to be pushed to
-            let count = pos_s_p_adjacency_list_builder.count() + 1;
-            Box::new(pos_sp_o_adjacency_list_builder.push(count, object).map(
-                move |pos_sp_o_adjacency_list_builder| ChildLayerFileBuilderPhase2 {
+        future::Either::B(
+            pos_builder.add_triple(subject, predicate, object).
+                map(move |pos_builder| ChildLayerFileBuilderPhase2 {
                     parent,
                     files,
-                    pos_subjects,
-                    neg_subjects,
 
-                    pos_s_p_adjacency_list_builder,
-                    pos_sp_o_adjacency_list_builder,
-                    pos_last_subject: subject,
-                    pos_last_predicate: predicate,
-
-                    neg_s_p_adjacency_list_builder,
-                    neg_sp_o_adjacency_list_builder,
-                    neg_last_subject,
-                    neg_last_predicate,
-                },
-            ))
-        } else {
-            // both list have to be pushed to
-            let mapped_subject = pos_subjects.len() as u64;
-
-            Box::new(
-                pos_s_p_adjacency_list_builder
-                    .push(mapped_subject, predicate)
-                    .and_then(move |pos_s_p_adjacency_list_builder| {
-                        let count = pos_s_p_adjacency_list_builder.count() + 1;
-                        pos_sp_o_adjacency_list_builder.push(count, object).map(
-                            move |pos_sp_o_adjacency_list_builder| ChildLayerFileBuilderPhase2 {
-                                parent,
-                                files,
-                                pos_subjects,
-                                neg_subjects,
-
-                                pos_s_p_adjacency_list_builder,
-                                pos_sp_o_adjacency_list_builder,
-                                pos_last_subject: subject,
-                                pos_last_predicate: predicate,
-
-                                neg_s_p_adjacency_list_builder,
-                                neg_sp_o_adjacency_list_builder,
-                                neg_last_subject,
-                                neg_last_predicate,
-                            },
-                        )
-                    }),
-            )
-        }
+                    pos_builder,
+                    neg_builder,
+                })
+        )
     }
 
     /// Remove the given subject, predicate and object.
@@ -731,88 +595,30 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         subject: u64,
         predicate: u64,
         object: u64,
-    ) -> Box<dyn Future<Item = Self, Error = std::io::Error> + Send> {
+    ) -> impl Future<Item = Self, Error = std::io::Error> + Send {
         if !self.parent.triple_exists(subject, predicate, object) {
             // no need to do anything
-            // TODO maybe return an error instead?
-            return Box::new(future::ok(self));
+            return future::Either::A(future::ok(self))
         }
 
         let ChildLayerFileBuilderPhase2 {
             parent,
             files,
-            pos_subjects,
-            mut neg_subjects,
 
-            pos_s_p_adjacency_list_builder,
-            pos_sp_o_adjacency_list_builder,
-            pos_last_subject,
-            pos_last_predicate,
-
-            neg_s_p_adjacency_list_builder,
-            neg_sp_o_adjacency_list_builder,
-            neg_last_subject,
-            neg_last_predicate,
+            pos_builder,
+            neg_builder,
         } = self;
 
-        // TODO make this a proper error, rather than a panic
-        match subject.cmp(&neg_last_subject) {
-            Ordering::Less => panic!("layer builder got removal in wrong order (subject is {} while previously {} was pushed)", subject, neg_last_subject),
-            Ordering::Equal => {},
-            Ordering::Greater => neg_subjects.push(subject)
-        }
-
-        if neg_last_subject == subject && neg_last_predicate == predicate {
-            // only the second adjacency list has to be pushed to
-            let count = neg_s_p_adjacency_list_builder.count() + 1;
-            Box::new(neg_sp_o_adjacency_list_builder.push(count, object).map(
-                move |neg_sp_o_adjacency_list_builder| ChildLayerFileBuilderPhase2 {
+        future::Either::B(
+            neg_builder.add_triple(subject, predicate, object).
+                map(move |neg_builder| ChildLayerFileBuilderPhase2 {
                     parent,
                     files,
-                    pos_subjects,
-                    neg_subjects,
 
-                    pos_s_p_adjacency_list_builder,
-                    pos_sp_o_adjacency_list_builder,
-                    pos_last_subject,
-                    pos_last_predicate,
-
-                    neg_s_p_adjacency_list_builder,
-                    neg_sp_o_adjacency_list_builder,
-                    neg_last_subject: subject,
-                    neg_last_predicate: predicate,
-                },
-            ))
-        } else {
-            // both list have to be pushed to
-            let mapped_subject = neg_subjects.len() as u64;
-
-            Box::new(
-                neg_s_p_adjacency_list_builder
-                    .push(mapped_subject, predicate)
-                    .and_then(move |neg_s_p_adjacency_list_builder| {
-                        let count = neg_s_p_adjacency_list_builder.count() + 1;
-                        neg_sp_o_adjacency_list_builder.push(count, object).map(
-                            move |neg_sp_o_adjacency_list_builder| ChildLayerFileBuilderPhase2 {
-                                parent,
-                                files,
-                                pos_subjects,
-                                neg_subjects,
-
-                                pos_s_p_adjacency_list_builder,
-                                pos_sp_o_adjacency_list_builder,
-                                pos_last_subject,
-                                pos_last_predicate,
-
-                                neg_s_p_adjacency_list_builder,
-                                neg_sp_o_adjacency_list_builder,
-                                neg_last_subject: subject,
-                                neg_last_predicate: predicate,
-                            },
-                        )
-                    }),
-            )
-        }
+                    pos_builder,
+                    neg_builder,
+                })
+        )
     }
 
     /// Add the given triple.
@@ -822,7 +628,8 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     pub fn add_id_triples<I: 'static + IntoIterator<Item = IdTriple>>(
         self,
         triples: I,
-    ) -> impl Future<Item = Self, Error = std::io::Error> {
+    ) -> impl Future<Item = Self, Error = std::io::Error>+Send
+        where <I as std::iter::IntoIterator>::IntoIter: Send {
         stream::iter_ok(triples).fold(self, |b, triple| {
             b.add_triple(triple.subject, triple.predicate, triple.object)
         })
@@ -835,62 +642,19 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     pub fn remove_id_triples<I: 'static + IntoIterator<Item = IdTriple>>(
         self,
         triples: I,
-    ) -> impl Future<Item = Self, Error = std::io::Error> {
+    ) -> impl Future<Item = Self, Error = std::io::Error>+Send
+        where <I as std::iter::IntoIterator>::IntoIter: Send {
         stream::iter_ok(triples).fold(self, |b, triple| {
             b.remove_triple(triple.subject, triple.predicate, triple.object)
         })
     }
 
     /// Write the layer data to storage.
-    pub fn finalize(self) -> impl Future<Item = (), Error = std::io::Error> {
-        let max_pos_subject = if self.pos_subjects.len() == 0 {
-            0
-        } else {
-            self.pos_subjects[self.pos_subjects.len() - 1]
-        };
-        let max_neg_subject = if self.neg_subjects.len() == 0 {
-            0
-        } else {
-            self.neg_subjects[self.neg_subjects.len() - 1]
-        };
-        let pos_subjects_width = 1 + (max_pos_subject as f32).log2().ceil() as u8;
-        let neg_subjects_width = 1 + (max_neg_subject as f32).log2().ceil() as u8;
-        let pos_subjects_logarray_builder = LogArrayFileBuilder::new(
-            self.files.pos_subjects_file.open_write(),
-            pos_subjects_width,
-        );
-        let neg_subjects_logarray_builder = LogArrayFileBuilder::new(
-            self.files.neg_subjects_file.open_write(),
-            neg_subjects_width,
-        );
-
-        let build_pos_s_p_adjacency_list: Box<
-            dyn Future<Item = (), Error = std::io::Error> + Send,
-        > = Box::new(self.pos_s_p_adjacency_list_builder.finalize());
-        let build_pos_sp_o_adjacency_list: Box<
-            dyn Future<Item = (), Error = std::io::Error> + Send,
-        > = Box::new(self.pos_sp_o_adjacency_list_builder.finalize());
-        let build_neg_s_p_adjacency_list: Box<
-            dyn Future<Item = (), Error = std::io::Error> + Send,
-        > = Box::new(self.neg_s_p_adjacency_list_builder.finalize());
-        let build_neg_sp_o_adjacency_list: Box<
-            dyn Future<Item = (), Error = std::io::Error> + Send,
-        > = Box::new(self.neg_sp_o_adjacency_list_builder.finalize());
-
-        let build_pos_subjects: Box<dyn Future<Item = (), Error = std::io::Error> + Send> =
-            Box::new(
-                pos_subjects_logarray_builder
-                    .push_all(stream::iter_ok(self.pos_subjects))
-                    .and_then(|b| b.finalize())
-                    .map(|_| ()),
-            );
-        let build_neg_subjects: Box<dyn Future<Item = (), Error = std::io::Error> + Send> =
-            Box::new(
-                neg_subjects_logarray_builder
-                    .push_all(stream::iter_ok(self.neg_subjects))
-                    .and_then(|b| b.finalize())
-                    .map(|_| ()),
-            );
+    pub fn finalize(self) -> impl Future<Item = (), Error = std::io::Error>+Send {
+        let builder_futs = vec![
+            self.pos_builder.finalize(),
+            self.neg_builder.finalize(),
+        ];
 
         let pos_s_p_files = self.files.pos_s_p_adjacency_list_files;
         let pos_sp_o_files = self.files.pos_sp_o_adjacency_list_files;
@@ -904,14 +668,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         let pos_predicate_wavelet_tree_files = self.files.pos_predicate_wavelet_tree_files;
         let neg_predicate_wavelet_tree_files = self.files.neg_predicate_wavelet_tree_files;
 
-        future::join_all(vec![
-            build_pos_s_p_adjacency_list,
-            build_pos_sp_o_adjacency_list,
-            build_neg_s_p_adjacency_list,
-            build_neg_sp_o_adjacency_list,
-            build_pos_subjects,
-            build_neg_subjects,
-        ])
+        future::join_all(builder_futs)
         .and_then(|_| {
             build_object_index(pos_sp_o_files, pos_o_ps_files, pos_objects_file)
                 .join(build_object_index(

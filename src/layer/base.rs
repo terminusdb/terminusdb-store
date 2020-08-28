@@ -382,11 +382,9 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
 /// added, `finalize()` will build a layer.
 pub struct BaseLayerFileBuilderPhase2<F: 'static + FileLoad + FileStore> {
     files: BaseLayerFiles<F>,
-    s_p_adjacency_list_builder: AdjacencyListBuilder<F, F::Write, F::Write, F::Write>,
-    sp_o_adjacency_list_builder: AdjacencyListBuilder<F, F::Write, F::Write, F::Write>,
-    last_subject: u64,
-    last_predicate: u64,
     object_count: usize,
+
+    builder: TripleFileBuilder<F>
 }
 
 impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
@@ -397,48 +395,22 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
         num_predicates: usize,
         num_values: usize,
     ) -> Self {
-        let s_p_width = ((num_predicates + 1) as f32).log2().ceil() as u8;
-        let sp_o_width = ((num_nodes + num_values + 1) as f32).log2().ceil() as u8;
-        let f = files.clone();
-        let s_p_adjacency_list_builder = AdjacencyListBuilder::new(
-            files.s_p_adjacency_list_files.bitindex_files.bits_file,
-            files
-                .s_p_adjacency_list_files
-                .bitindex_files
-                .blocks_file
-                .open_write(),
-            files
-                .s_p_adjacency_list_files
-                .bitindex_files
-                .sblocks_file
-                .open_write(),
-            files.s_p_adjacency_list_files.nums_file.open_write(),
-            s_p_width,
+        let builder = TripleFileBuilder::new(
+            files.s_p_adjacency_list_files.clone(),
+            files.sp_o_adjacency_list_files.clone(),
+            num_nodes,
+            num_predicates,
+            num_values,
+            None
         );
 
-        let sp_o_adjacency_list_builder = AdjacencyListBuilder::new(
-            files.sp_o_adjacency_list_files.bitindex_files.bits_file,
-            files
-                .sp_o_adjacency_list_files
-                .bitindex_files
-                .blocks_file
-                .open_write(),
-            files
-                .sp_o_adjacency_list_files
-                .bitindex_files
-                .sblocks_file
-                .open_write(),
-            files.sp_o_adjacency_list_files.nums_file.open_write(),
-            sp_o_width,
-        );
+        let object_count = num_nodes + num_values;
 
         BaseLayerFileBuilderPhase2 {
-            files: f,
-            s_p_adjacency_list_builder,
-            sp_o_adjacency_list_builder,
-            last_subject: 0,
-            last_predicate: 0,
-            object_count: num_nodes + num_values,
+            files,
+            object_count,
+
+            builder
         }
     }
 
@@ -450,49 +422,20 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
         subject: u64,
         predicate: u64,
         object: u64,
-    ) -> Box<dyn Future<Item = Self, Error = std::io::Error> + Send> {
+    ) -> impl Future<Item = Self, Error = std::io::Error> + Send {
         let BaseLayerFileBuilderPhase2 {
             files,
-            s_p_adjacency_list_builder,
-            sp_o_adjacency_list_builder,
-            last_subject,
-            last_predicate,
             object_count,
+
+            builder
         } = self;
 
-        if last_subject == subject && last_predicate == predicate {
-            // only the second adjacency list has to be pushed to
-            let count = s_p_adjacency_list_builder.count() + 1;
-            Box::new(sp_o_adjacency_list_builder.push(count, object).map(
-                move |sp_o_adjacency_list_builder| BaseLayerFileBuilderPhase2 {
-                    files,
-                    s_p_adjacency_list_builder,
-                    sp_o_adjacency_list_builder,
-                    last_subject: subject,
-                    last_predicate: predicate,
-                    object_count,
-                },
-            ))
-        } else {
-            // both list have to be pushed to
-            Box::new(
-                s_p_adjacency_list_builder
-                    .push(subject, predicate)
-                    .and_then(move |s_p_adjacency_list_builder| {
-                        let count = s_p_adjacency_list_builder.count() + 1;
-                        sp_o_adjacency_list_builder.push(count, object).map(
-                            move |sp_o_adjacency_list_builder| BaseLayerFileBuilderPhase2 {
-                                files,
-                                s_p_adjacency_list_builder,
-                                sp_o_adjacency_list_builder,
-                                last_subject: subject,
-                                last_predicate: predicate,
-                                object_count,
-                            },
-                        )
-                    }),
-            )
-        }
+        builder.add_triple(subject, predicate, object)
+            .map(move |builder| BaseLayerFileBuilderPhase2 {
+                files,
+                object_count,
+                builder
+            })
     }
 
     /// Add the given triple.
@@ -501,10 +444,22 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
     pub fn add_id_triples<I: 'static + IntoIterator<Item = IdTriple>>(
         self,
         triples: I,
-    ) -> impl Future<Item = Self, Error = std::io::Error> {
-        stream::iter_ok(triples).fold(self, |b, triple| {
-            b.add_triple(triple.subject, triple.predicate, triple.object)
-        })
+    ) -> impl Future<Item = Self, Error = std::io::Error>+Send
+        where <I as std::iter::IntoIterator>::IntoIter: Send
+    {
+        let BaseLayerFileBuilderPhase2 {
+            files,
+            object_count,
+
+            builder
+        } = self;
+
+        builder.add_id_triples(triples)
+            .map(move |builder| BaseLayerFileBuilderPhase2 {
+                files,
+                object_count,
+                builder
+            })
     }
 
     pub fn finalize(self) -> impl Future<Item = (), Error = std::io::Error> {
@@ -513,10 +468,7 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
         let o_ps_adjacency_list_files = self.files.o_ps_adjacency_list_files;
         let predicate_wavelet_tree_files = self.files.predicate_wavelet_tree_files;
         let object_count = self.object_count;
-        future::join_all(vec![
-            self.s_p_adjacency_list_builder.finalize(),
-            self.sp_o_adjacency_list_builder.finalize(),
-        ])
+        self.builder.finalize()
         .and_then(move |_| {
             adjacency_list_stream_pairs(
                 sp_o_adjacency_list_files.bitindex_files.bits_file,

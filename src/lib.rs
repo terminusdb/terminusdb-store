@@ -1,3 +1,5 @@
+#![type_length_limit="10628160"]
+
 //! Tokio-enabled data store for triple data
 //!
 //! This library implements a way to store triple data - data that
