@@ -8,6 +8,7 @@ use futures::stream::Peekable;
 
 use super::layer::*;
 use super::internal::*;
+use super::builder::*;
 use crate::storage::*;
 use crate::structure::*;
 
@@ -40,7 +41,7 @@ impl BaseLayer {
     pub fn load_from_files<F: FileLoad + FileStore>(
         name: [u32; 5],
         files: &BaseLayerFiles<F>,
-    ) -> impl Future<Item = Self, Error = std::io::Error> {
+    ) -> impl Future<Item = Self, Error = std::io::Error>+Send {
         files.map_all().map(move |maps| Self::load(name, maps))
     }
 
@@ -201,61 +202,35 @@ impl InternalLayerImpl for BaseLayer {
 pub struct BaseLayerFileBuilder<F: 'static + FileLoad + FileStore> {
     files: BaseLayerFiles<F>,
 
-    node_dictionary_builder: PfcDictFileBuilder<F::Write>,
-    predicate_dictionary_builder: PfcDictFileBuilder<F::Write>,
-    value_dictionary_builder: PfcDictFileBuilder<F::Write>,
+    builder: DictionarySetFileBuilder<F>
 }
 
 impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     /// Create the builder from the given files.
     pub fn from_files(files: &BaseLayerFiles<F>) -> Self {
-        let node_dictionary_builder = PfcDictFileBuilder::new(
-            files.node_dictionary_files.blocks_file.open_write(),
-            files.node_dictionary_files.offsets_file.open_write(),
-        );
-        let predicate_dictionary_builder = PfcDictFileBuilder::new(
-            files.predicate_dictionary_files.blocks_file.open_write(),
-            files.predicate_dictionary_files.offsets_file.open_write(),
-        );
-        let value_dictionary_builder = PfcDictFileBuilder::new(
-            files.value_dictionary_files.blocks_file.open_write(),
-            files.value_dictionary_files.offsets_file.open_write(),
+        let builder = DictionarySetFileBuilder::from_files(
+            files.node_dictionary_files.clone(),
+            files.predicate_dictionary_files.clone(),
+            files.value_dictionary_files.clone()
         );
 
         BaseLayerFileBuilder {
             files: files.clone(),
-            node_dictionary_builder,
-            predicate_dictionary_builder,
-            value_dictionary_builder,
+            builder
         }
     }
 
     /// Add a node string.
     ///
     /// Panics if the given node string is not a lexical successor of the previous node string.
-    pub fn add_node(self, node: &str) -> impl Future<Item = (u64, Self), Error = std::io::Error> {
+    pub fn add_node(self, node: &str) -> impl Future<Item = (u64, Self), Error = std::io::Error>+Send {
         let BaseLayerFileBuilder {
             files,
-
-            node_dictionary_builder,
-            predicate_dictionary_builder,
-            value_dictionary_builder,
+            builder
         } = self;
 
-        node_dictionary_builder
-            .add(node)
-            .map(move |(result, node_dictionary_builder)| {
-                (
-                    result,
-                    BaseLayerFileBuilder {
-                        files,
-
-                        node_dictionary_builder,
-                        predicate_dictionary_builder,
-                        value_dictionary_builder,
-                    },
-                )
-            })
+        builder.add_node(node)
+            .map(move |(id, builder)|(id, BaseLayerFileBuilder { files, builder }))
     }
 
     /// Add a predicate string.
@@ -264,123 +239,87 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     pub fn add_predicate(
         self,
         predicate: &str,
-    ) -> impl Future<Item = (u64, Self), Error = std::io::Error> {
+    ) -> impl Future<Item = (u64, Self), Error = std::io::Error>+Send {
         let BaseLayerFileBuilder {
             files,
-
-            node_dictionary_builder,
-            predicate_dictionary_builder,
-            value_dictionary_builder,
+            builder
         } = self;
 
-        predicate_dictionary_builder.add(predicate).map(
-            move |(result, predicate_dictionary_builder)| {
-                (
-                    result,
-                    BaseLayerFileBuilder {
-                        files,
-
-                        node_dictionary_builder,
-                        predicate_dictionary_builder,
-                        value_dictionary_builder,
-                    },
-                )
-            },
-        )
+        builder.add_predicate(predicate)
+            .map(move |(id, builder)|(id, BaseLayerFileBuilder { files, builder }))
     }
 
     /// Add a value string.
     ///
     /// Panics if the given value string is not a lexical successor of the previous value string.
-    pub fn add_value(self, value: &str) -> impl Future<Item = (u64, Self), Error = std::io::Error> {
+    pub fn add_value(self, value: &str) -> impl Future<Item = (u64, Self), Error = std::io::Error>+Send {
         let BaseLayerFileBuilder {
             files,
-
-            node_dictionary_builder,
-            predicate_dictionary_builder,
-            value_dictionary_builder,
+            builder
         } = self;
 
-        value_dictionary_builder
-            .add(value)
-            .map(move |(result, value_dictionary_builder)| {
-                (
-                    result,
-                    BaseLayerFileBuilder {
-                        files,
-
-                        node_dictionary_builder,
-                        predicate_dictionary_builder,
-                        value_dictionary_builder,
-                    },
-                )
-            })
+        builder.add_value(value)
+            .map(move |(id, builder)|(id, BaseLayerFileBuilder { files, builder }))
     }
 
     /// Add nodes from an iterable.
     ///
     /// Panics if the nodes are not in lexical order, or if previous added nodes are a lexical succesor of any of these nodes.
-    pub fn add_nodes<I: 'static + IntoIterator<Item = String> + Send + Sync>(
+    pub fn add_nodes<I: 'static + IntoIterator<Item = String> + Send>(
         self,
         nodes: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error>
+    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error>+Send
     where
-        <I as std::iter::IntoIterator>::IntoIter: Send + Sync,
+        <I as std::iter::IntoIterator>::IntoIter: Send+Sync,
+        I: Sync
     {
-        stream::iter_ok(nodes.into_iter()).fold(
-            (Vec::new(), self),
-            |(mut result, builder), node| {
-                builder.add_node(&node).map(|(id, builder)| {
-                    result.push(id);
+        let BaseLayerFileBuilder {
+            files,
+            builder
+        } = self;
 
-                    (result, builder)
-                })
-            },
-        )
+        builder.add_nodes(nodes)
+            .map(move |(ids, builder)| (ids, BaseLayerFileBuilder { files, builder }))
     }
 
     /// Add predicates from an iterable.
     ///
     /// Panics if the predicates are not in lexical order, or if previous added predicates are a lexical succesor of any of these predicates.
-    pub fn add_predicates<I: 'static + IntoIterator<Item = String> + Send + Sync>(
+    pub fn add_predicates<I: 'static + IntoIterator<Item = String> + Send>(
         self,
         predicates: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error>
+    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error>+Send
     where
-        <I as std::iter::IntoIterator>::IntoIter: Send + Sync,
+        <I as std::iter::IntoIterator>::IntoIter: Send+Sync,
+        I: Sync
     {
-        stream::iter_ok(predicates.into_iter()).fold(
-            (Vec::new(), self),
-            |(mut result, builder), predicate| {
-                builder.add_predicate(&predicate).map(|(id, builder)| {
-                    result.push(id);
+        let BaseLayerFileBuilder {
+            files,
+            builder
+        } = self;
 
-                    (result, builder)
-                })
-            },
-        )
+        builder.add_predicates(predicates)
+            .map(move |(ids, builder)| (ids, BaseLayerFileBuilder { files, builder }))
     }
 
     /// Add values from an iterable.
     ///
     /// Panics if the values are not in lexical order, or if previous added values are a lexical succesor of any of these values.
-    pub fn add_values<I: 'static + IntoIterator<Item = String> + Send + Sync>(
+    pub fn add_values<I: 'static + IntoIterator<Item = String> + Send>(
         self,
         values: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error>
+    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error>+Send
     where
-        <I as std::iter::IntoIterator>::IntoIter: Send + Sync,
+        <I as std::iter::IntoIterator>::IntoIter: Send+Sync,
+        I: Sync
     {
-        stream::iter_ok(values.into_iter()).fold(
-            (Vec::new(), self),
-            |(mut result, builder), value| {
-                builder.add_value(&value).map(|(id, builder)| {
-                    result.push(id);
+        let BaseLayerFileBuilder {
+            files,
+            builder
+        } = self;
 
-                    (result, builder)
-                })
-            },
-        )
+        builder.add_values(values)
+            .map(move |(ids, builder)| (ids, BaseLayerFileBuilder { files, builder }))
     }
 
     /// Turn this builder into a phase 2 builder that will take triple data.
@@ -390,14 +329,8 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
         let BaseLayerFileBuilder {
             files,
 
-            node_dictionary_builder,
-            predicate_dictionary_builder,
-            value_dictionary_builder,
+            builder
         } = self;
-
-        let finalize_nodedict = node_dictionary_builder.finalize();
-        let finalize_preddict = predicate_dictionary_builder.finalize();
-        let finalize_valdict = value_dictionary_builder.finalize();
 
         let dict_maps_fut = vec![
             files.node_dictionary_files.blocks_file.map(),
@@ -408,7 +341,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
             files.value_dictionary_files.offsets_file.map(),
         ];
 
-        future::join_all(vec![finalize_nodedict, finalize_preddict, finalize_valdict])
+        builder.finalize()
             .and_then(|_| future::join_all(dict_maps_fut))
             .and_then(move |dict_maps| {
                 let node_dict_r = PfcDict::parse(dict_maps[0].clone(), dict_maps[1].clone());

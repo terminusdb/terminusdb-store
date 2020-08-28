@@ -6,6 +6,7 @@
 mod internal;
 mod base;
 mod child;
+mod builder;
 mod simple_builder;
 mod layer;
 

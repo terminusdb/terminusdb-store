@@ -5,6 +5,7 @@
 //! this layer needs for its additions.
 use super::layer::*;
 use super::internal::*;
+use super::builder::*;
 use crate::storage::*;
 use crate::structure::*;
 use futures::future;
@@ -252,35 +253,22 @@ impl InternalLayerImpl for ChildLayer {
 pub struct ChildLayerFileBuilder<F: 'static + FileLoad + FileStore + Clone + Send + Sync> {
     parent: Arc<dyn Layer>,
     files: ChildLayerFiles<F>,
-
-    node_dictionary_builder: PfcDictFileBuilder<F::Write>,
-    predicate_dictionary_builder: PfcDictFileBuilder<F::Write>,
-    value_dictionary_builder: PfcDictFileBuilder<F::Write>,
+    builder: DictionarySetFileBuilder<F>
 }
 
 impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuilder<F> {
     /// Create the builder from the given files.
     pub fn from_files(parent: Arc<dyn Layer>, files: &ChildLayerFiles<F>) -> Self {
-        let node_dictionary_builder = PfcDictFileBuilder::new(
-            files.node_dictionary_files.blocks_file.open_write(),
-            files.node_dictionary_files.offsets_file.open_write(),
-        );
-        let predicate_dictionary_builder = PfcDictFileBuilder::new(
-            files.predicate_dictionary_files.blocks_file.open_write(),
-            files.predicate_dictionary_files.offsets_file.open_write(),
-        );
-        let value_dictionary_builder = PfcDictFileBuilder::new(
-            files.value_dictionary_files.blocks_file.open_write(),
-            files.value_dictionary_files.offsets_file.open_write(),
+        let builder = DictionarySetFileBuilder::from_files(
+            files.node_dictionary_files.clone(),
+            files.predicate_dictionary_files.clone(),
+            files.value_dictionary_files.clone()
         );
 
         Self {
             parent,
             files: files.clone(),
-
-            node_dictionary_builder,
-            predicate_dictionary_builder,
-            value_dictionary_builder,
+            builder,
         }
     }
 
@@ -292,34 +280,28 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     pub fn add_node(
         self,
         node: &str,
-    ) -> Box<dyn Future<Item = (u64, Self), Error = std::io::Error> + Send> {
+    ) -> impl Future<Item = (u64, Self), Error = std::io::Error> + Send {
         match self.parent.subject_id(node) {
             None => {
                 let ChildLayerFileBuilder {
                     parent,
                     files,
-
-                    node_dictionary_builder,
-                    predicate_dictionary_builder,
-                    value_dictionary_builder,
+                    builder
                 } = self;
-                Box::new(node_dictionary_builder.add(node).map(
-                    move |(result, node_dictionary_builder)| {
+                future::Either::A(builder.add_node(node).map(
+                    move |(result, builder)| {
                         (
                             result,
                             ChildLayerFileBuilder {
                                 parent,
                                 files,
-
-                                node_dictionary_builder,
-                                predicate_dictionary_builder,
-                                value_dictionary_builder,
+                                builder
                             },
                         )
                     },
                 ))
             }
-            Some(id) => Box::new(future::ok((id, self))),
+            Some(id) => future::Either::B(future::ok((id, self))),
         }
     }
 
@@ -331,35 +313,29 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     pub fn add_predicate(
         self,
         predicate: &str,
-    ) -> Box<dyn Future<Item = (u64, Self), Error = std::io::Error> + Send> {
+    ) -> impl Future<Item = (u64, Self), Error = std::io::Error> + Send {
         match self.parent.predicate_id(predicate) {
             None => {
                 let ChildLayerFileBuilder {
                     parent,
                     files,
-
-                    node_dictionary_builder,
-                    predicate_dictionary_builder,
-                    value_dictionary_builder,
+                    builder
                 } = self;
 
-                Box::new(predicate_dictionary_builder.add(predicate).map(
-                    move |(result, predicate_dictionary_builder)| {
+                future::Either::A(builder.add_predicate(predicate).map(
+                    move |(result, builder)| {
                         (
                             result,
                             ChildLayerFileBuilder {
                                 parent,
                                 files,
-
-                                node_dictionary_builder,
-                                predicate_dictionary_builder,
-                                value_dictionary_builder,
+                                builder
                             },
                         )
                     },
                 ))
             }
-            Some(id) => Box::new(future::ok((id, self))),
+            Some(id) => future::Either::B(future::ok((id, self))),
         }
     }
 
@@ -371,34 +347,28 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     pub fn add_value(
         self,
         value: &str,
-    ) -> Box<dyn Future<Item = (u64, Self), Error = std::io::Error> + Send> {
+    ) -> impl Future<Item = (u64, Self), Error = std::io::Error> + Send {
         match self.parent.object_value_id(value) {
             None => {
                 let ChildLayerFileBuilder {
                     parent,
                     files,
-
-                    node_dictionary_builder,
-                    predicate_dictionary_builder,
-                    value_dictionary_builder,
+                    builder
                 } = self;
-                Box::new(value_dictionary_builder.add(value).map(
-                    move |(result, value_dictionary_builder)| {
+                future::Either::A(builder.add_value(value).map(
+                    move |(result, builder)| {
                         (
                             result,
                             ChildLayerFileBuilder {
                                 parent,
                                 files,
-
-                                node_dictionary_builder,
-                                predicate_dictionary_builder,
-                                value_dictionary_builder,
+                                builder
                             },
                         )
                     },
                 ))
             }
-            Some(id) => Box::new(future::ok((id, self))),
+            Some(id) => future::Either::B(future::ok((id, self))),
         }
     }
 
@@ -408,10 +378,13 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// added nodes are a lexical succesor of any of these
     /// nodes. Skips any nodes that are already part of the base
     /// layer.
-    pub fn add_nodes<I: 'static + IntoIterator<Item = String>>(
+    pub fn add_nodes<I: 'static + IntoIterator<Item = String>+Send>(
         self,
         nodes: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error> {
+    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error>+Send
+    where
+        <I as std::iter::IntoIterator>::IntoIter: Send,
+    {
         stream::iter_ok(nodes.into_iter()).fold(
             (Vec::new(), self),
             |(mut result, builder), node| {
@@ -430,10 +403,13 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// previous added predicates are a lexical succesor of any of
     /// these predicates. Skips any predicates that are already part
     /// of the base layer.
-    pub fn add_predicates<I: 'static + IntoIterator<Item = String>>(
+    pub fn add_predicates<I: 'static + IntoIterator<Item = String>+Send>(
         self,
         predicates: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error> {
+    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error>+Send
+    where
+        <I as std::iter::IntoIterator>::IntoIter: Send,
+    {
         stream::iter_ok(predicates.into_iter()).fold(
             (Vec::new(), self),
             |(mut result, builder), predicate| {
@@ -452,10 +428,13 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// added values are a lexical succesor of any of these
     /// values. Skips any nodes that are already part of the base
     /// layer.
-    pub fn add_values<I: 'static + IntoIterator<Item = String>>(
+    pub fn add_values<I: 'static + IntoIterator<Item = String>+Send>(
         self,
         values: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error> {
+    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error>+Send 
+    where
+        <I as std::iter::IntoIterator>::IntoIter: Send,
+    {
         stream::iter_ok(values.into_iter()).fold(
             (Vec::new(), self),
             |(mut result, builder), value| {
@@ -475,18 +454,8 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         let ChildLayerFileBuilder {
             parent,
             files,
-
-            node_dictionary_builder,
-            predicate_dictionary_builder,
-            value_dictionary_builder,
+            builder
         } = self;
-
-        let finalize_nodedict: Box<dyn Future<Item = (), Error = std::io::Error> + Send> =
-            Box::new(node_dictionary_builder.finalize());
-        let finalize_preddict: Box<dyn Future<Item = (), Error = std::io::Error> + Send> =
-            Box::new(predicate_dictionary_builder.finalize());
-        let finalize_valdict: Box<dyn Future<Item = (), Error = std::io::Error> + Send> =
-            Box::new(value_dictionary_builder.finalize());
 
         let dict_maps_fut = vec![
             files.node_dictionary_files.blocks_file.map(),
@@ -497,7 +466,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
             files.value_dictionary_files.offsets_file.map(),
         ];
 
-        future::join_all(vec![finalize_nodedict, finalize_preddict, finalize_valdict])
+        builder.finalize()
             .and_then(move |_| future::join_all(dict_maps_fut))
             .and_then(move |dict_maps| {
                 let node_dict_r = PfcDict::parse(dict_maps[0].clone(), dict_maps[1].clone());
