@@ -131,6 +131,57 @@ impl StoreLayerBuilder {
 
         result
     }
+
+    pub fn apply_delta(&self, delta : &StoreLayer) -> impl Future<Item = (), Error = io::Error> + Send{
+        delta.subject_additions()
+            .map(|sl| {
+                sl.predicates()
+                    .map(|spl| {
+                        let subject = spl.subject();
+                        let predicate = spl.predicate();
+                        spl.objects()
+                            .map(move |object|{
+                                let id_triple = IdTriple::new(
+                                    subject,
+                                    predicate,
+                                    object,
+                                );
+                                delta
+                                    .id_triple_to_string(&id_triple)
+                                    .map(|st|{
+                                        self.add_string_triple(&st)
+                                    })
+
+                            })
+                    })
+            }).for_each(|_| ());
+
+        delta.subject_removals()
+            .map(|sl| {
+                sl.predicates()
+                    .map(|spl| {
+                        let subject = spl.subject();
+                        let predicate = spl.predicate();
+                        spl.objects()
+                            .map(move |object|{
+                                let id_triple = IdTriple::new(
+                                    subject,
+                                    predicate,
+                                    object,
+                                );
+                                delta
+                                    .id_triple_to_string(&id_triple)
+                                    .map(|st|{
+                                        self.remove_string_triple(&st)
+                                    })
+
+                            })
+                    })
+            }).for_each(|_| ());
+
+        future::ok(())
+    }
+
 }
 
 /// A layer that keeps track of the store it came out of, allowing the creation of a layer builder on top of this layer
@@ -181,7 +232,7 @@ impl StoreLayer {
                         .add_string_triple(&st).unwrap()
                 };
 
-                new_builder.commit() /* .map(|c| c.clone())*/
+                new_builder.commit()
             })
 
     }
