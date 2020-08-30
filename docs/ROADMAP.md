@@ -24,6 +24,12 @@ In rough order of priority we've outlined the following features that we hope to
 
 * Garbage collection
 
-    We currently are not doing automatic cleanup of layers. We would like this operation to be initiated with a parallel garbage collection process.
+    We need to do cleanup of layers when they are no longer referenced.
 
-    Mor on this issue can be found [here](./GARBAGE.md)
+    More on this issue can be found at [here](./docs/GARBAGE.md).
+
+* Encrypted Layers
+
+    Many operations do not require access to the underlying content. This means we could use a public-key crypto-system to allow layer storage and transport without revealing layer content.
+
+
