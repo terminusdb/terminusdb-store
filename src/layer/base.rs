@@ -309,22 +309,24 @@ impl Iterator for BaseLayerSubjectIterator {
     type Item = Box<dyn LayerSubjectLookup>;
 
     fn next(&mut self) -> Option<Box<dyn LayerSubjectLookup>> {
-        if self.pos >= self.s_p_adjacency_list.left_count() as u64 {
-            None
-        } else {
-            let subject = self.pos + 1;
-            self.pos += 1;
-            let predicates = self.s_p_adjacency_list.get(subject);
-            if predicates.entry(0) == 0 {
-                // stub slice, skip
-                self.next()
+        loop {
+            if self.pos >= self.s_p_adjacency_list.left_count() as u64 {
+                return None;
             } else {
-                Some(Box::new(BaseLayerSubjectLookup {
-                    subject,
-                    predicates: self.s_p_adjacency_list.get(subject),
-                    sp_offset: self.s_p_adjacency_list.offset_for(subject),
-                    sp_o_adjacency_list: self.sp_o_adjacency_list.clone(),
-                }))
+                let subject = self.pos + 1;
+                self.pos += 1;
+                let predicates = self.s_p_adjacency_list.get(subject);
+                if predicates.entry(0) == 0 {
+                    // stub slice, skip
+                    continue;
+                } else {
+                    return Some(Box::new(BaseLayerSubjectLookup {
+                        subject,
+                        predicates: self.s_p_adjacency_list.get(subject),
+                        sp_offset: self.s_p_adjacency_list.offset_for(subject),
+                        sp_o_adjacency_list: self.sp_o_adjacency_list.clone(),
+                    }));
+                }
             }
         }
     }
