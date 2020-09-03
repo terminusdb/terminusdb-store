@@ -3,7 +3,6 @@
 //! A base layer stores triple data without referring to a parent.
 use futures::future;
 use futures::prelude::*;
-use futures::stream;
 use futures::stream::Peekable;
 
 use super::layer::*;
@@ -12,7 +11,6 @@ use super::builder::*;
 use crate::storage::*;
 use crate::structure::*;
 
-use std::collections::BTreeSet;
 use std::io;
 
 /// A base layer.
@@ -467,59 +465,18 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
         let sp_o_adjacency_list_files = self.files.sp_o_adjacency_list_files;
         let o_ps_adjacency_list_files = self.files.o_ps_adjacency_list_files;
         let predicate_wavelet_tree_files = self.files.predicate_wavelet_tree_files;
-        let object_count = self.object_count;
         self.builder.finalize()
-        .and_then(move |_| {
-            adjacency_list_stream_pairs(
-                sp_o_adjacency_list_files.bitindex_files.bits_file,
-                sp_o_adjacency_list_files.nums_file,
-            )
-            .map(|(left, right)| (right, left))
-            .fold(
-                (BTreeSet::new(), 0),
-                |(mut set, mut greatest_right), (left, right)| {
-                    set.insert((left, right));
-                    if right > greatest_right {
-                        greatest_right = right;
-                    }
-                    future::ok::<_, std::io::Error>((set, greatest_right))
-                },
-            )
-        })
-        .and_then(move |(mut tuples, greatest_right)| {
-            let (greatest_left, _) = tuples.iter().next_back().unwrap_or(&(0, 0));
-            for pad_object in (*greatest_left + 1)..(object_count as u64) + 1 {
-                tuples.insert((pad_object, 0));
-            }
-            let width = ((greatest_right + 1) as f32).log2().ceil() as u8;
-
-            let o_ps_adjacency_list_builder = AdjacencyListBuilder::new(
-                o_ps_adjacency_list_files.bitindex_files.bits_file,
-                o_ps_adjacency_list_files
-                    .bitindex_files
-                    .blocks_file
-                    .open_write(),
-                o_ps_adjacency_list_files
-                    .bitindex_files
-                    .sblocks_file
-                    .open_write(),
-                o_ps_adjacency_list_files.nums_file.open_write(),
-                width,
-            );
-
-            let build_o_ps_index = o_ps_adjacency_list_builder
-                .push_all(stream::iter_ok(tuples))
-                .and_then(|builder| builder.finalize());
-            let build_predicate_index = build_wavelet_tree_from_logarray(
-                s_p_adjacency_list_files.nums_file,
-                predicate_wavelet_tree_files.bits_file,
-                predicate_wavelet_tree_files.blocks_file,
-                predicate_wavelet_tree_files.sblocks_file,
-            );
-
-            build_o_ps_index.join(build_predicate_index)
-        })
-        .map(|_| ())
+            .and_then(|_|
+                      build_object_index(sp_o_adjacency_list_files,
+                                         o_ps_adjacency_list_files,
+                                         None)
+                      .join(build_predicate_index(
+                          s_p_adjacency_list_files.nums_file,
+                          predicate_wavelet_tree_files.bits_file,
+                          predicate_wavelet_tree_files.blocks_file,
+                          predicate_wavelet_tree_files.sblocks_file
+                      )))
+            .map(|_|())
     }
 }
 
