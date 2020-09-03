@@ -12,7 +12,6 @@ use futures::future;
 use futures::prelude::*;
 use futures::stream;
 
-use std::collections::BTreeSet;
 use std::io;
 use std::sync::Arc;
 
@@ -670,19 +669,22 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
 
         future::join_all(builder_futs)
         .and_then(|_| {
-            build_object_index(pos_sp_o_files, pos_o_ps_files, pos_objects_file)
+            build_object_index(
+                pos_sp_o_files,
+                pos_o_ps_files,
+                Some(pos_objects_file))
                 .join(build_object_index(
                     neg_sp_o_files,
                     neg_o_ps_files,
-                    neg_objects_file,
+                    Some(neg_objects_file)
                 ))
-                .join(build_wavelet_tree_from_logarray(
+                .join(build_predicate_index(
                     pos_s_p_files.nums_file,
                     pos_predicate_wavelet_tree_files.bits_file,
                     pos_predicate_wavelet_tree_files.blocks_file,
                     pos_predicate_wavelet_tree_files.sblocks_file,
                 ))
-                .join(build_wavelet_tree_from_logarray(
+                .join(build_predicate_index(
                     neg_s_p_files.nums_file,
                     neg_predicate_wavelet_tree_files.bits_file,
                     neg_predicate_wavelet_tree_files.blocks_file,
@@ -691,62 +693,6 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         })
         .map(|_| ())
     }
-}
-
-fn build_object_index<F: 'static + FileLoad + FileStore>(
-    sp_o_files: AdjacencyListFiles<F>,
-    o_ps_files: AdjacencyListFiles<F>,
-    objects_file: F,
-) -> impl Future<Item = (), Error = std::io::Error> {
-    adjacency_list_stream_pairs(sp_o_files.bitindex_files.bits_file, sp_o_files.nums_file)
-        .map(|(left, right)| (right, left))
-        .fold(
-            (BTreeSet::new(), BTreeSet::new(), 0),
-            |(mut pairs_set, mut objects_set, _), (left, right)| {
-                pairs_set.insert((left, right));
-                objects_set.insert(left);
-                future::ok::<_, std::io::Error>((pairs_set, objects_set, right))
-            },
-        )
-        .and_then(move |(pairs, objects, greatest_sp)| {
-            let greatest_object = objects.iter().next_back().unwrap_or(&0);
-            let objects_width = ((*greatest_object + 1) as f32).log2().ceil() as u8;
-            let aj_width = ((greatest_sp + 1) as f32).log2().ceil() as u8;
-
-            let o_ps_adjacency_list_builder = AdjacencyListBuilder::new(
-                o_ps_files.bitindex_files.bits_file,
-                o_ps_files.bitindex_files.blocks_file.open_write(),
-                o_ps_files.bitindex_files.sblocks_file.open_write(),
-                o_ps_files.nums_file.open_write(),
-                aj_width,
-            );
-            let objects_builder =
-                LogArrayFileBuilder::new(objects_file.open_write(), objects_width);
-
-            let compressed_pairs = pairs
-                .into_iter()
-                .scan((0, 0), |(compressed, last), (left, right)| {
-                    if left > *last {
-                        *compressed += 1;
-                    }
-
-                    *last = left;
-
-                    Some((*compressed, right))
-                })
-                .collect::<Vec<_>>();
-
-            let build_o_ps_task = o_ps_adjacency_list_builder
-                .push_all(stream::iter_ok(compressed_pairs))
-                .and_then(|builder| builder.finalize());
-
-            let build_objects_task = objects_builder
-                .push_all(stream::iter_ok(objects))
-                .and_then(|builder| builder.finalize());
-
-            build_o_ps_task.join(build_objects_task)
-        })
-        .map(|_| ())
 }
 
 pub struct ChildTripleStream<
