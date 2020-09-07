@@ -77,17 +77,17 @@ impl SyncStoreLayerBuilder {
     }
 
     /// Add an id triple
-    pub fn add_id_triple(&self, triple: IdTriple) -> Result<bool, io::Error> {
+    pub fn add_id_triple(&self, triple: IdTriple) -> Result<(), io::Error> {
         self.inner.add_id_triple(triple)
     }
 
     /// Remove a string triple
-    pub fn remove_string_triple(&self, triple: &StringTriple) -> Result<bool, io::Error> {
+    pub fn remove_string_triple(&self, triple: &StringTriple) -> Result<(), io::Error> {
         self.inner.remove_string_triple(triple)
     }
 
     /// Remove an id triple
-    pub fn remove_id_triple(&self, triple: IdTriple) -> Result<bool, io::Error> {
+    pub fn remove_id_triple(&self, triple: IdTriple) -> Result<(), io::Error> {
         self.inner.remove_id_triple(triple)
     }
 

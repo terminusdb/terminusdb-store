@@ -78,18 +78,18 @@ impl StoreLayerBuilder {
     }
 
     /// Add an id triple
-    pub fn add_id_triple(&self, triple: IdTriple) -> Result<bool, io::Error> {
+    pub fn add_id_triple(&self, triple: IdTriple) -> Result<(), io::Error> {
         self.with_builder(move |b| b.add_id_triple(triple))
     }
 
     /// Remove a string triple
-    pub fn remove_string_triple(&self, triple: &StringTriple) -> Result<bool, io::Error> {
+    pub fn remove_string_triple(&self, triple: &StringTriple) -> Result<(), io::Error> {
         let triple = triple.clone();
         self.with_builder(move |b| b.remove_string_triple(&triple))
     }
 
     /// Remove an id triple
-    pub fn remove_id_triple(&self, triple: IdTriple) -> Result<bool, io::Error> {
+    pub fn remove_id_triple(&self, triple: IdTriple) -> Result<(), io::Error> {
         self.with_builder(move |b| b.remove_id_triple(triple))
     }
 
@@ -133,6 +133,8 @@ impl StoreLayerBuilder {
     }
 
     pub fn apply_delta(&self, delta : &StoreLayer) -> Result<(), io::Error> {
+        // create a child builder and use it directly
+        // first check what dictionary entries we don't know about, add those
         delta.subject_additions()
             .map(|sl| sl.triples())
             .flatten()

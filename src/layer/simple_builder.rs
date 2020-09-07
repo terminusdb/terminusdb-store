@@ -27,11 +27,11 @@ pub trait LayerBuilder: Send + Sync {
     /// Add a string triple
     fn add_string_triple(&mut self, triple: &StringTriple);
     /// Add an id triple
-    fn add_id_triple(&mut self, triple: IdTriple) -> bool;
+    fn add_id_triple(&mut self, triple: IdTriple);
     /// Remove a string triple
-    fn remove_string_triple(&mut self, triple: &StringTriple) -> bool;
+    fn remove_string_triple(&mut self, triple: &StringTriple);
     /// Remove an id triple
-    fn remove_id_triple(&mut self, triple: IdTriple) -> bool;
+    fn remove_id_triple(&mut self, triple: IdTriple);
     /// Commit the layer to storage
     fn commit(self) -> Box<dyn Future<Item = (), Error = std::io::Error> + Send>;
     /// Commit a boxed layer to storage
@@ -128,48 +128,23 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
         }
     }
 
-    fn add_id_triple(&mut self, triple: IdTriple) -> bool {
-        if self
-            .parent
-            .as_mut()
-            .map(|parent| {
-                !parent.id_triple_exists(triple)
-                    && parent.id_subject(triple.subject).is_some()
-                    && parent.id_predicate(triple.predicate).is_some()
-                    && parent.id_object(triple.object).is_some()
-            })
-            .unwrap_or(false)
-        {
-            self.additions.insert(triple.to_resolved());
-
-            true
-        } else {
-            false
-        }
+    fn add_id_triple(&mut self, triple: IdTriple) {
+        self.additions.insert(triple.to_resolved());
     }
 
-    fn remove_string_triple(&mut self, triple: &StringTriple) -> bool {
+    fn remove_string_triple(&mut self, triple: &StringTriple) {
         self.parent
             .as_ref()
             .and_then(|p| p.string_triple_to_id(&triple))
-            .map(|t| self.remove_id_triple(t))
-            .unwrap_or(false)
+            .map(|t| self.remove_id_triple(t));
     }
 
-    fn remove_id_triple(&mut self, triple: IdTriple) -> bool {
+    fn remove_id_triple(&mut self, triple: IdTriple) {
         if self.parent.is_none() {
-            return false;
+            return;
         }
 
-        let parent = self.parent.as_ref().unwrap();
-
-        if parent.id_triple_exists(triple) {
-            self.removals.insert(triple);
-
-            true
-        } else {
-            false
-        }
+        self.removals.insert(triple);
     }
 
     fn commit(self) -> Box<dyn Future<Item = (), Error = std::io::Error> + Send> {
