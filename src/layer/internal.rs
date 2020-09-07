@@ -538,15 +538,21 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
                  neg_subjects,
                  Some(neg_s_p_adjacency_list)) => {
                     let sp_slice = neg_o_ps_adjacency_list.get(o);
-                    let subjects = neg_subjects.map(|s|s.clone());
-                    let s_p_adjacency_list = neg_s_p_adjacency_list.clone();
+                    if sp_slice.len() == 1 && sp_slice.entry(0) == 0 {
+                        // this is a stub
+                        None
+                    }
+                    else {
+                        let subjects = neg_subjects.map(|s|s.clone());
+                        let s_p_adjacency_list = neg_s_p_adjacency_list.clone();
 
-                    Some(Box::new(InternalLayerObjectLookup {
-                        object,
-                        sp_slice,
-                        s_p_adjacency_list,
-                        subjects
-                    }) as Box<dyn LayerObjectLookup>)
+                        Some(Box::new(InternalLayerObjectLookup {
+                            object,
+                            sp_slice,
+                            s_p_adjacency_list,
+                            subjects
+                        }) as Box<dyn LayerObjectLookup>)
+                    }
                 },
                 _ => None
             }
