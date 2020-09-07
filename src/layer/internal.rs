@@ -508,6 +508,10 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
         let mapped_object = external_id_to_internal(self.pos_objects(), object);
 
         mapped_object.and_then(|o| {
+            if o > self.pos_o_ps_adjacency_list().left_count() as u64 {
+                return None;
+            }
+
             let sp_slice = self.pos_o_ps_adjacency_list().get(o);
             if sp_slice.len() == 1 && sp_slice.entry(0) == 0 {
                 // this is a stub
@@ -537,6 +541,9 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
                 (Some(neg_o_ps_adjacency_list),
                  neg_subjects,
                  Some(neg_s_p_adjacency_list)) => {
+                    if o > neg_o_ps_adjacency_list.left_count() as u64 {
+                        return None;
+                    }
                     let sp_slice = neg_o_ps_adjacency_list.get(o);
                     if sp_slice.len() == 1 && sp_slice.entry(0) == 0 {
                         // this is a stub
