@@ -288,15 +288,21 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
         let s_p_adjacency_list = self.pos_s_p_adjacency_list().clone();
         let sp_o_adjacency_list = self.pos_sp_o_adjacency_list().clone();
 
-        Box::new(id_iter(self.pos_subjects(), Some(&s_p_adjacency_list)).enumerate().map(move |(c, s)| {
-            Box::new(InternalLayerSubjectLookup {
-                subject: s,
-                adjacencies: AdjacencyStuff {
-                    predicates: s_p_adjacency_list.get((c as u64) + 1),
-                    sp_offset: s_p_adjacency_list.offset_for((c as u64) + 1),
-                    sp_o_adjacency_list: sp_o_adjacency_list.clone(),
-                },
-            }) as Box<dyn LayerSubjectLookup>
+        Box::new(id_iter(self.pos_subjects(), Some(&s_p_adjacency_list)).enumerate().filter_map(move |(c, s)| {
+            let predicates = s_p_adjacency_list.get((c as u64)+1);
+            if predicates.len() == 1 && predicates.entry(0) == 0 {
+                None
+            }
+            else {
+                Some(Box::new(InternalLayerSubjectLookup {
+                    subject: s,
+                    adjacencies: AdjacencyStuff {
+                        predicates: s_p_adjacency_list.get((c as u64) + 1),
+                        sp_offset: s_p_adjacency_list.offset_for((c as u64) + 1),
+                        sp_o_adjacency_list: sp_o_adjacency_list.clone(),
+                    },
+                }) as Box<dyn LayerSubjectLookup>)
+            }
         }))
     }
 
@@ -311,15 +317,21 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
             _ => return Box::new(std::iter::empty())
         }
 
-        Box::new(id_iter(self.neg_subjects(), Some(&s_p_adjacency_list)).enumerate().map(move |(c, s)| {
-            Box::new(InternalLayerSubjectLookup {
-                subject: s,
-                adjacencies: AdjacencyStuff {
-                    predicates: s_p_adjacency_list.get((c as u64) + 1),
-                    sp_offset: s_p_adjacency_list.offset_for((c as u64) + 1),
-                    sp_o_adjacency_list: sp_o_adjacency_list.clone(),
-                },
-            }) as Box<dyn LayerSubjectLookup>
+        Box::new(id_iter(self.neg_subjects(), Some(&s_p_adjacency_list)).enumerate().filter_map(move |(c, s)| {
+            let predicates = s_p_adjacency_list.get((c as u64)+1);
+            if predicates.len() == 1 && predicates.entry(0) == 0 {
+                None
+            }
+            else {
+                Some(Box::new(InternalLayerSubjectLookup {
+                    subject: s,
+                    adjacencies: AdjacencyStuff {
+                        predicates: s_p_adjacency_list.get((c as u64) + 1),
+                        sp_offset: s_p_adjacency_list.offset_for((c as u64) + 1),
+                        sp_o_adjacency_list: sp_o_adjacency_list.clone(),
+                    },
+                }) as Box<dyn LayerSubjectLookup>)
+            }
         }))
     }
 
@@ -368,15 +380,20 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
         let pos_s_p_adjacency_list = self.pos_s_p_adjacency_list();
         if mapped_subject <= pos_s_p_adjacency_list.left_count() as u64 {
             let predicates = pos_s_p_adjacency_list.get(mapped_subject);
-            let sp_offset = pos_s_p_adjacency_list.offset_for(mapped_subject);
-            Some(Box::new(InternalLayerSubjectLookup {
-                subject,
-                adjacencies: AdjacencyStuff {
-                    predicates,
-                    sp_offset,
-                    sp_o_adjacency_list: self.pos_sp_o_adjacency_list().clone(),
-                },
-            }))
+            if predicates.len() == 1 && predicates.entry(0) == 0 {
+                None
+            }
+            else {
+                let sp_offset = pos_s_p_adjacency_list.offset_for(mapped_subject);
+                Some(Box::new(InternalLayerSubjectLookup {
+                    subject,
+                    adjacencies: AdjacencyStuff {
+                        predicates,
+                        sp_offset,
+                        sp_o_adjacency_list: self.pos_sp_o_adjacency_list().clone(),
+                    },
+                }))
+            }
         } else {
             None
         }
@@ -405,15 +422,20 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
 
         if mapped_subject <= neg_s_p_adjacency_list.left_count() as u64 {
             let predicates = neg_s_p_adjacency_list.get(mapped_subject);
-            let sp_offset = neg_s_p_adjacency_list.offset_for(mapped_subject);
-            Some(Box::new(InternalLayerSubjectLookup {
-                subject,
-                adjacencies: AdjacencyStuff {
-                    predicates,
-                    sp_offset,
-                    sp_o_adjacency_list: neg_sp_o_adjacency_list.clone(),
-                },
-            }))
+            if predicates.len() == 1 && predicates.entry(0) == 0 {
+                None
+            }
+            else {
+                let sp_offset = neg_s_p_adjacency_list.offset_for(mapped_subject);
+                Some(Box::new(InternalLayerSubjectLookup {
+                    subject,
+                    adjacencies: AdjacencyStuff {
+                        predicates,
+                        sp_offset,
+                        sp_o_adjacency_list: neg_sp_o_adjacency_list.clone(),
+                    },
+                }))
+            }
         } else {
             None
         }
