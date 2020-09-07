@@ -127,8 +127,9 @@ impl SyncStoreLayer {
         inner.map(|i| SyncStoreLayerBuilder::wrap(i))
     }
 
-    pub fn parent(&self) -> Box<dyn Future<Item=Option<SyncStoreLayer>,Error=io::Error>+Send> {
-        Box::new(self.inner.parent().map(|p| p.map(|p| SyncStoreLayer { inner: p })))
+    pub fn parent(&self) -> Result<Option<SyncStoreLayer>,io::Error> {
+        let inner = task_sync(self.inner.parent());
+        inner.map(|p| p.map(|p| SyncStoreLayer { inner: p }))
     }
 
     pub fn squash(&self) -> Result<SyncStoreLayer, io::Error>  {
