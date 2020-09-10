@@ -136,9 +136,7 @@ impl StoreLayerBuilder {
         // create a child builder and use it directly
         // first check what dictionary entries we don't know about, add those
         delta
-            .subject_additions()
-            .map(|sl| sl.triples())
-            .flatten()
+            .triple_additions()
             .map(|t| {
                 delta
                     .id_triple_to_string(&t)
@@ -147,9 +145,7 @@ impl StoreLayerBuilder {
             .for_each(|_| ());
 
         delta
-            .subject_removals()
-            .map(|sl| sl.triples())
-            .flatten()
+            .triple_removals()
             .map(|t| {
                 delta
                     .id_triple_to_string(&t)
