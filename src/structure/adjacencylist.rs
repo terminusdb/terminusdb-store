@@ -10,6 +10,8 @@
 //! left-hand-side has more pairs to follow, or 1 if this was the last
 //! pair).
 
+use std::convert::TryInto;
+
 use bytes::Bytes;
 use tokio::prelude::*;
 
@@ -74,6 +76,14 @@ impl AdjacencyList {
         let right = self.nums.entry(pos as usize);
 
         (left, right)
+    }
+
+    pub fn bit_at_pos(&self, pos: u64) -> bool {
+        self.bits.get(pos)
+    }
+
+    pub fn num_at_pos(&self, pos: u64) -> u64 {
+        self.nums.entry(pos.try_into().unwrap())
     }
 
     pub fn get(&self, index: u64) -> LogArray {

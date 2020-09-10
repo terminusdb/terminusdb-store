@@ -257,6 +257,14 @@ impl Layer for SyncStoreLayer {
         self.inner.lookup_predicate_removal(predicate)
     }
 
+    fn triple_additions(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+        self.inner.triple_additions()
+    }
+
+    fn triple_removals(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+        self.inner.triple_removals()
+    }
+
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())
     }

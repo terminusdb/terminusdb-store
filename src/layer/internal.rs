@@ -3,6 +3,7 @@ use super::layer::*;
 use super::base::*;
 use super::child::*;
 use std::ops::Deref;
+use std::convert::TryInto;
 
 fn external_id_to_internal(array_option: Option<&MonotonicLogArray>, id: u64) -> Option<u64> {
     if id == 0 {
@@ -720,6 +721,30 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
             value_count,
         }
     }
+
+    fn triple_additions(&self) -> Box<dyn Iterator<Item=IdTriple>> {
+        Box::new(
+            InternalLayerTripleIterator::new(self.pos_subjects(), self.pos_s_p_adjacency_list(), self.pos_sp_o_adjacency_list())
+        )
+    }
+
+    fn triple_removals(&self) -> Box<dyn Iterator<Item=IdTriple>> {
+        match (self.neg_subjects(),
+               self.neg_s_p_adjacency_list(),
+               self.neg_sp_o_adjacency_list()) {
+            (neg_subjects,
+             Some(neg_s_p_adjacency_list),
+             Some(neg_sp_o_adjacency_list)) =>
+                Box::new(
+                    InternalLayerTripleIterator::new(
+                        neg_subjects,
+                        neg_s_p_adjacency_list,
+                        neg_sp_o_adjacency_list
+                    ) 
+                ),
+            _ => Box::new(std::iter::empty())
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -961,5 +986,202 @@ impl LayerPredicateLookup for InternalLayerPredicateLookup {
                 objects: sp_o_adjacency_list.get(pos + 1),
             }) as Box<dyn LayerSubjectPredicateLookup>
         }))
+    }
+}
+
+pub struct InternalLayerTripleIterator {
+    subjects: Option<MonotonicLogArray>,
+    s_p_adjacency_list: AdjacencyList,
+    sp_o_adjacency_list: AdjacencyList,
+    s_position: u64,
+    s_p_position: u64,
+    sp_o_position: u64
+}
+
+impl InternalLayerTripleIterator {
+    fn new(subjects: Option<&MonotonicLogArray>, s_p_adjacency_list: &AdjacencyList, sp_o_adjacency_list: &AdjacencyList) -> Self {
+        Self {
+            subjects: subjects.map(|s|s.clone()),
+            s_p_adjacency_list: s_p_adjacency_list.clone(),
+            sp_o_adjacency_list: sp_o_adjacency_list.clone(),
+            s_position: 0,
+            s_p_position: 0,
+            sp_o_position: 0
+        }
+    }
+}
+
+impl Iterator for InternalLayerTripleIterator {
+    type Item = IdTriple;
+
+    fn next(&mut self) -> Option<IdTriple> {
+        loop {
+            if self.sp_o_position >= self.sp_o_adjacency_list.right_count() as u64 {
+                return None;
+            }
+            else {
+                let subject = match self.subjects.as_ref() {
+                    Some(subjects) => subjects.entry(self.s_position.try_into().unwrap()),
+                    None => self.s_position+1
+                };
+
+                let s_p_bit = self.s_p_adjacency_list.bit_at_pos(self.s_p_position);
+                let predicate = self.s_p_adjacency_list.num_at_pos(self.s_p_position);
+                if predicate == 0 {
+                    self.s_position += 1;
+                    self.s_p_position += 1;
+                    self.sp_o_position += 1;
+                    continue;
+                }
+
+                let sp_o_bit = self.sp_o_adjacency_list.bit_at_pos(self.sp_o_position);
+                let object = self.sp_o_adjacency_list.num_at_pos(self.sp_o_position);
+
+                if object == 0 {
+                    self.sp_o_position += 1;
+                    continue;
+                }
+
+                if s_p_bit {
+                    self.s_position += 1;
+                }
+
+                if sp_o_bit {
+                    self.s_p_position += 1;
+                }
+
+                self.sp_o_position += 1;
+
+                return Some(IdTriple::new(subject, predicate, object));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::layer::base::tests::*;
+    use crate::layer::child::tests::*;
+    use crate::layer::*;
+
+    use futures::prelude::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn base_triple_iterator() {
+        let base_layer:InternalLayer = example_base_layer().into();
+
+        let triples: Vec<_> = base_layer.triple_additions().collect();
+        let expected = vec![
+            IdTriple::new(1,1,1),
+            IdTriple::new(2,1,1),
+            IdTriple::new(2,1,3),
+            IdTriple::new(2,3,6),
+            IdTriple::new(3,2,5),
+            IdTriple::new(3,3,6),
+            IdTriple::new(4,3,6)
+        ];
+
+        assert_eq!(expected, triples);
+    }
+
+    #[test]
+    fn base_triple_removal_iterator() {
+        let base_layer:InternalLayer = example_base_layer().into();
+
+        let triples: Vec<_> = base_layer.triple_removals().collect();
+        assert!(triples.is_empty());
+    }
+
+    #[test]
+    fn base_stubs_triple_iterator() {
+        let files = base_layer_files();
+        
+        let builder = BaseLayerFileBuilder::from_files(&files);
+
+        let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
+        let predicates = vec!["abcde", "fghij", "klmno", "lll"];
+        let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
+
+        let future = builder
+            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
+            .and_then(move |(_, b)| b.add_predicates(predicates.into_iter().map(|s| s.to_string())))
+            .and_then(move |(_, b)| b.add_values(values.into_iter().map(|s| s.to_string())))
+            .and_then(|(_, b)| b.into_phase2())
+            .and_then(|b| b.add_triple(1, 1, 1))
+            .and_then(|b| b.add_triple(3, 2, 5))
+            .and_then(|b| b.add_triple(5, 3, 6))
+            .and_then(|b| b.finalize());
+
+        future.wait().unwrap();
+
+        let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
+            .wait()
+            .unwrap();
+
+        let triples: Vec<_> = layer.triple_additions().collect();
+
+        let expected = vec![
+            IdTriple::new(1,1,1),
+            IdTriple::new(3,2,5),
+            IdTriple::new(5,3,6)
+        ];
+
+        assert_eq!(expected, triples);
+    }
+
+    fn child_layer() -> InternalLayer {
+        let base_layer = example_base_layer();
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
+
+        let child_files = child_layer_files();
+
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
+        child_builder
+            .into_phase2()
+            .and_then(|b| b.add_triple(1, 2, 3))
+            .and_then(|b| b.add_triple(3, 3, 4))
+            .and_then(|b| b.add_triple(3, 5, 6))
+            .and_then(|b| b.remove_triple(1, 1, 1))
+            .and_then(|b| b.remove_triple(2, 1, 3))
+            .and_then(|b| b.remove_triple(4, 3, 6))
+            .and_then(|b| b.finalize())
+            .wait()
+            .unwrap();
+
+        ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
+            .wait()
+            .unwrap()
+            .into()
+    }
+
+    #[test]
+    fn child_triple_addition_iterator() {
+        let layer = child_layer();
+
+        let triples: Vec<_> = layer.triple_additions().collect();
+
+        let expected = vec![
+            IdTriple::new(1,2,3),
+            IdTriple::new(3,3,4),
+            IdTriple::new(3,5,6)
+        ];
+
+        assert_eq!(expected, triples);
+    }
+
+    #[test]
+    fn child_triple_removal_iterator() {
+        let layer = child_layer();
+
+        let triples: Vec<_> = layer.triple_removals().collect();
+
+        let expected = vec![
+            IdTriple::new(1,1,1),
+            IdTriple::new(2,1,3),
+            IdTriple::new(4,3,6)
+        ];
+
+        assert_eq!(expected, triples);
     }
 }
