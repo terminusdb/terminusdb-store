@@ -1,6 +1,8 @@
 use super::consts::FILENAMES;
 use super::file::*;
-use crate::layer::{BaseLayer, ChildLayer, Layer, LayerBuilder, LayerType, SimpleLayerBuilder, InternalLayer};
+use crate::layer::{
+    BaseLayer, ChildLayer, InternalLayer, Layer, LayerBuilder, LayerType, SimpleLayerBuilder,
+};
 use std::io;
 use std::sync::{Arc, Weak};
 
@@ -65,7 +67,11 @@ pub trait LayerStore: 'static + Send + Sync {
         layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
     ) -> Result<(), io::Error>;
 
-    fn layer_is_ancestor_of(&self, descendant: [u32; 5], ancestor: [u32; 5]) -> Box<dyn Future<Item=bool, Error=io::Error>+Send>;
+    fn layer_is_ancestor_of(
+        &self,
+        descendant: [u32; 5],
+        ancestor: [u32; 5],
+    ) -> Box<dyn Future<Item = bool, Error = io::Error> + Send>;
 }
 
 pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
@@ -435,86 +441,97 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         let cloned2 = self.clone();
         let mut result = Vec::new();
         result.push(name);
-        Box::new(self.directory_exists(name).and_then(move |b| {
-            match b {
-                false => future::Either::A(future::ok(None)),
-                true => future::Either::B(
-                    future::loop_fn(
-                        (cloned.clone(), cache, result),
-                        |(retriever, cache, mut result)| {
-                            match cache.get_layer_from_cache(*result.last().unwrap()) {
-                                None => future::Either::A(
-                                    retriever.layer_type(*result.last().unwrap()).and_then(|t| {
-                                        match t {
-                                            LayerType::Base => future::Either::A(future::ok(
-                                                future::Loop::Break((None, result, cache)),
-                                            )),
-                                            LayerType::Child => future::Either::B(
-                                                retriever
-                                                    .read_parent_file(*result.last().unwrap())
-                                                    .map(|p| {
-                                                        result.push(p);
-                                                        future::Loop::Continue((
-                                                            retriever, cache, result,
-                                                        ))
-                                                    }),
+        Box::new(
+            self.directory_exists(name)
+                .and_then(move |b| {
+                    match b {
+                        false => future::Either::A(future::ok(None)),
+                        true => future::Either::B(
+                            future::loop_fn(
+                                (cloned.clone(), cache, result),
+                                |(retriever, cache, mut result)| {
+                                    match cache.get_layer_from_cache(*result.last().unwrap()) {
+                                        None => future::Either::A(
+                                            retriever.layer_type(*result.last().unwrap()).and_then(
+                                                |t| match t {
+                                                    LayerType::Base => future::Either::A(
+                                                        future::ok(future::Loop::Break((
+                                                            None, result, cache,
+                                                        ))),
+                                                    ),
+                                                    LayerType::Child => future::Either::B(
+                                                        retriever
+                                                            .read_parent_file(
+                                                                *result.last().unwrap(),
+                                                            )
+                                                            .map(|p| {
+                                                                result.push(p);
+                                                                future::Loop::Continue((
+                                                                    retriever, cache, result,
+                                                                ))
+                                                            }),
+                                                    ),
+                                                },
                                             ),
+                                        ),
+                                        Some(layer) => {
+                                            // remove found cached layer from ids to retrieve
+                                            result.pop().unwrap();
+                                            future::Either::B(future::ok(future::Loop::Break((
+                                                Some(layer),
+                                                result,
+                                                cache,
+                                            ))))
                                         }
-                                    }),
-                                ),
-                                Some(layer) => {
-                                    // remove found cached layer from ids to retrieve
-                                    result.pop().unwrap();
-                                    future::Either::B(future::ok(future::Loop::Break((
-                                        Some(layer),
-                                        result,
-                                        cache,
-                                    ))))
-                                }
-                            }
-                        },
-                    )
-                    .and_then(move |(layer, mut ids, cache)| match layer {
-                        Some(layer) => {
-                            ids.reverse();
-                            future::Either::A(future::ok((layer, ids, cache)))
-                        }
-                        None => {
-                            let base = ids.pop().unwrap();
-                            ids.reverse();
-                            future::Either::B(
-                                cloned
-                                    .base_layer_files(base)
-                                    .and_then(move |files| BaseLayer::load_from_files(base, &files))
-                                    .map(move |l| {
-                                        let result = Arc::new(l.into()) as Arc<InternalLayer>;
-                                        cache.cache_layer(result.clone());
-                                        (result, ids, cache)
-                                    }),
+                                    }
+                                },
                             )
-                        }
-                    })
-                    .and_then(|(parent, ids, cache)| {
-                        futures::stream::iter_ok(ids)
-                            .fold(parent, move |parent, id| {
-                                let cache = cache.clone();
-                                cloned2
-                                    .child_layer_files(id)
-                                    .and_then(move |files| {
-                                        ChildLayer::load_from_files(id, parent, &files)
-                                    })
-                                    .map(move |l| {
-                                        let result = Arc::new(l.into()) as Arc<InternalLayer>;
-                                        cache.cache_layer(result.clone());
-                                        result
-                                    })
+                            .and_then(move |(layer, mut ids, cache)| match layer {
+                                Some(layer) => {
+                                    ids.reverse();
+                                    future::Either::A(future::ok((layer, ids, cache)))
+                                }
+                                None => {
+                                    let base = ids.pop().unwrap();
+                                    ids.reverse();
+                                    future::Either::B(
+                                        cloned
+                                            .base_layer_files(base)
+                                            .and_then(move |files| {
+                                                BaseLayer::load_from_files(base, &files)
+                                            })
+                                            .map(move |l| {
+                                                let result =
+                                                    Arc::new(l.into()) as Arc<InternalLayer>;
+                                                cache.cache_layer(result.clone());
+                                                (result, ids, cache)
+                                            }),
+                                    )
+                                }
                             })
-                            .map(move |l| Some(l))
-                    }),
-                ),
-            }
-        })
-        .map(|l| l.map(|layer| layer as Arc<dyn Layer>)))
+                            .and_then(|(parent, ids, cache)| {
+                                futures::stream::iter_ok(ids)
+                                    .fold(parent, move |parent, id| {
+                                        let cache = cache.clone();
+                                        cloned2
+                                            .child_layer_files(id)
+                                            .and_then(move |files| {
+                                                ChildLayer::load_from_files(id, parent, &files)
+                                            })
+                                            .map(move |l| {
+                                                let result =
+                                                    Arc::new(l.into()) as Arc<InternalLayer>;
+                                                cache.cache_layer(result.clone());
+                                                result
+                                            })
+                                    })
+                                    .map(move |l| Some(l))
+                            }),
+                        ),
+                    }
+                })
+                .map(|l| l.map(|layer| layer as Arc<dyn Layer>)),
+        )
     }
 
     fn create_base_layer(
@@ -571,28 +588,33 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         Self::import_layers(self, pack, layer_ids)
     }
 
-    fn layer_is_ancestor_of(&self, descendant: [u32; 5], ancestor: [u32; 5]) -> Box<dyn Future<Item=bool, Error=io::Error>+Send> {
+    fn layer_is_ancestor_of(
+        &self,
+        descendant: [u32; 5],
+        ancestor: [u32; 5],
+    ) -> Box<dyn Future<Item = bool, Error = io::Error> + Send> {
         let cloned = self.clone();
         Box::new(future::loop_fn(
             (cloned, descendant),
             move |(retriever, descendant)| {
                 if ancestor == descendant {
                     future::Either::A(future::ok(future::Loop::Break(true)))
-                }
-                else {
+                } else {
                     future::Either::B(
-                        retriever.read_parent_file(descendant)
+                        retriever
+                            .read_parent_file(descendant)
                             .map(|parent| future::Loop::Continue((retriever, parent)))
                             .or_else(|e| {
                                 if e.kind() == io::ErrorKind::NotFound {
                                     future::ok(future::Loop::Break(false))
-                                }
-                                else {
+                                } else {
                                     future::err(e)
                                 }
-                            }))
+                            }),
+                    )
                 }
-            }))
+            },
+        ))
     }
 }
 
@@ -705,7 +727,11 @@ impl LayerStore for CachedLayerStore {
         self.inner.import_layers(pack, layer_ids)
     }
 
-    fn layer_is_ancestor_of(&self, descendant: [u32; 5], ancestor: [u32; 5]) -> Box<dyn Future<Item=bool, Error=io::Error>+Send> {
+    fn layer_is_ancestor_of(
+        &self,
+        descendant: [u32; 5],
+        ancestor: [u32; 5],
+    ) -> Box<dyn Future<Item = bool, Error = io::Error> + Send> {
         self.inner.layer_is_ancestor_of(descendant, ancestor)
     }
 }

@@ -307,7 +307,7 @@ impl BitIndex {
         }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item=bool> {
+    pub fn iter(&self) -> impl Iterator<Item = bool> {
         self.array.iter()
     }
 }

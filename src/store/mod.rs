@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use crate::layer::{
-    IdTriple, Layer, LayerBuilder, LayerObjectLookup, LayerPredicateLookup, LayerSubjectLookup,
-    ObjectType, StringTriple, LayerCounts, SubjectLookup, ObjectLookup, PredicateLookup
+    IdTriple, Layer, LayerBuilder, LayerCounts, LayerObjectLookup, LayerPredicateLookup,
+    LayerSubjectLookup, ObjectLookup, ObjectType, PredicateLookup, StringTriple, SubjectLookup,
 };
 use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore};
 use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
@@ -132,34 +132,33 @@ impl StoreLayerBuilder {
         result
     }
 
-    pub fn apply_delta(&self, delta : &StoreLayer) -> Result<(), io::Error> {
+    pub fn apply_delta(&self, delta: &StoreLayer) -> Result<(), io::Error> {
         // create a child builder and use it directly
         // first check what dictionary entries we don't know about, add those
-        delta.subject_additions()
+        delta
+            .subject_additions()
             .map(|sl| sl.triples())
             .flatten()
             .map(|t| {
                 delta
                     .id_triple_to_string(&t)
-                    .map(|st|{
-                        self.add_string_triple(&st)
-                    })
-            }).for_each(|_| ());
+                    .map(|st| self.add_string_triple(&st))
+            })
+            .for_each(|_| ());
 
-        delta.subject_removals()
+        delta
+            .subject_removals()
             .map(|sl| sl.triples())
             .flatten()
             .map(|t| {
                 delta
                     .id_triple_to_string(&t)
-                    .map(|st|{
-                        self.remove_string_triple(&st)
-                    })
-            }).for_each(|_| ());
+                    .map(|st| self.remove_string_triple(&st))
+            })
+            .for_each(|_| ());
 
         Ok(())
     }
-
 }
 
 /// A layer that keeps track of the store it came out of, allowing the creation of a layer builder on top of this layer
@@ -184,15 +183,19 @@ impl StoreLayer {
             .map(move |layer| StoreLayerBuilder::wrap(layer, store))
     }
 
-    pub fn parent(&self) -> Box<dyn Future<Item=Option<StoreLayer>, Error=io::Error>+Send> {
+    pub fn parent(&self) -> Box<dyn Future<Item = Option<StoreLayer>, Error = io::Error> + Send> {
         let parent_name = self.layer.parent_name();
 
         let store = self.store.clone();
 
         Box::new(match parent_name {
             None => future::Either::A(future::ok(None)),
-            Some(parent_name) => future::Either::B(self.store.layer_store.get_layer(parent_name)
-                                                   .map(move |l| l.map(|layer|StoreLayer::wrap(layer, store))))
+            Some(parent_name) => future::Either::B(
+                self.store
+                    .layer_store
+                    .get_layer(parent_name)
+                    .map(move |l| l.map(|layer| StoreLayer::wrap(layer, store))),
+            ),
         })
     }
 
@@ -202,21 +205,18 @@ impl StoreLayer {
         // TODO check if we already committed
         self.store
             .create_base_layer()
-            .and_then(move |new_builder : StoreLayerBuilder| {
-
-                let iter = self_clone.triples()
+            .and_then(move |new_builder: StoreLayerBuilder| {
+                let iter = self_clone
+                    .triples()
                     .map(|t| self_clone.id_triple_to_string(&t).unwrap());
 
                 for st in iter {
-                    new_builder
-                        .add_string_triple(&st).unwrap()
-                };
+                    new_builder.add_string_triple(&st).unwrap()
+                }
 
                 new_builder.commit()
             })
-
     }
-
 }
 
 impl Layer for StoreLayer {
@@ -315,7 +315,7 @@ impl Layer for StoreLayer {
     fn predicates(&self) -> Box<dyn Iterator<Item = Box<dyn PredicateLookup>>> {
         self.layer.predicates()
     }
-    
+
     fn predicate_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerPredicateLookup>>> {
         self.layer.predicate_additions()
     }
@@ -323,7 +323,6 @@ impl Layer for StoreLayer {
     fn predicate_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerPredicateLookup>>> {
         self.layer.predicate_removals()
     }
- 
 
     fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
         self.layer.lookup_predicate(predicate)
@@ -443,10 +442,15 @@ impl NamedGraph {
                                 None => Box::new(future::ok(true)),
                                 Some(layer_name) => Box::new(
                                     store.layer_store.get_layer(layer_name).and_then(move |l| {
-                                        l.map(|l|
-                                              future::Either::A(store.layer_store
-                                                                .layer_is_ancestor_of(cloned_layer.name(), l.name())))
-                                            .unwrap_or(future::Either::B(future::ok(false)))
+                                        l.map(|l| {
+                                            future::Either::A(
+                                                store.layer_store.layer_is_ancestor_of(
+                                                    cloned_layer.name(),
+                                                    l.name(),
+                                                ),
+                                            )
+                                        })
+                                        .unwrap_or(future::Either::B(future::ok(false)))
                                     }),
                                 ),
                             };
@@ -489,13 +493,12 @@ impl NamedGraph {
                         io::ErrorKind::NotFound,
                         "label not found",
                     ))),
-                    Some(label) => Box::new(
-                        {
-                            store
-                                .label_store
-                                .set_label(&label, layer_name)
-                                .map(|_| true)
-                        }),
+                    Some(label) => Box::new({
+                        store
+                            .label_store
+                            .set_label(&label, layer_name)
+                            .map(|_| true)
+                    }),
                 };
                 result
             })
@@ -813,7 +816,6 @@ mod tests {
 
         assert!(new_layer.string_triple_exists(&StringTriple::new_value("duck", "says", "quack")));
         assert!(!new_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
-
     }
 
     #[test]
@@ -848,12 +850,14 @@ mod tests {
 
         assert!(new.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(new.string_triple_exists(&StringTriple::new_value("dog", "says", "woof")));
-        assert!(oneshot::spawn(new.parent(), &runtime.executor()).wait().unwrap().is_none());
+        assert!(oneshot::spawn(new.parent(), &runtime.executor())
+            .wait()
+            .unwrap()
+            .is_none());
     }
 
     #[test]
     fn apply_a_base_delta() {
-
         let runtime = Runtime::new().unwrap();
 
         let store = open_memory_store();
@@ -880,7 +884,6 @@ mod tests {
         let layer2 = oneshot::spawn(builder2.commit(), &runtime.executor())
             .wait()
             .unwrap();
-
 
         let delta_builder_1 = oneshot::spawn(store.create_base_layer(), &runtime.executor())
             .wait()
@@ -916,8 +919,7 @@ mod tests {
             .wait()
             .unwrap();
 
-        let _ = rebase_builder.apply_delta(&delta)
-            .unwrap();
+        let _ = rebase_builder.apply_delta(&delta).unwrap();
 
         let rebase_layer = oneshot::spawn(rebase_builder.commit(), &runtime.executor())
             .wait()
@@ -927,7 +929,5 @@ mod tests {
         assert!(rebase_layer.string_triple_exists(&StringTriple::new_value("crow", "says", "caw")));
         assert!(rebase_layer.string_triple_exists(&StringTriple::new_value("dog", "says", "woof")));
         assert!(!rebase_layer.string_triple_exists(&StringTriple::new_value("cat", "says", "meow")));
-
-
     }
 }

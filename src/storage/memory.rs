@@ -8,7 +8,7 @@ use std::sync::{self, Arc, RwLock};
 use tokio::prelude::*;
 
 use super::*;
-use crate::layer::{BaseLayer, ChildLayer, Layer, LayerBuilder, SimpleLayerBuilder, InternalLayer};
+use crate::layer::{BaseLayer, ChildLayer, InternalLayer, Layer, LayerBuilder, SimpleLayerBuilder};
 
 pub struct MemoryBackedStoreWriter {
     vec: Arc<sync::RwLock<Vec<u8>>>,
@@ -159,87 +159,94 @@ impl LayerStore for MemoryLayerStore {
 
         // not in cache, time to do a clever
 
-        Box::new(self.layers.read().then(move |layers| {
-            let layers = layers.expect("rwlock read should always succeed");
+        Box::new(
+            self.layers
+                .read()
+                .then(move |layers| {
+                    let layers = layers.expect("rwlock read should always succeed");
 
-            let mut ids = Vec::new();
-            // collect ids until we get a cache hit
-            let mut id = name;
-            let mut first = true;
-            let mut cached = None;
-            loop {
-                match cache.get_layer_from_cache(id) {
-                    None => {
-                        ids.push(id);
-                        if let Some((parent, _)) = layers.get(&id) {
-                            first = false;
-                            match parent {
-                                None => break, // we traversed all the way to the base layer without finding a cached layer
-                                Some(parent) => {
-                                    id = *parent;
+                    let mut ids = Vec::new();
+                    // collect ids until we get a cache hit
+                    let mut id = name;
+                    let mut first = true;
+                    let mut cached = None;
+                    loop {
+                        match cache.get_layer_from_cache(id) {
+                            None => {
+                                ids.push(id);
+                                if let Some((parent, _)) = layers.get(&id) {
+                                    first = false;
+                                    match parent {
+                                        None => break, // we traversed all the way to the base layer without finding a cached layer
+                                        Some(parent) => {
+                                            id = *parent;
+                                        }
+                                    }
+                                } else if first {
+                                    // the requested layer does not exist.
+                                    return future::Either::A(future::ok(None));
+                                } else {
+                                    // layer parent does not exist. this should never happen
+                                    panic!("expected to find parent layer, but not found");
                                 }
                             }
-                        } else if first {
-                            // the requested layer does not exist.
-                            return future::Either::A(future::ok(None));
-                        } else {
-                            // layer parent does not exist. this should never happen
-                            panic!("expected to find parent layer, but not found");
+                            Some(layer) => {
+                                // great, we found a cached layer, now we can iteratively build all the child layers.
+                                cached = Some(layer);
+                                break;
+                            }
                         }
                     }
-                    Some(layer) => {
-                        // great, we found a cached layer, now we can iteratively build all the child layers.
-                        cached = Some(layer);
-                        break;
-                    }
-                }
-            }
 
-            // at this point we have a list of layer ids, and optionally, we have a cached layer
-            // starting with the cached layer, we need to construct child layers iteratively.
-            // lacking a cached layer, the very last item in the vec is a base layer and that is our starting point.
+                    // at this point we have a list of layer ids, and optionally, we have a cached layer
+                    // starting with the cached layer, we need to construct child layers iteratively.
+                    // lacking a cached layer, the very last item in the vec is a base layer and that is our starting point.
 
-            let cache2 = cache.clone();
+                    let cache2 = cache.clone();
 
-            let layer_future = match cached {
-                None => {
-                    // construct base layer out of last id, then pop it
-                    let base_id = ids.pop().unwrap();
-                    let (_, files) = layers.get(&base_id).unwrap();
-                    future::Either::A(
-                        BaseLayer::load_from_files(base_id, &files.clone().into_base()).map(
-                            move |l| {
-                                let result = Arc::new(l.into()) as Arc<InternalLayer>;
-                                cache.cache_layer(result.clone());
+                    let layer_future = match cached {
+                        None => {
+                            // construct base layer out of last id, then pop it
+                            let base_id = ids.pop().unwrap();
+                            let (_, files) = layers.get(&base_id).unwrap();
+                            future::Either::A(
+                                BaseLayer::load_from_files(base_id, &files.clone().into_base())
+                                    .map(move |l| {
+                                        let result = Arc::new(l.into()) as Arc<InternalLayer>;
+                                        cache.cache_layer(result.clone());
 
-                                result
-                            },
-                        ),
-                    )
-                }
-                Some(layer) => future::Either::B(future::ok(layer)),
-            };
+                                        result
+                                    }),
+                            )
+                        }
+                        Some(layer) => future::Either::B(future::ok(layer)),
+                    };
 
-            ids.reverse();
+                    ids.reverse();
 
-            future::Either::B(
-                layer_future
-                    .and_then(move |layer| {
-                        stream::iter_ok(ids).fold(layer, move |layer, id| {
-                            let (_, files) = layers.get(&id).unwrap();
-                            let cache = cache2.clone();
-                            ChildLayer::load_from_files(name, layer, &files.clone().into_child())
-                                .map(move |l| {
-                                    let result = Arc::new(l.into()) as Arc<InternalLayer>;
-                                    cache.cache_layer(result.clone());
-                                    result
+                    future::Either::B(
+                        layer_future
+                            .and_then(move |layer| {
+                                stream::iter_ok(ids).fold(layer, move |layer, id| {
+                                    let (_, files) = layers.get(&id).unwrap();
+                                    let cache = cache2.clone();
+                                    ChildLayer::load_from_files(
+                                        name,
+                                        layer,
+                                        &files.clone().into_child(),
+                                    )
+                                    .map(move |l| {
+                                        let result = Arc::new(l.into()) as Arc<InternalLayer>;
+                                        cache.cache_layer(result.clone());
+                                        result
+                                    })
                                 })
-                        })
-                    })
-                    .map(move |l| Some(l)),
-            )
-        })
-        .map(|l|l.map(|layer|layer as Arc<dyn Layer>)))
+                            })
+                            .map(move |l| Some(l)),
+                    )
+                })
+                .map(|l| l.map(|layer| layer as Arc<dyn Layer>)),
+        )
     }
 
     fn create_base_layer(
@@ -422,9 +429,14 @@ impl LayerStore for MemoryLayerStore {
         unimplemented!();
     }
 
-    fn layer_is_ancestor_of(&self, descendant: [u32; 5], ancestor: [u32; 5]) -> Box<dyn Future<Item=bool, Error=io::Error>+Send> {
+    fn layer_is_ancestor_of(
+        &self,
+        descendant: [u32; 5],
+        ancestor: [u32; 5],
+    ) -> Box<dyn Future<Item = bool, Error = io::Error> + Send> {
         Box::new(
-            self.layers.read()
+            self.layers
+                .read()
                 .map(move |layers| {
                     let mut d = descendant;
                     loop {
@@ -434,11 +446,11 @@ impl LayerStore for MemoryLayerStore {
 
                         match layers.get(&d) {
                             Some((Some(parent), _)) => d = *parent,
-                            _ => return false
+                            _ => return false,
                         }
                     }
                 })
-                .map_err(|_| panic!("no errors expected"))
+                .map_err(|_| panic!("no errors expected")),
         )
     }
 }

@@ -12,8 +12,8 @@ use std::io;
 use std::path::PathBuf;
 
 use crate::layer::{
-    IdTriple, Layer, LayerObjectLookup, LayerPredicateLookup, LayerSubjectLookup, ObjectType,
-    StringTriple, SubjectLookup, LayerCounts, PredicateLookup, ObjectLookup
+    IdTriple, Layer, LayerCounts, LayerObjectLookup, LayerPredicateLookup, LayerSubjectLookup,
+    ObjectLookup, ObjectType, PredicateLookup, StringTriple, SubjectLookup,
 };
 use crate::store::{
     open_directory_store, open_memory_store, NamedGraph, Store, StoreLayer, StoreLayerBuilder,
@@ -103,10 +103,9 @@ impl SyncStoreLayerBuilder {
         inner.map(|i| SyncStoreLayer::wrap(i))
     }
 
-    pub fn apply_delta(&self, delta : &SyncStoreLayer) -> Result<(), io::Error> {
+    pub fn apply_delta(&self, delta: &SyncStoreLayer) -> Result<(), io::Error> {
         self.inner.apply_delta(&delta.inner)
     }
-
 }
 
 /// A layer that keeps track of the store it came out of, allowing the creation of a layer builder on top of this layer
@@ -127,17 +126,16 @@ impl SyncStoreLayer {
         inner.map(|i| SyncStoreLayerBuilder::wrap(i))
     }
 
-    pub fn parent(&self) -> Result<Option<SyncStoreLayer>,io::Error> {
+    pub fn parent(&self) -> Result<Option<SyncStoreLayer>, io::Error> {
         let inner = task_sync(self.inner.parent());
         inner.map(|p| p.map(|p| SyncStoreLayer { inner: p }))
     }
 
-    pub fn squash(&self) -> Result<SyncStoreLayer, io::Error>  {
+    pub fn squash(&self) -> Result<SyncStoreLayer, io::Error> {
         let inner = task_sync(self.inner.clone().squash());
 
         inner.map(|i| SyncStoreLayer::wrap(i))
     }
-
 }
 
 impl Layer for SyncStoreLayer {
@@ -325,7 +323,6 @@ impl SyncNamedGraph {
     pub fn force_set_head(&self, layer: &SyncStoreLayer) -> Result<bool, io::Error> {
         task_sync(self.inner.force_set_head(&layer.inner))
     }
-
 }
 
 /// A store, storing a set of layers and database labels pointing to these layers

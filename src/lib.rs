@@ -1,4 +1,4 @@
-#![type_length_limit="10628160"]
+#![type_length_limit = "10628160"]
 
 //! Tokio-enabled data store for triple data
 //!

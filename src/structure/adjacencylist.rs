@@ -91,7 +91,11 @@ impl AdjacencyList {
             panic!("minimum index has to be 1");
         }
         if index > self.left_count() as u64 {
-            panic!("index {} too large for adjacency list of length {}", index, self.left_count());
+            panic!(
+                "index {} too large for adjacency list of length {}",
+                index,
+                self.left_count()
+            );
         }
 
         let start = self.offset_for(index);

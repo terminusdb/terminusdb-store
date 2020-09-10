@@ -5,9 +5,9 @@ use futures::future;
 use futures::prelude::*;
 use futures::stream::Peekable;
 
-use super::layer::*;
-use super::internal::*;
 use super::builder::*;
+use super::internal::*;
+use super::layer::*;
 use crate::storage::*;
 use crate::structure::*;
 
@@ -39,7 +39,7 @@ impl BaseLayer {
     pub fn load_from_files<F: FileLoad + FileStore>(
         name: [u32; 5],
         files: &BaseLayerFiles<F>,
-    ) -> impl Future<Item = Self, Error = std::io::Error>+Send {
+    ) -> impl Future<Item = Self, Error = std::io::Error> + Send {
         files.map_all().map(move |maps| Self::load(name, maps))
     }
 
@@ -60,10 +60,12 @@ impl BaseLayer {
         )
         .unwrap();
 
-        let subjects =
-            maps.subjects_map.map(|subjects_map|MonotonicLogArray::from_logarray(LogArray::parse(subjects_map).unwrap()));
-        let objects =
-            maps.objects_map.map(|objects_map|MonotonicLogArray::from_logarray(LogArray::parse(objects_map).unwrap()));
+        let subjects = maps.subjects_map.map(|subjects_map| {
+            MonotonicLogArray::from_logarray(LogArray::parse(subjects_map).unwrap())
+        });
+        let objects = maps.objects_map.map(|objects_map| {
+            MonotonicLogArray::from_logarray(LogArray::parse(objects_map).unwrap())
+        });
 
         let s_p_adjacency_list = AdjacencyList::parse(
             maps.s_p_adjacency_list_maps.nums_map,
@@ -114,7 +116,7 @@ impl BaseLayer {
 }
 
 impl InternalLayerImpl for BaseLayer {
-    fn name(&self) -> [u32;5] {
+    fn name(&self) -> [u32; 5] {
         self.name
     }
 
@@ -122,7 +124,7 @@ impl InternalLayerImpl for BaseLayer {
         LayerType::Base
     }
 
-    fn parent_name(&self) -> Option<[u32;5]> {
+    fn parent_name(&self) -> Option<[u32; 5]> {
         None
     }
 
@@ -200,7 +202,7 @@ impl InternalLayerImpl for BaseLayer {
 pub struct BaseLayerFileBuilder<F: 'static + FileLoad + FileStore> {
     files: BaseLayerFiles<F>,
 
-    builder: DictionarySetFileBuilder<F>
+    builder: DictionarySetFileBuilder<F>,
 }
 
 impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
@@ -209,26 +211,27 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
         let builder = DictionarySetFileBuilder::from_files(
             files.node_dictionary_files.clone(),
             files.predicate_dictionary_files.clone(),
-            files.value_dictionary_files.clone()
+            files.value_dictionary_files.clone(),
         );
 
         BaseLayerFileBuilder {
             files: files.clone(),
-            builder
+            builder,
         }
     }
 
     /// Add a node string.
     ///
     /// Panics if the given node string is not a lexical successor of the previous node string.
-    pub fn add_node(self, node: &str) -> impl Future<Item = (u64, Self), Error = std::io::Error>+Send {
-        let BaseLayerFileBuilder {
-            files,
-            builder
-        } = self;
+    pub fn add_node(
+        self,
+        node: &str,
+    ) -> impl Future<Item = (u64, Self), Error = std::io::Error> + Send {
+        let BaseLayerFileBuilder { files, builder } = self;
 
-        builder.add_node(node)
-            .map(move |(id, builder)|(id, BaseLayerFileBuilder { files, builder }))
+        builder
+            .add_node(node)
+            .map(move |(id, builder)| (id, BaseLayerFileBuilder { files, builder }))
     }
 
     /// Add a predicate string.
@@ -237,27 +240,26 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     pub fn add_predicate(
         self,
         predicate: &str,
-    ) -> impl Future<Item = (u64, Self), Error = std::io::Error>+Send {
-        let BaseLayerFileBuilder {
-            files,
-            builder
-        } = self;
+    ) -> impl Future<Item = (u64, Self), Error = std::io::Error> + Send {
+        let BaseLayerFileBuilder { files, builder } = self;
 
-        builder.add_predicate(predicate)
-            .map(move |(id, builder)|(id, BaseLayerFileBuilder { files, builder }))
+        builder
+            .add_predicate(predicate)
+            .map(move |(id, builder)| (id, BaseLayerFileBuilder { files, builder }))
     }
 
     /// Add a value string.
     ///
     /// Panics if the given value string is not a lexical successor of the previous value string.
-    pub fn add_value(self, value: &str) -> impl Future<Item = (u64, Self), Error = std::io::Error>+Send {
-        let BaseLayerFileBuilder {
-            files,
-            builder
-        } = self;
+    pub fn add_value(
+        self,
+        value: &str,
+    ) -> impl Future<Item = (u64, Self), Error = std::io::Error> + Send {
+        let BaseLayerFileBuilder { files, builder } = self;
 
-        builder.add_value(value)
-            .map(move |(id, builder)|(id, BaseLayerFileBuilder { files, builder }))
+        builder
+            .add_value(value)
+            .map(move |(id, builder)| (id, BaseLayerFileBuilder { files, builder }))
     }
 
     /// Add nodes from an iterable.
@@ -266,17 +268,15 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     pub fn add_nodes<I: 'static + IntoIterator<Item = String> + Send>(
         self,
         nodes: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error>+Send
+    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error> + Send
     where
-        <I as std::iter::IntoIterator>::IntoIter: Send+Sync,
-        I: Sync
+        <I as std::iter::IntoIterator>::IntoIter: Send + Sync,
+        I: Sync,
     {
-        let BaseLayerFileBuilder {
-            files,
-            builder
-        } = self;
+        let BaseLayerFileBuilder { files, builder } = self;
 
-        builder.add_nodes(nodes)
+        builder
+            .add_nodes(nodes)
             .map(move |(ids, builder)| (ids, BaseLayerFileBuilder { files, builder }))
     }
 
@@ -286,17 +286,15 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     pub fn add_predicates<I: 'static + IntoIterator<Item = String> + Send>(
         self,
         predicates: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error>+Send
+    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error> + Send
     where
-        <I as std::iter::IntoIterator>::IntoIter: Send+Sync,
-        I: Sync
+        <I as std::iter::IntoIterator>::IntoIter: Send + Sync,
+        I: Sync,
     {
-        let BaseLayerFileBuilder {
-            files,
-            builder
-        } = self;
+        let BaseLayerFileBuilder { files, builder } = self;
 
-        builder.add_predicates(predicates)
+        builder
+            .add_predicates(predicates)
             .map(move |(ids, builder)| (ids, BaseLayerFileBuilder { files, builder }))
     }
 
@@ -306,17 +304,15 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     pub fn add_values<I: 'static + IntoIterator<Item = String> + Send>(
         self,
         values: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error>+Send
+    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error> + Send
     where
-        <I as std::iter::IntoIterator>::IntoIter: Send+Sync,
-        I: Sync
+        <I as std::iter::IntoIterator>::IntoIter: Send + Sync,
+        I: Sync,
     {
-        let BaseLayerFileBuilder {
-            files,
-            builder
-        } = self;
+        let BaseLayerFileBuilder { files, builder } = self;
 
-        builder.add_values(values)
+        builder
+            .add_values(values)
             .map(move |(ids, builder)| (ids, BaseLayerFileBuilder { files, builder }))
     }
 
@@ -324,11 +320,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     pub fn into_phase2(
         self,
     ) -> impl Future<Item = BaseLayerFileBuilderPhase2<F>, Error = std::io::Error> {
-        let BaseLayerFileBuilder {
-            files,
-
-            builder
-        } = self;
+        let BaseLayerFileBuilder { files, builder } = self;
 
         let dict_maps_fut = vec![
             files.node_dictionary_files.blocks_file.map(),
@@ -339,7 +331,8 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
             files.value_dictionary_files.offsets_file.map(),
         ];
 
-        builder.finalize()
+        builder
+            .finalize()
             .and_then(|_| future::join_all(dict_maps_fut))
             .and_then(move |dict_maps| {
                 let node_dict_r = PfcDict::parse(dict_maps[0].clone(), dict_maps[1].clone());
@@ -382,7 +375,7 @@ pub struct BaseLayerFileBuilderPhase2<F: 'static + FileLoad + FileStore> {
     files: BaseLayerFiles<F>,
     object_count: usize,
 
-    builder: TripleFileBuilder<F>
+    builder: TripleFileBuilder<F>,
 }
 
 impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
@@ -399,7 +392,7 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
             num_nodes,
             num_predicates,
             num_values,
-            None
+            None,
         );
 
         let object_count = num_nodes + num_values;
@@ -408,7 +401,7 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
             files,
             object_count,
 
-            builder
+            builder,
         }
     }
 
@@ -425,14 +418,15 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
             files,
             object_count,
 
-            builder
+            builder,
         } = self;
 
-        builder.add_triple(subject, predicate, object)
+        builder
+            .add_triple(subject, predicate, object)
             .map(move |builder| BaseLayerFileBuilderPhase2 {
                 files,
                 object_count,
-                builder
+                builder,
             })
     }
 
@@ -442,21 +436,23 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
     pub fn add_id_triples<I: 'static + IntoIterator<Item = IdTriple>>(
         self,
         triples: I,
-    ) -> impl Future<Item = Self, Error = std::io::Error>+Send
-        where <I as std::iter::IntoIterator>::IntoIter: Send
+    ) -> impl Future<Item = Self, Error = std::io::Error> + Send
+    where
+        <I as std::iter::IntoIterator>::IntoIter: Send,
     {
         let BaseLayerFileBuilderPhase2 {
             files,
             object_count,
 
-            builder
+            builder,
         } = self;
 
-        builder.add_id_triples(triples)
+        builder
+            .add_id_triples(triples)
             .map(move |builder| BaseLayerFileBuilderPhase2 {
                 files,
                 object_count,
-                builder
+                builder,
             })
     }
 
@@ -465,18 +461,19 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
         let sp_o_adjacency_list_files = self.files.sp_o_adjacency_list_files;
         let o_ps_adjacency_list_files = self.files.o_ps_adjacency_list_files;
         let predicate_wavelet_tree_files = self.files.predicate_wavelet_tree_files;
-        self.builder.finalize()
-            .and_then(|_|
-                      build_object_index(sp_o_adjacency_list_files,
-                                         o_ps_adjacency_list_files,
-                                         None)
-                      .join(build_predicate_index(
-                          s_p_adjacency_list_files.nums_file,
-                          predicate_wavelet_tree_files.bits_file,
-                          predicate_wavelet_tree_files.blocks_file,
-                          predicate_wavelet_tree_files.sblocks_file
-                      )))
-            .map(|_|())
+        self.builder
+            .finalize()
+            .and_then(|_| {
+                build_object_index(sp_o_adjacency_list_files, o_ps_adjacency_list_files, None).join(
+                    build_predicate_index(
+                        s_p_adjacency_list_files.nums_file,
+                        predicate_wavelet_tree_files.bits_file,
+                        predicate_wavelet_tree_files.blocks_file,
+                        predicate_wavelet_tree_files.sblocks_file,
+                    ),
+                )
+            })
+            .map(|_| ())
     }
 }
 

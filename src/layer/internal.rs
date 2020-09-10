@@ -1,9 +1,9 @@
-use crate::structure::*;
-use super::layer::*;
 use super::base::*;
 use super::child::*;
-use std::ops::Deref;
+use super::layer::*;
+use crate::structure::*;
 use std::convert::TryInto;
+use std::ops::Deref;
 
 fn external_id_to_internal(array_option: Option<&MonotonicLogArray>, id: u64) -> Option<u64> {
     if id == 0 {
@@ -12,28 +12,31 @@ fn external_id_to_internal(array_option: Option<&MonotonicLogArray>, id: u64) ->
 
     match array_option {
         Some(array) => array.index_of(id).map(|mapped| mapped as u64 + 1),
-        None => Some(id)
+        None => Some(id),
     }
 }
 
 fn internal_id_to_external(array_option: Option<&MonotonicLogArray>, id: u64) -> u64 {
     match array_option {
         Some(array) => array.entry((id - 1) as usize),
-        None => id
+        None => id,
     }
 }
 
-fn id_iter(array_option: Option<&MonotonicLogArray>, adjacency_list_option: Option<&AdjacencyList>) -> Box<dyn Iterator<Item=u64>> {
+fn id_iter(
+    array_option: Option<&MonotonicLogArray>,
+    adjacency_list_option: Option<&AdjacencyList>,
+) -> Box<dyn Iterator<Item = u64>> {
     match (array_option, adjacency_list_option) {
         (Some(array), _) => Box::new(array.iter()),
-        (_, Some(adjacency_list)) => Box::new(1..(adjacency_list.left_count() as u64 +1)),
-        _ => Box::new(std::iter::empty())
+        (_, Some(adjacency_list)) => Box::new(1..(adjacency_list.left_count() as u64 + 1)),
+        _ => Box::new(std::iter::empty()),
     }
 }
 
 pub trait InternalLayerImpl {
-    fn name(&self) -> [u32;5];
-    fn parent_name(&self) -> Option<[u32;5]>;
+    fn name(&self) -> [u32; 5];
+    fn parent_name(&self) -> Option<[u32; 5]>;
     fn layer_type(&self) -> LayerType;
     fn immediate_parent(&self) -> Option<&InternalLayer>;
 
@@ -92,10 +95,9 @@ pub trait InternalLayerImpl {
     fn value_dict_get(&self, id: usize) -> Option<String> {
         self.value_dictionary().get(id)
     }
-
 }
 
-impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
+impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
     fn name(&self) -> [u32; 5] {
         Self::name(self)
     }
@@ -125,7 +127,9 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
     }
 
     fn subject_id<'a>(&'a self, subject: &str) -> Option<u64> {
-        let to_result = |layer: &'a dyn InternalLayerImpl| (layer.node_dict_id(subject), layer.immediate_parent());
+        let to_result = |layer: &'a dyn InternalLayerImpl| {
+            (layer.node_dict_id(subject), layer.immediate_parent())
+        };
         let mut result = to_result(self);
         while let (None, Some(layer)) = result {
             result = to_result(layer);
@@ -135,7 +139,9 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
     }
 
     fn predicate_id<'a>(&'a self, predicate: &str) -> Option<u64> {
-        let to_result = |layer: &'a dyn InternalLayerImpl| (layer.predicate_dict_id(predicate), layer.immediate_parent());
+        let to_result = |layer: &'a dyn InternalLayerImpl| {
+            (layer.predicate_dict_id(predicate), layer.immediate_parent())
+        };
         let mut result = to_result(self);
         while let (None, Some(layer)) = result {
             result = to_result(layer);
@@ -145,7 +151,9 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
     }
 
     fn object_node_id<'a>(&'a self, object: &str) -> Option<u64> {
-        let to_result = |layer: &'a dyn InternalLayerImpl| (layer.node_dict_id(object), layer.immediate_parent());
+        let to_result = |layer: &'a dyn InternalLayerImpl| {
+            (layer.node_dict_id(object), layer.immediate_parent())
+        };
         let mut result = to_result(self);
         while let (None, Some(layer)) = result {
             result = to_result(layer);
@@ -186,8 +194,7 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
                 if corrected_id >= parent_count as u64 {
                     // subject, if it exists, is in this layer
                     corrected_id -= parent_count;
-                }
-                else {
+                } else {
                     current_option = Some(parent);
                     continue;
                 }
@@ -212,8 +219,7 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
                 if corrected_id >= parent_count as u64 {
                     // subject, if it exists, is in this layer
                     corrected_id -= parent_count;
-                }
-                else {
+                } else {
                     current_option = Some(parent);
                     continue;
                 }
@@ -241,8 +247,7 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
                 if corrected_id >= parent_count {
                     // object, if it exists, is in this layer
                     corrected_id -= parent_count;
-                }
-                else {
+                } else {
                     current_option = Some(parent);
                     continue;
                 }
@@ -289,51 +294,60 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
         let s_p_adjacency_list = self.pos_s_p_adjacency_list().clone();
         let sp_o_adjacency_list = self.pos_sp_o_adjacency_list().clone();
 
-        Box::new(id_iter(self.pos_subjects(), Some(&s_p_adjacency_list)).enumerate().filter_map(move |(c, s)| {
-            let predicates = s_p_adjacency_list.get((c as u64)+1);
-            if predicates.len() == 1 && predicates.entry(0) == 0 {
-                None
-            }
-            else {
-                Some(Box::new(InternalLayerSubjectLookup {
-                    subject: s,
-                    adjacencies: AdjacencyStuff {
-                        predicates: s_p_adjacency_list.get((c as u64) + 1),
-                        sp_offset: s_p_adjacency_list.offset_for((c as u64) + 1),
-                        sp_o_adjacency_list: sp_o_adjacency_list.clone(),
-                    },
-                }) as Box<dyn LayerSubjectLookup>)
-            }
-        }))
+        Box::new(
+            id_iter(self.pos_subjects(), Some(&s_p_adjacency_list))
+                .enumerate()
+                .filter_map(move |(c, s)| {
+                    let predicates = s_p_adjacency_list.get((c as u64) + 1);
+                    if predicates.len() == 1 && predicates.entry(0) == 0 {
+                        None
+                    } else {
+                        Some(Box::new(InternalLayerSubjectLookup {
+                            subject: s,
+                            adjacencies: AdjacencyStuff {
+                                predicates: s_p_adjacency_list.get((c as u64) + 1),
+                                sp_offset: s_p_adjacency_list.offset_for((c as u64) + 1),
+                                sp_o_adjacency_list: sp_o_adjacency_list.clone(),
+                            },
+                        }) as Box<dyn LayerSubjectLookup>)
+                    }
+                }),
+        )
     }
 
     fn subject_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>> {
         let s_p_adjacency_list: AdjacencyList;
         let sp_o_adjacency_list: AdjacencyList;
-        match (self.neg_s_p_adjacency_list(), self.neg_sp_o_adjacency_list()) {
+        match (
+            self.neg_s_p_adjacency_list(),
+            self.neg_sp_o_adjacency_list(),
+        ) {
             (Some(s_p), Some(sp_o)) => {
                 s_p_adjacency_list = s_p.clone();
                 sp_o_adjacency_list = sp_o.clone();
-            },
-            _ => return Box::new(std::iter::empty())
+            }
+            _ => return Box::new(std::iter::empty()),
         }
 
-        Box::new(id_iter(self.neg_subjects(), Some(&s_p_adjacency_list)).enumerate().filter_map(move |(c, s)| {
-            let predicates = s_p_adjacency_list.get((c as u64)+1);
-            if predicates.len() == 1 && predicates.entry(0) == 0 {
-                None
-            }
-            else {
-                Some(Box::new(InternalLayerSubjectLookup {
-                    subject: s,
-                    adjacencies: AdjacencyStuff {
-                        predicates: s_p_adjacency_list.get((c as u64) + 1),
-                        sp_offset: s_p_adjacency_list.offset_for((c as u64) + 1),
-                        sp_o_adjacency_list: sp_o_adjacency_list.clone(),
-                    },
-                }) as Box<dyn LayerSubjectLookup>)
-            }
-        }))
+        Box::new(
+            id_iter(self.neg_subjects(), Some(&s_p_adjacency_list))
+                .enumerate()
+                .filter_map(move |(c, s)| {
+                    let predicates = s_p_adjacency_list.get((c as u64) + 1);
+                    if predicates.len() == 1 && predicates.entry(0) == 0 {
+                        None
+                    } else {
+                        Some(Box::new(InternalLayerSubjectLookup {
+                            subject: s,
+                            adjacencies: AdjacencyStuff {
+                                predicates: s_p_adjacency_list.get((c as u64) + 1),
+                                sp_offset: s_p_adjacency_list.offset_for((c as u64) + 1),
+                                sp_o_adjacency_list: sp_o_adjacency_list.clone(),
+                            },
+                        }) as Box<dyn LayerSubjectLookup>)
+                    }
+                }),
+        )
     }
 
     fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
@@ -373,9 +387,9 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
         }
 
         let mapped_subject: u64;
-        match external_id_to_internal(self.pos_subjects(),subject) {
+        match external_id_to_internal(self.pos_subjects(), subject) {
             Some(ms) => mapped_subject = ms,
-            None => return None
+            None => return None,
         }
 
         let pos_s_p_adjacency_list = self.pos_s_p_adjacency_list();
@@ -383,8 +397,7 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
             let predicates = pos_s_p_adjacency_list.get(mapped_subject);
             if predicates.len() == 1 && predicates.entry(0) == 0 {
                 None
-            }
-            else {
+            } else {
                 let sp_offset = pos_s_p_adjacency_list.offset_for(mapped_subject);
                 Some(Box::new(InternalLayerSubjectLookup {
                     subject,
@@ -407,26 +420,28 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
 
         let neg_s_p_adjacency_list: &AdjacencyList;
         let neg_sp_o_adjacency_list: &AdjacencyList;
-        match (self.neg_s_p_adjacency_list(), self.neg_sp_o_adjacency_list()) {
+        match (
+            self.neg_s_p_adjacency_list(),
+            self.neg_sp_o_adjacency_list(),
+        ) {
             (Some(s_p), Some(sp_o)) => {
                 neg_s_p_adjacency_list = s_p;
                 neg_sp_o_adjacency_list = sp_o;
-            },
-            _ => return None
+            }
+            _ => return None,
         }
 
-        let mapped_subject:u64;
+        let mapped_subject: u64;
         match external_id_to_internal(self.neg_subjects(), subject) {
             Some(ms) => mapped_subject = ms,
-            None => return None
+            None => return None,
         }
 
         if mapped_subject <= neg_s_p_adjacency_list.left_count() as u64 {
             let predicates = neg_s_p_adjacency_list.get(mapped_subject);
             if predicates.len() == 1 && predicates.entry(0) == 0 {
                 None
-            }
-            else {
+            } else {
                 let sp_offset = neg_s_p_adjacency_list.offset_for(mapped_subject);
                 Some(Box::new(InternalLayerSubjectLookup {
                     subject,
@@ -466,15 +481,19 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
     fn object_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>> {
         // TODO make more efficient
         let cloned = self.clone_boxed();
-        Box::new(id_iter(self.pos_objects(), Some(self.pos_o_ps_adjacency_list()))
-                 .filter_map(move |object| cloned.lookup_object_addition(object)))
+        Box::new(
+            id_iter(self.pos_objects(), Some(self.pos_o_ps_adjacency_list()))
+                .filter_map(move |object| cloned.lookup_object_addition(object)),
+        )
     }
 
     fn object_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>> {
         // TODO make more efficient
         let cloned = self.clone_boxed();
-        Box::new(id_iter(self.neg_objects(), self.neg_o_ps_adjacency_list())
-                 .filter_map(move |object| cloned.lookup_object_removal(object)))
+        Box::new(
+            id_iter(self.neg_objects(), self.neg_o_ps_adjacency_list())
+                .filter_map(move |object| cloned.lookup_object_removal(object)),
+        )
     }
 
     fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
@@ -517,16 +536,15 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
             if sp_slice.len() == 1 && sp_slice.entry(0) == 0 {
                 // this is a stub
                 None
-            }
-            else {
-                let subjects = self.pos_subjects().map(|s|s.clone());
+            } else {
+                let subjects = self.pos_subjects().map(|s| s.clone());
                 let s_p_adjacency_list = self.pos_s_p_adjacency_list().clone();
 
                 Some(Box::new(InternalLayerObjectLookup {
                     object,
                     sp_slice,
                     s_p_adjacency_list,
-                    subjects
+                    subjects,
                 }) as Box<dyn LayerObjectLookup>)
             }
         })
@@ -536,12 +554,12 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
         let mapped_object = external_id_to_internal(self.neg_objects(), object);
 
         mapped_object.and_then(|o| {
-            match (self.neg_o_ps_adjacency_list(),
-                   self.neg_subjects(),
-                   self.neg_s_p_adjacency_list()) {
-                (Some(neg_o_ps_adjacency_list),
-                 neg_subjects,
-                 Some(neg_s_p_adjacency_list)) => {
+            match (
+                self.neg_o_ps_adjacency_list(),
+                self.neg_subjects(),
+                self.neg_s_p_adjacency_list(),
+            ) {
+                (Some(neg_o_ps_adjacency_list), neg_subjects, Some(neg_s_p_adjacency_list)) => {
                     if o > neg_o_ps_adjacency_list.left_count() as u64 {
                         return None;
                     }
@@ -549,22 +567,20 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
                     if sp_slice.len() == 1 && sp_slice.entry(0) == 0 {
                         // this is a stub
                         None
-                    }
-                    else {
-                        let subjects = neg_subjects.map(|s|s.clone());
+                    } else {
+                        let subjects = neg_subjects.map(|s| s.clone());
                         let s_p_adjacency_list = neg_s_p_adjacency_list.clone();
 
                         Some(Box::new(InternalLayerObjectLookup {
                             object,
                             sp_slice,
                             s_p_adjacency_list,
-                            subjects
+                            subjects,
                         }) as Box<dyn LayerObjectLookup>)
                     }
-                },
-                _ => None
+                }
+                _ => None,
             }
-
         })
     }
 
@@ -606,7 +622,7 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
                 Box::new(InternalLayerPredicateLookup {
                     predicate,
                     lookup,
-                    subjects: self.pos_subjects().map(|s|s.clone()),
+                    subjects: self.pos_subjects().map(|s| s.clone()),
                     s_p_adjacency_list: self.pos_s_p_adjacency_list().clone(),
                     sp_o_adjacency_list: self.pos_sp_o_adjacency_list().clone(),
                 }) as Box<dyn LayerPredicateLookup>
@@ -614,27 +630,27 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
     }
 
     fn lookup_predicate_removal(&self, predicate: u64) -> Option<Box<dyn LayerPredicateLookup>> {
-        match (self.neg_subjects(),
-               self.neg_predicate_wavelet_tree(),
-               self.neg_s_p_adjacency_list(),
-               self.neg_sp_o_adjacency_list()) {
-            (neg_subjects,
-             Some(neg_predicate_wavelet_tree),
-             Some(neg_s_p_adjacency_list),
-             Some(neg_sp_o_adjacency_list)) => {
-                neg_predicate_wavelet_tree
-                    .lookup(predicate)
-                    .map(|lookup| {
-                        Box::new(InternalLayerPredicateLookup {
-                            predicate,
-                            lookup,
-                            subjects: neg_subjects.map(|s|s.clone()),
-                            s_p_adjacency_list: neg_s_p_adjacency_list.clone(),
-                            sp_o_adjacency_list: neg_sp_o_adjacency_list.clone(),
-                        }) as Box<dyn LayerPredicateLookup>
-                    })
-            },
-            _ => None
+        match (
+            self.neg_subjects(),
+            self.neg_predicate_wavelet_tree(),
+            self.neg_s_p_adjacency_list(),
+            self.neg_sp_o_adjacency_list(),
+        ) {
+            (
+                neg_subjects,
+                Some(neg_predicate_wavelet_tree),
+                Some(neg_s_p_adjacency_list),
+                Some(neg_sp_o_adjacency_list),
+            ) => neg_predicate_wavelet_tree.lookup(predicate).map(|lookup| {
+                Box::new(InternalLayerPredicateLookup {
+                    predicate,
+                    lookup,
+                    subjects: neg_subjects.map(|s| s.clone()),
+                    s_p_adjacency_list: neg_s_p_adjacency_list.clone(),
+                    sp_o_adjacency_list: neg_sp_o_adjacency_list.clone(),
+                }) as Box<dyn LayerPredicateLookup>
+            }),
+            _ => None,
         }
     }
 
@@ -674,7 +690,8 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
     }
 
     fn triple_layer_removal_count(&self) -> usize {
-        self.neg_sp_o_adjacency_list().map(|aj|aj.right_count())
+        self.neg_sp_o_adjacency_list()
+            .map(|aj| aj.right_count())
             .unwrap_or(0)
     }
 
@@ -722,27 +739,28 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
         }
     }
 
-    fn triple_additions(&self) -> Box<dyn Iterator<Item=IdTriple>> {
-        Box::new(
-            InternalLayerTripleIterator::new(self.pos_subjects(), self.pos_s_p_adjacency_list(), self.pos_sp_o_adjacency_list())
-        )
+    fn triple_additions(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+        Box::new(InternalLayerTripleIterator::new(
+            self.pos_subjects(),
+            self.pos_s_p_adjacency_list(),
+            self.pos_sp_o_adjacency_list(),
+        ))
     }
 
-    fn triple_removals(&self) -> Box<dyn Iterator<Item=IdTriple>> {
-        match (self.neg_subjects(),
-               self.neg_s_p_adjacency_list(),
-               self.neg_sp_o_adjacency_list()) {
-            (neg_subjects,
-             Some(neg_s_p_adjacency_list),
-             Some(neg_sp_o_adjacency_list)) =>
-                Box::new(
-                    InternalLayerTripleIterator::new(
-                        neg_subjects,
-                        neg_s_p_adjacency_list,
-                        neg_sp_o_adjacency_list
-                    ) 
-                ),
-            _ => Box::new(std::iter::empty())
+    fn triple_removals(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+        match (
+            self.neg_subjects(),
+            self.neg_s_p_adjacency_list(),
+            self.neg_sp_o_adjacency_list(),
+        ) {
+            (neg_subjects, Some(neg_s_p_adjacency_list), Some(neg_sp_o_adjacency_list)) => {
+                Box::new(InternalLayerTripleIterator::new(
+                    neg_subjects,
+                    neg_s_p_adjacency_list,
+                    neg_sp_o_adjacency_list,
+                ))
+            }
+            _ => Box::new(std::iter::empty()),
         }
     }
 }
@@ -750,20 +768,20 @@ impl<T:'static+InternalLayerImpl+Send+Sync+Clone> Layer for T {
 #[derive(Clone)]
 pub enum InternalLayer {
     Base(BaseLayer),
-    Child(ChildLayer)
+    Child(ChildLayer),
 }
 
 impl InternalLayer {
     pub fn as_layer(&self) -> &dyn Layer {
         match self {
             Self::Base(base) => base as &dyn Layer,
-            Self::Child(child) => child as &dyn Layer
+            Self::Child(child) => child as &dyn Layer,
         }
     }
 }
 
 impl Deref for InternalLayer {
-    type Target = dyn InternalLayerImpl+Send+Sync;
+    type Target = dyn InternalLayerImpl + Send + Sync;
     fn deref(&self) -> &Self::Target {
         match self {
             Self::Base(base) => base as &Self::Target,
@@ -785,13 +803,13 @@ impl From<ChildLayer> for InternalLayer {
 }
 
 impl InternalLayerImpl for InternalLayer {
-    fn name(&self) -> [u32;5] {
+    fn name(&self) -> [u32; 5] {
         InternalLayerImpl::name(&**self)
     }
     fn layer_type(&self) -> LayerType {
         (&**self).layer_type()
     }
-    fn parent_name(&self) -> Option<[u32;5]> {
+    fn parent_name(&self) -> Option<[u32; 5]> {
         (&**self).parent_name()
     }
     fn immediate_parent(&self) -> Option<&InternalLayer> {
@@ -951,7 +969,10 @@ impl LayerObjectLookup for InternalLayerObjectLookup {
                 .iter()
                 .map(move |index| s_p_adjacency_list.pair_at_pos(index - 1))
                 .map(move |(mapped_subject, predicate)| {
-                    (internal_id_to_external(subjects.as_ref(), mapped_subject), predicate)
+                    (
+                        internal_id_to_external(subjects.as_ref(), mapped_subject),
+                        predicate,
+                    )
                 }),
         )
     }
@@ -995,18 +1016,22 @@ pub struct InternalLayerTripleIterator {
     sp_o_adjacency_list: AdjacencyList,
     s_position: u64,
     s_p_position: u64,
-    sp_o_position: u64
+    sp_o_position: u64,
 }
 
 impl InternalLayerTripleIterator {
-    fn new(subjects: Option<&MonotonicLogArray>, s_p_adjacency_list: &AdjacencyList, sp_o_adjacency_list: &AdjacencyList) -> Self {
+    fn new(
+        subjects: Option<&MonotonicLogArray>,
+        s_p_adjacency_list: &AdjacencyList,
+        sp_o_adjacency_list: &AdjacencyList,
+    ) -> Self {
         Self {
-            subjects: subjects.map(|s|s.clone()),
+            subjects: subjects.map(|s| s.clone()),
             s_p_adjacency_list: s_p_adjacency_list.clone(),
             sp_o_adjacency_list: sp_o_adjacency_list.clone(),
             s_position: 0,
             s_p_position: 0,
-            sp_o_position: 0
+            sp_o_position: 0,
         }
     }
 }
@@ -1018,11 +1043,10 @@ impl Iterator for InternalLayerTripleIterator {
         loop {
             if self.sp_o_position >= self.sp_o_adjacency_list.right_count() as u64 {
                 return None;
-            }
-            else {
+            } else {
                 let subject = match self.subjects.as_ref() {
                     Some(subjects) => subjects.entry(self.s_position.try_into().unwrap()),
-                    None => self.s_position+1
+                    None => self.s_position + 1,
                 };
 
                 let s_p_bit = self.s_p_adjacency_list.bit_at_pos(self.s_p_position);
@@ -1069,17 +1093,17 @@ mod tests {
 
     #[test]
     fn base_triple_iterator() {
-        let base_layer:InternalLayer = example_base_layer().into();
+        let base_layer: InternalLayer = example_base_layer().into();
 
         let triples: Vec<_> = base_layer.triple_additions().collect();
         let expected = vec![
-            IdTriple::new(1,1,1),
-            IdTriple::new(2,1,1),
-            IdTriple::new(2,1,3),
-            IdTriple::new(2,3,6),
-            IdTriple::new(3,2,5),
-            IdTriple::new(3,3,6),
-            IdTriple::new(4,3,6)
+            IdTriple::new(1, 1, 1),
+            IdTriple::new(2, 1, 1),
+            IdTriple::new(2, 1, 3),
+            IdTriple::new(2, 3, 6),
+            IdTriple::new(3, 2, 5),
+            IdTriple::new(3, 3, 6),
+            IdTriple::new(4, 3, 6),
         ];
 
         assert_eq!(expected, triples);
@@ -1087,7 +1111,7 @@ mod tests {
 
     #[test]
     fn base_triple_removal_iterator() {
-        let base_layer:InternalLayer = example_base_layer().into();
+        let base_layer: InternalLayer = example_base_layer().into();
 
         let triples: Vec<_> = base_layer.triple_removals().collect();
         assert!(triples.is_empty());
@@ -1096,7 +1120,7 @@ mod tests {
     #[test]
     fn base_stubs_triple_iterator() {
         let files = base_layer_files();
-        
+
         let builder = BaseLayerFileBuilder::from_files(&files);
 
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
@@ -1122,9 +1146,9 @@ mod tests {
         let triples: Vec<_> = layer.triple_additions().collect();
 
         let expected = vec![
-            IdTriple::new(1,1,1),
-            IdTriple::new(3,2,5),
-            IdTriple::new(5,3,6)
+            IdTriple::new(1, 1, 1),
+            IdTriple::new(3, 2, 5),
+            IdTriple::new(5, 3, 6),
         ];
 
         assert_eq!(expected, triples);
@@ -1162,9 +1186,9 @@ mod tests {
         let triples: Vec<_> = layer.triple_additions().collect();
 
         let expected = vec![
-            IdTriple::new(1,2,3),
-            IdTriple::new(3,3,4),
-            IdTriple::new(3,5,6)
+            IdTriple::new(1, 2, 3),
+            IdTriple::new(3, 3, 4),
+            IdTriple::new(3, 5, 6),
         ];
 
         assert_eq!(expected, triples);
@@ -1177,9 +1201,9 @@ mod tests {
         let triples: Vec<_> = layer.triple_removals().collect();
 
         let expected = vec![
-            IdTriple::new(1,1,1),
-            IdTriple::new(2,1,3),
-            IdTriple::new(4,3,6)
+            IdTriple::new(1, 1, 1),
+            IdTriple::new(2, 1, 3),
+            IdTriple::new(4, 3, 6),
         ];
 
         assert_eq!(expected, triples);

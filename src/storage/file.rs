@@ -24,15 +24,13 @@ pub trait FileLoad: Clone + Send + Sync {
     fn open_read_from(&self, offset: usize) -> Self::Read;
     fn map(&self) -> Box<dyn Future<Item = Bytes, Error = std::io::Error> + Send>;
 
-    fn map_if_exists(&self) -> Box<dyn Future<Item = Option<Bytes>, Error = std::io::Error> + Send> {
-        Box::new(
-            match self.exists() {
-                false => future::Either::A(future::ok(None)),
-                true => future::Either::B({
-                    self.map().map(|m|Some(m))
-                })
-            }
-        )
+    fn map_if_exists(
+        &self,
+    ) -> Box<dyn Future<Item = Option<Bytes>, Error = std::io::Error> + Send> {
+        Box::new(match self.exists() {
+            false => future::Either::A(future::ok(None)),
+            true => future::Either::B(self.map().map(|m| Some(m))),
+        })
     }
 }
 
@@ -74,7 +72,6 @@ pub struct BaseLayerFiles<F: 'static + FileLoad + FileStore> {
     pub o_ps_adjacency_list_files: AdjacencyListFiles<F>,
 
     pub predicate_wavelet_tree_files: BitIndexFiles<F>,
-
 }
 
 #[derive(Clone)]
@@ -104,7 +101,7 @@ impl<F: FileLoad + FileStore> BaseLayerFiles<F> {
 
         let so_futs = vec![
             self.subjects_file.map_if_exists(),
-            self.objects_file.map_if_exists()
+            self.objects_file.map_if_exists(),
         ];
 
         let aj_futs = vec![
@@ -118,20 +115,22 @@ impl<F: FileLoad + FileStore> BaseLayerFiles<F> {
             .join(future::join_all(aj_futs))
             .join(self.predicate_wavelet_tree_files.map_all())
             .map(
-                |(((dict_results, so_results), aj_results), predicate_wavelet_tree_maps)| BaseLayerMaps {
-                    node_dictionary_maps: dict_results[0].clone(),
-                    predicate_dictionary_maps: dict_results[1].clone(),
-                    value_dictionary_maps: dict_results[2].clone(),
+                |(((dict_results, so_results), aj_results), predicate_wavelet_tree_maps)| {
+                    BaseLayerMaps {
+                        node_dictionary_maps: dict_results[0].clone(),
+                        predicate_dictionary_maps: dict_results[1].clone(),
+                        value_dictionary_maps: dict_results[2].clone(),
 
-                    subjects_map: so_results[0].clone(),
-                    objects_map: so_results[1].clone(),
+                        subjects_map: so_results[0].clone(),
+                        objects_map: so_results[1].clone(),
 
-                    s_p_adjacency_list_maps: aj_results[0].clone(),
-                    sp_o_adjacency_list_maps: aj_results[1].clone(),
+                        s_p_adjacency_list_maps: aj_results[0].clone(),
+                        sp_o_adjacency_list_maps: aj_results[1].clone(),
 
-                    o_ps_adjacency_list_maps: aj_results[2].clone(),
+                        o_ps_adjacency_list_maps: aj_results[2].clone(),
 
-                    predicate_wavelet_tree_maps,
+                        predicate_wavelet_tree_maps,
+                    }
                 },
             )
     }

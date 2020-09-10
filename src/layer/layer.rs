@@ -1414,10 +1414,10 @@ mod tests {
     use super::*;
     use crate::layer::base::tests::base_layer_files;
     use crate::layer::base::BaseLayer;
-    use crate::layer::simple_builder::{LayerBuilder, SimpleLayerBuilder};
     use crate::layer::child::tests::child_layer_files;
     use crate::layer::child::ChildLayer;
     use crate::layer::internal::InternalLayer;
+    use crate::layer::simple_builder::{LayerBuilder, SimpleLayerBuilder};
     use futures::prelude::*;
     use std::sync::Arc;
 
@@ -1564,7 +1564,7 @@ mod tests {
             BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
                 .wait()
                 .unwrap()
-                .into()
+                .into(),
         );
 
         let files = child_layer_files();
@@ -1577,7 +1577,7 @@ mod tests {
             ChildLayer::load_from_files([5, 4, 3, 2, 1], base, &files)
                 .wait()
                 .unwrap()
-                .into()
+                .into(),
         );
 
         let files = child_layer_files();
@@ -1590,7 +1590,7 @@ mod tests {
             ChildLayer::load_from_files([5, 4, 3, 2, 2], child, &files)
                 .wait()
                 .unwrap()
-                .into()
+                .into(),
         );
 
         let triples: Vec<_> = child

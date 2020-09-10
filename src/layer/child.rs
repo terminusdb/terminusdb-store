@@ -3,9 +3,9 @@
 //! A child layer stores a reference to a base layer, as well as
 //! triple additions and removals, and any new dictionary entries that
 //! this layer needs for its additions.
-use super::layer::*;
-use super::internal::*;
 use super::builder::*;
+use super::internal::*;
+use super::layer::*;
 use crate::storage::*;
 use crate::structure::*;
 use futures::future;
@@ -165,7 +165,7 @@ impl ChildLayer {
 }
 
 impl InternalLayerImpl for ChildLayer {
-    fn name(&self) -> [u32;5] {
+    fn name(&self) -> [u32; 5] {
         self.name
     }
 
@@ -173,7 +173,7 @@ impl InternalLayerImpl for ChildLayer {
         LayerType::Base
     }
 
-    fn parent_name(&self) -> Option<[u32;5]> {
+    fn parent_name(&self) -> Option<[u32; 5]> {
         Some(InternalLayerImpl::name(&*self.parent))
     }
 
@@ -251,7 +251,7 @@ impl InternalLayerImpl for ChildLayer {
 pub struct ChildLayerFileBuilder<F: 'static + FileLoad + FileStore + Clone + Send + Sync> {
     parent: Arc<dyn Layer>,
     files: ChildLayerFiles<F>,
-    builder: DictionarySetFileBuilder<F>
+    builder: DictionarySetFileBuilder<F>,
 }
 
 impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuilder<F> {
@@ -260,7 +260,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         let builder = DictionarySetFileBuilder::from_files(
             files.node_dictionary_files.clone(),
             files.predicate_dictionary_files.clone(),
-            files.value_dictionary_files.clone()
+            files.value_dictionary_files.clone(),
         );
 
         Self {
@@ -284,20 +284,18 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
                 let ChildLayerFileBuilder {
                     parent,
                     files,
-                    builder
+                    builder,
                 } = self;
-                future::Either::A(builder.add_node(node).map(
-                    move |(result, builder)| {
-                        (
-                            result,
-                            ChildLayerFileBuilder {
-                                parent,
-                                files,
-                                builder
-                            },
-                        )
-                    },
-                ))
+                future::Either::A(builder.add_node(node).map(move |(result, builder)| {
+                    (
+                        result,
+                        ChildLayerFileBuilder {
+                            parent,
+                            files,
+                            builder,
+                        },
+                    )
+                }))
             }
             Some(id) => future::Either::B(future::ok((id, self))),
         }
@@ -317,21 +315,23 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
                 let ChildLayerFileBuilder {
                     parent,
                     files,
-                    builder
+                    builder,
                 } = self;
 
-                future::Either::A(builder.add_predicate(predicate).map(
-                    move |(result, builder)| {
-                        (
-                            result,
-                            ChildLayerFileBuilder {
-                                parent,
-                                files,
-                                builder
-                            },
-                        )
-                    },
-                ))
+                future::Either::A(
+                    builder
+                        .add_predicate(predicate)
+                        .map(move |(result, builder)| {
+                            (
+                                result,
+                                ChildLayerFileBuilder {
+                                    parent,
+                                    files,
+                                    builder,
+                                },
+                            )
+                        }),
+                )
             }
             Some(id) => future::Either::B(future::ok((id, self))),
         }
@@ -351,20 +351,18 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
                 let ChildLayerFileBuilder {
                     parent,
                     files,
-                    builder
+                    builder,
                 } = self;
-                future::Either::A(builder.add_value(value).map(
-                    move |(result, builder)| {
-                        (
-                            result,
-                            ChildLayerFileBuilder {
-                                parent,
-                                files,
-                                builder
-                            },
-                        )
-                    },
-                ))
+                future::Either::A(builder.add_value(value).map(move |(result, builder)| {
+                    (
+                        result,
+                        ChildLayerFileBuilder {
+                            parent,
+                            files,
+                            builder,
+                        },
+                    )
+                }))
             }
             Some(id) => future::Either::B(future::ok((id, self))),
         }
@@ -376,10 +374,10 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// added nodes are a lexical succesor of any of these
     /// nodes. Skips any nodes that are already part of the base
     /// layer.
-    pub fn add_nodes<I: 'static + IntoIterator<Item = String>+Send>(
+    pub fn add_nodes<I: 'static + IntoIterator<Item = String> + Send>(
         self,
         nodes: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error>+Send
+    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error> + Send
     where
         <I as std::iter::IntoIterator>::IntoIter: Send,
     {
@@ -401,10 +399,10 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// previous added predicates are a lexical succesor of any of
     /// these predicates. Skips any predicates that are already part
     /// of the base layer.
-    pub fn add_predicates<I: 'static + IntoIterator<Item = String>+Send>(
+    pub fn add_predicates<I: 'static + IntoIterator<Item = String> + Send>(
         self,
         predicates: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error>+Send
+    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error> + Send
     where
         <I as std::iter::IntoIterator>::IntoIter: Send,
     {
@@ -426,10 +424,10 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// added values are a lexical succesor of any of these
     /// values. Skips any nodes that are already part of the base
     /// layer.
-    pub fn add_values<I: 'static + IntoIterator<Item = String>+Send>(
+    pub fn add_values<I: 'static + IntoIterator<Item = String> + Send>(
         self,
         values: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error>+Send 
+    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error> + Send
     where
         <I as std::iter::IntoIterator>::IntoIter: Send,
     {
@@ -452,7 +450,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         let ChildLayerFileBuilder {
             parent,
             files,
-            builder
+            builder,
         } = self;
 
         let dict_maps_fut = vec![
@@ -464,7 +462,8 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
             files.value_dictionary_files.offsets_file.map(),
         ];
 
-        builder.finalize()
+        builder
+            .finalize()
             .and_then(move |_| future::join_all(dict_maps_fut))
             .and_then(move |dict_maps| {
                 let node_dict_r = PfcDict::parse(dict_maps[0].clone(), dict_maps[1].clone());
@@ -529,7 +528,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
             num_nodes + parent_counts.node_count,
             num_predicates + parent_counts.predicate_count,
             num_values + parent_counts.value_count,
-            Some(files.pos_subjects_file.clone())
+            Some(files.pos_subjects_file.clone()),
         );
 
         let neg_builder = TripleFileBuilder::new(
@@ -538,7 +537,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
             num_nodes + parent_counts.node_count,
             num_predicates + parent_counts.predicate_count,
             num_values + parent_counts.value_count,
-            Some(files.neg_subjects_file.clone())
+            Some(files.neg_subjects_file.clone()),
         );
 
         ChildLayerFileBuilderPhase2 {
@@ -546,7 +545,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
             files,
 
             pos_builder,
-            neg_builder
+            neg_builder,
         }
     }
 
@@ -562,7 +561,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     ) -> impl Future<Item = Self, Error = std::io::Error> + Send {
         if self.parent.triple_exists(subject, predicate, object) {
             // no need to do anything
-            return future::Either::A(future::ok(self))
+            return future::Either::A(future::ok(self));
         }
 
         let ChildLayerFileBuilderPhase2 {
@@ -573,16 +572,15 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
             neg_builder,
         } = self;
 
-        future::Either::B(
-            pos_builder.add_triple(subject, predicate, object).
-                map(move |pos_builder| ChildLayerFileBuilderPhase2 {
-                    parent,
-                    files,
+        future::Either::B(pos_builder.add_triple(subject, predicate, object).map(
+            move |pos_builder| ChildLayerFileBuilderPhase2 {
+                parent,
+                files,
 
-                    pos_builder,
-                    neg_builder,
-                })
-        )
+                pos_builder,
+                neg_builder,
+            },
+        ))
     }
 
     /// Remove the given subject, predicate and object.
@@ -597,7 +595,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     ) -> impl Future<Item = Self, Error = std::io::Error> + Send {
         if !self.parent.triple_exists(subject, predicate, object) {
             // no need to do anything
-            return future::Either::A(future::ok(self))
+            return future::Either::A(future::ok(self));
         }
 
         let ChildLayerFileBuilderPhase2 {
@@ -608,16 +606,15 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
             neg_builder,
         } = self;
 
-        future::Either::B(
-            neg_builder.add_triple(subject, predicate, object).
-                map(move |neg_builder| ChildLayerFileBuilderPhase2 {
-                    parent,
-                    files,
+        future::Either::B(neg_builder.add_triple(subject, predicate, object).map(
+            move |neg_builder| ChildLayerFileBuilderPhase2 {
+                parent,
+                files,
 
-                    pos_builder,
-                    neg_builder,
-                })
-        )
+                pos_builder,
+                neg_builder,
+            },
+        ))
     }
 
     /// Add the given triple.
@@ -627,8 +624,10 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     pub fn add_id_triples<I: 'static + IntoIterator<Item = IdTriple>>(
         self,
         triples: I,
-    ) -> impl Future<Item = Self, Error = std::io::Error>+Send
-        where <I as std::iter::IntoIterator>::IntoIter: Send {
+    ) -> impl Future<Item = Self, Error = std::io::Error> + Send
+    where
+        <I as std::iter::IntoIterator>::IntoIter: Send,
+    {
         stream::iter_ok(triples).fold(self, |b, triple| {
             b.add_triple(triple.subject, triple.predicate, triple.object)
         })
@@ -641,19 +640,18 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     pub fn remove_id_triples<I: 'static + IntoIterator<Item = IdTriple>>(
         self,
         triples: I,
-    ) -> impl Future<Item = Self, Error = std::io::Error>+Send
-        where <I as std::iter::IntoIterator>::IntoIter: Send {
+    ) -> impl Future<Item = Self, Error = std::io::Error> + Send
+    where
+        <I as std::iter::IntoIterator>::IntoIter: Send,
+    {
         stream::iter_ok(triples).fold(self, |b, triple| {
             b.remove_triple(triple.subject, triple.predicate, triple.object)
         })
     }
 
     /// Write the layer data to storage.
-    pub fn finalize(self) -> impl Future<Item = (), Error = std::io::Error>+Send {
-        let builder_futs = vec![
-            self.pos_builder.finalize(),
-            self.neg_builder.finalize(),
-        ];
+    pub fn finalize(self) -> impl Future<Item = (), Error = std::io::Error> + Send {
+        let builder_futs = vec![self.pos_builder.finalize(), self.neg_builder.finalize()];
 
         let pos_s_p_files = self.files.pos_s_p_adjacency_list_files;
         let pos_sp_o_files = self.files.pos_sp_o_adjacency_list_files;
@@ -668,30 +666,27 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         let neg_predicate_wavelet_tree_files = self.files.neg_predicate_wavelet_tree_files;
 
         future::join_all(builder_futs)
-        .and_then(|_| {
-            build_object_index(
-                pos_sp_o_files,
-                pos_o_ps_files,
-                Some(pos_objects_file))
-                .join(build_object_index(
-                    neg_sp_o_files,
-                    neg_o_ps_files,
-                    Some(neg_objects_file)
-                ))
-                .join(build_predicate_index(
-                    pos_s_p_files.nums_file,
-                    pos_predicate_wavelet_tree_files.bits_file,
-                    pos_predicate_wavelet_tree_files.blocks_file,
-                    pos_predicate_wavelet_tree_files.sblocks_file,
-                ))
-                .join(build_predicate_index(
-                    neg_s_p_files.nums_file,
-                    neg_predicate_wavelet_tree_files.bits_file,
-                    neg_predicate_wavelet_tree_files.blocks_file,
-                    neg_predicate_wavelet_tree_files.sblocks_file,
-                ))
-        })
-        .map(|_| ())
+            .and_then(|_| {
+                build_object_index(pos_sp_o_files, pos_o_ps_files, Some(pos_objects_file))
+                    .join(build_object_index(
+                        neg_sp_o_files,
+                        neg_o_ps_files,
+                        Some(neg_objects_file),
+                    ))
+                    .join(build_predicate_index(
+                        pos_s_p_files.nums_file,
+                        pos_predicate_wavelet_tree_files.bits_file,
+                        pos_predicate_wavelet_tree_files.blocks_file,
+                        pos_predicate_wavelet_tree_files.sblocks_file,
+                    ))
+                    .join(build_predicate_index(
+                        neg_s_p_files.nums_file,
+                        neg_predicate_wavelet_tree_files.bits_file,
+                        neg_predicate_wavelet_tree_files.blocks_file,
+                        neg_predicate_wavelet_tree_files.sblocks_file,
+                    ))
+            })
+            .map(|_| ())
     }
 }
 
@@ -896,7 +891,7 @@ pub mod tests {
     fn empty_child_layer_equivalent_to_parent() {
         let base_layer = example_base_layer();
 
-        let parent:Arc<InternalLayer> = Arc::new(base_layer.into());
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
@@ -926,7 +921,7 @@ pub mod tests {
     fn child_layer_can_have_inserts() {
         let base_layer = example_base_layer();
 
-        let parent:Arc<InternalLayer> = Arc::new(base_layer.into());
+        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 

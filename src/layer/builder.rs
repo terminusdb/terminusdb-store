@@ -1,13 +1,13 @@
-use std::io;
 use std::collections::BTreeSet;
+use std::io;
 
-use futures::prelude::*;
 use futures::future;
+use futures::prelude::*;
 use futures::stream;
 
+use super::layer::*;
 use crate::storage::*;
 use crate::structure::*;
-use super::layer::*;
 
 pub struct DictionarySetFileBuilder<F: 'static + FileStore> {
     node_dictionary_builder: PfcDictFileBuilder<F::Write>,
@@ -37,7 +37,7 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
         Self {
             node_dictionary_builder,
             predicate_dictionary_builder,
-            value_dictionary_builder
+            value_dictionary_builder,
         }
     }
 
@@ -182,45 +182,44 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
         )
     }
 
-    pub fn finalize(self) -> impl Future<Item = (), Error = io::Error>+Send {
+    pub fn finalize(self) -> impl Future<Item = (), Error = io::Error> + Send {
         let finalize_nodedict = self.node_dictionary_builder.finalize();
         let finalize_preddict = self.predicate_dictionary_builder.finalize();
         let finalize_valdict = self.value_dictionary_builder.finalize();
-        
-        future::join_all(vec![finalize_nodedict, finalize_preddict, finalize_valdict])
-            .map(|_|())
+
+        future::join_all(vec![finalize_nodedict, finalize_preddict, finalize_valdict]).map(|_| ())
     }
 }
-                      
-pub struct TripleFileBuilder<F:'static+FileLoad+FileStore> {
+
+pub struct TripleFileBuilder<F: 'static + FileLoad + FileStore> {
     subjects_file: Option<F>,
     subjects: Option<Vec<u64>>,
-    
+
     s_p_adjacency_list_builder: AdjacencyListBuilder<F, F::Write, F::Write, F::Write>,
     sp_o_adjacency_list_builder: AdjacencyListBuilder<F, F::Write, F::Write, F::Write>,
     last_subject: u64,
     last_predicate: u64,
 }
 
-impl<F:'static+FileLoad+FileStore> TripleFileBuilder<F> {
+impl<F: 'static + FileLoad + FileStore> TripleFileBuilder<F> {
     pub fn new(
         s_p_adjacency_list_files: AdjacencyListFiles<F>,
         sp_o_adjacency_list_files: AdjacencyListFiles<F>,
         num_nodes: usize,
         num_predicates: usize,
         num_values: usize,
-        subjects_file: Option<F>
+        subjects_file: Option<F>,
     ) -> Self {
         let s_p_width = ((num_predicates + 1) as f32).log2().ceil() as u8;
         let sp_o_width = ((num_nodes + num_values + 1) as f32).log2().ceil() as u8;
-        
+
         let s_p_adjacency_list_builder = AdjacencyListBuilder::new(
             s_p_adjacency_list_files.bitindex_files.bits_file,
             s_p_adjacency_list_files
                 .bitindex_files
                 .blocks_file
                 .open_write(),
-           s_p_adjacency_list_files
+            s_p_adjacency_list_files
                 .bitindex_files
                 .sblocks_file
                 .open_write(),
@@ -244,7 +243,7 @@ impl<F:'static+FileLoad+FileStore> TripleFileBuilder<F> {
 
         let subjects = match subjects_file.is_some() {
             true => Some(Vec::new()),
-            false => None
+            false => None,
         };
 
         Self {
@@ -277,8 +276,7 @@ impl<F:'static+FileLoad+FileStore> TripleFileBuilder<F> {
 
         if subject < last_subject {
             panic!("layer builder got addition in wrong order (subject is {} while previously {} was pushed)", subject, last_subject)
-        }
-        else if last_subject == subject && last_predicate == predicate {
+        } else if last_subject == subject && last_predicate == predicate {
             // only the second adjacency list has to be pushed to
             let count = s_p_adjacency_list_builder.count() + 1;
             future::Either::A(sp_o_adjacency_list_builder.push(count, object).map(
@@ -296,7 +294,7 @@ impl<F:'static+FileLoad+FileStore> TripleFileBuilder<F> {
             if subjects.is_some() && subject != last_subject {
                 subjects.as_mut().unwrap().push(subject);
             }
-            let mapped_subject = subjects.as_ref().map(|s|s.len() as u64).unwrap_or(subject);
+            let mapped_subject = subjects.as_ref().map(|s| s.len() as u64).unwrap_or(subject);
             future::Either::B(
                 s_p_adjacency_list_builder
                     .push(mapped_subject, predicate)
@@ -329,7 +327,7 @@ impl<F:'static+FileLoad+FileStore> TripleFileBuilder<F> {
         })
     }
 
-    pub fn finalize(self) -> impl Future<Item = (), Error = std::io::Error>+Send {
+    pub fn finalize(self) -> impl Future<Item = (), Error = std::io::Error> + Send {
         let aj_futs = vec![
             self.s_p_adjacency_list_builder.finalize(),
             self.sp_o_adjacency_list_builder.finalize(),
@@ -353,14 +351,12 @@ impl<F:'static+FileLoad+FileStore> TripleFileBuilder<F> {
                     subjects_logarray_builder
                         .push_all(stream::iter_ok(subjects))
                         .and_then(|b| b.finalize())
-                        .map(|_| ())
+                        .map(|_| ()),
                 )
             }
         };
 
-        future::join_all(aj_futs)
-            .join(subjects_fut)
-            .map(|_|())
+        future::join_all(aj_futs).join(subjects_fut).map(|_| ())
     }
 }
 
@@ -394,22 +390,23 @@ pub fn build_object_index<F: 'static + FileLoad + FileStore>(
             if let Some(objects_file) = objects_file {
                 let greatest_object = objects.iter().next_back().unwrap_or(&0);
                 let objects_width = ((*greatest_object + 1) as f32).log2().ceil() as u8;
-                objects_builder =
-                    Some(LogArrayFileBuilder::new(objects_file.open_write(), objects_width));
+                objects_builder = Some(LogArrayFileBuilder::new(
+                    objects_file.open_write(),
+                    objects_width,
+                ));
                 mapped_pairs = pairs
-                .into_iter()
-                .scan((0, 0), |(compressed, last), (left, right)| {
-                    if left > *last {
-                        *compressed += 1;
-                    }
+                    .into_iter()
+                    .scan((0, 0), |(compressed, last), (left, right)| {
+                        if left > *last {
+                            *compressed += 1;
+                        }
 
-                    *last = left;
+                        *last = left;
 
-                    Some((*compressed, right))
-                })
-                .collect::<Vec<_>>();
-            }
-            else {
+                        Some((*compressed, right))
+                    })
+                    .collect::<Vec<_>>();
+            } else {
                 objects_builder = None;
                 mapped_pairs = pairs.into_iter().collect();
             }
@@ -424,8 +421,8 @@ pub fn build_object_index<F: 'static + FileLoad + FileStore>(
                     objects_builder
                         .push_all(stream::iter_ok(objects))
                         .and_then(|builder| builder.finalize())
-                        .map(|_|())
-                )
+                        .map(|_| ()),
+                ),
             };
 
             build_o_ps_task.join(build_objects_task)
@@ -433,10 +430,7 @@ pub fn build_object_index<F: 'static + FileLoad + FileStore>(
         .map(|_| ())
 }
 
-pub fn build_predicate_index<
-    FLoad: 'static + FileLoad,
-    F: 'static + FileLoad + FileStore,
->(
+pub fn build_predicate_index<FLoad: 'static + FileLoad, F: 'static + FileLoad + FileStore>(
     source: FLoad,
     destination_bits: F,
     destination_blocks: F,
@@ -446,6 +440,6 @@ pub fn build_predicate_index<
         source,
         destination_bits,
         destination_blocks,
-        destination_sblocks
+        destination_sblocks,
     )
 }
