@@ -3,7 +3,6 @@ use super::child::*;
 use super::layer::*;
 use crate::structure::*;
 use std::convert::TryInto;
-use std::iter::Peekable;
 use std::ops::Deref;
 
 fn external_id_to_internal(array_option: Option<&MonotonicLogArray>, id: u64) -> Option<u64> {
@@ -97,29 +96,30 @@ pub trait InternalLayerImpl {
         self.value_dictionary().get(id)
     }
 
-    fn internal_triple_additions(&self) -> InternalLayerTripleIterator {
-        InternalLayerTripleIterator::new(
+    fn internal_triple_additions(&self) -> OptInternalLayerTripleIterator {
+        OptInternalLayerTripleIterator(Some(InternalLayerTripleIterator::new(
             self.pos_subjects(),
             self.pos_s_p_adjacency_list(),
             self.pos_sp_o_adjacency_list(),
-        )
+        )))
     }
 
-    fn internal_triple_removals(&self) -> Option<InternalLayerTripleIterator> {
-        match (
-            self.neg_subjects(),
-            self.neg_s_p_adjacency_list(),
-            self.neg_sp_o_adjacency_list(),
-        ) {
-            (neg_subjects, Some(neg_s_p_adjacency_list), Some(neg_sp_o_adjacency_list)) => {
-                Some(InternalLayerTripleIterator::new(
-                    neg_subjects,
-                    neg_s_p_adjacency_list,
-                    neg_sp_o_adjacency_list,
-                ))
-            }
-            _ => None,
-        }
+    fn internal_triple_removals(&self) -> OptInternalLayerTripleIterator {
+        OptInternalLayerTripleIterator(
+            match (
+                self.neg_subjects(),
+                self.neg_s_p_adjacency_list(),
+                self.neg_sp_o_adjacency_list(),
+            ) {
+                (neg_subjects, Some(neg_s_p_adjacency_list), Some(neg_sp_o_adjacency_list)) => {
+                    Some(InternalLayerTripleIterator::new(
+                        neg_subjects,
+                        neg_s_p_adjacency_list,
+                        neg_sp_o_adjacency_list,
+                    ))
+                }
+                _ => None,
+            })
     }
 }
 
@@ -770,10 +770,7 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
     }
 
     fn triple_removals(&self) -> Box<dyn Iterator<Item = IdTriple>> {
-        match self.internal_triple_removals() {
-            Some(iterator) => Box::new(iterator),
-            None => Box::new(std::iter::empty()),
-        }
+        Box::new(self.internal_triple_removals())
     }
 
     fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
@@ -1034,6 +1031,7 @@ pub struct InternalLayerTripleIterator {
     s_position: u64,
     s_p_position: u64,
     sp_o_position: u64,
+    peeked: Option<IdTriple>
 }
 
 impl InternalLayerTripleIterator {
@@ -1049,16 +1047,23 @@ impl InternalLayerTripleIterator {
             s_position: 0,
             s_p_position: 0,
             sp_o_position: 0,
+            peeked: None
         }
     }
 
     pub fn seek_subject(mut self, subject: u64) -> Self {
+        self.seek_subject_ref(subject);
+
+        self
+    }
+
+    pub fn seek_subject_ref(&mut self, subject: u64) {
         if subject == 0 {
             self.s_position = 0;
             self.s_p_position = 0;
             self.sp_o_position = 0;
 
-            return self;
+            return;
         }
 
         self.s_position = match self.subjects.as_ref() {
@@ -1073,8 +1078,12 @@ impl InternalLayerTripleIterator {
             self.s_p_position = self.s_p_adjacency_list.offset_for(self.s_position + 1);
             self.sp_o_position = self.sp_o_adjacency_list.offset_for(self.s_p_position + 1);
         }
+    }
 
-        self
+    pub fn peek(&mut self) -> Option<&IdTriple> {
+        self.peeked = self.next();
+
+        self.peeked.as_ref()
     }
 }
 
@@ -1082,6 +1091,12 @@ impl Iterator for InternalLayerTripleIterator {
     type Item = IdTriple;
 
     fn next(&mut self) -> Option<IdTriple> {
+        if self.peeked.is_some() {
+            let peeked = self.peeked;
+            self.peeked = None;
+
+            return peeked;
+        }
         loop {
             if self.sp_o_position >= self.sp_o_adjacency_list.right_count() as u64 {
                 return None;
@@ -1120,23 +1135,40 @@ impl Iterator for InternalLayerTripleIterator {
     }
 }
 
+pub struct OptInternalLayerTripleIterator(Option<InternalLayerTripleIterator>);
+
+impl OptInternalLayerTripleIterator {
+    pub fn seek_subject_ref(&mut self, subject: u64) {
+        self.0.as_mut().map(|i|i.seek_subject_ref(subject));
+    }
+
+    pub fn seek_subject(self, subject: u64) -> Self {
+        OptInternalLayerTripleIterator(self.0.map(|i|i.seek_subject(subject)))
+    }
+
+    pub fn peek(&mut self) -> Option<&IdTriple> {
+        self.0.as_mut().and_then(|i|i.peek())
+    }
+}
+
+
 pub struct InternalTripleIterator {
-    positives: Vec<Peekable<Box<dyn Iterator<Item = IdTriple>>>>,
-    negatives: Vec<Peekable<Box<dyn Iterator<Item = IdTriple>>>>,
+    positives: Vec<OptInternalLayerTripleIterator>,
+    negatives: Vec<OptInternalLayerTripleIterator>
 }
 
 impl InternalTripleIterator {
     fn from_layer<T: 'static + InternalLayerImpl + Clone + Send + Sync>(layer: &T) -> Self {
         let mut positives = Vec::new();
         let mut negatives = Vec::new();
-        positives.push(layer.triple_additions().peekable());
-        negatives.push(layer.triple_removals().peekable());
+        positives.push(layer.internal_triple_additions());
+        negatives.push(layer.internal_triple_removals());
 
         let mut layer_opt = layer.immediate_parent();
 
         while layer_opt.is_some() {
-            positives.push(layer_opt.unwrap().triple_additions().peekable());
-            negatives.push(layer_opt.unwrap().triple_removals().peekable());
+            positives.push(layer_opt.unwrap().internal_triple_additions());
+            negatives.push(layer_opt.unwrap().internal_triple_removals());
 
             layer_opt = layer_opt.unwrap().immediate_parent();
         }
@@ -1145,6 +1177,26 @@ impl InternalTripleIterator {
             positives,
             negatives,
         }
+    }
+
+    pub fn seek_subject(mut self, subject: u64) -> Self {
+        for p in self.positives.iter_mut() {
+            p.seek_subject_ref(subject);
+        }
+
+        for n in self.negatives.iter_mut() {
+            n.seek_subject_ref(subject);
+        }
+
+        self
+    }
+}
+
+impl Iterator for OptInternalLayerTripleIterator {
+    type Item = IdTriple;
+
+    fn next(&mut self) -> Option<IdTriple> {
+        self.0.as_mut().and_then(|i|i.next())
     }
 }
 
