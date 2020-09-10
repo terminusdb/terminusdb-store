@@ -279,6 +279,9 @@ pub trait Layer: Send + Sync {
             .unwrap_or(false)
     }
 
+    fn triple_additions(&self) -> Box<dyn Iterator<Item = IdTriple>>;
+    fn triple_removals(&self) -> Box<dyn Iterator<Item = IdTriple>>;
+
     /// Iterator over all triples known to this layer.
     ///
     /// This is a convenient werapper around
@@ -286,8 +289,9 @@ pub trait Layer: Send + Sync {
     /// `SubjectPredicateLookup` style querying.
     fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>>;
 
-    fn triple_additions(&self) -> Box<dyn Iterator<Item = IdTriple>>;
-    fn triple_removals(&self) -> Box<dyn Iterator<Item = IdTriple>>;
+    fn triple_additions_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple>>;
+    fn triple_removals_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple>>;
+    fn triples_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple>>;
 
     /// Convert a `StringTriple` to an `IdTriple`, returning None if any of the strings in the triple could not be resolved.
     fn string_triple_to_id(&self, triple: &StringTriple) -> Option<IdTriple> {

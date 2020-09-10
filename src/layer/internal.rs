@@ -119,7 +119,8 @@ pub trait InternalLayerImpl {
                     ))
                 }
                 _ => None,
-            })
+            },
+        )
     }
 }
 
@@ -776,6 +777,30 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
     fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
         Box::new(InternalTripleIterator::from_layer(self))
     }
+
+    fn triple_additions_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+        Box::new(
+            self.internal_triple_additions()
+                .seek_subject(subject)
+                .take_while(move |t| t.subject == subject),
+        )
+    }
+
+    fn triple_removals_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+        Box::new(
+            self.internal_triple_removals()
+                .seek_subject(subject)
+                .take_while(move |t| t.subject == subject),
+        )
+    }
+
+    fn triples_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+        Box::new(
+            InternalTripleIterator::from_layer(self)
+                .seek_subject(subject)
+                .take_while(move |t| t.subject == subject),
+        )
+    }
 }
 
 #[derive(Clone)]
@@ -1031,7 +1056,7 @@ pub struct InternalLayerTripleIterator {
     s_position: u64,
     s_p_position: u64,
     sp_o_position: u64,
-    peeked: Option<IdTriple>
+    peeked: Option<IdTriple>,
 }
 
 impl InternalLayerTripleIterator {
@@ -1047,7 +1072,7 @@ impl InternalLayerTripleIterator {
             s_position: 0,
             s_p_position: 0,
             sp_o_position: 0,
-            peeked: None
+            peeked: None,
         }
     }
 
@@ -1139,26 +1164,25 @@ pub struct OptInternalLayerTripleIterator(Option<InternalLayerTripleIterator>);
 
 impl OptInternalLayerTripleIterator {
     pub fn seek_subject_ref(&mut self, subject: u64) {
-        self.0.as_mut().map(|i|i.seek_subject_ref(subject));
+        self.0.as_mut().map(|i| i.seek_subject_ref(subject));
     }
 
     pub fn seek_subject(self, subject: u64) -> Self {
-        OptInternalLayerTripleIterator(self.0.map(|i|i.seek_subject(subject)))
+        OptInternalLayerTripleIterator(self.0.map(|i| i.seek_subject(subject)))
     }
 
     pub fn peek(&mut self) -> Option<&IdTriple> {
-        self.0.as_mut().and_then(|i|i.peek())
+        self.0.as_mut().and_then(|i| i.peek())
     }
 }
 
-
 pub struct InternalTripleIterator {
     positives: Vec<OptInternalLayerTripleIterator>,
-    negatives: Vec<OptInternalLayerTripleIterator>
+    negatives: Vec<OptInternalLayerTripleIterator>,
 }
 
 impl InternalTripleIterator {
-    fn from_layer<T: 'static + InternalLayerImpl + Clone + Send + Sync>(layer: &T) -> Self {
+    fn from_layer<T: 'static + InternalLayerImpl>(layer: &T) -> Self {
         let mut positives = Vec::new();
         let mut negatives = Vec::new();
         positives.push(layer.internal_triple_additions());
@@ -1196,7 +1220,7 @@ impl Iterator for OptInternalLayerTripleIterator {
     type Item = IdTriple;
 
     fn next(&mut self) -> Option<IdTriple> {
-        self.0.as_mut().and_then(|i|i.next())
+        self.0.as_mut().and_then(|i| i.next())
     }
 }
 
@@ -1424,6 +1448,17 @@ mod tests {
         assert_eq!(expected, triples);
     }
 
+    #[test]
+    fn base_triple_iterator_additions_for_subject() {
+        let layer = layer_for_seek_tests();
+
+        let triples: Vec<_> = layer.triple_additions_s(3).collect();
+
+        let expected = vec![IdTriple::new(3, 2, 5), IdTriple::new(3, 3, 5)];
+
+        assert_eq!(expected, triples);
+    }
+
     fn child_layer() -> InternalLayer {
         let base_layer = example_base_layer();
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
@@ -1474,6 +1509,64 @@ mod tests {
             IdTriple::new(1, 1, 1),
             IdTriple::new(2, 1, 3),
             IdTriple::new(4, 3, 6),
+        ];
+
+        assert_eq!(expected, triples);
+    }
+
+    use crate::storage::memory::*;
+    use crate::storage::LayerStore;
+    #[test]
+    fn combined_iterator_for_subject() {
+        let store = MemoryLayerStore::new();
+        let mut builder = store.create_base_layer().wait().unwrap();
+        let base_name = builder.name();
+
+        builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
+        builder.add_string_triple(&StringTriple::new_value("duck", "says", "quack"));
+        builder.add_string_triple(&StringTriple::new_node("cow", "likes", "duck"));
+        builder.add_string_triple(&StringTriple::new_node("duck", "hates", "cow"));
+        builder.commit_boxed().wait().unwrap();
+
+        builder = store.create_child_layer(base_name).wait().unwrap();
+        let child1_name = builder.name();
+
+        builder.add_string_triple(&StringTriple::new_value("horse", "says", "neigh"));
+        builder.add_string_triple(&StringTriple::new_node("horse", "likes", "horse"));
+        builder.commit_boxed().wait().unwrap();
+
+        builder = store.create_child_layer(child1_name).wait().unwrap();
+        let child2_name = builder.name();
+
+        builder.remove_string_triple(&StringTriple::new_node("duck", "hates", "cow"));
+        builder.add_string_triple(&StringTriple::new_node("duck", "likes", "cow"));
+        builder.commit_boxed().wait().unwrap();
+
+        builder = store.create_child_layer(child2_name).wait().unwrap();
+        let child3_name = builder.name();
+
+        builder.remove_string_triple(&StringTriple::new_node("duck", "likes", "cow"));
+        builder.add_string_triple(&StringTriple::new_node("duck", "hates", "cow"));
+        builder.commit_boxed().wait().unwrap();
+
+        builder = store.create_child_layer(child3_name).wait().unwrap();
+        let child4_name = builder.name();
+
+        builder.remove_string_triple(&StringTriple::new_node("duck", "hates", "cow"));
+        builder.add_string_triple(&StringTriple::new_node("duck", "likes", "cow"));
+        builder.commit_boxed().wait().unwrap();
+
+        let layer = store.get_layer(child4_name).wait().unwrap().unwrap();
+
+        let subject_id = layer.subject_id("duck").unwrap();
+        let triples: Vec<_> = layer
+            .triples_s(subject_id)
+            .map(|t| layer.id_triple_to_string(&t).unwrap())
+            .collect();
+
+        let expected = vec![
+            StringTriple::new_node("duck", "likes", "cow"),
+            StringTriple::new_value("duck", "says", "quack"),
         ];
 
         assert_eq!(expected, triples);
