@@ -336,6 +336,10 @@ impl Layer for StoreLayer {
         self.layer.lookup_predicate_removal(predicate)
     }
 
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+        self.layer.triples()
+    }
+
     fn triple_additions(&self) -> Box<dyn Iterator<Item = IdTriple>> {
         self.layer.triple_additions()
     }

@@ -255,6 +255,10 @@ impl Layer for SyncStoreLayer {
         self.inner.lookup_predicate_removal(predicate)
     }
 
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+        self.inner.triples()
+    }
+
     fn triple_additions(&self) -> Box<dyn Iterator<Item = IdTriple>> {
         self.inner.triple_additions()
     }

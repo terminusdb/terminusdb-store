@@ -3,6 +3,7 @@ use super::child::*;
 use super::layer::*;
 use crate::structure::*;
 use std::convert::TryInto;
+use std::iter::Peekable;
 use std::ops::Deref;
 
 fn external_id_to_internal(array_option: Option<&MonotonicLogArray>, id: u64) -> Option<u64> {
@@ -763,6 +764,10 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
             _ => Box::new(std::iter::empty()),
         }
     }
+
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+        Box::new(InternalTripleIterator::from_layer(self))
+    }
 }
 
 #[derive(Clone)]
@@ -1010,6 +1015,7 @@ impl LayerPredicateLookup for InternalLayerPredicateLookup {
     }
 }
 
+#[derive(Clone)]
 pub struct InternalLayerTripleIterator {
     subjects: Option<MonotonicLogArray>,
     s_p_adjacency_list: AdjacencyList,
@@ -1060,23 +1066,84 @@ impl Iterator for InternalLayerTripleIterator {
 
                 let sp_o_bit = self.sp_o_adjacency_list.bit_at_pos(self.sp_o_position);
                 let object = self.sp_o_adjacency_list.num_at_pos(self.sp_o_position);
+                if sp_o_bit {
+                    self.s_p_position += 1;
+                    if s_p_bit {
+                        self.s_position += 1;
+                    }
+                }
+                self.sp_o_position += 1;
 
                 if object == 0 {
-                    self.sp_o_position += 1;
                     continue;
                 }
 
-                if s_p_bit {
-                    self.s_position += 1;
-                }
-
-                if sp_o_bit {
-                    self.s_p_position += 1;
-                }
-
-                self.sp_o_position += 1;
-
                 return Some(IdTriple::new(subject, predicate, object));
+            }
+        }
+    }
+}
+
+pub struct InternalTripleIterator {
+    positives: Vec<Peekable<Box<dyn Iterator<Item = IdTriple>>>>,
+    negatives: Vec<Peekable<Box<dyn Iterator<Item = IdTriple>>>>,
+}
+
+impl InternalTripleIterator {
+    fn from_layer<T: 'static + InternalLayerImpl + Clone + Send + Sync>(layer: &T) -> Self {
+        let mut positives = Vec::new();
+        let mut negatives = Vec::new();
+        positives.push(layer.triple_additions().peekable());
+        negatives.push(layer.triple_removals().peekable());
+
+        let mut layer_opt = layer.immediate_parent();
+
+        while layer_opt.is_some() {
+            positives.push(layer_opt.unwrap().triple_additions().peekable());
+            negatives.push(layer_opt.unwrap().triple_removals().peekable());
+
+            layer_opt = layer_opt.unwrap().immediate_parent();
+        }
+
+        Self {
+            positives,
+            negatives,
+        }
+    }
+}
+
+impl Iterator for InternalTripleIterator {
+    type Item = IdTriple;
+
+    fn next(&mut self) -> Option<IdTriple> {
+        'outer: loop {
+            // find the lowest triple.
+            // if that triple appears multiple times, we want the most recent one, which should be the one appearing the earliest in the positives list.
+            let lowest_index = self
+                .positives
+                .iter_mut()
+                .map(|p| p.peek())
+                .enumerate()
+                .filter(|(_, elt)| elt.is_some())
+                .min_by_key(|(_, elt)| elt.unwrap())
+                .map(|(index, _)| index);
+
+            match lowest_index {
+                None => return None,
+                Some(lowest_index) => {
+                    let lowest = self.positives[lowest_index].next().unwrap();
+                    // check all negative layers below the lowest_index for a removal
+                    // if there's a removal, we continue after advancing. if not, it is the result.
+                    // we can be sure that there's only one removal, or we'd have found another addition.
+                    for iter in self.negatives[0..lowest_index].iter_mut() {
+                        if iter.peek() == Some(&lowest) {
+                            iter.next().unwrap();
+                            continue 'outer;
+                        }
+                    }
+
+                    return Some(lowest);
+                }
             }
         }
     }

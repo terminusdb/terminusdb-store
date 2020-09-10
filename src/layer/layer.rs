@@ -284,15 +284,7 @@ pub trait Layer: Send + Sync {
     /// This is a convenient werapper around
     /// `SubjectLookup` and
     /// `SubjectPredicateLookup` style querying.
-    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
-        Box::new(
-            self.subjects()
-                .map(|s| s.predicates())
-                .flatten()
-                .map(|p| p.triples())
-                .flatten(),
-        )
-    }
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>>;
 
     fn triple_additions(&self) -> Box<dyn Iterator<Item = IdTriple>>;
     fn triple_removals(&self) -> Box<dyn Iterator<Item = IdTriple>>;
@@ -1445,11 +1437,28 @@ mod tests {
         builder.commit().wait().unwrap();
 
         let child: Arc<InternalLayer> = Arc::new(
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], base, &files)
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], base.clone(), &files)
                 .wait()
                 .unwrap()
                 .into(),
         );
+
+        let base_triples_additions: Vec<_> = base
+            .triple_additions()
+            //.map(|t| child.id_triple_to_string(&t).unwrap())
+            .collect();
+
+        println!("base triple additions: {:?}", base_triples_additions);
+
+        let _triples_additions: Vec<_> = child
+            .triple_additions()
+            .map(|t| child.id_triple_to_string(&t).unwrap())
+            .collect();
+
+        let _triples_removals: Vec<_> = child
+            .triple_removals()
+            .map(|t| child.id_triple_to_string(&t).unwrap())
+            .collect();
 
         let triples: Vec<_> = child
             .triples()
