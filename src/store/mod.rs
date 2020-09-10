@@ -356,6 +356,26 @@ impl Layer for StoreLayer {
         self.layer.triple_removals_s(subject)
     }
 
+    fn triples_sp(&self, subject: u64, predicate: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+        self.layer.triples_sp(subject, predicate)
+    }
+
+    fn triple_additions_sp(
+        &self,
+        subject: u64,
+        predicate: u64,
+    ) -> Box<dyn Iterator<Item = IdTriple>> {
+        self.layer.triple_additions_sp(subject, predicate)
+    }
+
+    fn triple_removals_sp(
+        &self,
+        subject: u64,
+        predicate: u64,
+    ) -> Box<dyn Iterator<Item = IdTriple>> {
+        self.layer.triple_removals_sp(subject, predicate)
+    }
+
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())
     }
