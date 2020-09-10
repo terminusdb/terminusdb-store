@@ -96,6 +96,31 @@ pub trait InternalLayerImpl {
     fn value_dict_get(&self, id: usize) -> Option<String> {
         self.value_dictionary().get(id)
     }
+
+    fn internal_triple_additions(&self) -> InternalLayerTripleIterator {
+        InternalLayerTripleIterator::new(
+            self.pos_subjects(),
+            self.pos_s_p_adjacency_list(),
+            self.pos_sp_o_adjacency_list(),
+        )
+    }
+
+    fn internal_triple_removals(&self) -> Option<InternalLayerTripleIterator> {
+        match (
+            self.neg_subjects(),
+            self.neg_s_p_adjacency_list(),
+            self.neg_sp_o_adjacency_list(),
+        ) {
+            (neg_subjects, Some(neg_s_p_adjacency_list), Some(neg_sp_o_adjacency_list)) => {
+                Some(InternalLayerTripleIterator::new(
+                    neg_subjects,
+                    neg_s_p_adjacency_list,
+                    neg_sp_o_adjacency_list,
+                ))
+            }
+            _ => None,
+        }
+    }
 }
 
 impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
@@ -741,27 +766,13 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
     }
 
     fn triple_additions(&self) -> Box<dyn Iterator<Item = IdTriple>> {
-        Box::new(InternalLayerTripleIterator::new(
-            self.pos_subjects(),
-            self.pos_s_p_adjacency_list(),
-            self.pos_sp_o_adjacency_list(),
-        ))
+        Box::new(self.internal_triple_additions())
     }
 
     fn triple_removals(&self) -> Box<dyn Iterator<Item = IdTriple>> {
-        match (
-            self.neg_subjects(),
-            self.neg_s_p_adjacency_list(),
-            self.neg_sp_o_adjacency_list(),
-        ) {
-            (neg_subjects, Some(neg_s_p_adjacency_list), Some(neg_sp_o_adjacency_list)) => {
-                Box::new(InternalLayerTripleIterator::new(
-                    neg_subjects,
-                    neg_s_p_adjacency_list,
-                    neg_sp_o_adjacency_list,
-                ))
-            }
-            _ => Box::new(std::iter::empty()),
+        match self.internal_triple_removals() {
+            Some(iterator) => Box::new(iterator),
+            None => Box::new(std::iter::empty()),
         }
     }
 
@@ -1040,6 +1051,31 @@ impl InternalLayerTripleIterator {
             sp_o_position: 0,
         }
     }
+
+    pub fn seek_subject(mut self, subject: u64) -> Self {
+        if subject == 0 {
+            self.s_position = 0;
+            self.s_p_position = 0;
+            self.sp_o_position = 0;
+
+            return self;
+        }
+
+        self.s_position = match self.subjects.as_ref() {
+            None => subject - 1,
+            Some(subjects) => subjects.nearest_index_of(subject) as u64,
+        };
+
+        if self.s_position >= self.s_p_adjacency_list.left_count() as u64 {
+            self.s_p_position = self.s_p_adjacency_list.right_count() as u64;
+            self.sp_o_position = self.sp_o_adjacency_list.right_count() as u64;
+        } else {
+            self.s_p_position = self.s_p_adjacency_list.offset_for(self.s_position + 1);
+            self.sp_o_position = self.sp_o_adjacency_list.offset_for(self.s_p_position + 1);
+        }
+
+        self
+    }
 }
 
 impl Iterator for InternalLayerTripleIterator {
@@ -1215,6 +1251,121 @@ mod tests {
         let expected = vec![
             IdTriple::new(1, 1, 1),
             IdTriple::new(3, 2, 5),
+            IdTriple::new(5, 3, 6),
+        ];
+
+        assert_eq!(expected, triples);
+    }
+
+    fn layer_for_seek_tests() -> BaseLayer {
+        let files = base_layer_files();
+
+        let builder = BaseLayerFileBuilder::from_files(&files);
+
+        let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
+        let predicates = vec!["abcde", "fghij", "klmno", "lll"];
+        let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
+
+        let future = builder
+            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
+            .and_then(move |(_, b)| b.add_predicates(predicates.into_iter().map(|s| s.to_string())))
+            .and_then(move |(_, b)| b.add_values(values.into_iter().map(|s| s.to_string())))
+            .and_then(|(_, b)| b.into_phase2())
+            .and_then(|b| b.add_triple(1, 1, 1))
+            .and_then(|b| b.add_triple(3, 2, 5))
+            .and_then(|b| b.add_triple(3, 3, 5))
+            .and_then(|b| b.add_triple(5, 3, 6))
+            .and_then(|b| b.finalize());
+
+        future.wait().unwrap();
+
+        BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
+            .wait()
+            .unwrap()
+    }
+
+    #[test]
+    fn base_triple_iterator_seek() {
+        let layer = layer_for_seek_tests();
+
+        let triples: Vec<_> = layer.internal_triple_additions().seek_subject(3).collect();
+
+        let expected = vec![
+            IdTriple::new(3, 2, 5),
+            IdTriple::new(3, 3, 5),
+            IdTriple::new(5, 3, 6),
+        ];
+
+        assert_eq!(expected, triples);
+    }
+
+    #[test]
+    fn base_triple_iterator_seek_to_subject_nonexistent() {
+        let layer = layer_for_seek_tests();
+
+        let triples: Vec<_> = layer.internal_triple_additions().seek_subject(4).collect();
+
+        let expected = vec![IdTriple::new(5, 3, 6)];
+
+        assert_eq!(expected, triples);
+    }
+
+    #[test]
+    fn base_triple_iterator_seek_to_subject_past_end() {
+        let layer = layer_for_seek_tests();
+
+        let triples: Vec<_> = layer.internal_triple_additions().seek_subject(7).collect();
+
+        assert!(triples.is_empty());
+    }
+
+    #[test]
+    fn base_triple_iterator_seek_to_subject_0() {
+        let layer = layer_for_seek_tests();
+
+        let triples: Vec<_> = layer.internal_triple_additions().seek_subject(0).collect();
+
+        let expected = vec![
+            IdTriple::new(1, 1, 1),
+            IdTriple::new(3, 2, 5),
+            IdTriple::new(3, 3, 5),
+            IdTriple::new(5, 3, 6),
+        ];
+
+        assert_eq!(expected, triples);
+    }
+
+    #[test]
+    fn base_triple_iterator_seek_to_subject_before_begin() {
+        let files = base_layer_files();
+
+        let builder = BaseLayerFileBuilder::from_files(&files);
+
+        let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
+        let predicates = vec!["abcde", "fghij", "klmno", "lll"];
+        let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
+
+        let future = builder
+            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
+            .and_then(move |(_, b)| b.add_predicates(predicates.into_iter().map(|s| s.to_string())))
+            .and_then(move |(_, b)| b.add_values(values.into_iter().map(|s| s.to_string())))
+            .and_then(|(_, b)| b.into_phase2())
+            .and_then(|b| b.add_triple(3, 2, 5))
+            .and_then(|b| b.add_triple(3, 3, 5))
+            .and_then(|b| b.add_triple(5, 3, 6))
+            .and_then(|b| b.finalize());
+
+        future.wait().unwrap();
+
+        let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
+            .wait()
+            .unwrap();
+
+        let triples: Vec<_> = layer.internal_triple_additions().seek_subject(2).collect();
+
+        let expected = vec![
+            IdTriple::new(3, 2, 5),
+            IdTriple::new(3, 3, 5),
             IdTriple::new(5, 3, 6),
         ];
 

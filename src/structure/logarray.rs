@@ -644,8 +644,17 @@ impl MonotonicLogArray {
     }
 
     pub fn index_of(&self, element: u64) -> Option<usize> {
+        let index = self.nearest_index_of(element);
+        if index >= self.len() || self.entry(index) != element {
+            None
+        } else {
+            Some(index)
+        }
+    }
+
+    pub fn nearest_index_of(&self, element: u64) -> usize {
         if self.is_empty() {
-            return None;
+            return 0;
         }
 
         let mut min = 0;
@@ -653,18 +662,18 @@ impl MonotonicLogArray {
         while min <= max {
             let mid = (min + max) / 2;
             match element.cmp(&self.entry(mid)) {
-                Ordering::Equal => return Some(mid),
+                Ordering::Equal => return mid,
                 Ordering::Greater => min = mid + 1,
                 Ordering::Less => {
                     if mid == 0 {
-                        return None;
+                        return 0;
                     }
                     max = mid - 1
                 }
             }
         }
 
-        None
+        return (min + max) / 2 + 1;
     }
 }
 
@@ -1005,6 +1014,34 @@ mod tests {
 
         assert_eq!(None, monotonic.index_of(12));
         assert_eq!(original.len(), monotonic.len());
+    }
+
+    #[test]
+    fn monotonic_logarray_near_index_lookup() {
+        let store = MemoryBackedStore::new();
+        let builder = LogArrayFileBuilder::new(store.open_write(), 5);
+        let original = vec![3, 5, 6, 7, 10, 11, 15, 16, 18, 20, 25, 31];
+        builder
+            .push_all(stream::iter_ok(original.clone()))
+            .and_then(|b| b.finalize())
+            .wait()
+            .unwrap();
+
+        let content = store.map().wait().unwrap();
+
+        let logarray = LogArray::parse(content).unwrap();
+        let monotonic = MonotonicLogArray::from_logarray(logarray);
+
+        for (i, &val) in original.iter().enumerate() {
+            assert_eq!(i, monotonic.index_of(val).unwrap());
+        }
+
+        let nearest: Vec<_> = (1..=32).map(|i| monotonic.nearest_index_of(i)).collect();
+        let expected = vec![
+            0, 0, 0, 1, 1, 2, 3, 4, 4, 4, 5, 6, 6, 6, 6, 7, 8, 8, 9, 9, 10, 10, 10, 10, 10, 11, 11,
+            11, 11, 11, 11, 12,
+        ];
+        assert_eq!(expected, nearest);
     }
 
     #[test]
