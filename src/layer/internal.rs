@@ -1238,6 +1238,7 @@ impl Iterator for InternalLayerTripleIterator {
     }
 }
 
+#[derive(Clone)]
 pub struct OptInternalLayerTripleIterator(Option<InternalLayerTripleIterator>);
 
 impl OptInternalLayerTripleIterator {
@@ -1264,6 +1265,7 @@ impl OptInternalLayerTripleIterator {
     }
 }
 
+#[derive(Clone)]
 pub struct InternalTripleIterator {
     positives: Vec<OptInternalLayerTripleIterator>,
     negatives: Vec<OptInternalLayerTripleIterator>,
