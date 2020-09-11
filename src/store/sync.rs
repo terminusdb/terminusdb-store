@@ -255,6 +255,19 @@ impl Layer for SyncStoreLayer {
         self.inner.lookup_predicate_removal(predicate)
     }
 
+    fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
+        self.inner.triple_exists(subject, predicate, object)
+    }
+
+    fn triple_addition_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
+        self.inner
+            .triple_addition_exists(subject, predicate, object)
+    }
+
+    fn triple_removal_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
+        self.inner.triple_removal_exists(subject, predicate, object)
+    }
+
     fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
         self.inner.triples()
     }

@@ -260,12 +260,10 @@ pub trait Layer: Send + Sync {
     fn clone_boxed(&self) -> Box<dyn Layer>;
 
     /// Returns true if the given triple exists, and false otherwise.
-    fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
-        self.lookup_subject(subject)
-            .and_then(|pairs| pairs.lookup_predicate(predicate))
-            .and_then(|objects| objects.triple(object))
-            .is_some()
-    }
+    fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool;
+
+    fn triple_addition_exists(&self, subject: u64, predicate: u64, object: u64) -> bool;
+    fn triple_removal_exists(&self, subject: u64, predicate: u64, object: u64) -> bool;
 
     /// Returns true if the given triple exists, and false otherwise.
     fn id_triple_exists(&self, triple: IdTriple) -> bool {

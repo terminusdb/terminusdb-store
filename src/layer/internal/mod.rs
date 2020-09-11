@@ -804,6 +804,60 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
         }
     }
 
+    fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
+        if self.triple_addition_exists(subject, predicate, object) {
+            return true;
+        }
+        if self.triple_removal_exists(subject, predicate, object) {
+            return false;
+        } else {
+            let mut parent_opt = self.immediate_parent();
+            while parent_opt.is_some() {
+                let parent = parent_opt.unwrap();
+                if parent.triple_addition_exists(subject, predicate, object) {
+                    return true;
+                } else if parent.triple_removal_exists(subject, predicate, object) {
+                    return false;
+                }
+
+                parent_opt = parent.immediate_parent();
+            }
+
+            return false;
+        }
+    }
+
+    fn triple_addition_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
+        layer_triple_exists(
+            self.pos_subjects(),
+            self.pos_s_p_adjacency_list(),
+            self.pos_sp_o_adjacency_list(),
+            subject,
+            predicate,
+            object,
+        )
+    }
+
+    fn triple_removal_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
+        match (
+            self.neg_subjects(),
+            self.neg_s_p_adjacency_list(),
+            self.neg_sp_o_adjacency_list(),
+        ) {
+            (neg_subject, Some(neg_s_p_adjacency_list), Some(neg_sp_o_adjacency_list)) => {
+                layer_triple_exists(
+                    neg_subject,
+                    neg_s_p_adjacency_list,
+                    neg_sp_o_adjacency_list,
+                    subject,
+                    predicate,
+                    object,
+                )
+            }
+            _ => false,
+        }
+    }
+
     fn triple_additions(&self) -> Box<dyn Iterator<Item = IdTriple>> {
         Box::new(self.internal_triple_additions())
     }
@@ -1140,4 +1194,60 @@ impl LayerPredicateLookup for InternalLayerPredicateLookup {
             }) as Box<dyn LayerSubjectPredicateLookup>
         }))
     }
+}
+
+fn layer_triple_exists(
+    subjects: Option<&MonotonicLogArray>,
+    s_p_adjacency_list: &AdjacencyList,
+    sp_o_adjacency_list: &AdjacencyList,
+    subject: u64,
+    predicate: u64,
+    object: u64,
+) -> bool {
+    let s_position = match subjects.as_ref() {
+        None => {
+            if subject > s_p_adjacency_list.left_count() as u64 {
+                return false;
+            }
+
+            subject - 1
+        }
+        Some(subjects) => match subjects.index_of(subject) {
+            Some(pos) => pos as u64,
+            None => return false,
+        },
+    };
+
+    let mut s_p_position = s_p_adjacency_list.offset_for(s_position + 1);
+    loop {
+        let bit = s_p_adjacency_list.bit_at_pos(s_p_position);
+        if s_p_adjacency_list.num_at_pos(s_p_position) == predicate {
+            break;
+        }
+
+        if bit {
+            // moved past the end for this subject. triple isn't here.
+            return false;
+        }
+
+        s_p_position += 1;
+    }
+
+    let mut sp_o_position = sp_o_adjacency_list.offset_for(s_p_position + 1);
+    loop {
+        let bit = sp_o_adjacency_list.bit_at_pos(sp_o_position);
+        if sp_o_adjacency_list.num_at_pos(sp_o_position) == object {
+            // yay we found it
+            return true;
+        }
+
+        if bit {
+            // moved past the end for this subject. triple isn't here.
+            break;
+        }
+
+        sp_o_position += 1;
+    }
+
+    return false;
 }

@@ -332,6 +332,19 @@ impl Layer for StoreLayer {
         self.layer.lookup_predicate_removal(predicate)
     }
 
+    fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
+        self.layer.triple_exists(subject, predicate, object)
+    }
+
+    fn triple_addition_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
+        self.layer
+            .triple_addition_exists(subject, predicate, object)
+    }
+
+    fn triple_removal_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
+        self.layer.triple_removal_exists(subject, predicate, object)
+    }
+
     fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
         self.layer.triples()
     }
