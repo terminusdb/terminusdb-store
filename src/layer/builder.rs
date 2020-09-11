@@ -386,7 +386,7 @@ pub fn build_object_index<F: 'static + FileLoad + FileStore>(
             );
 
             let objects_builder;
-            let mapped_pairs;
+            let build_o_ps_task;
             if let Some(objects_file) = objects_file {
                 let greatest_object = objects.iter().next_back().unwrap_or(&0);
                 let objects_width = ((*greatest_object + 1) as f32).log2().ceil() as u8;
@@ -394,7 +394,7 @@ pub fn build_object_index<F: 'static + FileLoad + FileStore>(
                     objects_file.open_write(),
                     objects_width,
                 ));
-                mapped_pairs = pairs
+                let iter = pairs
                     .into_iter()
                     .scan((0, 0), |(compressed, last), (left, right)| {
                         if left > *last {
@@ -404,16 +404,20 @@ pub fn build_object_index<F: 'static + FileLoad + FileStore>(
                         *last = left;
 
                         Some((*compressed, right))
-                    })
-                    .collect::<Vec<_>>();
+                    });
+                build_o_ps_task = future::Either::A(
+                    o_ps_adjacency_list_builder
+                        .push_all(stream::iter_ok(iter))
+                        .and_then(|builder| builder.finalize())
+                );
             } else {
                 objects_builder = None;
-                mapped_pairs = pairs.into_iter().collect();
+                build_o_ps_task = future::Either::B(
+                    o_ps_adjacency_list_builder
+                        .push_all(stream::iter_ok(pairs))
+                        .and_then(|builder| builder.finalize())
+                );
             }
-
-            let build_o_ps_task = o_ps_adjacency_list_builder
-                .push_all(stream::iter_ok(mapped_pairs))
-                .and_then(|builder| builder.finalize());
 
             let build_objects_task = match objects_builder {
                 None => future::Either::A(future::ok(())),
