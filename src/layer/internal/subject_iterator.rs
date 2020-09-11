@@ -38,6 +38,7 @@ impl InternalLayerTripleSubjectIterator {
     }
 
     pub fn seek_subject_ref(&mut self, subject: u64) {
+        self.peeked = None;
         if subject == 0 {
             self.s_position = 0;
             self.s_p_position = 0;
@@ -73,6 +74,7 @@ impl InternalLayerTripleSubjectIterator {
             return;
         }
 
+        self.peeked = None;
         if subject == 0 {
             self.s_position = 0;
             self.s_p_position = 0;
@@ -135,7 +137,9 @@ impl Iterator for InternalLayerTripleSubjectIterator {
                 let s_p_bit = self.s_p_adjacency_list.bit_at_pos(self.s_p_position);
                 let predicate = self.s_p_adjacency_list.num_at_pos(self.s_p_position);
                 if predicate == 0 {
-                    self.s_position += 1;
+                    if s_p_bit {
+                        self.s_position += 1;
+                    }
                     self.s_p_position += 1;
                     self.sp_o_position += 1;
                     continue;
@@ -180,7 +184,9 @@ impl OptInternalLayerTripleSubjectIterator {
     }
 
     pub fn seek_subject_predicate(self, subject: u64, predicate: u64) -> Self {
-        OptInternalLayerTripleSubjectIterator(self.0.map(|i| i.seek_subject_predicate(subject, predicate)))
+        OptInternalLayerTripleSubjectIterator(
+            self.0.map(|i| i.seek_subject_predicate(subject, predicate)),
+        )
     }
 
     pub fn peek(&mut self) -> Option<&IdTriple> {

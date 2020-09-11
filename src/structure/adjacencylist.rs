@@ -78,6 +78,14 @@ impl AdjacencyList {
         (left, right)
     }
 
+    pub fn left_at_pos(&self, pos: u64) -> u64 {
+        if pos == 0 {
+            1
+        } else {
+            self.bits.rank1(pos - 1) + 1
+        }
+    }
+
     pub fn bit_at_pos(&self, pos: u64) -> bool {
         self.bits.get(pos)
     }

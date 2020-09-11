@@ -322,6 +322,10 @@ pub trait Layer: Send + Sync {
         })
     }
 
+    fn triple_additions_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple>>;
+    fn triple_removals_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple>>;
+    fn triples_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple>>;
+
     /// Convert all known strings in the given string triple to ids.
     fn string_triple_to_partially_resolved(
         &self,

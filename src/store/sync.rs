@@ -299,6 +299,18 @@ impl Layer for SyncStoreLayer {
         self.inner.triple_removals_sp(subject, predicate)
     }
 
+    fn triples_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+        self.inner.triples_o(object)
+    }
+
+    fn triple_additions_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+        self.inner.triple_additions_o(object)
+    }
+
+    fn triple_removals_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+        self.inner.triple_removals_o(object)
+    }
+
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())
     }
