@@ -73,7 +73,6 @@ impl StoreLayerBuilder {
 
     /// Add a string triple
     pub fn add_string_triple(&self, triple: &StringTriple) -> Result<(), io::Error> {
-        let triple = triple.clone();
         self.with_builder(move |b| b.add_string_triple(&triple))
     }
 
@@ -84,7 +83,6 @@ impl StoreLayerBuilder {
 
     /// Remove a string triple
     pub fn remove_string_triple(&self, triple: &StringTriple) -> Result<(), io::Error> {
-        let triple = triple.clone();
         self.with_builder(move |b| b.remove_string_triple(&triple))
     }
 
