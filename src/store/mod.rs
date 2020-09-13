@@ -133,23 +133,17 @@ impl StoreLayerBuilder {
     pub fn apply_delta(&self, delta: &StoreLayer) -> Result<(), io::Error> {
         // create a child builder and use it directly
         // first check what dictionary entries we don't know about, add those
-        delta
-            .triple_additions()
-            .map(|t| {
-                delta
-                    .id_triple_to_string(&t)
-                    .map(|st| self.add_string_triple(&st))
-            })
-            .for_each(|_| ());
+        delta.triple_additions().for_each(|t| {
+            delta
+                .id_triple_to_string(&t)
+                .map(|st| self.add_string_triple(&st));
+        });
 
-        delta
-            .triple_removals()
-            .map(|t| {
-                delta
-                    .id_triple_to_string(&t)
-                    .map(|st| self.remove_string_triple(&st))
-            })
-            .for_each(|_| ());
+        delta.triple_removals().for_each(|t| {
+            delta
+                .id_triple_to_string(&t)
+                .map(|st| self.remove_string_triple(&st));
+        });
 
         Ok(())
     }
