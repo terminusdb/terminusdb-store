@@ -28,7 +28,7 @@ We have vaguely divided the tasks into "Now", "Next", and "Later" depending on w
 
     We need to do cleanup of layers when they are no longer referenced.
 
-    More on this issue can be found at [here](./docs/GARBAGE.md).
+    More on this issue can be found at [here](./GARBAGE.md).
 
 # Later
 
