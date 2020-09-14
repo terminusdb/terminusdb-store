@@ -365,13 +365,16 @@ pub fn build_object_index<F: 'static + FileLoad + FileStore>(
     o_ps_files: AdjacencyListFiles<F>,
     objects_file: Option<F>,
 ) -> impl Future<Item = (), Error = std::io::Error> {
+    let build_object_index = objects_file.is_some();
     adjacency_list_stream_pairs(sp_o_files.bitindex_files.bits_file, sp_o_files.nums_file)
-        .map(|(left, right)| (right, left))
+        .map(move |(left, right)| (right, left))
         .fold(
             (BTreeSet::new(), BTreeSet::new(), 0),
-            |(mut pairs_set, mut objects_set, _), (left, right)| {
+            move |(mut pairs_set, mut objects_set, _), (left, right)| {
                 pairs_set.insert((left, right));
-                objects_set.insert(left);
+                if build_object_index {
+                    objects_set.insert(left);
+                }
                 future::ok::<_, std::io::Error>((pairs_set, objects_set, right))
             },
         )
