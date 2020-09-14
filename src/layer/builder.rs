@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::io;
 
 use futures::future;
@@ -369,16 +368,16 @@ pub fn build_object_index<F: 'static + FileLoad + FileStore>(
     adjacency_list_stream_pairs(sp_o_files.bitindex_files.bits_file, sp_o_files.nums_file)
         .map(move |(left, right)| (right, left))
         .fold(
-            (BTreeSet::new(), BTreeSet::new(), 0),
+            (Vec::new(), Vec::new(), 0),
             move |(mut pairs_set, mut objects_set, _), (left, right)| {
-                pairs_set.insert((left, right));
+                pairs_set.push((left, right));
                 if build_object_index {
-                    objects_set.insert(left);
+                    objects_set.push(left);
                 }
                 future::ok::<_, std::io::Error>((pairs_set, objects_set, right))
             },
         )
-        .and_then(move |(pairs, objects, greatest_sp)| {
+        .and_then(move |(mut pairs, mut objects, greatest_sp)| {
             let aj_width = ((greatest_sp + 1) as f32).log2().ceil() as u8;
             let o_ps_adjacency_list_builder = AdjacencyListBuilder::new(
                 o_ps_files.bitindex_files.bits_file,
@@ -388,9 +387,14 @@ pub fn build_object_index<F: 'static + FileLoad + FileStore>(
                 aj_width,
             );
 
+            pairs.sort_unstable();
+            pairs.dedup();
+
             let objects_builder;
             let build_o_ps_task;
             if let Some(objects_file) = objects_file {
+                objects.sort_unstable();
+                objects.dedup();
                 let greatest_object = objects.iter().next_back().unwrap_or(&0);
                 let objects_width = ((*greatest_object + 1) as f32).log2().ceil() as u8;
                 objects_builder = Some(LogArrayFileBuilder::new(
