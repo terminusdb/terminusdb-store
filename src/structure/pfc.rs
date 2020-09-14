@@ -408,7 +408,7 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> PfcDictFileBuilder<W> {
 
     /// finish the data structure
     pub fn finalize(self) -> impl Future<Item = (), Error = std::io::Error> {
-        let width = if self.index.len() == 0 {
+        let width = if self.index.is_empty() {
             1
         } else {
             64 - self.index[self.index.len() - 1].leading_zeros()

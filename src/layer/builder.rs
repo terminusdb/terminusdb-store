@@ -337,7 +337,7 @@ impl<F: 'static + FileLoad + FileStore> TripleFileBuilder<F> {
             None => future::Either::A(future::ok(())),
             Some(subjects) => {
                 // isn't this just last_subject?
-                let max_subject = if subjects.len() == 0 {
+                let max_subject = if subjects.is_empty() {
                     0
                 } else {
                     subjects[subjects.len() - 1]

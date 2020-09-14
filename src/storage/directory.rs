@@ -282,7 +282,7 @@ fn get_label_from_file(path: PathBuf) -> impl Future<Item = Label, Error = io::E
                 )));
             }
 
-            if layer_str.len() == 0 {
+            if layer_str.is_empty() {
                 Box::new(future::ok(Label {
                     name: label,
                     layer: None,
