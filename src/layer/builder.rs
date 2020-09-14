@@ -388,7 +388,6 @@ pub fn build_object_index<F: 'static + FileLoad + FileStore>(
             );
 
             pairs.sort_unstable();
-            pairs.dedup();
 
             let objects_builder;
             let build_o_ps_task;
