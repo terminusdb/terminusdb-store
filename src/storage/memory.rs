@@ -543,6 +543,8 @@ impl LabelStore for MemoryLabelStore {
 mod tests {
     use super::*;
     use crate::layer::*;
+    use futures::sync::oneshot;
+    use tokio::runtime::Runtime;
 
     #[test]
     fn write_and_read_memory_backed() {
@@ -570,6 +572,7 @@ mod tests {
 
     #[test]
     fn create_layers_from_memory_store() {
+        let runtime = Runtime::new().unwrap();
         let store = MemoryLayerStore::new();
         let mut builder = store.create_base_layer().wait().unwrap();
         let base_name = builder.name();
@@ -578,7 +581,9 @@ mod tests {
         builder.add_string_triple(&StringTriple::new_value("pig", "says", "oink"));
         builder.add_string_triple(&StringTriple::new_value("duck", "says", "quack"));
 
-        builder.commit_boxed().wait().unwrap();
+        oneshot::spawn(builder.commit_boxed(), &runtime.executor())
+            .wait()
+            .unwrap();
 
         builder = store.create_child_layer(base_name).wait().unwrap();
         let child_name = builder.name();
@@ -586,7 +591,9 @@ mod tests {
         builder.remove_string_triple(&StringTriple::new_value("duck", "says", "quack"));
         builder.add_string_triple(&StringTriple::new_node("cow", "likes", "pig"));
 
-        builder.commit_boxed().wait().unwrap();
+        oneshot::spawn(builder.commit_boxed(), &runtime.executor())
+            .wait()
+            .unwrap();
 
         let layer = store.get_layer(child_name).wait().unwrap().unwrap();
 

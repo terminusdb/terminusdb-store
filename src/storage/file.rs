@@ -268,7 +268,7 @@ impl<F: 'static + FileLoad + FileStore> DictionaryFiles<F> {
 }
 
 #[derive(Clone)]
-pub struct AdjacencyListFiles<F: 'static + FileLoad + FileStore> {
+pub struct AdjacencyListFiles<F: 'static + FileLoad> {
     pub bitindex_files: BitIndexFiles<F>,
     pub nums_file: F,
 }
@@ -293,7 +293,7 @@ pub struct BitIndexMaps {
 }
 
 #[derive(Clone)]
-pub struct BitIndexFiles<F: 'static + FileLoad + FileStore> {
+pub struct BitIndexFiles<F: 'static + FileLoad> {
     pub bits_file: F,
     pub blocks_file: F,
     pub sblocks_file: F,

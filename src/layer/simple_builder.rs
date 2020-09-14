@@ -270,6 +270,8 @@ mod tests {
     use super::*;
     use crate::layer::internal::InternalLayer;
     use crate::storage::memory::*;
+    use futures::sync::oneshot;
+    use tokio::runtime::{Runtime, TaskExecutor};
 
     fn new_base_files() -> BaseLayerFiles<MemoryBackedStore> {
         BaseLayerFiles {
@@ -402,7 +404,7 @@ mod tests {
         }
     }
 
-    fn example_base_layer() -> Arc<InternalLayer> {
+    fn example_base_layer(executor: &TaskExecutor) -> Arc<InternalLayer> {
         let name = [1, 2, 3, 4, 5];
         let files = new_base_files();
         let mut builder = SimpleLayerBuilder::new(name, files.clone());
@@ -411,7 +413,7 @@ mod tests {
         builder.add_string_triple(&StringTriple::new_value("pig", "says", "oink"));
         builder.add_string_triple(&StringTriple::new_value("duck", "says", "quack"));
 
-        builder.commit().wait().unwrap();
+        oneshot::spawn(builder.commit(), executor).wait().unwrap();
 
         let layer = BaseLayer::load_from_files(name, &files).wait().unwrap();
         Arc::new(layer.into())
@@ -419,7 +421,8 @@ mod tests {
 
     #[test]
     fn simple_base_layer_construction() {
-        let layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let layer = example_base_layer(&runtime.executor());
 
         assert!(layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
@@ -428,7 +431,8 @@ mod tests {
 
     #[test]
     fn simple_child_layer_construction() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
         let files = new_child_files();
         let name = [0, 0, 0, 0, 0];
         let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
@@ -437,7 +441,9 @@ mod tests {
         builder.add_string_triple(&StringTriple::new_node("horse", "likes", "cow"));
         builder.remove_string_triple(&StringTriple::new_value("duck", "says", "quack"));
 
-        builder.commit().wait().unwrap();
+        oneshot::spawn(builder.commit(), &runtime.executor())
+            .wait()
+            .unwrap();
         let child_layer = Arc::new(
             ChildLayer::load_from_files(name, base_layer, &files)
                 .wait()
@@ -457,7 +463,8 @@ mod tests {
 
     #[test]
     fn multi_level_layers() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
         let name2 = [0, 0, 0, 0, 0];
         let files2 = new_child_files();
         let mut builder =
@@ -467,7 +474,9 @@ mod tests {
         builder.add_string_triple(&StringTriple::new_node("horse", "likes", "cow"));
         builder.remove_string_triple(&StringTriple::new_value("duck", "says", "quack"));
 
-        builder.commit().wait().unwrap();
+        oneshot::spawn(builder.commit(), &runtime.executor())
+            .wait()
+            .unwrap();
         let layer2: Arc<InternalLayer> = Arc::new(
             ChildLayer::load_from_files(name2, base_layer, &files2)
                 .wait()
@@ -482,7 +491,9 @@ mod tests {
         builder.add_string_triple(&StringTriple::new_node("horse", "likes", "pig"));
         builder.add_string_triple(&StringTriple::new_value("duck", "says", "quack"));
 
-        builder.commit().wait().unwrap();
+        oneshot::spawn(builder.commit(), &runtime.executor())
+            .wait()
+            .unwrap();
         let layer3: Arc<InternalLayer> = Arc::new(
             ChildLayer::load_from_files(name3, layer2, &files3)
                 .wait()
@@ -495,7 +506,9 @@ mod tests {
         builder = SimpleLayerBuilder::from_parent(name4, layer3.clone(), files4.clone());
         builder.remove_string_triple(&StringTriple::new_value("pig", "says", "oink"));
         builder.add_string_triple(&StringTriple::new_node("cow", "likes", "horse"));
-        builder.commit().wait().unwrap();
+        oneshot::spawn(builder.commit(), &runtime.executor())
+            .wait()
+            .unwrap();
         let layer4 = Arc::new(
             ChildLayer::load_from_files(name4, layer3, &files4)
                 .wait()

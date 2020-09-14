@@ -667,24 +667,20 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
 
         future::join_all(builder_futs)
             .and_then(|_| {
-                build_object_index(pos_sp_o_files, pos_o_ps_files, Some(pos_objects_file))
-                    .join(build_object_index(
-                        neg_sp_o_files,
-                        neg_o_ps_files,
-                        Some(neg_objects_file),
-                    ))
-                    .join(build_predicate_index(
-                        pos_s_p_files.nums_file,
-                        pos_predicate_wavelet_tree_files.bits_file,
-                        pos_predicate_wavelet_tree_files.blocks_file,
-                        pos_predicate_wavelet_tree_files.sblocks_file,
-                    ))
-                    .join(build_predicate_index(
-                        neg_s_p_files.nums_file,
-                        neg_predicate_wavelet_tree_files.bits_file,
-                        neg_predicate_wavelet_tree_files.blocks_file,
-                        neg_predicate_wavelet_tree_files.sblocks_file,
-                    ))
+                build_indexes(
+                    pos_s_p_files,
+                    pos_sp_o_files,
+                    pos_o_ps_files,
+                    Some(pos_objects_file),
+                    pos_predicate_wavelet_tree_files,
+                )
+                .join(build_indexes(
+                    neg_s_p_files,
+                    neg_sp_o_files,
+                    neg_o_ps_files,
+                    Some(neg_objects_file),
+                    neg_predicate_wavelet_tree_files,
+                ))
             })
             .map(|_| ())
     }
@@ -806,6 +802,9 @@ pub mod tests {
     use super::*;
     use crate::layer::base::tests::*;
     use crate::storage::memory::*;
+    use futures::sync::oneshot;
+    use tokio::runtime::Runtime;
+
     pub fn child_layer_files() -> ChildLayerFiles<MemoryBackedStore> {
         ChildLayerFiles {
             node_dictionary_files: DictionaryFiles {
@@ -889,18 +888,17 @@ pub mod tests {
 
     #[test]
     fn empty_child_layer_equivalent_to_parent() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
 
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        child_builder
-            .into_phase2()
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+        let fut = child_builder.into_phase2().and_then(|b| b.finalize());
+
+        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
 
         let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .wait()
@@ -919,20 +917,21 @@ pub mod tests {
 
     #[test]
     fn child_layer_can_have_inserts() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
 
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        child_builder
+        let fut = child_builder
             .into_phase2()
             .and_then(|b| b.add_triple(2, 1, 2))
             .and_then(|b| b.add_triple(3, 3, 3))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+            .and_then(|b| b.finalize());
+
+        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
 
         let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .wait()
@@ -953,20 +952,21 @@ pub mod tests {
 
     #[test]
     fn child_layer_can_have_deletes() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
 
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        child_builder
+        let fut = child_builder
             .into_phase2()
             .and_then(|b| b.remove_triple(2, 1, 1))
             .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+            .and_then(|b| b.finalize());
+
+        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
 
         let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .wait()
@@ -985,20 +985,21 @@ pub mod tests {
 
     #[test]
     fn child_layer_can_have_inserts_and_deletes() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        child_builder
+        let fut = child_builder
             .into_phase2()
             .and_then(|b| b.add_triple(1, 2, 3))
             .and_then(|b| b.add_triple(2, 3, 4))
             .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+            .and_then(|b| b.finalize());
+
+        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
 
         let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .wait()
@@ -1019,20 +1020,21 @@ pub mod tests {
 
     #[test]
     fn iterate_child_layer_triples() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        child_builder
+        let fut = child_builder
             .into_phase2()
             .and_then(|b| b.add_triple(1, 2, 3))
             .and_then(|b| b.add_triple(2, 3, 4))
             .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+            .and_then(|b| b.finalize());
+
+        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
 
         let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .wait()
@@ -1060,20 +1062,21 @@ pub mod tests {
 
     #[test]
     fn iterate_child_layer_triples_by_object() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        child_builder
+        let fut = child_builder
             .into_phase2()
             .and_then(|b| b.add_triple(1, 2, 3))
             .and_then(|b| b.add_triple(2, 3, 4))
             .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+            .and_then(|b| b.finalize());
+
+        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
 
         let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .wait()
@@ -1103,13 +1106,14 @@ pub mod tests {
 
     #[test]
     fn iterate_child_layer_triples_by_objects_with_equal_predicates() {
-        let base_layer = empty_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = empty_base_layer(&runtime.executor());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        child_builder
+        let fut = child_builder
             .add_node("a")
             .and_then(|(_, b)| b.add_predicate("b"))
             .and_then(|(_, b)| b.add_predicate("c"))
@@ -1120,9 +1124,9 @@ pub mod tests {
             .and_then(|b| b.add_triple(1, 2, 1))
             .and_then(|b| b.add_triple(2, 1, 1))
             .and_then(|b| b.add_triple(2, 2, 1))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+            .and_then(|b| b.finalize());
+
+        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
 
         let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .wait()
@@ -1143,20 +1147,21 @@ pub mod tests {
 
     #[test]
     fn lookup_child_layer_triples_by_predicate() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        child_builder
+        let fut = child_builder
             .into_phase2()
             .and_then(|b| b.add_triple(1, 2, 3))
             .and_then(|b| b.add_triple(2, 3, 4))
             .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+            .and_then(|b| b.finalize());
+
+        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
 
         let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .wait()
@@ -1199,19 +1204,20 @@ pub mod tests {
 
     #[test]
     fn adding_new_nodes_predicates_and_values_in_child() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        child_builder
+        let fut = child_builder
             .into_phase2()
             .and_then(|b| b.add_triple(11, 2, 3))
             .and_then(|b| b.add_triple(12, 3, 4))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+            .and_then(|b| b.finalize());
+
+        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
 
         let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .wait()
@@ -1223,20 +1229,21 @@ pub mod tests {
 
     #[test]
     fn old_dictionary_entries_in_child() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        child_builder
+        let fut = child_builder
             .add_node("foo")
             .and_then(|(_, b)| b.add_predicate("bar"))
             .and_then(|(_, b)| b.add_value("baz"))
             .and_then(|(_, b)| b.into_phase2())
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+            .and_then(|b| b.finalize());
+
+        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
 
         let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .wait()
@@ -1261,20 +1268,21 @@ pub mod tests {
 
     #[test]
     fn new_dictionary_entries_in_child() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        child_builder
+        let fut = child_builder
             .add_node("foo")
             .and_then(|(_, b)| b.add_predicate("bar"))
             .and_then(|(_, b)| b.add_value("baz"))
             .and_then(|(_, b)| b.into_phase2())
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+            .and_then(|b| b.finalize());
+
+        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
 
         let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .wait()
@@ -1299,21 +1307,22 @@ pub mod tests {
 
     #[test]
     fn lookup_additions_by_subject() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        child_builder
+        let fut = child_builder
             .into_phase2()
             .and_then(|b| b.add_triple(1, 3, 4))
             .and_then(|b| b.add_triple(2, 2, 2))
             .and_then(|b| b.add_triple(3, 4, 5))
             .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+            .and_then(|b| b.finalize());
+
+        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
 
         let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .wait()
@@ -1331,21 +1340,22 @@ pub mod tests {
 
     #[test]
     fn lookup_additions_by_predicate() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        child_builder
+        let fut = child_builder
             .into_phase2()
             .and_then(|b| b.add_triple(1, 3, 4))
             .and_then(|b| b.add_triple(2, 2, 2))
             .and_then(|b| b.add_triple(3, 4, 5))
             .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+            .and_then(|b| b.finalize());
+
+        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
 
         let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .wait()
@@ -1363,21 +1373,22 @@ pub mod tests {
 
     #[test]
     fn lookup_additions_by_object() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        child_builder
+        let fut = child_builder
             .into_phase2()
             .and_then(|b| b.add_triple(1, 3, 4))
             .and_then(|b| b.add_triple(2, 2, 2))
             .and_then(|b| b.add_triple(3, 4, 5))
             .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+            .and_then(|b| b.finalize());
+
+        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
 
         let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .wait()
@@ -1395,21 +1406,22 @@ pub mod tests {
 
     #[test]
     fn lookup_removals_by_subject() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        child_builder
+        let fut = child_builder
             .into_phase2()
             .and_then(|b| b.add_triple(1, 3, 4))
             .and_then(|b| b.remove_triple(2, 1, 1))
             .and_then(|b| b.remove_triple(3, 2, 5))
             .and_then(|b| b.remove_triple(4, 3, 6))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+            .and_then(|b| b.finalize());
+
+        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
 
         let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .wait()
@@ -1427,21 +1439,22 @@ pub mod tests {
 
     #[test]
     fn lookup_removals_by_predicate() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        child_builder
+        let fut = child_builder
             .into_phase2()
             .and_then(|b| b.add_triple(1, 3, 4))
             .and_then(|b| b.remove_triple(2, 1, 1))
             .and_then(|b| b.remove_triple(2, 3, 6))
             .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+            .and_then(|b| b.finalize());
+
+        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
 
         let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .wait()
@@ -1459,21 +1472,22 @@ pub mod tests {
 
     #[test]
     fn lookup_removals_by_object() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        child_builder
+        let fut = child_builder
             .into_phase2()
             .and_then(|b| b.add_triple(1, 3, 4))
             .and_then(|b| b.remove_triple(2, 1, 1))
             .and_then(|b| b.remove_triple(2, 3, 6))
             .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+            .and_then(|b| b.finalize());
+
+        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
 
         let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .wait()
@@ -1491,21 +1505,22 @@ pub mod tests {
 
     #[test]
     fn create_empty_child_layer() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        child_builder
+        let fut = child_builder
             .into_phase2()
             .and_then(|b| b.add_triple(1, 3, 4))
             .and_then(|b| b.remove_triple(2, 1, 1))
             .and_then(|b| b.remove_triple(2, 3, 6))
             .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+            .and_then(|b| b.finalize());
+
+        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
 
         let child_layer =
             ChildLayer::load_from_files([5, 4, 3, 2, 1], parent.clone(), &child_files)
@@ -1521,7 +1536,8 @@ pub mod tests {
 
     #[test]
     fn child_layer_with_multiple_pairs_pointing_at_same_object_lookup_by_objects() {
-        let base_layer = empty_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = empty_base_layer(&runtime.executor());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
@@ -1538,7 +1554,7 @@ pub mod tests {
             .and_then(|b| b.add_triple(2, 2, 1))
             .and_then(|b| b.finalize());
 
-        future.wait().unwrap();
+        oneshot::spawn(future, &runtime.executor()).wait().unwrap();
 
         let child_layer =
             ChildLayer::load_from_files([5, 4, 3, 2, 1], parent.clone(), &child_files)
@@ -1562,7 +1578,8 @@ pub mod tests {
 
     #[test]
     fn stream_child_triples() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
@@ -1581,7 +1598,7 @@ pub mod tests {
             .and_then(|b| b.remove_triple(4, 3, 6))
             .and_then(|b| b.finalize());
 
-        future.wait().unwrap();
+        oneshot::spawn(future, &runtime.executor()).wait().unwrap();
 
         let addition_stream = open_child_triple_stream(
             child_files.pos_subjects_file,
@@ -1614,7 +1631,8 @@ pub mod tests {
 
     #[test]
     fn count_triples() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
@@ -1633,7 +1651,7 @@ pub mod tests {
             .and_then(|b| b.remove_triple(4, 3, 6))
             .and_then(|b| b.finalize());
 
-        future.wait().unwrap();
+        oneshot::spawn(future, &runtime.executor()).wait().unwrap();
         let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .wait()
             .unwrap();

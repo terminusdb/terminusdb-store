@@ -758,15 +758,20 @@ pub mod tests {
 
     #[test]
     fn cached_memory_layer_store_returns_same_layer_multiple_times() {
+        let runtime = Runtime::new().unwrap();
         let store = CachedLayerStore::new(MemoryLayerStore::new(), LockingHashMapLayerCache::new());
-        let mut builder = store.create_base_layer().wait().unwrap();
+        let mut builder = oneshot::spawn(store.create_base_layer(), &runtime.executor())
+            .wait()
+            .unwrap();
         let base_name = builder.name();
 
         builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
         builder.add_string_triple(&StringTriple::new_value("pig", "says", "oink"));
         builder.add_string_triple(&StringTriple::new_value("duck", "says", "quack"));
 
-        builder.commit_boxed().wait().unwrap();
+        oneshot::spawn(builder.commit_boxed(), &runtime.executor())
+            .wait()
+            .unwrap();
 
         builder = store.create_child_layer(base_name).wait().unwrap();
         let child_name = builder.name();
@@ -774,7 +779,9 @@ pub mod tests {
         builder.remove_string_triple(&StringTriple::new_value("duck", "says", "quack"));
         builder.add_string_triple(&StringTriple::new_node("cow", "likes", "pig"));
 
-        builder.commit_boxed().wait().unwrap();
+        oneshot::spawn(builder.commit_boxed(), &runtime.executor())
+            .wait()
+            .unwrap();
 
         let layer1 = store.get_layer(child_name).wait().unwrap().unwrap();
         let layer2 = store.get_layer(child_name).wait().unwrap().unwrap();
@@ -840,15 +847,20 @@ pub mod tests {
 
     #[test]
     fn cached_layer_store_forgets_entries_when_they_are_dropped() {
+        let runtime = Runtime::new().unwrap();
         let store = CachedLayerStore::new(MemoryLayerStore::new(), LockingHashMapLayerCache::new());
-        let mut builder = store.create_base_layer().wait().unwrap();
+        let mut builder = oneshot::spawn(store.create_base_layer(), &runtime.executor())
+            .wait()
+            .unwrap();
         let base_name = builder.name();
 
         builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
         builder.add_string_triple(&StringTriple::new_value("pig", "says", "oink"));
         builder.add_string_triple(&StringTriple::new_value("duck", "says", "quack"));
 
-        builder.commit_boxed().wait().unwrap();
+        oneshot::spawn(builder.commit_boxed(), &runtime.executor())
+            .wait()
+            .unwrap();
 
         let layer = store.get_layer(base_name).wait().unwrap().unwrap();
         let weak = Arc::downgrade(&layer);

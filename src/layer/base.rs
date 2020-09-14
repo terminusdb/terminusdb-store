@@ -464,13 +464,12 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
         self.builder
             .finalize()
             .and_then(|_| {
-                build_object_index(sp_o_adjacency_list_files, o_ps_adjacency_list_files, None).join(
-                    build_predicate_index(
-                        s_p_adjacency_list_files.nums_file,
-                        predicate_wavelet_tree_files.bits_file,
-                        predicate_wavelet_tree_files.blocks_file,
-                        predicate_wavelet_tree_files.sblocks_file,
-                    ),
+                build_indexes(
+                    s_p_adjacency_list_files,
+                    sp_o_adjacency_list_files,
+                    o_ps_adjacency_list_files,
+                    None,
+                    predicate_wavelet_tree_files,
                 )
             })
             .map(|_| ())
@@ -550,6 +549,8 @@ pub fn open_base_triple_stream<F: 'static + FileLoad + FileStore>(
 pub mod tests {
     use super::*;
     use crate::storage::memory::*;
+    use futures::sync::oneshot;
+    use tokio::runtime::{Runtime, TaskExecutor};
 
     pub fn base_layer_files() -> BaseLayerFiles<MemoryBackedStore> {
         BaseLayerFiles {
@@ -601,7 +602,7 @@ pub mod tests {
         }
     }
 
-    pub fn example_base_layer_files() -> BaseLayerFiles<MemoryBackedStore> {
+    pub fn example_base_layer_files(executor: &TaskExecutor) -> BaseLayerFiles<MemoryBackedStore> {
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
@@ -624,13 +625,13 @@ pub mod tests {
             .and_then(|b| b.add_triple(4, 3, 6))
             .and_then(|b| b.finalize());
 
-        future.wait().unwrap();
+        oneshot::spawn(future, executor).wait().unwrap();
 
         base_layer_files
     }
 
-    pub fn example_base_layer() -> BaseLayer {
-        let base_layer_files = example_base_layer_files();
+    pub fn example_base_layer(executor: &TaskExecutor) -> BaseLayer {
+        let base_layer_files = example_base_layer_files(executor);
 
         let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files)
             .wait()
@@ -639,14 +640,15 @@ pub mod tests {
         layer
     }
 
-    pub fn empty_base_layer() -> BaseLayer {
+    pub fn empty_base_layer(executor: &TaskExecutor) -> BaseLayer {
         let files = base_layer_files();
         let base_builder = BaseLayerFileBuilder::from_files(&files);
-        base_builder
-            .into_phase2()
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+        oneshot::spawn(
+            base_builder.into_phase2().and_then(|b| b.finalize()),
+            executor,
+        )
+        .wait()
+        .unwrap();
 
         BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
             .wait()
@@ -655,7 +657,8 @@ pub mod tests {
 
     #[test]
     fn build_and_query_base_layer() {
-        let layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let layer = example_base_layer(&runtime.executor());
 
         assert!(layer.triple_exists(1, 1, 1));
         assert!(layer.triple_exists(2, 1, 1));
@@ -670,7 +673,8 @@ pub mod tests {
 
     #[test]
     fn dictionary_entries_in_base() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
 
         assert_eq!(3, base_layer.subject_id("bbbbb").unwrap());
         assert_eq!(2, base_layer.predicate_id("fghij").unwrap());
@@ -691,7 +695,8 @@ pub mod tests {
 
     #[test]
     fn subject_iteration() {
-        let layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let layer = example_base_layer(&runtime.executor());
         let subjects: Vec<_> = layer.subjects().map(|s| s.subject()).collect();
 
         assert_eq!(vec![1, 2, 3, 4], subjects);
@@ -699,7 +704,8 @@ pub mod tests {
 
     #[test]
     fn predicates_iterator() {
-        let layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let layer = example_base_layer(&runtime.executor());
         let p1: Vec<_> = layer
             .lookup_subject(1)
             .unwrap()
@@ -732,7 +738,8 @@ pub mod tests {
 
     #[test]
     fn objects_iterator() {
-        let layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let layer = example_base_layer(&runtime.executor());
         let objects: Vec<_> = layer
             .lookup_subject(2)
             .unwrap()
@@ -747,7 +754,8 @@ pub mod tests {
 
     #[test]
     fn everything_iterator() {
-        let layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let layer = example_base_layer(&runtime.executor());
         let triples: Vec<_> = layer
             .triples()
             .map(|t| (t.subject, t.predicate, t.object))
@@ -769,7 +777,8 @@ pub mod tests {
 
     #[test]
     fn lookup_by_object() {
-        let layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let layer = example_base_layer(&runtime.executor());
 
         let lookup = layer.lookup_object(1).unwrap();
         let pairs: Vec<_> = lookup.subject_predicate_pairs().collect();
@@ -790,7 +799,8 @@ pub mod tests {
 
     #[test]
     fn lookup_by_predicate() {
-        let layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let layer = example_base_layer(&runtime.executor());
 
         let lookup = layer.lookup_predicate(1).unwrap();
         let pairs: Vec<_> = lookup
@@ -829,7 +839,8 @@ pub mod tests {
 
     #[test]
     fn lookup_objects() {
-        let layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let layer = example_base_layer(&runtime.executor());
 
         let triples_by_object: Vec<_> = layer
             .objects()
@@ -856,12 +867,13 @@ pub mod tests {
 
     #[test]
     fn create_empty_base_layer() {
+        let runtime = Runtime::new().unwrap();
         let base_layer_files = base_layer_files();
         let builder = BaseLayerFileBuilder::from_files(&base_layer_files);
 
         let future = builder.into_phase2().and_then(|b| b.finalize());
 
-        future.wait().unwrap();
+        oneshot::spawn(future, &runtime.executor()).wait().unwrap();
 
         let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files)
             .wait()
@@ -872,6 +884,7 @@ pub mod tests {
 
     #[test]
     fn base_layer_with_multiple_pairs_pointing_at_same_object() {
+        let runtime = Runtime::new().unwrap();
         let base_layer_files = base_layer_files();
         let builder = BaseLayerFileBuilder::from_files(&base_layer_files);
 
@@ -886,7 +899,7 @@ pub mod tests {
             .and_then(|b| b.add_triple(2, 2, 1))
             .and_then(|b| b.finalize());
 
-        future.wait().unwrap();
+        oneshot::spawn(future, &runtime.executor()).wait().unwrap();
 
         let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files)
             .wait()
@@ -909,7 +922,8 @@ pub mod tests {
 
     #[test]
     fn stream_base_triples() {
-        let layer_files = example_base_layer_files();
+        let runtime = Runtime::new().unwrap();
+        let layer_files = example_base_layer_files(&runtime.executor());
 
         let stream = open_base_triple_stream(
             layer_files.s_p_adjacency_list_files,
@@ -934,7 +948,8 @@ pub mod tests {
 
     #[test]
     fn count_triples() {
-        let layer_files = example_base_layer_files();
+        let runtime = Runtime::new().unwrap();
+        let layer_files = example_base_layer_files(&runtime.executor());
         let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &layer_files)
             .wait()
             .unwrap();

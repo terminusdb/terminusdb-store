@@ -228,8 +228,10 @@ mod tests {
     use crate::storage::memory::*;
     use crate::storage::*;
     use futures::prelude::*;
+    use futures::sync::oneshot;
+    use tokio::runtime::{Runtime, TaskExecutor};
 
-    fn example_base_layer_files() -> BaseLayerFiles<MemoryBackedStore> {
+    fn example_base_layer_files(executor: &TaskExecutor) -> BaseLayerFiles<MemoryBackedStore> {
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
@@ -254,13 +256,13 @@ mod tests {
             .and_then(|b| b.add_triple(4, 3, 6))
             .and_then(|b| b.finalize());
 
-        future.wait().unwrap();
+        oneshot::spawn(future, executor).wait().unwrap();
 
         base_layer_files
     }
 
-    fn example_base_layer() -> BaseLayer {
-        let base_layer_files = example_base_layer_files();
+    fn example_base_layer(executor: &TaskExecutor) -> BaseLayer {
+        let base_layer_files = example_base_layer_files(executor);
 
         let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files)
             .wait()
@@ -271,7 +273,8 @@ mod tests {
 
     #[test]
     fn object_iterator() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
 
         let iterator = base_layer.internal_triple_additions_by_object();
         let triples: Vec<_> = iterator.collect();
@@ -292,7 +295,8 @@ mod tests {
 
     #[test]
     fn object_iterator_seek() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
 
         let iterator = base_layer.internal_triple_additions_by_object();
         let triples: Vec<_> = iterator.seek_object(5).collect();
@@ -310,7 +314,8 @@ mod tests {
 
     #[test]
     fn object_iterator_seek_0() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
 
         let iterator = base_layer.internal_triple_additions_by_object();
         let triples: Vec<_> = iterator.seek_object(0).collect();
@@ -331,7 +336,8 @@ mod tests {
 
     #[test]
     fn object_iterator_seek_before_begin() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
 
         let iterator = base_layer.internal_triple_additions_by_object();
         let triples: Vec<_> = iterator.seek_object(1).collect();
@@ -352,7 +358,8 @@ mod tests {
 
     #[test]
     fn object_iterator_seek_nonexistent() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
 
         let iterator = base_layer.internal_triple_additions_by_object();
         let triples: Vec<_> = iterator.seek_object(4).collect();
@@ -370,7 +377,8 @@ mod tests {
 
     #[test]
     fn object_iterator_seek_past_end() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
 
         let iterator = base_layer.internal_triple_additions_by_object();
         let triples: Vec<_> = iterator.seek_object(7).collect();
@@ -379,7 +387,8 @@ mod tests {
 
     #[test]
     fn object_additions_iterator_for_object() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
 
         let triples: Vec<_> = base_layer.triple_additions_o(5).collect();
 
@@ -394,7 +403,8 @@ mod tests {
 
     #[test]
     fn object_additions_iterator_for_nonexistent_object() {
-        let base_layer = example_base_layer();
+        let runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.executor());
 
         let triples: Vec<_> = base_layer.triple_additions_o(4).collect();
 
@@ -403,6 +413,7 @@ mod tests {
 
     #[test]
     fn combined_iterator_for_object() {
+        let runtime = Runtime::new().unwrap();
         let store = MemoryLayerStore::new();
         let mut builder = store.create_base_layer().wait().unwrap();
         let base_name = builder.name();
@@ -411,7 +422,9 @@ mod tests {
         builder.add_string_triple(&StringTriple::new_value("duck", "says", "quack"));
         builder.add_string_triple(&StringTriple::new_node("cow", "likes", "duck"));
         builder.add_string_triple(&StringTriple::new_node("duck", "hates", "cow"));
-        builder.commit_boxed().wait().unwrap();
+        oneshot::spawn(builder.commit_boxed(), &runtime.executor())
+            .wait()
+            .unwrap();
 
         builder = store.create_child_layer(base_name).wait().unwrap();
         let child1_name = builder.name();
@@ -419,21 +432,27 @@ mod tests {
         builder.add_string_triple(&StringTriple::new_value("horse", "says", "neigh"));
         builder.add_string_triple(&StringTriple::new_node("horse", "likes", "horse"));
         builder.add_string_triple(&StringTriple::new_node("horse", "likes", "cow"));
-        builder.commit_boxed().wait().unwrap();
+        oneshot::spawn(builder.commit_boxed(), &runtime.executor())
+            .wait()
+            .unwrap();
 
         builder = store.create_child_layer(child1_name).wait().unwrap();
         let child2_name = builder.name();
 
         builder.remove_string_triple(&StringTriple::new_node("duck", "hates", "cow"));
         builder.add_string_triple(&StringTriple::new_node("duck", "likes", "cow"));
-        builder.commit_boxed().wait().unwrap();
+        oneshot::spawn(builder.commit_boxed(), &runtime.executor())
+            .wait()
+            .unwrap();
 
         builder = store.create_child_layer(child2_name).wait().unwrap();
         let child3_name = builder.name();
 
         builder.remove_string_triple(&StringTriple::new_node("duck", "likes", "cow"));
         builder.add_string_triple(&StringTriple::new_node("duck", "hates", "cow"));
-        builder.commit_boxed().wait().unwrap();
+        oneshot::spawn(builder.commit_boxed(), &runtime.executor())
+            .wait()
+            .unwrap();
 
         builder = store.create_child_layer(child3_name).wait().unwrap();
         let child4_name = builder.name();
@@ -441,7 +460,9 @@ mod tests {
         builder.remove_string_triple(&StringTriple::new_node("duck", "hates", "cow"));
         builder.add_string_triple(&StringTriple::new_node("duck", "likes", "cow"));
         builder.add_string_triple(&StringTriple::new_node("field", "contains", "cow"));
-        builder.commit_boxed().wait().unwrap();
+        oneshot::spawn(builder.commit_boxed(), &runtime.executor())
+            .wait()
+            .unwrap();
 
         let layer = store.get_layer(child4_name).wait().unwrap().unwrap();
 

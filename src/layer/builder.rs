@@ -359,8 +359,8 @@ impl<F: 'static + FileLoad + FileStore> TripleFileBuilder<F> {
     }
 }
 
-pub fn build_object_index<F: 'static + FileLoad + FileStore>(
-    sp_o_files: AdjacencyListFiles<F>,
+pub fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad + FileStore>(
+    sp_o_files: AdjacencyListFiles<FLoad>,
     o_ps_files: AdjacencyListFiles<F>,
     objects_file: Option<F>,
 ) -> impl Future<Item = (), Error = std::io::Error> {
@@ -414,14 +414,14 @@ pub fn build_object_index<F: 'static + FileLoad + FileStore>(
                 build_o_ps_task = future::Either::A(
                     o_ps_adjacency_list_builder
                         .push_all(stream::iter_ok(iter))
-                        .and_then(|builder| builder.finalize())
+                        .and_then(|builder| builder.finalize()),
                 );
             } else {
                 objects_builder = None;
                 build_o_ps_task = future::Either::B(
                     o_ps_adjacency_list_builder
                         .push_all(stream::iter_ok(pairs))
-                        .and_then(|builder| builder.finalize())
+                        .and_then(|builder| builder.finalize()),
                 );
             }
 
@@ -452,4 +452,26 @@ pub fn build_predicate_index<FLoad: 'static + FileLoad, F: 'static + FileLoad + 
         destination_blocks,
         destination_sblocks,
     )
+}
+
+pub fn build_indexes<FLoad: 'static + FileLoad, F: 'static + FileLoad + FileStore>(
+    s_p_files: AdjacencyListFiles<FLoad>,
+    sp_o_files: AdjacencyListFiles<FLoad>,
+    o_ps_files: AdjacencyListFiles<F>,
+    objects_file: Option<F>,
+    wavelet_files: BitIndexFiles<F>,
+) -> impl Future<Item = (), Error = std::io::Error> + Send {
+    let executor = tokio::executor::DefaultExecutor::current();
+    let object_index_task = build_object_index(sp_o_files, o_ps_files, objects_file);
+    let predicate_index_task = build_predicate_index(
+        s_p_files.nums_file,
+        wavelet_files.bits_file,
+        wavelet_files.blocks_file,
+        wavelet_files.sblocks_file,
+    );
+
+    let task1_handle = futures::sync::oneshot::spawn(object_index_task, &executor);
+    let task2_handle = futures::sync::oneshot::spawn(predicate_index_task, &executor);
+
+    task1_handle.join(task2_handle).map(|_| ())
 }
