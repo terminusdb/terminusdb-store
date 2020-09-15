@@ -47,8 +47,8 @@ pub struct SimpleLayerBuilder<F: 'static + FileLoad + FileStore + Clone> {
     name: [u32; 5],
     parent: Option<Arc<dyn Layer>>,
     files: LayerFiles<F>,
-    additions: BTreeSet<PartiallyResolvedTriple>,
-    removals: BTreeSet<IdTriple>, // always resolved!
+    additions: Vec<PartiallyResolvedTriple>,
+    removals: Vec<IdTriple>, // always resolved!
 }
 
 impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
@@ -58,8 +58,8 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
             name,
             parent: None,
             files: LayerFiles::Base(files),
-            additions: BTreeSet::new(),
-            removals: BTreeSet::new(),
+            additions: Vec::new(),
+            removals: Vec::new(),
         }
     }
 
@@ -69,8 +69,8 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
             name,
             parent: Some(parent),
             files: LayerFiles::Child(files),
-            additions: BTreeSet::new(),
-            removals: BTreeSet::new(),
+            additions: Vec::new(),
+            removals: Vec::new(),
         }
     }
 
@@ -117,19 +117,19 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
 
     fn add_string_triple(&mut self, triple: &StringTriple) {
         if self.parent.is_some() {
-            self.additions.insert(
+            self.additions.push(
                 self.parent
                     .as_ref()
                     .unwrap()
                     .string_triple_to_partially_resolved(triple),
             );
         } else {
-            self.additions.insert(triple.to_unresolved());
+            self.additions.push(triple.to_unresolved());
         }
     }
 
     fn add_id_triple(&mut self, triple: IdTriple) {
-        self.additions.insert(triple.to_resolved());
+        self.additions.push(triple.to_resolved());
     }
 
     fn remove_string_triple(&mut self, triple: &StringTriple) {
@@ -144,14 +144,18 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
             return;
         }
 
-        self.removals.insert(triple);
+        self.removals.push(triple);
     }
 
     fn commit(self) -> Box<dyn Future<Item = (), Error = std::io::Error> + Send> {
         let (unresolved_nodes, unresolved_predicates, unresolved_values) =
             self.unresolved_strings();
-        let additions = self.additions;
-        let removals = self.removals;
+        let mut additions = self.additions;
+        additions.sort_unstable();
+        additions.dedup();
+        let mut removals = self.removals;
+        removals.sort_unstable();
+        removals.dedup();
         // store a copy. The original will be used to build the dictionaries.
         // The copy will be used later on to map unresolved strings to their id's before inserting
         let unresolved_nodes2 = unresolved_nodes.clone();
