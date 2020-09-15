@@ -266,16 +266,18 @@ pub fn build_wavelet_tree_from_logarray<
     destination_blocks: F,
     destination_sblocks: F,
 ) -> impl Future<Item = (), Error = std::io::Error> + Send {
-    source.map()
-        .and_then(|bytes| LogArray::parse(bytes).map_err(|e|e.into()))
-        .and_then(move |logarray|
-                  build_wavelet_tree_from_stream(
-                      logarray.width(),
-                      move || stream::iter_ok(logarray.iter()),
-                      destination_bits,
-                      destination_blocks,
-                      destination_sblocks,
-                  ))
+    source
+        .map()
+        .and_then(|bytes| LogArray::parse(bytes).map_err(|e| e.into()))
+        .and_then(move |logarray| {
+            build_wavelet_tree_from_stream(
+                logarray.width(),
+                move || stream::iter_ok(logarray.iter()),
+                destination_bits,
+                destination_blocks,
+                destination_sblocks,
+            )
+        })
 }
 
 #[cfg(test)]

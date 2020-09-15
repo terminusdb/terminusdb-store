@@ -547,9 +547,8 @@ mod tests {
                     .and_then(|mut builder| {
                         let child_name = builder.name();
 
-                        builder.remove_string_triple(StringTriple::new_value(
-                            "duck", "says", "quack",
-                        ));
+                        builder
+                            .remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
                         builder.add_string_triple(StringTriple::new_node("cow", "likes", "pig"));
 
                         builder.commit_boxed().map(move |_| child_name)

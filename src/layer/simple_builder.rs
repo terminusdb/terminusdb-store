@@ -14,8 +14,11 @@ use super::child::*;
 use super::layer::*;
 use crate::storage::*;
 use futures::prelude::*;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+use rayon;
+use rayon::prelude::*;
 
 /// A layer builder trait with no generic typing.
 ///
@@ -47,8 +50,10 @@ pub struct SimpleLayerBuilder<F: 'static + FileLoad + FileStore + Clone> {
     name: [u32; 5],
     parent: Option<Arc<dyn Layer>>,
     files: LayerFiles<F>,
-    additions: Vec<PartiallyResolvedTriple>,
-    removals: Vec<IdTriple>, // always resolved!
+    additions: Vec<StringTriple>,
+    id_additions: Vec<IdTriple>,
+    removals: Vec<StringTriple>,
+    id_removals: Vec<IdTriple>,
 }
 
 impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
@@ -59,7 +64,9 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
             parent: None,
             files: LayerFiles::Base(files),
             additions: Vec::new(),
+            id_additions: Vec::with_capacity(0),
             removals: Vec::new(),
+            id_removals: Vec::with_capacity(0),
         }
     }
 
@@ -70,43 +77,10 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
             parent: Some(parent),
             files: LayerFiles::Child(files),
             additions: Vec::new(),
+            id_additions: Vec::new(),
             removals: Vec::new(),
+            id_removals: Vec::new(),
         }
-    }
-
-    fn unresolved_strings(&self) -> (Vec<String>, Vec<String>, Vec<String>) {
-        let mut node_builder: BTreeSet<String> = BTreeSet::new();
-        let mut predicate_builder: BTreeSet<String> = BTreeSet::new();
-        let mut value_builder: BTreeSet<String> = BTreeSet::new();
-        for PartiallyResolvedTriple {
-            subject,
-            predicate,
-            object,
-        } in self.additions.iter()
-        {
-            // todo - should only copy the string if we actually need to insert it
-            if !subject.is_resolved() {
-                let unresolved = subject.as_ref().unwrap_unresolved();
-                node_builder.insert(unresolved.to_owned());
-            }
-            if !predicate.is_resolved() {
-                let unresolved = predicate.as_ref().unwrap_unresolved();
-                predicate_builder.insert(unresolved.to_owned());
-            }
-            if !object.is_resolved() {
-                let unresolved = object.as_ref().unwrap_unresolved();
-                match unresolved {
-                    ObjectType::Node(node) => node_builder.insert(node.to_owned()),
-                    ObjectType::Value(value) => value_builder.insert(value.to_owned()),
-                };
-            }
-        }
-
-        (
-            node_builder.into_iter().collect(),
-            predicate_builder.into_iter().collect(),
-            value_builder.into_iter().collect(),
-        )
     }
 }
 
@@ -116,46 +90,137 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
     }
 
     fn add_string_triple(&mut self, triple: StringTriple) {
-        if self.parent.is_some() {
-            self.additions.push(
-                self.parent
-                    .as_ref()
-                    .unwrap()
-                    .string_triple_to_partially_resolved(triple),
-            );
-        } else {
-            self.additions.push(triple.to_unresolved());
-        }
+        self.additions.push(triple);
     }
 
     fn add_id_triple(&mut self, triple: IdTriple) {
-        self.additions.push(triple.to_resolved());
+        self.id_additions.push(triple);
     }
 
     fn remove_string_triple(&mut self, triple: StringTriple) {
-        self.parent
-            .as_ref()
-            .and_then(|p| p.string_triple_to_id(&triple))
-            .map(|t| self.remove_id_triple(t));
+        if self.parent.is_some() {
+            self.removals.push(triple);
+        }
     }
 
     fn remove_id_triple(&mut self, triple: IdTriple) {
-        if self.parent.is_none() {
-            return;
+        if self.parent.is_some() {
+            self.id_removals.push(triple);
         }
-
-        self.removals.push(triple);
     }
 
     fn commit(self) -> Box<dyn Future<Item = (), Error = std::io::Error> + Send> {
-        let (unresolved_nodes, unresolved_predicates, unresolved_values) =
-            self.unresolved_strings();
-        let mut additions = self.additions;
-        additions.sort_unstable();
-        additions.dedup();
-        let mut removals = self.removals;
-        removals.sort_unstable();
-        removals.dedup();
+        let parent = self.parent.clone();
+        let mut additions: Vec<_> = match parent {
+            None => self
+                .additions
+                .into_iter()
+                .map(|triple| triple.to_unresolved())
+                .collect(),
+            Some(parent) => self
+                .additions
+                .into_par_iter()
+                .map(move |triple| parent.string_triple_to_partially_resolved(triple))
+                .collect(),
+        };
+
+        additions.extend(
+            self.id_additions
+                .into_iter()
+                .map(|triple| triple.to_resolved()),
+        );
+
+        let parent = self.parent.clone();
+        let mut removals: Vec<_>;
+        if let Some(parent) = parent {
+            removals = self
+                .removals
+                .into_par_iter()
+                .filter_map(move |triple| {
+                    parent
+                        .string_triple_to_partially_resolved(triple)
+                        .as_resolved()
+                })
+                .collect();
+
+            removals.extend(self.id_removals.into_iter().map(|triple| triple));
+
+            removals.par_sort_unstable();
+            removals.dedup();
+        } else {
+            removals = Vec::with_capacity(0);
+        }
+
+        let (unresolved_nodes, (unresolved_predicates, unresolved_values)) = rayon::join(
+            || {
+                let unresolved_nodes_set: HashSet<_> = additions
+                    .par_iter()
+                    .filter_map(|triple| {
+                        let subject = match triple.subject.is_resolved() {
+                            true => None,
+                            false => Some(triple.subject.as_ref().unwrap_unresolved().to_owned()),
+                        };
+                        let object = match triple.object.is_resolved() {
+                            true => None,
+                            false => match triple.object.as_ref().unwrap_unresolved() {
+                                ObjectType::Node(node) => Some(node.to_owned()),
+                                _ => None,
+                            },
+                        };
+
+                        match (subject, object) {
+                            (Some(subject), Some(object)) => Some(vec![subject, object]),
+                            (Some(subject), _) => Some(vec![subject]),
+                            (_, Some(object)) => Some(vec![object]),
+                            _ => None,
+                        }
+                    })
+                    .flatten()
+                    .collect();
+
+                let mut unresolved_nodes: Vec<_> = unresolved_nodes_set.into_iter().collect();
+                unresolved_nodes.par_sort_unstable();
+
+                unresolved_nodes
+            },
+            || {
+                rayon::join(
+                    || {
+                        let unresolved_predicates_set: HashSet<_> = additions
+                            .par_iter()
+                            .filter_map(|triple| match triple.predicate.is_resolved() {
+                                true => None,
+                                false => {
+                                    Some(triple.predicate.as_ref().unwrap_unresolved().to_owned())
+                                }
+                            })
+                            .collect();
+                        let mut unresolved_predicates: Vec<_> =
+                            unresolved_predicates_set.into_iter().collect();
+                        unresolved_predicates.par_sort_unstable();
+
+                        unresolved_predicates
+                    },
+                    || {
+                        let unresolved_values_set: HashSet<_> = additions
+                            .par_iter()
+                            .filter_map(|triple| match triple.object.is_resolved() {
+                                true => None,
+                                false => match triple.object.as_ref().unwrap_unresolved() {
+                                    ObjectType::Value(value) => Some(value.to_owned()),
+                                    _ => None,
+                                },
+                            })
+                            .collect();
+                        let mut unresolved_values: Vec<_> =
+                            unresolved_values_set.into_iter().collect();
+                        unresolved_values.par_sort_unstable();
+                        unresolved_values
+                    },
+                )
+            },
+        );
+
         // store a copy. The original will be used to build the dictionaries.
         // The copy will be used later on to map unresolved strings to their id's before inserting
         let unresolved_nodes2 = unresolved_nodes.clone();
@@ -205,12 +270,12 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                                         .expect("triple should have been resolvable")
                                 })
                                 .collect();
-                            add_triples.sort();
-                            let remove_triples: Vec<_> = removals.into_iter().collect(); // comes out of a btreeset, so sorted
+                            add_triples.par_sort_unstable();
+                            add_triples.dedup();
 
                             builder
                                 .add_id_triples(add_triples)
-                                .and_then(move |b| b.remove_id_triples(remove_triples))
+                                .and_then(move |b| b.remove_id_triples(removals))
                                 .and_then(|b| b.finalize())
                         }),
                 )
@@ -254,7 +319,8 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                                         .expect("triple should have been resolvable")
                                 })
                                 .collect();
-                            triples.sort();
+                            triples.par_sort_unstable();
+                            triples.dedup();
 
                             builder.add_id_triples(triples).and_then(|b| b.finalize())
                         }),

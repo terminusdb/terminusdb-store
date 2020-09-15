@@ -325,10 +325,7 @@ pub trait Layer: Send + Sync {
     fn triples_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple>>;
 
     /// Convert all known strings in the given string triple to ids.
-    fn string_triple_to_partially_resolved(
-        &self,
-        triple: StringTriple,
-    ) -> PartiallyResolvedTriple {
+    fn string_triple_to_partially_resolved(&self, triple: StringTriple) -> PartiallyResolvedTriple {
         PartiallyResolvedTriple {
             subject: self
                 .subject_id(&triple.subject)
@@ -1400,6 +1397,21 @@ impl PartiallyResolvedTriple {
             predicate,
             object,
         })
+    }
+
+    pub fn as_resolved(&self) -> Option<IdTriple> {
+        if !self.subject.is_resolved()
+            || !self.predicate.is_resolved()
+            || !self.object.is_resolved()
+        {
+            None
+        } else {
+            Some(IdTriple::new(
+                self.subject.as_ref().unwrap_resolved(),
+                self.predicate.as_ref().unwrap_resolved(),
+                self.object.as_ref().unwrap_resolved(),
+            ))
+        }
     }
 }
 
