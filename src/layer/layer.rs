@@ -320,6 +320,10 @@ pub trait Layer: Send + Sync {
         })
     }
 
+    fn triple_additions_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple>>;
+    fn triple_removals_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple>>;
+    fn triples_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple>>;
+
     fn triple_additions_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple>>;
     fn triple_removals_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple>>;
     fn triples_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple>>;

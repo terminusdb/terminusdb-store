@@ -1,4 +1,5 @@
 mod object_iterator;
+mod predicate_iterator;
 mod subject_iterator;
 
 use super::base::*;
@@ -8,6 +9,7 @@ use crate::structure::*;
 use std::ops::Deref;
 
 pub use object_iterator::*;
+pub use predicate_iterator::*;
 pub use subject_iterator::*;
 
 fn external_id_to_internal(array_option: Option<&MonotonicLogArray>, id: u64) -> Option<u64> {
@@ -126,6 +128,47 @@ pub trait InternalLayerImpl {
                 _ => None,
             },
         )
+    }
+
+    fn internal_triple_additions_by_predicate(
+        &self,
+        predicate: u64,
+    ) -> OptInternalLayerTriplePredicateIterator {
+        match self.pos_predicate_wavelet_tree().lookup(predicate) {
+            Some(lookup) => OptInternalLayerTriplePredicateIterator(Some(
+                InternalLayerTriplePredicateIterator::new(
+                    lookup,
+                    self.pos_subjects(),
+                    self.pos_s_p_adjacency_list(),
+                    self.pos_sp_o_adjacency_list(),
+                ),
+            )),
+            None => OptInternalLayerTriplePredicateIterator(None),
+        }
+    }
+
+    fn internal_triple_removals_by_predicate(
+        &self,
+        predicate: u64,
+    ) -> OptInternalLayerTriplePredicateIterator {
+        match (
+            self.neg_predicate_wavelet_tree()
+                .and_then(|t| t.lookup(predicate)),
+            self.neg_s_p_adjacency_list(),
+            self.neg_sp_o_adjacency_list(),
+        ) {
+            (Some(lookup), Some(s_p_adjacency_list), Some(sp_o_adjacency_list)) => {
+                OptInternalLayerTriplePredicateIterator(Some(
+                    InternalLayerTriplePredicateIterator::new(
+                        lookup,
+                        self.neg_subjects(),
+                        s_p_adjacency_list,
+                        sp_o_adjacency_list,
+                    ),
+                ))
+            }
+            _ => OptInternalLayerTriplePredicateIterator(None),
+        }
     }
 
     fn internal_triple_additions_by_object(&self) -> OptInternalLayerTripleObjectIterator {
@@ -924,6 +967,18 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
                 .seek_subject_predicate(subject, predicate)
                 .take_while(move |t| t.subject == subject && t.predicate == predicate),
         )
+    }
+
+    fn triple_additions_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+        Box::new(self.internal_triple_additions_by_predicate(predicate))
+    }
+
+    fn triple_removals_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+        Box::new(self.internal_triple_removals_by_predicate(predicate))
+    }
+
+    fn triples_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+        Box::new(InternalTriplePredicateIterator::from_layer(self, predicate))
     }
 
     fn triple_additions_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple>> {

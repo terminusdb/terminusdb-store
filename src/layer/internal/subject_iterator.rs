@@ -108,6 +108,14 @@ impl InternalLayerTripleSubjectIterator {
         }
     }
 
+    pub fn seek_s_p_pos(&mut self, pos: u64) {
+        self.peeked = None;
+
+        self.s_p_position = pos;
+        self.s_position = self.s_p_adjacency_list.left_at_pos(pos) - 1;
+        self.sp_o_position = self.sp_o_adjacency_list.offset_for(self.s_p_position + 1);
+    }
+
     pub fn peek(&mut self) -> Option<&IdTriple> {
         self.peeked = self.next();
 
