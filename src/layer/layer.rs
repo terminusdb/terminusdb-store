@@ -327,26 +327,26 @@ pub trait Layer: Send + Sync {
     /// Convert all known strings in the given string triple to ids.
     fn string_triple_to_partially_resolved(
         &self,
-        triple: &StringTriple,
+        triple: StringTriple,
     ) -> PartiallyResolvedTriple {
         PartiallyResolvedTriple {
             subject: self
                 .subject_id(&triple.subject)
                 .map(|id| PossiblyResolved::Resolved(id))
-                .unwrap_or(PossiblyResolved::Unresolved(triple.subject.clone())),
+                .unwrap_or(PossiblyResolved::Unresolved(triple.subject)),
             predicate: self
                 .predicate_id(&triple.predicate)
                 .map(|id| PossiblyResolved::Resolved(id))
-                .unwrap_or(PossiblyResolved::Unresolved(triple.predicate.clone())),
+                .unwrap_or(PossiblyResolved::Unresolved(triple.predicate)),
             object: match &triple.object {
                 ObjectType::Node(node) => self
                     .object_node_id(&node)
                     .map(|id| PossiblyResolved::Resolved(id))
-                    .unwrap_or(PossiblyResolved::Unresolved(triple.object.clone())),
+                    .unwrap_or(PossiblyResolved::Unresolved(triple.object)),
                 ObjectType::Value(value) => self
                     .object_value_id(&value)
                     .map(|id| PossiblyResolved::Resolved(id))
-                    .unwrap_or(PossiblyResolved::Unresolved(triple.object.clone())),
+                    .unwrap_or(PossiblyResolved::Unresolved(triple.object)),
             },
         }
     }
@@ -1315,11 +1315,11 @@ impl StringTriple {
     }
 
     /// Convert this triple to a `PartiallyResolvedTriple`, marking each field as unresolved.
-    pub fn to_unresolved(&self) -> PartiallyResolvedTriple {
+    pub fn to_unresolved(self) -> PartiallyResolvedTriple {
         PartiallyResolvedTriple {
-            subject: PossiblyResolved::Unresolved(self.subject.clone()),
-            predicate: PossiblyResolved::Unresolved(self.predicate.clone()),
-            object: PossiblyResolved::Unresolved(self.object.clone()),
+            subject: PossiblyResolved::Unresolved(self.subject),
+            predicate: PossiblyResolved::Unresolved(self.predicate),
+            object: PossiblyResolved::Unresolved(self.object),
         }
     }
 }
@@ -1439,8 +1439,8 @@ mod tests {
         let files = base_layer_files();
         let mut builder = SimpleLayerBuilder::new([1, 2, 3, 4, 5], files.clone());
 
-        builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
-        builder.add_string_triple(&StringTriple::new_value("cow", "says", "sniff"));
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "sniff"));
 
         oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
@@ -1456,7 +1456,7 @@ mod tests {
         let files = child_layer_files();
         let mut builder =
             SimpleLayerBuilder::from_parent([5, 4, 3, 2, 1], base.clone(), files.clone());
-        builder.remove_string_triple(&StringTriple::new_value("cow", "says", "moo"));
+        builder.remove_string_triple(StringTriple::new_value("cow", "says", "moo"));
         oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
             .unwrap();
@@ -1502,7 +1502,7 @@ mod tests {
         let files = base_layer_files();
         let mut builder = SimpleLayerBuilder::new([1, 2, 3, 4, 5], files.clone());
 
-        builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
 
         oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
@@ -1518,7 +1518,7 @@ mod tests {
         let files = child_layer_files();
         let mut builder =
             SimpleLayerBuilder::from_parent([5, 4, 3, 2, 1], base.clone(), files.clone());
-        builder.remove_string_triple(&StringTriple::new_value("cow", "says", "moo"));
+        builder.remove_string_triple(StringTriple::new_value("cow", "says", "moo"));
         oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
             .unwrap();
@@ -1533,7 +1533,7 @@ mod tests {
         let files = child_layer_files();
         let mut builder =
             SimpleLayerBuilder::from_parent([5, 4, 3, 2, 2], child.clone(), files.clone());
-        builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
         oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
             .unwrap();
@@ -1559,8 +1559,8 @@ mod tests {
         let files = base_layer_files();
         let mut builder = SimpleLayerBuilder::new([1, 2, 3, 4, 5], files.clone());
 
-        builder.add_string_triple(&StringTriple::new_value("cow", "hears", "moo"));
-        builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
+        builder.add_string_triple(StringTriple::new_value("cow", "hears", "moo"));
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
 
         oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
@@ -1576,7 +1576,7 @@ mod tests {
         let files = child_layer_files();
         let mut builder =
             SimpleLayerBuilder::from_parent([5, 4, 3, 2, 1], base.clone(), files.clone());
-        builder.remove_string_triple(&StringTriple::new_value("cow", "hears", "moo"));
+        builder.remove_string_triple(StringTriple::new_value("cow", "hears", "moo"));
         oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
             .unwrap();
@@ -1603,7 +1603,7 @@ mod tests {
         let files = base_layer_files();
         let mut builder = SimpleLayerBuilder::new([1, 2, 3, 4, 5], files.clone());
 
-        builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
 
         oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
@@ -1619,7 +1619,7 @@ mod tests {
         let files = child_layer_files();
         let mut builder =
             SimpleLayerBuilder::from_parent([5, 4, 3, 2, 1], base.clone(), files.clone());
-        builder.remove_string_triple(&StringTriple::new_value("cow", "says", "moo"));
+        builder.remove_string_triple(StringTriple::new_value("cow", "says", "moo"));
         oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
             .unwrap();
@@ -1634,7 +1634,7 @@ mod tests {
         let files = child_layer_files();
         let mut builder =
             SimpleLayerBuilder::from_parent([5, 4, 3, 2, 2], child.clone(), files.clone());
-        builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
         oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
             .unwrap();

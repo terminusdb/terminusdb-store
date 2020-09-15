@@ -25,11 +25,11 @@ pub trait LayerBuilder: Send + Sync {
     /// Returns the name of the layer being built
     fn name(&self) -> [u32; 5];
     /// Add a string triple
-    fn add_string_triple(&mut self, triple: &StringTriple);
+    fn add_string_triple(&mut self, triple: StringTriple);
     /// Add an id triple
     fn add_id_triple(&mut self, triple: IdTriple);
     /// Remove a string triple
-    fn remove_string_triple(&mut self, triple: &StringTriple);
+    fn remove_string_triple(&mut self, triple: StringTriple);
     /// Remove an id triple
     fn remove_id_triple(&mut self, triple: IdTriple);
     /// Commit the layer to storage
@@ -115,7 +115,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
         self.name
     }
 
-    fn add_string_triple(&mut self, triple: &StringTriple) {
+    fn add_string_triple(&mut self, triple: StringTriple) {
         if self.parent.is_some() {
             self.additions.push(
                 self.parent
@@ -132,7 +132,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
         self.additions.push(triple.to_resolved());
     }
 
-    fn remove_string_triple(&mut self, triple: &StringTriple) {
+    fn remove_string_triple(&mut self, triple: StringTriple) {
         self.parent
             .as_ref()
             .and_then(|p| p.string_triple_to_id(&triple))
@@ -413,9 +413,9 @@ mod tests {
         let files = new_base_files();
         let mut builder = SimpleLayerBuilder::new(name, files.clone());
 
-        builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
-        builder.add_string_triple(&StringTriple::new_value("pig", "says", "oink"));
-        builder.add_string_triple(&StringTriple::new_value("duck", "says", "quack"));
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
+        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
 
         oneshot::spawn(builder.commit(), executor).wait().unwrap();
 
@@ -441,9 +441,9 @@ mod tests {
         let name = [0, 0, 0, 0, 0];
         let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
 
-        builder.add_string_triple(&StringTriple::new_value("horse", "says", "neigh"));
-        builder.add_string_triple(&StringTriple::new_node("horse", "likes", "cow"));
-        builder.remove_string_triple(&StringTriple::new_value("duck", "says", "quack"));
+        builder.add_string_triple(StringTriple::new_value("horse", "says", "neigh"));
+        builder.add_string_triple(StringTriple::new_node("horse", "likes", "cow"));
+        builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
 
         oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
@@ -474,9 +474,9 @@ mod tests {
         let mut builder =
             SimpleLayerBuilder::from_parent(name2, base_layer.clone(), files2.clone());
 
-        builder.add_string_triple(&StringTriple::new_value("horse", "says", "neigh"));
-        builder.add_string_triple(&StringTriple::new_node("horse", "likes", "cow"));
-        builder.remove_string_triple(&StringTriple::new_value("duck", "says", "quack"));
+        builder.add_string_triple(StringTriple::new_value("horse", "says", "neigh"));
+        builder.add_string_triple(StringTriple::new_node("horse", "likes", "cow"));
+        builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
 
         oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
@@ -491,9 +491,9 @@ mod tests {
         let name3 = [0, 0, 0, 0, 1];
         let files3 = new_child_files();
         builder = SimpleLayerBuilder::from_parent(name3, layer2.clone(), files3.clone());
-        builder.remove_string_triple(&StringTriple::new_node("horse", "likes", "cow"));
-        builder.add_string_triple(&StringTriple::new_node("horse", "likes", "pig"));
-        builder.add_string_triple(&StringTriple::new_value("duck", "says", "quack"));
+        builder.remove_string_triple(StringTriple::new_node("horse", "likes", "cow"));
+        builder.add_string_triple(StringTriple::new_node("horse", "likes", "pig"));
+        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
 
         oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
@@ -508,8 +508,8 @@ mod tests {
         let name4 = [0, 0, 0, 0, 1];
         let files4 = new_child_files();
         builder = SimpleLayerBuilder::from_parent(name4, layer3.clone(), files4.clone());
-        builder.remove_string_triple(&StringTriple::new_value("pig", "says", "oink"));
-        builder.add_string_triple(&StringTriple::new_node("cow", "likes", "horse"));
+        builder.remove_string_triple(StringTriple::new_value("pig", "says", "oink"));
+        builder.add_string_triple(StringTriple::new_node("cow", "likes", "horse"));
         oneshot::spawn(builder.commit(), &runtime.executor())
             .wait()
             .unwrap();

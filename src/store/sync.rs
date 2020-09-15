@@ -72,7 +72,7 @@ impl SyncStoreLayerBuilder {
     }
 
     /// Add a string triple
-    pub fn add_string_triple(&self, triple: &StringTriple) -> Result<(), io::Error> {
+    pub fn add_string_triple(&self, triple: StringTriple) -> Result<(), io::Error> {
         self.inner.add_string_triple(triple)
     }
 
@@ -82,7 +82,7 @@ impl SyncStoreLayerBuilder {
     }
 
     /// Remove a string triple
-    pub fn remove_string_triple(&self, triple: &StringTriple) -> Result<(), io::Error> {
+    pub fn remove_string_triple(&self, triple: StringTriple) -> Result<(), io::Error> {
         self.inner.remove_string_triple(triple)
     }
 
@@ -473,7 +473,7 @@ mod tests {
 
         let mut builder = store.create_base_layer().unwrap();
         builder
-            .add_string_triple(&StringTriple::new_value("cow", "says", "moo"))
+            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
         let layer = builder.commit().unwrap();
@@ -481,7 +481,7 @@ mod tests {
 
         builder = layer.open_write().unwrap();
         builder
-            .add_string_triple(&StringTriple::new_value("pig", "says", "oink"))
+            .add_string_triple(StringTriple::new_value("pig", "says", "oink"))
             .unwrap();
 
         let layer2 = builder.commit().unwrap();
@@ -506,7 +506,7 @@ mod tests {
 
         let mut builder = store.create_base_layer().unwrap();
         builder
-            .add_string_triple(&StringTriple::new_value("cow", "says", "moo"))
+            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
         let layer = builder.commit().unwrap();
@@ -514,7 +514,7 @@ mod tests {
 
         builder = layer.open_write().unwrap();
         builder
-            .add_string_triple(&StringTriple::new_value("pig", "says", "oink"))
+            .add_string_triple(StringTriple::new_value("pig", "says", "oink"))
             .unwrap();
 
         let layer2 = builder.commit().unwrap();
@@ -533,7 +533,7 @@ mod tests {
         let store = open_sync_memory_store();
         let builder = store.create_base_layer().unwrap();
         builder
-            .add_string_triple(&StringTriple::new_value("cow", "says", "moo"))
+            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
         let layer = builder.commit().unwrap();
@@ -549,7 +549,7 @@ mod tests {
         let store = open_sync_memory_store();
         let builder = store.create_base_layer().unwrap();
         builder
-            .add_string_triple(&StringTriple::new_value("cow", "says", "moo"))
+            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
         assert!(!builder.committed());
@@ -570,19 +570,19 @@ mod tests {
 
         let builder1 = store1.create_base_layer().unwrap();
         builder1
-            .add_string_triple(&StringTriple::new_value("cow", "says", "moo"))
+            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
         let layer1 = builder1.commit().unwrap();
 
         let builder2 = store1.create_base_layer().unwrap();
         builder2
-            .add_string_triple(&StringTriple::new_value("duck", "says", "quack"))
+            .add_string_triple(StringTriple::new_value("duck", "says", "quack"))
             .unwrap();
         let layer2 = builder2.commit().unwrap();
 
         let builder3 = layer2.open_write().unwrap();
         builder3
-            .add_string_triple(&StringTriple::new_value("horse", "says", "neigh"))
+            .add_string_triple(StringTriple::new_value("horse", "says", "neigh"))
             .unwrap();
         let layer3 = builder3.commit().unwrap();
 

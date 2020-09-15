@@ -748,10 +748,10 @@ mod tests {
         let mut builder = store.create_base_layer().wait().unwrap();
         let base_name = builder.name();
 
-        builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
-        builder.add_string_triple(&StringTriple::new_value("duck", "says", "quack"));
-        builder.add_string_triple(&StringTriple::new_node("cow", "likes", "duck"));
-        builder.add_string_triple(&StringTriple::new_node("duck", "hates", "cow"));
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
+        builder.add_string_triple(StringTriple::new_node("cow", "likes", "duck"));
+        builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
         oneshot::spawn(builder.commit_boxed(), &runtime.executor())
             .wait()
             .unwrap();
@@ -759,8 +759,8 @@ mod tests {
         builder = store.create_child_layer(base_name).wait().unwrap();
         let child1_name = builder.name();
 
-        builder.add_string_triple(&StringTriple::new_value("horse", "says", "neigh"));
-        builder.add_string_triple(&StringTriple::new_node("horse", "likes", "horse"));
+        builder.add_string_triple(StringTriple::new_value("horse", "says", "neigh"));
+        builder.add_string_triple(StringTriple::new_node("horse", "likes", "horse"));
         oneshot::spawn(builder.commit_boxed(), &runtime.executor())
             .wait()
             .unwrap();
@@ -768,8 +768,8 @@ mod tests {
         builder = store.create_child_layer(child1_name).wait().unwrap();
         let child2_name = builder.name();
 
-        builder.remove_string_triple(&StringTriple::new_node("duck", "hates", "cow"));
-        builder.add_string_triple(&StringTriple::new_node("duck", "likes", "cow"));
+        builder.remove_string_triple(StringTriple::new_node("duck", "hates", "cow"));
+        builder.add_string_triple(StringTriple::new_node("duck", "likes", "cow"));
         oneshot::spawn(builder.commit_boxed(), &runtime.executor())
             .wait()
             .unwrap();
@@ -777,8 +777,8 @@ mod tests {
         builder = store.create_child_layer(child2_name).wait().unwrap();
         let child3_name = builder.name();
 
-        builder.remove_string_triple(&StringTriple::new_node("duck", "likes", "cow"));
-        builder.add_string_triple(&StringTriple::new_node("duck", "hates", "cow"));
+        builder.remove_string_triple(StringTriple::new_node("duck", "likes", "cow"));
+        builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
         oneshot::spawn(builder.commit_boxed(), &runtime.executor())
             .wait()
             .unwrap();
@@ -786,8 +786,8 @@ mod tests {
         builder = store.create_child_layer(child3_name).wait().unwrap();
         let child4_name = builder.name();
 
-        builder.remove_string_triple(&StringTriple::new_node("duck", "hates", "cow"));
-        builder.add_string_triple(&StringTriple::new_node("duck", "likes", "cow"));
+        builder.remove_string_triple(StringTriple::new_node("duck", "hates", "cow"));
+        builder.add_string_triple(StringTriple::new_node("duck", "likes", "cow"));
         oneshot::spawn(builder.commit_boxed(), &runtime.executor())
             .wait()
             .unwrap();
@@ -815,10 +815,10 @@ mod tests {
         let mut builder = store.create_base_layer().wait().unwrap();
         let base_name = builder.name();
 
-        builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
-        builder.add_string_triple(&StringTriple::new_value("duck", "says", "quack"));
-        builder.add_string_triple(&StringTriple::new_node("cow", "likes", "duck"));
-        builder.add_string_triple(&StringTriple::new_node("duck", "hates", "cow"));
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
+        builder.add_string_triple(StringTriple::new_node("cow", "likes", "duck"));
+        builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
         oneshot::spawn(builder.commit_boxed(), &runtime.executor())
             .wait()
             .unwrap();
@@ -826,8 +826,8 @@ mod tests {
         builder = store.create_child_layer(base_name).wait().unwrap();
         let child1_name = builder.name();
 
-        builder.add_string_triple(&StringTriple::new_value("horse", "says", "neigh"));
-        builder.add_string_triple(&StringTriple::new_node("horse", "likes", "horse"));
+        builder.add_string_triple(StringTriple::new_value("horse", "says", "neigh"));
+        builder.add_string_triple(StringTriple::new_node("horse", "likes", "horse"));
         oneshot::spawn(builder.commit_boxed(), &runtime.executor())
             .wait()
             .unwrap();
@@ -835,9 +835,9 @@ mod tests {
         builder = store.create_child_layer(child1_name).wait().unwrap();
         let child2_name = builder.name();
 
-        builder.remove_string_triple(&StringTriple::new_node("duck", "hates", "cow"));
-        builder.add_string_triple(&StringTriple::new_node("duck", "likes", "cow"));
-        builder.add_string_triple(&StringTriple::new_node("duck", "likes", "horse"));
+        builder.remove_string_triple(StringTriple::new_node("duck", "hates", "cow"));
+        builder.add_string_triple(StringTriple::new_node("duck", "likes", "cow"));
+        builder.add_string_triple(StringTriple::new_node("duck", "likes", "horse"));
         oneshot::spawn(builder.commit_boxed(), &runtime.executor())
             .wait()
             .unwrap();
@@ -845,9 +845,9 @@ mod tests {
         builder = store.create_child_layer(child2_name).wait().unwrap();
         let child3_name = builder.name();
 
-        builder.remove_string_triple(&StringTriple::new_node("duck", "likes", "cow"));
-        builder.add_string_triple(&StringTriple::new_node("duck", "hates", "cow"));
-        builder.add_string_triple(&StringTriple::new_node("duck", "likes", "pig"));
+        builder.remove_string_triple(StringTriple::new_node("duck", "likes", "cow"));
+        builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
+        builder.add_string_triple(StringTriple::new_node("duck", "likes", "pig"));
         oneshot::spawn(builder.commit_boxed(), &runtime.executor())
             .wait()
             .unwrap();
@@ -855,10 +855,10 @@ mod tests {
         builder = store.create_child_layer(child3_name).wait().unwrap();
         let child4_name = builder.name();
 
-        builder.remove_string_triple(&StringTriple::new_node("duck", "hates", "cow"));
-        builder.remove_string_triple(&StringTriple::new_node("duck", "likes", "horse"));
-        builder.add_string_triple(&StringTriple::new_node("duck", "likes", "cow"));
-        builder.add_string_triple(&StringTriple::new_node("duck", "likes", "rabbit"));
+        builder.remove_string_triple(StringTriple::new_node("duck", "hates", "cow"));
+        builder.remove_string_triple(StringTriple::new_node("duck", "likes", "horse"));
+        builder.add_string_triple(StringTriple::new_node("duck", "likes", "cow"));
+        builder.add_string_triple(StringTriple::new_node("duck", "likes", "rabbit"));
         oneshot::spawn(builder.commit_boxed(), &runtime.executor())
             .wait()
             .unwrap();

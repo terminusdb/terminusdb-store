@@ -535,9 +535,9 @@ mod tests {
             .and_then(|mut builder| {
                 let base_name = builder.name();
 
-                builder.add_string_triple(&StringTriple::new_value("cow", "says", "moo"));
-                builder.add_string_triple(&StringTriple::new_value("pig", "says", "oink"));
-                builder.add_string_triple(&StringTriple::new_value("duck", "says", "quack"));
+                builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+                builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
+                builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
 
                 builder.commit_boxed().map(move |_| base_name)
             })
@@ -547,10 +547,10 @@ mod tests {
                     .and_then(|mut builder| {
                         let child_name = builder.name();
 
-                        builder.remove_string_triple(&StringTriple::new_value(
+                        builder.remove_string_triple(StringTriple::new_value(
                             "duck", "says", "quack",
                         ));
-                        builder.add_string_triple(&StringTriple::new_node("cow", "likes", "pig"));
+                        builder.add_string_triple(StringTriple::new_node("cow", "likes", "pig"));
 
                         builder.commit_boxed().map(move |_| child_name)
                     })

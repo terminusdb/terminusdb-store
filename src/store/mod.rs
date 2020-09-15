@@ -72,8 +72,8 @@ impl StoreLayerBuilder {
     }
 
     /// Add a string triple
-    pub fn add_string_triple(&self, triple: &StringTriple) -> Result<(), io::Error> {
-        self.with_builder(move |b| b.add_string_triple(&triple))
+    pub fn add_string_triple(&self, triple: StringTriple) -> Result<(), io::Error> {
+        self.with_builder(move |b| b.add_string_triple(triple))
     }
 
     /// Add an id triple
@@ -82,8 +82,8 @@ impl StoreLayerBuilder {
     }
 
     /// Remove a string triple
-    pub fn remove_string_triple(&self, triple: &StringTriple) -> Result<(), io::Error> {
-        self.with_builder(move |b| b.remove_string_triple(&triple))
+    pub fn remove_string_triple(&self, triple: StringTriple) -> Result<(), io::Error> {
+        self.with_builder(move |b| b.remove_string_triple(triple))
     }
 
     /// Remove an id triple
@@ -136,13 +136,13 @@ impl StoreLayerBuilder {
         delta.triple_additions().for_each(|t| {
             delta
                 .id_triple_to_string(&t)
-                .map(|st| self.add_string_triple(&st));
+                .map(|st| self.add_string_triple(st));
         });
 
         delta.triple_removals().for_each(|t| {
             delta
                 .id_triple_to_string(&t)
-                .map(|st| self.remove_string_triple(&st));
+                .map(|st| self.remove_string_triple(st));
         });
 
         Ok(())
@@ -199,7 +199,7 @@ impl StoreLayer {
                     .map(|t| self_clone.id_triple_to_string(&t).unwrap());
 
                 for st in iter {
-                    new_builder.add_string_triple(&st).unwrap()
+                    new_builder.add_string_triple(st).unwrap()
                 }
 
                 new_builder.commit()
@@ -672,7 +672,7 @@ mod tests {
             .wait()
             .unwrap();
         builder
-            .add_string_triple(&StringTriple::new_value("cow", "says", "moo"))
+            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
         let layer = oneshot::spawn(builder.commit(), &runtime.executor())
@@ -688,7 +688,7 @@ mod tests {
             .wait()
             .unwrap();
         builder
-            .add_string_triple(&StringTriple::new_value("pig", "says", "oink"))
+            .add_string_triple(StringTriple::new_value("pig", "says", "oink"))
             .unwrap();
 
         let layer2 = oneshot::spawn(builder.commit(), &runtime.executor())
@@ -730,7 +730,7 @@ mod tests {
             .wait()
             .unwrap();
         builder
-            .add_string_triple(&StringTriple::new_value("cow", "says", "moo"))
+            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
         let layer = oneshot::spawn(builder.commit(), &runtime.executor())
@@ -746,7 +746,7 @@ mod tests {
             .wait()
             .unwrap();
         builder
-            .add_string_triple(&StringTriple::new_value("pig", "says", "oink"))
+            .add_string_triple(StringTriple::new_value("pig", "says", "oink"))
             .unwrap();
 
         let layer2 = oneshot::spawn(builder.commit(), &runtime.executor())
@@ -778,7 +778,7 @@ mod tests {
             .wait()
             .unwrap();
         builder
-            .add_string_triple(&StringTriple::new_value("cow", "says", "moo"))
+            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
         let layer = oneshot::spawn(builder.commit(), &runtime.executor())
@@ -803,7 +803,7 @@ mod tests {
             .wait()
             .unwrap();
         builder
-            .add_string_triple(&StringTriple::new_value("cow", "says", "moo"))
+            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
         assert!(!builder.committed());
@@ -828,7 +828,7 @@ mod tests {
             .wait()
             .unwrap();
         builder1
-            .add_string_triple(&StringTriple::new_value("cow", "says", "moo"))
+            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
         let layer1 = oneshot::spawn(builder1.commit(), &runtime.executor())
@@ -845,7 +845,7 @@ mod tests {
             .wait()
             .unwrap();
         builder2
-            .add_string_triple(&StringTriple::new_value("duck", "says", "quack"))
+            .add_string_triple(StringTriple::new_value("duck", "says", "quack"))
             .unwrap();
 
         let layer2 = oneshot::spawn(builder2.commit(), &runtime.executor())
@@ -876,7 +876,7 @@ mod tests {
             .wait()
             .unwrap();
         builder
-            .add_string_triple(&StringTriple::new_value("cow", "says", "moo"))
+            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
         let layer = oneshot::spawn(builder.commit(), &runtime.executor())
@@ -888,7 +888,7 @@ mod tests {
             .unwrap();
 
         builder2
-            .add_string_triple(&StringTriple::new_value("dog", "says", "woof"))
+            .add_string_triple(StringTriple::new_value("dog", "says", "woof"))
             .unwrap();
 
         let layer2 = oneshot::spawn(builder2.commit(), &runtime.executor())
@@ -917,7 +917,7 @@ mod tests {
             .unwrap();
 
         builder
-            .add_string_triple(&StringTriple::new_value("cow", "says", "moo"))
+            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
         let layer = oneshot::spawn(builder.commit(), &runtime.executor())
@@ -929,7 +929,7 @@ mod tests {
             .unwrap();
 
         builder2
-            .add_string_triple(&StringTriple::new_value("dog", "says", "woof"))
+            .add_string_triple(StringTriple::new_value("dog", "says", "woof"))
             .unwrap();
 
         let layer2 = oneshot::spawn(builder2.commit(), &runtime.executor())
@@ -941,10 +941,10 @@ mod tests {
             .unwrap();
 
         delta_builder_1
-            .add_string_triple(&StringTriple::new_value("dog", "says", "woof"))
+            .add_string_triple(StringTriple::new_value("dog", "says", "woof"))
             .unwrap();
         delta_builder_1
-            .add_string_triple(&StringTriple::new_value("cat", "says", "meow"))
+            .add_string_triple(StringTriple::new_value("cat", "says", "meow"))
             .unwrap();
 
         let delta_1 = oneshot::spawn(delta_builder_1.commit(), &runtime.executor())
@@ -956,10 +956,10 @@ mod tests {
             .unwrap();
 
         delta_builder_2
-            .add_string_triple(&StringTriple::new_value("crow", "says", "caw"))
+            .add_string_triple(StringTriple::new_value("crow", "says", "caw"))
             .unwrap();
         delta_builder_2
-            .remove_string_triple(&StringTriple::new_value("cat", "says", "meow"))
+            .remove_string_triple(StringTriple::new_value("cat", "says", "meow"))
             .unwrap();
 
         let delta = oneshot::spawn(delta_builder_2.commit(), &runtime.executor())
