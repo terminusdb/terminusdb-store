@@ -11,6 +11,7 @@ use crate::structure::*;
 use futures::future;
 use futures::prelude::*;
 use futures::stream;
+use rayon::prelude::*;
 
 use std::io;
 use std::sync::Arc;
@@ -549,6 +550,31 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         }
     }
 
+    fn add_triple_unchecked(
+        self,
+        subject: u64,
+        predicate: u64,
+        object: u64,
+    ) -> impl Future<Item = Self, Error = std::io::Error> + Send {
+        let ChildLayerFileBuilderPhase2 {
+            parent,
+            files,
+
+            pos_builder,
+            neg_builder,
+        } = self;
+
+        pos_builder
+            .add_triple(subject, predicate, object)
+            .map(move |pos_builder| ChildLayerFileBuilderPhase2 {
+                parent,
+                files,
+
+                pos_builder,
+                neg_builder,
+            })
+    }
+
     /// Add the given subject, predicate and object.
     ///
     /// This will panic if a greater triple has already been added,
@@ -564,6 +590,15 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
             return future::Either::A(future::ok(self));
         }
 
+        future::Either::B(self.add_triple_unchecked(subject, predicate, object))
+    }
+
+    fn remove_triple_unchecked(
+        self,
+        subject: u64,
+        predicate: u64,
+        object: u64,
+    ) -> impl Future<Item = Self, Error = std::io::Error> + Send {
         let ChildLayerFileBuilderPhase2 {
             parent,
             files,
@@ -572,15 +607,15 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
             neg_builder,
         } = self;
 
-        future::Either::B(pos_builder.add_triple(subject, predicate, object).map(
-            move |pos_builder| ChildLayerFileBuilderPhase2 {
+        neg_builder
+            .add_triple(subject, predicate, object)
+            .map(move |neg_builder| ChildLayerFileBuilderPhase2 {
                 parent,
                 files,
 
                 pos_builder,
                 neg_builder,
-            },
-        ))
+            })
     }
 
     /// Remove the given subject, predicate and object.
@@ -598,38 +633,26 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
             return future::Either::A(future::ok(self));
         }
 
-        let ChildLayerFileBuilderPhase2 {
-            parent,
-            files,
-
-            pos_builder,
-            neg_builder,
-        } = self;
-
-        future::Either::B(neg_builder.add_triple(subject, predicate, object).map(
-            move |neg_builder| ChildLayerFileBuilderPhase2 {
-                parent,
-                files,
-
-                pos_builder,
-                neg_builder,
-            },
-        ))
+        future::Either::B(self.remove_triple_unchecked(subject, predicate, object))
     }
 
     /// Add the given triple.
     ///
     /// This will panic if a greater triple has already been added,
     /// and do nothing if the parent already contains this triple.
-    pub fn add_id_triples<I: 'static + IntoIterator<Item = IdTriple>>(
+    pub fn add_id_triples(
         self,
-        triples: I,
-    ) -> impl Future<Item = Self, Error = std::io::Error> + Send
-    where
-        <I as std::iter::IntoIterator>::IntoIter: Send,
-    {
-        stream::iter_ok(triples).fold(self, |b, triple| {
-            b.add_triple(triple.subject, triple.predicate, triple.object)
+        triples: Vec<IdTriple>,
+    ) -> impl Future<Item = Self, Error = std::io::Error> + Send {
+        let parent = self.parent.clone();
+        let filtered: Vec<_> = triples
+            .into_par_iter()
+            .filter(move |triple| {
+                !parent.triple_exists(triple.subject, triple.predicate, triple.object)
+            })
+            .collect();
+        stream::iter_ok(filtered).fold(self, |b, triple| {
+            b.add_triple_unchecked(triple.subject, triple.predicate, triple.object)
         })
     }
 
@@ -637,15 +660,19 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     ///
     /// This will panic if a greater triple has already been removed,
     /// and do nothing if the parent doesn't know aobut this triple.
-    pub fn remove_id_triples<I: 'static + IntoIterator<Item = IdTriple>>(
+    pub fn remove_id_triples(
         self,
-        triples: I,
-    ) -> impl Future<Item = Self, Error = std::io::Error> + Send
-    where
-        <I as std::iter::IntoIterator>::IntoIter: Send,
-    {
-        stream::iter_ok(triples).fold(self, |b, triple| {
-            b.remove_triple(triple.subject, triple.predicate, triple.object)
+        triples: Vec<IdTriple>,
+    ) -> impl Future<Item = Self, Error = std::io::Error> + Send {
+        let parent = self.parent.clone();
+        let filtered: Vec<_> = triples
+            .into_par_iter()
+            .filter(move |triple| {
+                parent.triple_exists(triple.subject, triple.predicate, triple.object)
+            })
+            .collect();
+        stream::iter_ok(filtered).fold(self, |b, triple| {
+            b.remove_triple_unchecked(triple.subject, triple.predicate, triple.object)
         })
     }
 

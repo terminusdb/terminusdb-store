@@ -22,6 +22,7 @@ lazy_static = "1.4"
 fs2 = "0.4.3"
 tar = "0.4"
 flate2 = "1.0"
+rayon = "1.4"
 
 [dev-dependencies]
 tempfile = "3.1"
