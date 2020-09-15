@@ -4,6 +4,8 @@ use futures::future;
 use futures::prelude::*;
 use futures::stream;
 
+use rayon::prelude::*;
+
 use super::layer::*;
 use crate::storage::*;
 use crate::structure::*;
@@ -387,12 +389,12 @@ pub fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad + Fil
                 aj_width,
             );
 
-            pairs.sort_unstable();
+            pairs.par_sort_unstable();
 
             let objects_builder;
             let build_o_ps_task;
             if let Some(objects_file) = objects_file {
-                objects.sort_unstable();
+                objects.par_sort_unstable();
                 objects.dedup();
                 let greatest_object = objects.iter().next_back().unwrap_or(&0);
                 let objects_width = ((*greatest_object + 1) as f32).log2().ceil() as u8;
