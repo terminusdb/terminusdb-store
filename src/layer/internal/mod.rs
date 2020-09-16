@@ -795,12 +795,20 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
 
     fn triple_layer_addition_count(&self) -> usize {
         self.pos_sp_o_adjacency_list().right_count()
+            - self
+                .pos_predicate_wavelet_tree()
+                .lookup(0)
+                .map(|l| l.len())
+                .unwrap_or(0)
     }
 
     fn triple_layer_removal_count(&self) -> usize {
-        self.neg_sp_o_adjacency_list()
-            .map(|aj| aj.right_count())
-            .unwrap_or(0)
+        match self.neg_sp_o_adjacency_list() {
+            None => 0,
+            Some(adjacency_list) => adjacency_list.right_count()
+                - self.neg_predicate_wavelet_tree().expect("negative wavelet tree should exist when negative sp_o adjacency list exists")
+                .lookup(0).map(|l|l.len()).unwrap_or(0)
+        }
     }
 
     fn triple_addition_count(&self) -> usize {
@@ -1305,4 +1313,86 @@ fn layer_triple_exists(
     }
 
     return false;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::open_sync_memory_store;
+    use crate::store::sync::*;
+
+    fn create_base_layer(store: &SyncStore) -> SyncStoreLayer {
+        let builder = store.create_base_layer().unwrap();
+
+        builder
+            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
+            .unwrap();
+        builder
+            .add_string_triple(StringTriple::new_node("cow", "likes", "duck"))
+            .unwrap();
+        builder
+            .add_string_triple(StringTriple::new_value("duck", "says", "quack"))
+            .unwrap();
+
+        builder.commit().unwrap()
+    }
+
+    #[test]
+    fn base_layer_addition_count() {
+        let store = open_sync_memory_store();
+
+        let layer = create_base_layer(&store);
+
+        assert_eq!(3, layer.triple_layer_addition_count());
+    }
+
+    #[test]
+    fn child_layer_addition_removal_count() {
+        let store = open_sync_memory_store();
+        let base_layer = create_base_layer(&store);
+        let builder = base_layer.open_write().unwrap();
+
+        builder
+            .remove_string_triple(StringTriple::new_value("cow", "says", "moo"))
+            .unwrap();
+        builder
+            .add_string_triple(StringTriple::new_value("horse", "says", "neigh"))
+            .unwrap();
+
+        let layer = builder.commit().unwrap();
+
+        assert_eq!(1, layer.triple_layer_addition_count());
+        assert_eq!(1, layer.triple_layer_removal_count());
+    }
+
+    use crate::layer::base::tests::*;
+    use futures::prelude::*;
+    use futures::sync::oneshot;
+    use tokio::runtime::Runtime;
+    #[test]
+    fn base_layer_with_gaps_addition_count() {
+        let runtime = Runtime::new().unwrap();
+        let files = base_layer_files();
+
+        let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
+        let predicates = vec!["abcde", "fghij", "klmno", "lll"];
+        let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
+
+        let builder = BaseLayerFileBuilder::from_files(&files);
+        let future = builder
+            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
+            .and_then(move |(_, b)| b.add_predicates(predicates.into_iter().map(|s| s.to_string())))
+            .and_then(move |(_, b)| b.add_values(values.into_iter().map(|s| s.to_string())))
+            .and_then(|(_, b)| b.into_phase2())
+            .and_then(|b| b.add_triple(3, 3, 3))
+            .and_then(|b| b.finalize());
+
+        oneshot::spawn(future, &runtime.executor()).wait().unwrap();
+
+        let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
+            .wait()
+            .unwrap();
+
+        assert_eq!(1, layer.triple_layer_addition_count());
+    }
 }
