@@ -909,19 +909,19 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
         }
     }
 
-    fn triple_additions(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triple_additions(&self) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         Box::new(self.internal_triple_additions())
     }
 
-    fn triple_removals(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triple_removals(&self) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         Box::new(self.internal_triple_removals())
     }
 
-    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         Box::new(InternalTripleSubjectIterator::from_layer(self))
     }
 
-    fn triple_additions_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triple_additions_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         Box::new(
             self.internal_triple_additions()
                 .seek_subject(subject)
@@ -929,7 +929,7 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
         )
     }
 
-    fn triple_removals_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triple_removals_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         Box::new(
             self.internal_triple_removals()
                 .seek_subject(subject)
@@ -937,7 +937,7 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
         )
     }
 
-    fn triples_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triples_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         Box::new(
             InternalTripleSubjectIterator::from_layer(self)
                 .seek_subject(subject)
@@ -949,7 +949,7 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
         &self,
         subject: u64,
         predicate: u64,
-    ) -> Box<dyn Iterator<Item = IdTriple>> {
+    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         Box::new(
             self.internal_triple_additions()
                 .seek_subject_predicate(subject, predicate)
@@ -961,7 +961,7 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
         &self,
         subject: u64,
         predicate: u64,
-    ) -> Box<dyn Iterator<Item = IdTriple>> {
+    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         Box::new(
             self.internal_triple_removals()
                 .seek_subject_predicate(subject, predicate)
@@ -969,7 +969,11 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
         )
     }
 
-    fn triples_sp(&self, subject: u64, predicate: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triples_sp(
+        &self,
+        subject: u64,
+        predicate: u64,
+    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         Box::new(
             InternalTripleSubjectIterator::from_layer(self)
                 .seek_subject_predicate(subject, predicate)
@@ -977,19 +981,19 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
         )
     }
 
-    fn triple_additions_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triple_additions_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         Box::new(self.internal_triple_additions_by_predicate(predicate))
     }
 
-    fn triple_removals_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triple_removals_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         Box::new(self.internal_triple_removals_by_predicate(predicate))
     }
 
-    fn triples_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triples_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         Box::new(InternalTriplePredicateIterator::from_layer(self, predicate))
     }
 
-    fn triple_additions_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triple_additions_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         Box::new(
             self.internal_triple_additions_by_object()
                 .seek_object(object)
@@ -997,7 +1001,7 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
         )
     }
 
-    fn triple_removals_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triple_removals_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         Box::new(
             self.internal_triple_removals_by_object()
                 .seek_object(object)
@@ -1005,7 +1009,7 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
         )
     }
 
-    fn triples_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triples_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         Box::new(
             InternalTripleObjectIterator::from_layer(self)
                 .seek_object(object)

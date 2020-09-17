@@ -277,31 +277,32 @@ pub trait Layer: Send + Sync {
             .unwrap_or(false)
     }
 
-    fn triple_additions(&self) -> Box<dyn Iterator<Item = IdTriple>>;
-    fn triple_removals(&self) -> Box<dyn Iterator<Item = IdTriple>>;
+    fn triple_additions(&self) -> Box<dyn Iterator<Item = IdTriple> + Send>;
+    fn triple_removals(&self) -> Box<dyn Iterator<Item = IdTriple> + Send>;
 
     /// Iterator over all triples known to this layer.
     ///
     /// This is a convenient werapper around
     /// `SubjectLookup` and
     /// `SubjectPredicateLookup` style querying.
-    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>>;
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple> + Send>;
 
-    fn triple_additions_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple>>;
-    fn triple_removals_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple>>;
-    fn triples_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple>>;
+    fn triple_additions_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
+    fn triple_removals_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
+    fn triples_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
 
     fn triple_additions_sp(
         &self,
         subject: u64,
         predicate: u64,
-    ) -> Box<dyn Iterator<Item = IdTriple>>;
+    ) -> Box<dyn Iterator<Item = IdTriple> + Send>;
     fn triple_removals_sp(
         &self,
         subject: u64,
         predicate: u64,
-    ) -> Box<dyn Iterator<Item = IdTriple>>;
-    fn triples_sp(&self, subject: u64, predicate: u64) -> Box<dyn Iterator<Item = IdTriple>>;
+    ) -> Box<dyn Iterator<Item = IdTriple> + Send>;
+    fn triples_sp(&self, subject: u64, predicate: u64)
+        -> Box<dyn Iterator<Item = IdTriple> + Send>;
 
     /// Convert a `StringTriple` to an `IdTriple`, returning None if any of the strings in the triple could not be resolved.
     fn string_triple_to_id(&self, triple: &StringTriple) -> Option<IdTriple> {
@@ -320,13 +321,13 @@ pub trait Layer: Send + Sync {
         })
     }
 
-    fn triple_additions_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple>>;
-    fn triple_removals_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple>>;
-    fn triples_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple>>;
+    fn triple_additions_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
+    fn triple_removals_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
+    fn triples_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
 
-    fn triple_additions_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple>>;
-    fn triple_removals_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple>>;
-    fn triples_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple>>;
+    fn triple_additions_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
+    fn triple_removals_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
+    fn triples_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
 
     /// Convert all known strings in the given string triple to ids.
     fn string_triple_to_partially_resolved(&self, triple: StringTriple) -> PartiallyResolvedTriple {

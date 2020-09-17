@@ -137,26 +137,23 @@ impl StoreLayerBuilder {
         // create a child builder and use it directly
         // first check what dictionary entries we don't know about, add those
         rayon::join(
-            ||{
-                let additions : Vec<_> = delta.triple_additions().collect();
-                additions
-                    .into_par_iter()
-                    .for_each(|t| {
-                        delta
-                            .id_triple_to_string(&t)
-                            .map(|st| self.add_string_triple(st));
-                    });
+            || {
+                let additions: Vec<_> = delta.triple_additions().collect();
+                additions.into_par_iter().for_each(|t| {
+                    delta
+                        .id_triple_to_string(&t)
+                        .map(|st| self.add_string_triple(st));
+                });
             },
-            ||{
-                let removals : Vec<_> = delta.triple_removals().collect();
-                removals
-                    .into_par_iter()
-                    .for_each(|t| {
-                        delta
-                            .id_triple_to_string(&t)
-                            .map(|st| self.remove_string_triple(st));
-                    })
-            });
+            || {
+                let removals: Vec<_> = delta.triple_removals().collect();
+                removals.into_par_iter().for_each(|t| {
+                    delta
+                        .id_triple_to_string(&t)
+                        .map(|st| self.remove_string_triple(st));
+                })
+            },
+        );
 
         Ok(())
     }
@@ -207,13 +204,11 @@ impl StoreLayer {
         self.store
             .create_base_layer()
             .and_then(move |new_builder: StoreLayerBuilder| {
-                let triples : Vec<_> = self_clone.triples().collect();
-                triples
-                    .into_par_iter()
-                    .for_each(|t| {
-                        let st = self_clone.id_triple_to_string(&t).unwrap();
-                        new_builder.add_string_triple(st).unwrap()
-                    });
+                let triples: Vec<_> = self_clone.triples().collect();
+                triples.into_par_iter().for_each(|t| {
+                    let st = self_clone.id_triple_to_string(&t).unwrap();
+                    new_builder.add_string_triple(st).unwrap()
+                });
 
                 new_builder.commit()
             })
@@ -350,31 +345,35 @@ impl Layer for StoreLayer {
         self.layer.triple_removal_exists(subject, predicate, object)
     }
 
-    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.layer.triples()
     }
 
-    fn triple_additions(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triple_additions(&self) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.layer.triple_additions()
     }
 
-    fn triple_removals(&self) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triple_removals(&self) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.layer.triple_removals()
     }
 
-    fn triples_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triples_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.layer.triples_s(subject)
     }
 
-    fn triple_additions_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triple_additions_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.layer.triple_additions_s(subject)
     }
 
-    fn triple_removals_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triple_removals_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.layer.triple_removals_s(subject)
     }
 
-    fn triples_sp(&self, subject: u64, predicate: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triples_sp(
+        &self,
+        subject: u64,
+        predicate: u64,
+    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.layer.triples_sp(subject, predicate)
     }
 
@@ -382,7 +381,7 @@ impl Layer for StoreLayer {
         &self,
         subject: u64,
         predicate: u64,
-    ) -> Box<dyn Iterator<Item = IdTriple>> {
+    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.layer.triple_additions_sp(subject, predicate)
     }
 
@@ -390,31 +389,31 @@ impl Layer for StoreLayer {
         &self,
         subject: u64,
         predicate: u64,
-    ) -> Box<dyn Iterator<Item = IdTriple>> {
+    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.layer.triple_removals_sp(subject, predicate)
     }
 
-    fn triples_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triples_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.layer.triples_p(predicate)
     }
 
-    fn triple_additions_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triple_additions_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.layer.triple_additions_p(predicate)
     }
 
-    fn triple_removals_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triple_removals_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.layer.triple_removals_p(predicate)
     }
 
-    fn triples_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triples_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.layer.triples_o(object)
     }
 
-    fn triple_additions_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triple_additions_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.layer.triple_additions_o(object)
     }
 
-    fn triple_removals_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple>> {
+    fn triple_removals_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.layer.triple_removals_o(object)
     }
 
