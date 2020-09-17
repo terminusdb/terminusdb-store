@@ -138,16 +138,14 @@ impl StoreLayerBuilder {
         // first check what dictionary entries we don't know about, add those
         rayon::join(
             || {
-                let additions: Vec<_> = delta.triple_additions().collect();
-                additions.into_par_iter().for_each(|t| {
+                delta.triple_additions().par_bridge().for_each(|t| {
                     delta
                         .id_triple_to_string(&t)
                         .map(|st| self.add_string_triple(st));
                 });
             },
             || {
-                let removals: Vec<_> = delta.triple_removals().collect();
-                removals.into_par_iter().for_each(|t| {
+                delta.triple_removals().par_bridge().for_each(|t| {
                     delta
                         .id_triple_to_string(&t)
                         .map(|st| self.remove_string_triple(st));
@@ -204,8 +202,7 @@ impl StoreLayer {
         self.store
             .create_base_layer()
             .and_then(move |new_builder: StoreLayerBuilder| {
-                let triples: Vec<_> = self_clone.triples().collect();
-                triples.into_par_iter().for_each(|t| {
+                self_clone.triples().par_bridge().for_each(|t| {
                     let st = self_clone.id_triple_to_string(&t).unwrap();
                     new_builder.add_string_triple(st).unwrap()
                 });
