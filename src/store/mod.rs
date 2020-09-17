@@ -102,10 +102,8 @@ impl StoreLayerBuilder {
             .is_none()
     }
 
-    /// Commit the layer to storage
-    pub fn commit(&self) -> impl Future<Item = StoreLayer, Error = std::io::Error> + Send {
-        let store = self.store.clone();
-        let name = self.name;
+    /// Commit the layer to storage without loading the resulting layer
+    pub fn commit_no_load(&self) -> impl Future<Item = (), Error = std::io::Error> + Send {
         let mut guard = self
             .builder
             .write()
@@ -115,22 +113,28 @@ impl StoreLayerBuilder {
         // Setting the builder to None ensures that committed() detects we already committed (or tried to do so anyway)
         std::mem::swap(&mut builder, &mut guard);
 
-        let result: Box<dyn Future<Item = _, Error = _> + Send> = match builder {
-            None => Box::new(future::err(io::Error::new(
+        match builder {
+            None => future::Either::A(future::err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "builder has already been committed",
             ))),
-            Some(builder) => Box::new(builder.commit_boxed().and_then(move |_| {
-                store.layer_store.get_layer(name).map(move |layer| {
-                    StoreLayer::wrap(
-                        layer.expect("layer that was just created was not found in store"),
-                        store,
-                    )
-                })
-            })),
-        };
+            Some(builder) => future::Either::B(builder.commit_boxed())
+        }
+    }
 
-        result
+    /// Commit the layer to storage
+    pub fn commit(&self) -> impl Future<Item = StoreLayer, Error = std::io::Error> + Send {
+        let store = self.store.clone();
+        let name = self.name;
+        self.commit_no_load()
+            .and_then(move |_| store.layer_store.get_layer(name)
+                      .map(move |layer| {
+                          StoreLayer::wrap(
+                              layer.expect("layer that was just created was not found in store"),
+                              store,
+                          )
+                })
+            )
     }
 
     pub fn apply_delta(&self, delta: &StoreLayer) -> Result<(), io::Error> {

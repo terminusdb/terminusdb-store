@@ -96,6 +96,11 @@ impl SyncStoreLayerBuilder {
         self.inner.committed()
     }
 
+    /// Commit the layer to storage without loading the resulting layer
+    pub fn commit_no_load(&self) -> Result<(), io::Error> {
+        task_sync(self.inner.commit_no_load())
+    }
+
     /// Commit the layer to storage
     pub fn commit(&self) -> Result<SyncStoreLayer, io::Error> {
         let inner = task_sync(self.inner.commit());
