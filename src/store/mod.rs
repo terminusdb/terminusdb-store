@@ -18,6 +18,9 @@ use crate::storage::{CachedLayerStore, LabelStore, LayerStore, LockingHashMapLay
 
 use std::io;
 
+use rayon;
+use rayon::prelude::*;
+
 /// A wrapper over a SimpleLayerBuilder, providing a thread-safe sharable interface
 ///
 /// The SimpleLayerBuilder requires one to have a mutable reference to
@@ -133,17 +136,27 @@ impl StoreLayerBuilder {
     pub fn apply_delta(&self, delta: &StoreLayer) -> Result<(), io::Error> {
         // create a child builder and use it directly
         // first check what dictionary entries we don't know about, add those
-        delta.triple_additions().for_each(|t| {
-            delta
-                .id_triple_to_string(&t)
-                .map(|st| self.add_string_triple(st));
-        });
-
-        delta.triple_removals().for_each(|t| {
-            delta
-                .id_triple_to_string(&t)
-                .map(|st| self.remove_string_triple(st));
-        });
+        rayon::join(
+            ||{
+                let additions : Vec<_> = delta.triple_additions().collect();
+                additions
+                    .into_par_iter()
+                    .for_each(|t| {
+                        delta
+                            .id_triple_to_string(&t)
+                            .map(|st| self.add_string_triple(st));
+                    });
+            },
+            ||{
+                let removals : Vec<_> = delta.triple_removals().collect();
+                removals
+                    .into_par_iter()
+                    .for_each(|t| {
+                        delta
+                            .id_triple_to_string(&t)
+                            .map(|st| self.remove_string_triple(st));
+                    })
+            });
 
         Ok(())
     }
@@ -194,13 +207,13 @@ impl StoreLayer {
         self.store
             .create_base_layer()
             .and_then(move |new_builder: StoreLayerBuilder| {
-                let iter = self_clone
-                    .triples()
-                    .map(|t| self_clone.id_triple_to_string(&t).unwrap());
-
-                for st in iter {
-                    new_builder.add_string_triple(st).unwrap()
-                }
+                let triples : Vec<_> = self_clone.triples().collect();
+                triples
+                    .into_par_iter()
+                    .for_each(|t| {
+                        let st = self_clone.id_triple_to_string(&t).unwrap();
+                        new_builder.add_string_triple(st).unwrap()
+                    });
 
                 new_builder.commit()
             })
