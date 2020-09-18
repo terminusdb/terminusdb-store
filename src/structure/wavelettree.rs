@@ -7,6 +7,8 @@ use crate::storage::*;
 use futures::prelude::*;
 use tokio::prelude::*;
 
+use std::convert::TryInto;
+
 /// A wavelet tree, encoding a u64 array for fast lookup of number positions.
 ///
 /// A wavelet tree consists of a layer of bitarrays (stored as one big
@@ -196,64 +198,104 @@ impl WaveletTree {
     }
 }
 
-fn build_wavelet_fragment<S: Stream<Item = u64, Error = std::io::Error>, W: AsyncWrite>(
-    stream: S,
-    write: BitArrayFileBuilder<W>,
-    alphabet: usize,
-    layer: usize,
-    fragment: usize,
-) -> impl Future<Item = BitArrayFileBuilder<W>, Error = std::io::Error> {
-    let step = (alphabet / 2_usize.pow(layer as u32)) as u64;
-    let alphabet_start = step * fragment as u64;
-    let alphabet_end = step * (fragment + 1) as u64;
-    let alphabet_mid = ((alphabet_start + alphabet_end) / 2) as u64;
-
-    stream.fold(write, move |w, num| {
-        if num >= alphabet_start && num < alphabet_end {
-            future::Either::A(w.push(num >= alphabet_mid))
-        } else {
-            future::Either::B(future::ok(w))
-        }
-    })
+#[derive(Debug)]
+struct FragmentBuilder {
+    fragment_start: u64,
+    fragment_half: u64,
+    fragment_end: u64,
+    bits: Vec<bool>,
 }
 
-/// Build a wavelet tree from the given width and source stream constructor.
-///
-/// Source stream constructor is a function that returns a new stream
-/// on demand. The wavelet tree constructor will iterate over this
-/// stream multiple times, which is why we need a constructor function
-/// here rather than just the stream itself.
-pub fn build_wavelet_tree_from_stream<
-    SFn: FnMut() -> S + Send,
-    S: Stream<Item = u64, Error = std::io::Error> + Send,
-    F: 'static + FileLoad + FileStore,
->(
+impl FragmentBuilder {
+    fn new(fragment_start: u64, fragment_end: u64) -> Self {
+        let fragment_half = (fragment_start + fragment_end) / 2;
+
+        Self {
+            fragment_start,
+            fragment_half,
+            fragment_end,
+            bits: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, num: u64) {
+        if num < self.fragment_start || num >= self.fragment_end {
+            // this number doesn't fit in this fragment so ignore
+            return;
+        }
+
+        self.bits.push(num >= self.fragment_half);
+    }
+}
+
+impl IntoIterator for FragmentBuilder {
+    type Item = bool;
+    type IntoIter = std::vec::IntoIter<bool>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.bits.into_iter()
+    }
+}
+
+fn create_fragments(width: u8) -> Vec<FragmentBuilder> {
+    let upper = 2_u64.pow(width as u32);
+
+    let len = 2_usize.pow(width as u32) - 1;
+    let mut result = Vec::with_capacity(len);
+
+    for i in 0..width {
+        let increment = upper >> i;
+        let num = 2_u64.pow(i as u32);
+        for j in 0..num {
+            result.push(FragmentBuilder::new(j * increment, (j + 1) * increment));
+        }
+    }
+
+    result
+}
+
+fn determine_fragment_indexes(num: u64, width: u8) -> Vec<usize> {
+    let mut num: usize = num.try_into().unwrap(); // this will ensure that we get some sort of error on 32 bit for large nums
+    let mut result = Vec::with_capacity(width as usize);
+    for i in 0..width {
+        num = num >> 1;
+        result.push(num + 2_usize.pow((width - i - 1) as u32) - 1);
+    }
+
+    result.reverse();
+
+    result
+}
+
+/// Build a wavelet tree from an iterator
+pub fn build_wavelet_tree_from_iter<I: Iterator<Item = u64>, F: 'static + FileLoad + FileStore>(
     width: u8,
-    mut source: SFn,
+    source: I,
     destination_bits: F,
     destination_blocks: F,
     destination_sblocks: F,
 ) -> impl Future<Item = (), Error = std::io::Error> + Send {
-    let alphabet_size = 2_usize.pow(width as u32);
     let bits = BitArrayFileBuilder::new(destination_bits.open_write());
-    stream::iter_ok::<_, std::io::Error>(
-        (0..width as usize)
-            .map(|layer| (0..2_usize.pow(layer as u32)).map(move |fragment| (layer, fragment)))
-            .flatten(),
-    )
-    .fold(bits, move |b, (layer, fragment)| {
-        let stream = source();
-        build_wavelet_fragment(stream, b, alphabet_size, layer, fragment)
-    })
-    .and_then(|b| b.finalize())
-    .and_then(move |_| {
-        build_bitindex(
-            destination_bits.open_read(),
-            destination_blocks.open_write(),
-            destination_sblocks.open_write(),
-        )
-    })
-    .map(|_| ())
+    let mut fragments = create_fragments(width);
+
+    for num in source {
+        determine_fragment_indexes(num, width)
+            .into_iter()
+            .for_each(|ix| fragments[ix].push(num));
+    }
+
+    let iter = fragments.into_iter().flat_map(|f| f.into_iter());
+
+    bits.push_all(stream::iter_ok(iter))
+        .and_then(|bitarray| bitarray.finalize())
+        .and_then(move |_| {
+            build_bitindex(
+                destination_bits.open_read(),
+                destination_blocks.open_write(),
+                destination_sblocks.open_write(),
+            )
+        })
+        .map(|_| ())
 }
 
 /// Build a wavelet tree from a file storing a logarray.
@@ -270,9 +312,9 @@ pub fn build_wavelet_tree_from_logarray<
         .map()
         .and_then(|bytes| LogArray::parse(bytes).map_err(|e| e.into()))
         .and_then(move |logarray| {
-            build_wavelet_tree_from_stream(
+            build_wavelet_tree_from_iter(
                 logarray.width(),
-                move || stream::iter_ok(logarray.iter()),
+                logarray.iter(),
                 destination_bits,
                 destination_blocks,
                 destination_sblocks,
@@ -295,9 +337,9 @@ mod tests {
         let wavelet_blocks_file = MemoryBackedStore::new();
         let wavelet_sblocks_file = MemoryBackedStore::new();
 
-        build_wavelet_tree_from_stream(
+        build_wavelet_tree_from_iter(
             5,
-            move || stream::iter_ok(contents_closure.clone()),
+            contents_closure.into_iter(),
             wavelet_bits_file.clone(),
             wavelet_blocks_file.clone(),
             wavelet_sblocks_file.clone(),
@@ -363,9 +405,9 @@ mod tests {
         let wavelet_blocks_file = MemoryBackedStore::new();
         let wavelet_sblocks_file = MemoryBackedStore::new();
 
-        build_wavelet_tree_from_stream(
+        build_wavelet_tree_from_iter(
             4,
-            move || stream::iter_ok(contents_closure.clone()),
+            contents_closure.into_iter(),
             wavelet_bits_file.clone(),
             wavelet_blocks_file.clone(),
             wavelet_sblocks_file.clone(),
@@ -399,9 +441,9 @@ mod tests {
         let wavelet_blocks_file = MemoryBackedStore::new();
         let wavelet_sblocks_file = MemoryBackedStore::new();
 
-        build_wavelet_tree_from_stream(
+        build_wavelet_tree_from_iter(
             4,
-            move || stream::iter_ok(contents_closure.clone()),
+            contents_closure.into_iter(),
             wavelet_bits_file.clone(),
             wavelet_blocks_file.clone(),
             wavelet_sblocks_file.clone(),
@@ -428,9 +470,9 @@ mod tests {
         let wavelet_blocks_file = MemoryBackedStore::new();
         let wavelet_sblocks_file = MemoryBackedStore::new();
 
-        build_wavelet_tree_from_stream(
+        build_wavelet_tree_from_iter(
             4,
-            move || stream::iter_ok(contents_closure.clone()),
+            contents_closure.into_iter(),
             wavelet_bits_file.clone(),
             wavelet_blocks_file.clone(),
             wavelet_sblocks_file.clone(),
@@ -457,9 +499,9 @@ mod tests {
         let wavelet_blocks_file = MemoryBackedStore::new();
         let wavelet_sblocks_file = MemoryBackedStore::new();
 
-        build_wavelet_tree_from_stream(
+        build_wavelet_tree_from_iter(
             4,
-            move || stream::iter_ok(contents_closure.clone()),
+            contents_closure.into_iter(),
             wavelet_bits_file.clone(),
             wavelet_blocks_file.clone(),
             wavelet_sblocks_file.clone(),
@@ -491,9 +533,9 @@ mod tests {
         let wavelet_blocks_file = MemoryBackedStore::new();
         let wavelet_sblocks_file = MemoryBackedStore::new();
 
-        build_wavelet_tree_from_stream(
+        build_wavelet_tree_from_iter(
             4,
-            move || stream::iter_ok(contents_closure.clone()),
+            contents_closure.into_iter(),
             wavelet_bits_file.clone(),
             wavelet_blocks_file.clone(),
             wavelet_sblocks_file.clone(),

@@ -158,6 +158,7 @@ impl From<LogArrayError> for io::Error {
     }
 }
 
+#[derive(Clone)]
 pub struct LogArrayIterator {
     logarray: LogArray,
     pos: usize,

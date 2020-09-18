@@ -143,10 +143,9 @@ pub fn merge_dictionary_stack<F: 'static + FileLoad + FileStore>(
         let f1 = builder.finalize();
         let max = indexes.iter().max().map(|x| *x).unwrap_or(0) + 1;
         let width = (max as f32).log2().ceil() as u8;
-        let stream_constructor = move || futures::stream::iter_ok(indexes.clone());
-        let f2 = build_wavelet_tree_from_stream(
+        let f2 = build_wavelet_tree_from_iter(
             width,
-            stream_constructor,
+            indexes.into_iter(),
             wavelet_files.bits_file,
             wavelet_files.blocks_file,
             wavelet_files.sblocks_file,
