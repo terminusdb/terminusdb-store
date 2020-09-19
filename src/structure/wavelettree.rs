@@ -254,17 +254,13 @@ fn create_fragments(width: u8) -> Vec<FragmentBuilder> {
     result
 }
 
-fn determine_fragment_indexes(num: u64, width: u8) -> Vec<usize> {
-    let mut num: usize = num.try_into().unwrap(); // this will ensure that we get some sort of error on 32 bit for large nums
-    let mut result = Vec::with_capacity(width as usize);
+fn push_to_fragments(num: u64, width: u8, fragments: &mut Vec<FragmentBuilder>) {
+    let mut num_it: usize = num.try_into().unwrap(); // this will ensure that we get some sort of error on 32 bit for large nums
     for i in 0..width {
-        num = num >> 1;
-        result.push(num + 2_usize.pow((width - i - 1) as u32) - 1);
+        num_it = num_it >> 1;
+        let index = num_it + 2_usize.pow((width - i - 1) as u32) - 1;
+        fragments[index].push(num);
     }
-
-    result.reverse();
-
-    result
 }
 
 /// Build a wavelet tree from an iterator
@@ -279,9 +275,7 @@ pub fn build_wavelet_tree_from_iter<I: Iterator<Item = u64>, F: 'static + FileLo
     let mut fragments = create_fragments(width);
 
     for num in source {
-        determine_fragment_indexes(num, width)
-            .into_iter()
-            .for_each(|ix| fragments[ix].push(num));
+        push_to_fragments(num, width, &mut fragments);
     }
 
     let iter = fragments.into_iter().flat_map(|f| f.into_iter());
