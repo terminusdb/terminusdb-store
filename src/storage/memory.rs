@@ -8,7 +8,7 @@ use std::sync::{self, Arc, RwLock};
 use tokio::prelude::*;
 
 use super::*;
-use crate::layer::{BaseLayer, ChildLayer, InternalLayer, Layer, LayerBuilder, SimpleLayerBuilder};
+use crate::layer::{BaseLayer, ChildLayer, InternalLayer, LayerBuilder, SimpleLayerBuilder};
 
 pub struct MemoryBackedStoreWriter {
     vec: Arc<sync::RwLock<Vec<u8>>>,
@@ -152,9 +152,9 @@ impl LayerStore for MemoryLayerStore {
         &self,
         name: [u32; 5],
         cache: Arc<dyn LayerCache>,
-    ) -> Box<dyn Future<Item = Option<Arc<dyn Layer>>, Error = io::Error> + Send> {
+    ) -> Box<dyn Future<Item = Option<Arc<InternalLayer>>, Error = io::Error> + Send> {
         if let Some(layer) = cache.get_layer_from_cache(name) {
-            return Box::new(future::ok(Some(layer as Arc<dyn Layer>)));
+            return Box::new(future::ok(Some(layer)));
         }
 
         // not in cache, time to do a clever
@@ -245,7 +245,6 @@ impl LayerStore for MemoryLayerStore {
                             .map(move |l| Some(l)),
                     )
                 })
-                .map(|l| l.map(|layer| layer as Arc<dyn Layer>)),
         )
     }
 

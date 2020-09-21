@@ -37,11 +37,11 @@ pub trait LayerStore: 'static + Send + Sync {
         &self,
         name: [u32; 5],
         cache: Arc<dyn LayerCache>,
-    ) -> Box<dyn Future<Item = Option<Arc<dyn Layer>>, Error = io::Error> + Send>;
+    ) -> Box<dyn Future<Item = Option<Arc<InternalLayer>>, Error = io::Error> + Send>;
     fn get_layer(
         &self,
         name: [u32; 5],
-    ) -> Box<dyn Future<Item = Option<Arc<dyn Layer>>, Error = io::Error> + Send> {
+    ) -> Box<dyn Future<Item = Option<Arc<InternalLayer>>, Error = io::Error> + Send> {
         self.get_layer_with_cache(name, NOCACHE.clone())
     }
 
@@ -432,9 +432,9 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         &self,
         name: [u32; 5],
         cache: Arc<dyn LayerCache>,
-    ) -> Box<dyn Future<Item = Option<Arc<dyn Layer>>, Error = io::Error> + Send> {
+    ) -> Box<dyn Future<Item = Option<Arc<InternalLayer>>, Error = io::Error> + Send> {
         if let Some(layer) = cache.get_layer_from_cache(name) {
-            return Box::new(future::ok(Some(layer as Arc<dyn Layer>)));
+            return Box::new(future::ok(Some(layer)));
         }
 
         let cloned = self.clone();
@@ -530,7 +530,6 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                         ),
                     }
                 })
-                .map(|l| l.map(|layer| layer as Arc<dyn Layer>)),
         )
     }
 
@@ -690,7 +689,7 @@ impl LayerStore for CachedLayerStore {
     fn get_layer(
         &self,
         name: [u32; 5],
-    ) -> Box<dyn Future<Item = Option<Arc<dyn Layer>>, Error = io::Error> + Send> {
+    ) -> Box<dyn Future<Item = Option<Arc<InternalLayer>>, Error = io::Error> + Send> {
         self.inner.get_layer_with_cache(name, self.cache.clone())
     }
 
@@ -698,7 +697,7 @@ impl LayerStore for CachedLayerStore {
         &self,
         name: [u32; 5],
         cache: Arc<dyn LayerCache>,
-    ) -> Box<dyn Future<Item = Option<Arc<dyn Layer>>, Error = io::Error> + Send> {
+    ) -> Box<dyn Future<Item = Option<Arc<InternalLayer>>, Error = io::Error> + Send> {
         self.inner.get_layer_with_cache(name, cache)
     }
 
