@@ -390,7 +390,7 @@ pub struct LayerCounts {
 }
 
 /// The type of a layer - either base or child.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum LayerType {
     Base,
     Child,
@@ -1489,8 +1489,6 @@ mod tests {
             .triple_additions()
             //.map(|t| child.id_triple_to_string(&t).unwrap())
             .collect();
-
-        println!("base triple additions: {:?}", base_triples_additions);
 
         let _triples_additions: Vec<_> = child
             .triple_additions()

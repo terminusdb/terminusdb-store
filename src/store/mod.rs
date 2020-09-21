@@ -118,7 +118,7 @@ impl StoreLayerBuilder {
                 io::ErrorKind::InvalidData,
                 "builder has already been committed",
             ))),
-            Some(builder) => future::Either::B(builder.commit_boxed())
+            Some(builder) => future::Either::B(builder.commit_boxed()),
         }
     }
 
@@ -126,15 +126,14 @@ impl StoreLayerBuilder {
     pub fn commit(&self) -> impl Future<Item = StoreLayer, Error = std::io::Error> + Send {
         let store = self.store.clone();
         let name = self.name;
-        self.commit_no_load()
-            .and_then(move |_| store.layer_store.get_layer(name)
-                      .map(move |layer| {
-                          StoreLayer::wrap(
-                              layer.expect("layer that was just created was not found in store"),
-                              store,
-                          )
-                })
-            )
+        self.commit_no_load().and_then(move |_| {
+            store.layer_store.get_layer(name).map(move |layer| {
+                StoreLayer::wrap(
+                    layer.expect("layer that was just created was not found in store"),
+                    store,
+                )
+            })
+        })
     }
 
     pub fn apply_delta(&self, delta: &StoreLayer) -> Result<(), io::Error> {

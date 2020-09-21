@@ -2,6 +2,7 @@ use super::super::layer::*;
 use super::InternalLayerImpl;
 use crate::structure::*;
 use std::convert::TryInto;
+use thiserror::Error;
 
 #[derive(Clone)]
 pub struct InternalLayerTripleSubjectIterator {
@@ -202,6 +203,14 @@ impl OptInternalLayerTripleSubjectIterator {
     }
 }
 
+impl Iterator for OptInternalLayerTripleSubjectIterator {
+    type Item = IdTriple;
+
+    fn next(&mut self) -> Option<IdTriple> {
+        self.0.as_mut().and_then(|i| i.next())
+    }
+}
+
 #[derive(Clone)]
 pub struct InternalTripleSubjectIterator {
     positives: Vec<OptInternalLayerTripleSubjectIterator>,
@@ -255,14 +264,6 @@ impl InternalTripleSubjectIterator {
     }
 }
 
-impl Iterator for OptInternalLayerTripleSubjectIterator {
-    type Item = IdTriple;
-
-    fn next(&mut self) -> Option<IdTriple> {
-        self.0.as_mut().and_then(|i| i.next())
-    }
-}
-
 impl Iterator for InternalTripleSubjectIterator {
     type Item = IdTriple;
 
@@ -294,6 +295,101 @@ impl Iterator for InternalTripleSubjectIterator {
                     }
 
                     return Some(lowest);
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct InternalTripleStackIterator {
+    positives: Vec<OptInternalLayerTripleSubjectIterator>,
+    negatives: Vec<OptInternalLayerTripleSubjectIterator>,
+}
+
+#[derive(Error, Debug)]
+pub enum LayerStackError {
+    #[error("provided parent was not found")]
+    ParentNotFound
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum TripleChange {
+    Addition,
+    Removal
+}
+
+impl InternalTripleStackIterator {
+    pub fn from_layer_stack<T: 'static + InternalLayerImpl>(layer: &T, parent_id: [u32;5]) -> Result<Self, LayerStackError> {
+        let mut positives = Vec::new();
+        let mut negatives = Vec::new();
+        positives.push(layer.internal_triple_additions());
+        negatives.push(layer.internal_triple_removals());
+
+        let mut layer_opt = layer.immediate_parent();
+
+        while layer_opt.is_some() && InternalLayerImpl::name(layer_opt.unwrap()) != parent_id {
+            positives.push(layer_opt.unwrap().internal_triple_additions());
+            negatives.push(layer_opt.unwrap().internal_triple_removals());
+
+            layer_opt = layer_opt.unwrap().immediate_parent();
+        }
+
+        if layer_opt.is_none() || InternalLayerImpl::name(layer_opt.unwrap()) != parent_id {
+            return Err(LayerStackError::ParentNotFound);
+        }
+
+        Ok(Self {
+            positives,
+            negatives,
+        })
+    }
+}
+
+impl Iterator for InternalTripleStackIterator {
+    type Item = (TripleChange, IdTriple);
+
+    fn next(&mut self) -> Option<(TripleChange, IdTriple)> {
+        'outer: loop {
+            let lowest_pos_index = self
+                .positives
+                .iter_mut()
+                .map(|p| p.peek())
+                .enumerate()
+                .filter(|(_, elt)| elt.is_some())
+                .min_by_key(|(_, elt)| elt.unwrap())
+                .map(|(index, _)| index);
+
+            let lowest_neg_index = self
+                .negatives
+                .iter_mut()
+                .map(|p| p.peek())
+                .enumerate()
+                .filter(|(_, elt)| elt.is_some())
+                .min_by_key(|(_, elt)| elt.unwrap())
+                .map(|(index, _)| index);
+
+            match (lowest_pos_index, lowest_neg_index) {
+                (None, None) => return None,
+                (Some(lowest_pos_index), None) => return Some((TripleChange::Addition, self.positives[lowest_pos_index].next().unwrap())),
+                (None, Some(lowest_neg_index)) => return Some((TripleChange::Removal, self.negatives[lowest_neg_index].next().unwrap())),
+                (Some(lowest_pos_index), Some(lowest_neg_index)) => {
+                    let lowest_pos = self.positives[lowest_pos_index].peek().unwrap();
+                    let lowest_neg = self.negatives[lowest_neg_index].peek().unwrap();
+                    if lowest_pos < lowest_neg {
+                        // next change is an addition, and there's no matching removal
+                        return Some((TripleChange::Addition, self.positives[lowest_pos_index].next().unwrap()));
+                    }
+                    else if lowest_pos > lowest_neg {
+                        // next change is a removal, and there's no mathcinga ddition
+                        return Some((TripleChange::Removal, self.negatives[lowest_neg_index].next().unwrap()));
+                    }
+                    else {
+                        // we found both an addition and a removal for the same triple. They cancel eachother.
+                        self.positives[lowest_pos_index].next().unwrap();
+                        self.negatives[lowest_neg_index].next().unwrap();
+                        continue 'outer;
+                    }
                 }
             }
         }
@@ -887,5 +983,91 @@ mod tests {
         ];
 
         assert_eq!(expected, triples);
+    }
+
+    fn create_stack_for_partial_tests() -> ([u32;5], Arc<InternalLayer>) {
+        let runtime = Runtime::new().unwrap();
+        let store = MemoryLayerStore::new();
+        let mut builder = store.create_base_layer().wait().unwrap();
+        let base_name = builder.name();
+
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.add_string_triple(StringTriple::new_value("sheep", "says", "baa"));
+        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
+        builder.add_string_triple(StringTriple::new_node("cow", "likes", "duck"));
+        builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
+        oneshot::spawn(builder.commit_boxed(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        builder = store.create_child_layer(base_name).wait().unwrap();
+        let child1_name = builder.name();
+
+        builder.add_string_triple(StringTriple::new_value("horse", "says", "woof"));
+        builder.add_string_triple(StringTriple::new_node("horse", "likes", "horse"));
+        oneshot::spawn(builder.commit_boxed(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        builder = store.create_child_layer(child1_name).wait().unwrap();
+        let child2_name = builder.name();
+
+        builder.remove_string_triple(StringTriple::new_value("horse", "says", "woof"));
+        builder.remove_string_triple(StringTriple::new_value("sheep", "says", "baa"));
+
+        builder.add_string_triple(StringTriple::new_value("horse", "says", "quack"));
+        builder.add_string_triple(StringTriple::new_value("rabbit", "says", "sniff"));
+        oneshot::spawn(builder.commit_boxed(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        builder = store.create_child_layer(child2_name).wait().unwrap();
+        let child3_name = builder.name();
+
+        builder.remove_string_triple(StringTriple::new_node("duck", "hates", "cow"));
+        builder.remove_string_triple(StringTriple::new_value("horse", "says", "quack"));
+
+        builder.add_string_triple(StringTriple::new_node("duck", "likes", "cow"));
+        builder.add_string_triple(StringTriple::new_value("horse", "says", "neigh"));
+        oneshot::spawn(builder.commit_boxed(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        (child1_name, store.get_layer(child3_name).wait().unwrap().unwrap())
+    }
+
+    #[test]
+    fn iterate_partial_stack() {
+        let (parent_id, layer) = create_stack_for_partial_tests();
+
+        let iterator = InternalTripleStackIterator::from_layer_stack(&*layer, parent_id).unwrap();
+        let changes:Vec<_> = iterator
+            .map(|t| (t.0, layer.id_triple_to_string(&t.1).unwrap()))
+            .collect();
+
+        let additions: Vec<_> = changes.clone().into_iter()
+            .filter(|(sort, _)| *sort == TripleChange::Addition)
+            .map(|(_, t)| t)
+            .collect();
+
+        let removals: Vec<_> = changes.into_iter()
+            .filter(|(sort, _)| *sort == TripleChange::Removal)
+            .map(|(_, t)| t)
+            .collect();
+
+        let expected_additions = vec![
+            StringTriple::new_node("duck", "likes", "cow"),
+            StringTriple::new_value("horse", "says", "neigh"),
+            StringTriple::new_value("rabbit", "says", "sniff"),
+        ];
+
+        let expected_removals = vec![
+            StringTriple::new_node("duck", "hates", "cow"),
+            StringTriple::new_value("sheep", "says", "baa"),
+            StringTriple::new_value("horse", "says", "woof"),
+        ];
+
+        assert_eq!(expected_additions, additions);
+        assert_eq!(expected_removals, removals);
     }
 }
