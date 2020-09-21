@@ -171,7 +171,7 @@ impl InternalLayerImpl for ChildLayer {
     }
 
     fn layer_type(&self) -> LayerType {
-        LayerType::Base
+        LayerType::Child
     }
 
     fn parent_name(&self) -> Option<[u32; 5]> {
