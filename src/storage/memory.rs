@@ -231,7 +231,7 @@ impl LayerStore for MemoryLayerStore {
                                     let (_, files) = layers.get(&id).unwrap();
                                     let cache = cache2.clone();
                                     ChildLayer::load_from_files(
-                                        name,
+                                        id,
                                         layer,
                                         &files.clone().into_child(),
                                     )
