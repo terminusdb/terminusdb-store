@@ -173,31 +173,26 @@ impl StoreLayerBuilder {
             || {
                 if let Some(this) = self.parent() {
                     this.triples().par_bridge().for_each(|t| {
-                        this
-                            .id_triple_to_string(&t)
-                            .map(|st| {
-                                if !other.string_triple_exists(&st){
-                                    self.remove_string_triple(st).unwrap()
-                                };
-                            });
+                        this.id_triple_to_string(&t).map(|st| {
+                            if !other.string_triple_exists(&st) {
+                                self.remove_string_triple(st).unwrap()
+                            };
+                        });
                     })
                 };
             },
             || {
                 other.triples().par_bridge().for_each(|t| {
-                    other
-                        .id_triple_to_string(&t)
-                        .map(|st| {
-                            if let Some(this) = self.parent() {
-                                if !this.string_triple_exists(&st){
-                                    self.add_string_triple(st).unwrap()
-                                }
-                            }
-                            else{
+                    other.id_triple_to_string(&t).map(|st| {
+                        if let Some(this) = self.parent() {
+                            if !this.string_triple_exists(&st) {
                                 self.add_string_triple(st).unwrap()
-                            };
-                        });
-                    })
+                            }
+                        } else {
+                            self.add_string_triple(st).unwrap()
+                        };
+                    });
+                })
             },
         );
 
@@ -719,6 +714,7 @@ pub fn open_directory_store<P: Into<PathBuf>>(path: P) -> Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layer::*;
     use futures::sync::oneshot;
     use tempfile::tempdir;
     use tokio::runtime::Runtime;
@@ -882,6 +878,52 @@ mod tests {
             .unwrap();
 
         assert!(builder.committed());
+    }
+
+    #[test]
+    fn test_triples_p_iter() {
+        let runtime = Runtime::new().unwrap();
+
+        let store = open_memory_store();
+        let builder = oneshot::spawn(store.create_base_layer(), &runtime.executor())
+            .wait()
+            .unwrap();
+        builder
+            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
+            .unwrap();
+        builder
+            .add_string_triple(StringTriple::new_value("cow", "says", "quack"))
+            .unwrap();
+
+        let layer = oneshot::spawn(builder.commit(), &runtime.executor())
+            .wait()
+            .unwrap();
+        let predicate = layer.predicate_id("says").unwrap();
+
+        let vec: Vec<IdTriple> = layer.triples_p(predicate).collect();
+        let mut triples = Vec::new();
+        for t in vec {
+            let sub = layer.id_subject(t.subject).unwrap();
+            let pred = layer.id_predicate(t.predicate).unwrap();
+            let obj = layer.id_object(t.object).unwrap();
+            match obj {
+                ObjectType::Node(_) => panic!("Can't be a node"),
+                ObjectType::Value(value) => {
+                    triples.push((sub, pred, value));
+                    println!("{} {} {}", t.subject, t.predicate, t.object)
+                }
+            }
+        }
+        let cow = String::from("cow");
+        let says = String::from("says");
+        let moo = String::from("moo");
+        let quack = String::from("quack");
+        let answer = vec![
+            (cow.clone(), says.clone(), moo),
+            (cow.clone(), says.clone(), quack),
+        ];
+
+        assert_eq!(triples, answer)
     }
 
     #[test]
