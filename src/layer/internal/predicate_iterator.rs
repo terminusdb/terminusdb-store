@@ -323,8 +323,8 @@ mod tests {
         let mut builder = store.create_base_layer().wait().unwrap();
         let base_name = builder.name();
 
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "quack"));
+        builder.add_string_triple(StringTriple::new_node("cow", "says", "moo"));
+        builder.add_string_triple(StringTriple::new_node("cow", "says", "quack"));
         oneshot::spawn(builder.commit_boxed(), &runtime.executor())
             .wait()
             .unwrap();
