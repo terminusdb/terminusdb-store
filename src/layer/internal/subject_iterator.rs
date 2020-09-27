@@ -310,17 +310,20 @@ pub struct InternalTripleStackIterator {
 #[derive(Error, Debug)]
 pub enum LayerStackError {
     #[error("provided parent was not found")]
-    ParentNotFound
+    ParentNotFound,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TripleChange {
     Addition,
-    Removal
+    Removal,
 }
 
 impl InternalTripleStackIterator {
-    pub fn from_layer_stack<T: 'static + InternalLayerImpl>(layer: &T, parent_id: [u32;5]) -> Result<Self, LayerStackError> {
+    pub fn from_layer_stack<T: 'static + InternalLayerImpl>(
+        layer: &T,
+        parent_id: [u32; 5],
+    ) -> Result<Self, LayerStackError> {
         let mut positives = Vec::new();
         let mut negatives = Vec::new();
         positives.push(layer.internal_triple_additions());
@@ -371,20 +374,34 @@ impl Iterator for InternalTripleStackIterator {
 
             match (lowest_pos_index, lowest_neg_index) {
                 (None, None) => return None,
-                (Some(lowest_pos_index), None) => return Some((TripleChange::Addition, self.positives[lowest_pos_index].next().unwrap())),
-                (None, Some(lowest_neg_index)) => return Some((TripleChange::Removal, self.negatives[lowest_neg_index].next().unwrap())),
+                (Some(lowest_pos_index), None) => {
+                    return Some((
+                        TripleChange::Addition,
+                        self.positives[lowest_pos_index].next().unwrap(),
+                    ))
+                }
+                (None, Some(lowest_neg_index)) => {
+                    return Some((
+                        TripleChange::Removal,
+                        self.negatives[lowest_neg_index].next().unwrap(),
+                    ))
+                }
                 (Some(lowest_pos_index), Some(lowest_neg_index)) => {
                     let lowest_pos = self.positives[lowest_pos_index].peek().unwrap();
                     let lowest_neg = self.negatives[lowest_neg_index].peek().unwrap();
                     if lowest_pos < lowest_neg {
                         // next change is an addition, and there's no matching removal
-                        return Some((TripleChange::Addition, self.positives[lowest_pos_index].next().unwrap()));
-                    }
-                    else if lowest_pos > lowest_neg {
+                        return Some((
+                            TripleChange::Addition,
+                            self.positives[lowest_pos_index].next().unwrap(),
+                        ));
+                    } else if lowest_pos > lowest_neg {
                         // next change is a removal, and there's no mathcinga ddition
-                        return Some((TripleChange::Removal, self.negatives[lowest_neg_index].next().unwrap()));
-                    }
-                    else {
+                        return Some((
+                            TripleChange::Removal,
+                            self.negatives[lowest_neg_index].next().unwrap(),
+                        ));
+                    } else {
                         // we found both an addition and a removal for the same triple. They cancel eachother.
                         self.positives[lowest_pos_index].next().unwrap();
                         self.negatives[lowest_neg_index].next().unwrap();
@@ -985,7 +1002,7 @@ mod tests {
         assert_eq!(expected, triples);
     }
 
-    fn create_stack_for_partial_tests() -> ([u32;5], Arc<InternalLayer>) {
+    fn create_stack_for_partial_tests() -> ([u32; 5], Arc<InternalLayer>) {
         let runtime = Runtime::new().unwrap();
         let store = MemoryLayerStore::new();
         let mut builder = store.create_base_layer().wait().unwrap();
@@ -1033,7 +1050,10 @@ mod tests {
             .wait()
             .unwrap();
 
-        (child1_name, store.get_layer(child3_name).wait().unwrap().unwrap())
+        (
+            child1_name,
+            store.get_layer(child3_name).wait().unwrap().unwrap(),
+        )
     }
 
     #[test]
@@ -1041,16 +1061,19 @@ mod tests {
         let (parent_id, layer) = create_stack_for_partial_tests();
 
         let iterator = InternalTripleStackIterator::from_layer_stack(&*layer, parent_id).unwrap();
-        let changes:Vec<_> = iterator
+        let changes: Vec<_> = iterator
             .map(|t| (t.0, layer.id_triple_to_string(&t.1).unwrap()))
             .collect();
 
-        let additions: Vec<_> = changes.clone().into_iter()
+        let additions: Vec<_> = changes
+            .clone()
+            .into_iter()
             .filter(|(sort, _)| *sort == TripleChange::Addition)
             .map(|(_, t)| t)
             .collect();
 
-        let removals: Vec<_> = changes.into_iter()
+        let removals: Vec<_> = changes
+            .into_iter()
             .filter(|(sort, _)| *sort == TripleChange::Removal)
             .map(|(_, t)| t)
             .collect();
