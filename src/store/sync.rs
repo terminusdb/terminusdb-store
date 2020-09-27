@@ -111,6 +111,10 @@ impl SyncStoreLayerBuilder {
     pub fn apply_delta(&self, delta: &SyncStoreLayer) -> Result<(), io::Error> {
         self.inner.apply_delta(&delta.inner)
     }
+
+    pub fn apply_diff(&self, other: &SyncStoreLayer) -> Result<(), io::Error> {
+        self.inner.apply_diff(&other.inner)
+    }
 }
 
 /// A layer that keeps track of the store it came out of, allowing the creation of a layer builder on top of this layer
