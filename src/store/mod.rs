@@ -900,30 +900,17 @@ mod tests {
             .unwrap();
         let predicate = layer.predicate_id("says").unwrap();
 
-        let vec: Vec<IdTriple> = layer.triples_p(predicate).collect();
-        let mut triples = Vec::new();
-        for t in vec {
-            let sub = layer.id_subject(t.subject).unwrap();
-            let pred = layer.id_predicate(t.predicate).unwrap();
-            let obj = layer.id_object(t.object).unwrap();
-            match obj {
-                ObjectType::Node(_) => panic!("Can't be a node"),
-                ObjectType::Value(value) => {
-                    triples.push((sub, pred, value));
-                    println!("{} {} {}", t.subject, t.predicate, t.object)
-                }
-            }
-        }
-        let cow = String::from("cow");
-        let says = String::from("says");
-        let moo = String::from("moo");
-        let quack = String::from("quack");
-        let answer = vec![
-            (cow.clone(), says.clone(), moo),
-            (cow.clone(), says.clone(), quack),
+        let triples: Vec<_> = layer
+            .triples_p(predicate)
+            .map(|t| layer.id_triple_to_string(&t).unwrap())
+            .collect();
+
+        let expected = vec![
+            StringTriple::new_value("cow", "says", "moo"),
+            StringTriple::new_value("cow", "says", "quack"),
         ];
 
-        assert_eq!(triples, answer)
+        assert_eq!(expected,triples)
     }
 
     #[test]
