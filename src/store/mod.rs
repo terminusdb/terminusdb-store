@@ -881,39 +881,6 @@ mod tests {
     }
 
     #[test]
-    fn test_triples_p_iter() {
-        let runtime = Runtime::new().unwrap();
-
-        let store = open_memory_store();
-        let builder = oneshot::spawn(store.create_base_layer(), &runtime.executor())
-            .wait()
-            .unwrap();
-        builder
-            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
-            .unwrap();
-        builder
-            .add_string_triple(StringTriple::new_value("cow", "says", "quack"))
-            .unwrap();
-
-        let layer = oneshot::spawn(builder.commit(), &runtime.executor())
-            .wait()
-            .unwrap();
-        let predicate = layer.predicate_id("says").unwrap();
-
-        let triples: Vec<_> = layer
-            .triples_p(predicate)
-            .map(|t| layer.id_triple_to_string(&t).unwrap())
-            .collect();
-
-        let expected = vec![
-            StringTriple::new_value("cow", "says", "moo"),
-            StringTriple::new_value("cow", "says", "quack"),
-        ];
-
-        assert_eq!(expected,triples)
-    }
-
-    #[test]
     fn hard_reset() {
         let runtime = Runtime::new().unwrap();
 

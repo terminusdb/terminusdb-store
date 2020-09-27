@@ -314,4 +314,34 @@ mod tests {
 
         assert_eq!(expected, triples);
     }
+
+
+    #[test]
+    fn one_subject_two_objects() {
+        let runtime = Runtime::new().unwrap();
+        let store = MemoryLayerStore::new();
+        let mut builder = store.create_base_layer().wait().unwrap();
+        let base_name = builder.name();
+
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "quack"));
+        oneshot::spawn(builder.commit_boxed(), &runtime.executor())
+            .wait()
+            .unwrap();
+
+        let layer = store.get_layer(base_name).wait().unwrap().unwrap();
+        let predicate_id = layer.predicate_id("says").unwrap();
+        let triples: Vec<_> = layer
+            .triples_p(predicate_id)
+            .map(|t| layer.id_triple_to_string(&t).unwrap())
+            .collect();
+
+        let expected = vec![
+            StringTriple::new_node("cow", "says", "moo"),
+            StringTriple::new_node("cow", "says", "quack"),
+        ];
+
+        assert_eq!(expected, triples);
+    }
+
 }
