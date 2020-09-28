@@ -1485,7 +1485,8 @@ mod tests {
                 .into(),
         );
 
-        let base_triples_additions: Vec<_> = base
+        // TODO why are we not using these results?
+        let _base_triples_additions: Vec<_> = base
             .triple_additions()
             //.map(|t| child.id_triple_to_string(&t).unwrap())
             .collect();
