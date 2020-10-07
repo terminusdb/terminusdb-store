@@ -1,9 +1,8 @@
 //! Base layer implementation.
 //!
 //! A base layer stores triple data without referring to a parent.
-use futures::future;
-use futures::prelude::*;
-use futures::stream::Peekable;
+use futures::stream::{Peekable, Stream, StreamExt};
+use futures::task::{Context, Poll};
 
 use super::builder::*;
 use super::internal::*;
@@ -12,6 +11,7 @@ use crate::storage::*;
 use crate::structure::*;
 
 use std::io;
+use std::pin::Pin;
 
 /// A base layer.
 ///
@@ -36,11 +36,12 @@ pub struct BaseLayer {
 }
 
 impl BaseLayer {
-    pub fn load_from_files<F: FileLoad + FileStore>(
+    pub async fn load_from_files<F: FileLoad + FileStore>(
         name: [u32; 5],
         files: &BaseLayerFiles<F>,
-    ) -> impl Future<Item = Self, Error = std::io::Error> + Send {
-        files.map_all().map(move |maps| Self::load(name, maps))
+    ) -> io::Result<Self> {
+        let maps = files.map_all().await?;
+        Ok(Self::load(name, maps))
     }
 
     pub fn load(name: [u32; 5], maps: BaseLayerMaps) -> BaseLayer {
@@ -223,147 +224,107 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     /// Add a node string.
     ///
     /// Panics if the given node string is not a lexical successor of the previous node string.
-    pub fn add_node(
-        self,
-        node: &str,
-    ) -> impl Future<Item = (u64, Self), Error = std::io::Error> + Send {
-        let BaseLayerFileBuilder { files, builder } = self;
+    pub async fn add_node(&mut self, node: &str) -> io::Result<u64> {
+        let id = self.builder.add_node(node).await?;
 
-        builder
-            .add_node(node)
-            .map(move |(id, builder)| (id, BaseLayerFileBuilder { files, builder }))
+        Ok(id)
     }
 
     /// Add a predicate string.
     ///
     /// Panics if the given predicate string is not a lexical successor of the previous node string.
-    pub fn add_predicate(
-        self,
-        predicate: &str,
-    ) -> impl Future<Item = (u64, Self), Error = std::io::Error> + Send {
-        let BaseLayerFileBuilder { files, builder } = self;
+    pub async fn add_predicate(&mut self, predicate: &str) -> io::Result<u64> {
+        let id = self.builder.add_predicate(predicate).await?;
 
-        builder
-            .add_predicate(predicate)
-            .map(move |(id, builder)| (id, BaseLayerFileBuilder { files, builder }))
+        Ok(id)
     }
 
     /// Add a value string.
     ///
     /// Panics if the given value string is not a lexical successor of the previous value string.
-    pub fn add_value(
-        self,
-        value: &str,
-    ) -> impl Future<Item = (u64, Self), Error = std::io::Error> + Send {
-        let BaseLayerFileBuilder { files, builder } = self;
+    pub async fn add_value(&mut self, value: &str) -> io::Result<u64> {
+        let id = self.builder.add_value(value).await?;
 
-        builder
-            .add_value(value)
-            .map(move |(id, builder)| (id, BaseLayerFileBuilder { files, builder }))
+        Ok(id)
     }
 
     /// Add nodes from an iterable.
     ///
     /// Panics if the nodes are not in lexical order, or if previous added nodes are a lexical succesor of any of these nodes.
-    pub fn add_nodes<I: 'static + IntoIterator<Item = String> + Send>(
-        self,
+    pub async fn add_nodes<I: 'static + IntoIterator<Item = String> + Send>(
+        &mut self,
         nodes: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error> + Send
+    ) -> io::Result<Vec<u64>>
     where
-        <I as std::iter::IntoIterator>::IntoIter: Send + Sync,
-        I: Sync,
+        <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
+        I: Unpin + Sync,
     {
-        let BaseLayerFileBuilder { files, builder } = self;
+        let ids = self.builder.add_nodes(nodes).await?;
 
-        builder
-            .add_nodes(nodes)
-            .map(move |(ids, builder)| (ids, BaseLayerFileBuilder { files, builder }))
+        Ok(ids)
     }
 
     /// Add predicates from an iterable.
     ///
     /// Panics if the predicates are not in lexical order, or if previous added predicates are a lexical succesor of any of these predicates.
-    pub fn add_predicates<I: 'static + IntoIterator<Item = String> + Send>(
-        self,
+    pub async fn add_predicates<I: 'static + IntoIterator<Item = String> + Send>(
+        &mut self,
         predicates: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error> + Send
+    ) -> io::Result<Vec<u64>>
     where
-        <I as std::iter::IntoIterator>::IntoIter: Send + Sync,
-        I: Sync,
+        <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
+        I: Unpin + Sync,
     {
-        let BaseLayerFileBuilder { files, builder } = self;
+        let ids = self.builder.add_predicates(predicates).await?;
 
-        builder
-            .add_predicates(predicates)
-            .map(move |(ids, builder)| (ids, BaseLayerFileBuilder { files, builder }))
+        Ok(ids)
     }
 
     /// Add values from an iterable.
     ///
     /// Panics if the values are not in lexical order, or if previous added values are a lexical succesor of any of these values.
-    pub fn add_values<I: 'static + IntoIterator<Item = String> + Send>(
-        self,
+    pub async fn add_values<I: 'static + IntoIterator<Item = String> + Send>(
+        &mut self,
         values: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error> + Send
+    ) -> io::Result<Vec<u64>>
     where
-        <I as std::iter::IntoIterator>::IntoIter: Send + Sync,
-        I: Sync,
+        <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
+        I: Unpin + Sync,
     {
-        let BaseLayerFileBuilder { files, builder } = self;
+        let ids = self.builder.add_values(values).await?;
 
-        builder
-            .add_values(values)
-            .map(move |(ids, builder)| (ids, BaseLayerFileBuilder { files, builder }))
+        Ok(ids)
     }
 
     /// Turn this builder into a phase 2 builder that will take triple data.
-    pub fn into_phase2(
-        self,
-    ) -> impl Future<Item = BaseLayerFileBuilderPhase2<F>, Error = std::io::Error> {
+    pub async fn into_phase2(self) -> io::Result<BaseLayerFileBuilderPhase2<F>> {
         let BaseLayerFileBuilder { files, builder } = self;
 
-        let dict_maps_fut = vec![
-            files.node_dictionary_files.blocks_file.map(),
-            files.node_dictionary_files.offsets_file.map(),
-            files.predicate_dictionary_files.blocks_file.map(),
-            files.predicate_dictionary_files.offsets_file.map(),
-            files.value_dictionary_files.blocks_file.map(),
-            files.value_dictionary_files.offsets_file.map(),
-        ];
+        builder.finalize().await?;
 
-        builder
-            .finalize()
-            .and_then(|_| future::join_all(dict_maps_fut))
-            .and_then(move |dict_maps| {
-                let node_dict_r = PfcDict::parse(dict_maps[0].clone(), dict_maps[1].clone());
-                if node_dict_r.is_err() {
-                    return future::err(node_dict_r.err().unwrap().into());
-                }
-                let node_dict = node_dict_r.unwrap();
+        let node_dict_blocks_map = files.node_dictionary_files.blocks_file.map().await?;
+        let node_dict_offsets_map = files.node_dictionary_files.offsets_file.map().await?;
+        let predicate_dict_blocks_map = files.predicate_dictionary_files.blocks_file.map().await?;
+        let predicate_dict_offsets_map =
+            files.predicate_dictionary_files.offsets_file.map().await?;
+        let value_dict_blocks_map = files.value_dictionary_files.blocks_file.map().await?;
+        let value_dict_offsets_map = files.value_dictionary_files.offsets_file.map().await?;
 
-                let pred_dict_r = PfcDict::parse(dict_maps[2].clone(), dict_maps[3].clone());
-                if pred_dict_r.is_err() {
-                    return future::err(pred_dict_r.err().unwrap().into());
-                }
-                let pred_dict = pred_dict_r.unwrap();
+        let node_dict = PfcDict::parse(node_dict_blocks_map, node_dict_offsets_map)?;
+        let pred_dict = PfcDict::parse(predicate_dict_blocks_map, predicate_dict_offsets_map)?;
+        let val_dict = PfcDict::parse(value_dict_blocks_map, value_dict_offsets_map)?;
 
-                let val_dict_r = PfcDict::parse(dict_maps[4].clone(), dict_maps[5].clone());
-                if val_dict_r.is_err() {
-                    return future::err(val_dict_r.err().unwrap().into());
-                }
-                let val_dict = val_dict_r.unwrap();
+        // TODO: it is a bit silly to parse the dictionaries just for this. surely we can get the counts in an easier way?
+        let num_nodes = node_dict.len();
+        let num_predicates = pred_dict.len();
+        let num_values = val_dict.len();
 
-                let num_nodes = node_dict.len();
-                let num_predicates = pred_dict.len();
-                let num_values = val_dict.len();
-
-                future::ok(BaseLayerFileBuilderPhase2::new(
-                    files,
-                    num_nodes,
-                    num_predicates,
-                    num_values,
-                ))
-            })
+        Ok(BaseLayerFileBuilderPhase2::new(
+            files,
+            num_nodes,
+            num_predicates,
+            num_values,
+        ))
     }
 }
 
@@ -373,7 +334,6 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
 /// added, `finalize()` will build a layer.
 pub struct BaseLayerFileBuilderPhase2<F: 'static + FileLoad + FileStore> {
     files: BaseLayerFiles<F>,
-    object_count: usize,
 
     builder: TripleFileBuilder<F>,
 }
@@ -395,95 +355,61 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
             None,
         );
 
-        let object_count = num_nodes + num_values;
-
-        BaseLayerFileBuilderPhase2 {
-            files,
-            object_count,
-
-            builder,
-        }
+        BaseLayerFileBuilderPhase2 { files, builder }
     }
 
     /// Add the given subject, predicate and object.
     ///
     /// This will panic if a greater triple has already been added.
-    pub fn add_triple(
-        self,
+    pub async fn add_triple(
+        &mut self,
         subject: u64,
         predicate: u64,
         object: u64,
-    ) -> impl Future<Item = Self, Error = std::io::Error> + Send {
-        let BaseLayerFileBuilderPhase2 {
-            files,
-            object_count,
-
-            builder,
-        } = self;
-
-        builder
-            .add_triple(subject, predicate, object)
-            .map(move |builder| BaseLayerFileBuilderPhase2 {
-                files,
-                object_count,
-                builder,
-            })
+    ) -> io::Result<()> {
+        self.builder.add_triple(subject, predicate, object).await
     }
 
     /// Add the given triple.
     ///
     /// This will panic if a greater triple has already been added.
-    pub fn add_id_triples<I: 'static + IntoIterator<Item = IdTriple>>(
-        self,
+    pub async fn add_id_triples<I: 'static + IntoIterator<Item = IdTriple>>(
+        &mut self,
         triples: I,
-    ) -> impl Future<Item = Self, Error = std::io::Error> + Send
+    ) -> io::Result<()>
     where
-        <I as std::iter::IntoIterator>::IntoIter: Send,
+        <I as std::iter::IntoIterator>::IntoIter: Unpin + Send,
     {
-        let BaseLayerFileBuilderPhase2 {
-            files,
-            object_count,
-
-            builder,
-        } = self;
-
-        builder
-            .add_id_triples(triples)
-            .map(move |builder| BaseLayerFileBuilderPhase2 {
-                files,
-                object_count,
-                builder,
-            })
+        self.builder.add_id_triples(triples).await
     }
 
-    pub fn finalize(self) -> impl Future<Item = (), Error = std::io::Error> {
+    pub async fn finalize(self) -> io::Result<()> {
         let s_p_adjacency_list_files = self.files.s_p_adjacency_list_files;
         let sp_o_adjacency_list_files = self.files.sp_o_adjacency_list_files;
         let o_ps_adjacency_list_files = self.files.o_ps_adjacency_list_files;
         let predicate_wavelet_tree_files = self.files.predicate_wavelet_tree_files;
-        self.builder
-            .finalize()
-            .and_then(|_| {
-                build_indexes(
-                    s_p_adjacency_list_files,
-                    sp_o_adjacency_list_files,
-                    o_ps_adjacency_list_files,
-                    None,
-                    predicate_wavelet_tree_files,
-                )
-            })
-            .map(|_| ())
+
+        self.builder.finalize().await?;
+
+        build_indexes(
+            s_p_adjacency_list_files,
+            sp_o_adjacency_list_files,
+            o_ps_adjacency_list_files,
+            None,
+            predicate_wavelet_tree_files,
+        )
+        .await
     }
 }
 
-pub struct BaseTripleStream<S: Stream<Item = (u64, u64), Error = io::Error> + Send> {
+pub struct BaseTripleStream<S: Stream<Item = io::Result<(u64, u64)>> + Send> {
     s_p_stream: Peekable<S>,
     sp_o_stream: Peekable<S>,
     last_s_p: (u64, u64),
     last_sp: u64,
 }
 
-impl<S: Stream<Item = (u64, u64), Error = io::Error> + Send> BaseTripleStream<S> {
+impl<S: Stream<Item = io::Result<(u64, u64)>> + Unpin + Send> BaseTripleStream<S> {
     fn new(s_p_stream: S, sp_o_stream: S) -> BaseTripleStream<S> {
         BaseTripleStream {
             s_p_stream: s_p_stream.peekable(),
@@ -494,41 +420,57 @@ impl<S: Stream<Item = (u64, u64), Error = io::Error> + Send> BaseTripleStream<S>
     }
 }
 
-impl<S: Stream<Item = (u64, u64), Error = io::Error> + Send> Stream for BaseTripleStream<S> {
-    type Item = (u64, u64, u64);
-    type Error = io::Error;
+impl<S: Stream<Item = io::Result<(u64, u64)>> + Unpin + Send> Stream for BaseTripleStream<S> {
+    type Item = io::Result<(u64, u64, u64)>;
 
-    fn poll(&mut self) -> Result<Async<Option<(u64, u64, u64)>>, io::Error> {
-        let sp_o = self.sp_o_stream.peek().map(|x| x.map(|x| x.map(|x| *x)));
-        match sp_o {
-            Err(e) => Err(e),
-            Ok(Async::NotReady) => Ok(Async::NotReady),
-            Ok(Async::Ready(None)) => Ok(Async::Ready(None)),
-            Ok(Async::Ready(Some((sp, o)))) => {
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+    ) -> Poll<Option<io::Result<(u64, u64, u64)>>> {
+        let peeked = Pin::new(&mut self.sp_o_stream).poll_peek(cx);
+        match peeked {
+            Poll::Ready(Some(Ok((sp, o)))) => {
+                let sp = *sp;
+                let o = *o;
                 if sp > self.last_sp {
-                    let s_p = self.s_p_stream.peek().map(|x| x.map(|x| x.map(|x| *x)));
-                    match s_p {
-                        Err(e) => Err(e),
-                        Ok(Async::NotReady) => Ok(Async::NotReady),
-                        Ok(Async::Ready(None)) => Err(io::Error::new(
+                    let peeked = Pin::new(&mut self.s_p_stream).poll_peek(cx);
+                    match peeked {
+                        Poll::Ready(None) => Poll::Ready(Some(Err(io::Error::new(
                             io::ErrorKind::UnexpectedEof,
                             "unexpected end of s_p_stream",
-                        )),
-                        Ok(Async::Ready(Some((s, p)))) => {
-                            self.sp_o_stream.poll().expect("peeked stream sp_o_stream with confirmed result did not have result on poll");
-                            self.s_p_stream.poll().expect("peeked stream s_p_stream with confirmed result did not have result on poll");
+                        )))),
+                        Poll::Ready(Some(Ok((s, p)))) => {
+                            let s = *s;
+                            let p = *p;
+                            util::assert_poll_next(Pin::new(&mut self.s_p_stream), cx).unwrap();
+                            util::assert_poll_next(Pin::new(&mut self.sp_o_stream), cx).unwrap();
+
                             self.last_s_p = (s, p);
                             self.last_sp = sp;
 
-                            Ok(Async::Ready(Some((s, p, o))))
+                            Poll::Ready(Some(Ok((s, p, o))))
                         }
+                        Poll::Ready(Some(Err(_))) => Poll::Ready(Some(Err(
+                            util::assert_poll_next(Pin::new(&mut self.s_p_stream), cx)
+                                .err()
+                                .unwrap(),
+                        ))),
+                        Poll::Pending => Poll::Pending,
                     }
                 } else {
-                    self.sp_o_stream.poll().expect("peeked stream sp_o_stream with confirmed result did not have result on poll");
+                    util::assert_poll_next(Pin::new(&mut self.sp_o_stream), cx).unwrap();
 
-                    Ok(Async::Ready(Some((self.last_s_p.0, self.last_s_p.1, o))))
+                    Poll::Ready(Some(Ok((self.last_s_p.0, self.last_s_p.1, o))))
                 }
             }
+            Poll::Ready(Some(Err(_))) => Poll::Ready(Some(Err(util::assert_poll_next(
+                Pin::new(&mut self.sp_o_stream),
+                cx,
+            )
+            .err()
+            .unwrap()))),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
         }
     }
 }
@@ -536,7 +478,7 @@ impl<S: Stream<Item = (u64, u64), Error = io::Error> + Send> Stream for BaseTrip
 pub fn open_base_triple_stream<F: 'static + FileLoad + FileStore>(
     s_p_files: AdjacencyListFiles<F>,
     sp_o_files: AdjacencyListFiles<F>,
-) -> impl Stream<Item = (u64, u64, u64), Error = io::Error> + Send {
+) -> impl Stream<Item = io::Result<(u64, u64, u64)>> + Unpin + Send {
     let s_p_stream =
         adjacency_list_stream_pairs(s_p_files.bitindex_files.bits_file, s_p_files.nums_file);
     let sp_o_stream =
@@ -549,8 +491,8 @@ pub fn open_base_triple_stream<F: 'static + FileLoad + FileStore>(
 pub mod tests {
     use super::*;
     use crate::storage::memory::*;
-    use futures::sync::oneshot;
-    use tokio::runtime::{Runtime, TaskExecutor};
+    use futures::stream::TryStreamExt;
+    use tokio::runtime::{Handle, Runtime};
 
     pub fn base_layer_files() -> BaseLayerFiles<MemoryBackedStore> {
         BaseLayerFiles {
@@ -602,63 +544,71 @@ pub mod tests {
         }
     }
 
-    pub fn example_base_layer_files(executor: &TaskExecutor) -> BaseLayerFiles<MemoryBackedStore> {
+    pub fn example_base_layer_files(handle: &Handle) -> BaseLayerFiles<MemoryBackedStore> {
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
 
         let base_layer_files = base_layer_files();
 
-        let builder = BaseLayerFileBuilder::from_files(&base_layer_files);
+        let mut builder = BaseLayerFileBuilder::from_files(&base_layer_files);
 
-        let future = builder
-            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
-            .and_then(move |(_, b)| b.add_predicates(predicates.into_iter().map(|s| s.to_string())))
-            .and_then(move |(_, b)| b.add_values(values.into_iter().map(|s| s.to_string())))
-            .and_then(|(_, b)| b.into_phase2())
-            .and_then(|b| b.add_triple(1, 1, 1))
-            .and_then(|b| b.add_triple(2, 1, 1))
-            .and_then(|b| b.add_triple(2, 1, 3))
-            .and_then(|b| b.add_triple(2, 3, 6))
-            .and_then(|b| b.add_triple(3, 2, 5))
-            .and_then(|b| b.add_triple(3, 3, 6))
-            .and_then(|b| b.add_triple(4, 3, 6))
-            .and_then(|b| b.finalize());
+        handle
+            .block_on(async {
+                builder
+                    .add_nodes(nodes.into_iter().map(|s| s.to_string()))
+                    .await?;
+                builder
+                    .add_predicates(predicates.into_iter().map(|s| s.to_string()))
+                    .await?;
+                builder
+                    .add_values(values.into_iter().map(|s| s.to_string()))
+                    .await?;
 
-        oneshot::spawn(future, executor).wait().unwrap();
+                let mut builder = builder.into_phase2().await?;
+
+                builder.add_triple(1, 1, 1).await?;
+                builder.add_triple(2, 1, 1).await?;
+                builder.add_triple(2, 1, 3).await?;
+                builder.add_triple(2, 3, 6).await?;
+                builder.add_triple(3, 2, 5).await?;
+                builder.add_triple(3, 3, 6).await?;
+                builder.add_triple(4, 3, 6).await?;
+
+                builder.finalize().await
+            })
+            .unwrap();
 
         base_layer_files
     }
 
-    pub fn example_base_layer(executor: &TaskExecutor) -> BaseLayer {
-        let base_layer_files = example_base_layer_files(executor);
+    pub fn example_base_layer(handle: &Handle) -> BaseLayer {
+        let base_layer_files = example_base_layer_files(handle);
 
-        let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files)
-            .wait()
-            .unwrap();
-
-        layer
+        handle
+            .block_on(BaseLayer::load_from_files(
+                [1, 2, 3, 4, 5],
+                &base_layer_files,
+            ))
+            .unwrap()
     }
 
-    pub fn empty_base_layer(executor: &TaskExecutor) -> BaseLayer {
+    pub fn empty_base_layer(handle: &Handle) -> BaseLayer {
         let files = base_layer_files();
         let base_builder = BaseLayerFileBuilder::from_files(&files);
-        oneshot::spawn(
-            base_builder.into_phase2().and_then(|b| b.finalize()),
-            executor,
-        )
-        .wait()
-        .unwrap();
+        handle
+            .block_on(async {
+                base_builder.into_phase2().await?.finalize().await?;
 
-        BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
-            .wait()
+                BaseLayer::load_from_files([1, 2, 3, 4, 5], &files).await
+            })
             .unwrap()
     }
 
     #[test]
     fn build_and_query_base_layer() {
         let runtime = Runtime::new().unwrap();
-        let layer = example_base_layer(&runtime.executor());
+        let layer = example_base_layer(&runtime.handle());
 
         assert!(layer.triple_exists(1, 1, 1));
         assert!(layer.triple_exists(2, 1, 1));
@@ -674,7 +624,7 @@ pub mod tests {
     #[test]
     fn dictionary_entries_in_base() {
         let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let base_layer = example_base_layer(&runtime.handle());
 
         assert_eq!(3, base_layer.subject_id("bbbbb").unwrap());
         assert_eq!(2, base_layer.predicate_id("fghij").unwrap());
@@ -696,7 +646,7 @@ pub mod tests {
     #[test]
     fn subject_iteration() {
         let runtime = Runtime::new().unwrap();
-        let layer = example_base_layer(&runtime.executor());
+        let layer = example_base_layer(&runtime.handle());
         let subjects: Vec<_> = layer.subjects().map(|s| s.subject()).collect();
 
         assert_eq!(vec![1, 2, 3, 4], subjects);
@@ -705,7 +655,7 @@ pub mod tests {
     #[test]
     fn predicates_iterator() {
         let runtime = Runtime::new().unwrap();
-        let layer = example_base_layer(&runtime.executor());
+        let layer = example_base_layer(&runtime.handle());
         let p1: Vec<_> = layer
             .lookup_subject(1)
             .unwrap()
@@ -739,7 +689,7 @@ pub mod tests {
     #[test]
     fn objects_iterator() {
         let runtime = Runtime::new().unwrap();
-        let layer = example_base_layer(&runtime.executor());
+        let layer = example_base_layer(&runtime.handle());
         let objects: Vec<_> = layer
             .lookup_subject(2)
             .unwrap()
@@ -755,7 +705,7 @@ pub mod tests {
     #[test]
     fn everything_iterator() {
         let runtime = Runtime::new().unwrap();
-        let layer = example_base_layer(&runtime.executor());
+        let layer = example_base_layer(&runtime.handle());
         let triples: Vec<_> = layer
             .triples()
             .map(|t| (t.subject, t.predicate, t.object))
@@ -778,7 +728,7 @@ pub mod tests {
     #[test]
     fn lookup_by_object() {
         let runtime = Runtime::new().unwrap();
-        let layer = example_base_layer(&runtime.executor());
+        let layer = example_base_layer(&runtime.handle());
 
         let lookup = layer.lookup_object(1).unwrap();
         let pairs: Vec<_> = lookup.subject_predicate_pairs().collect();
@@ -800,7 +750,7 @@ pub mod tests {
     #[test]
     fn lookup_by_predicate() {
         let runtime = Runtime::new().unwrap();
-        let layer = example_base_layer(&runtime.executor());
+        let layer = example_base_layer(&runtime.handle());
 
         let lookup = layer.lookup_predicate(1).unwrap();
         let pairs: Vec<_> = lookup
@@ -840,7 +790,7 @@ pub mod tests {
     #[test]
     fn lookup_objects() {
         let runtime = Runtime::new().unwrap();
-        let layer = example_base_layer(&runtime.executor());
+        let layer = example_base_layer(&runtime.handle());
 
         let triples_by_object: Vec<_> = layer
             .objects()
@@ -871,13 +821,15 @@ pub mod tests {
         let base_layer_files = base_layer_files();
         let builder = BaseLayerFileBuilder::from_files(&base_layer_files);
 
-        let future = builder.into_phase2().and_then(|b| b.finalize());
+        let future = async {
+            let builder = builder.into_phase2().await?;
+            builder.finalize().await?;
 
-        oneshot::spawn(future, &runtime.executor()).wait().unwrap();
+            BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files).await
+        };
 
-        let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files)
-            .wait()
-            .unwrap();
+        let layer = runtime.handle().block_on(future).unwrap();
+
         assert_eq!(0, layer.node_and_value_count());
         assert_eq!(0, layer.predicate_count());
     }
@@ -886,24 +838,30 @@ pub mod tests {
     fn base_layer_with_multiple_pairs_pointing_at_same_object() {
         let runtime = Runtime::new().unwrap();
         let base_layer_files = base_layer_files();
-        let builder = BaseLayerFileBuilder::from_files(&base_layer_files);
+        let mut builder = BaseLayerFileBuilder::from_files(&base_layer_files);
 
-        let future = builder
-            .add_nodes(vec!["a", "b"].into_iter().map(|x| x.to_string()))
-            .and_then(|(_, b)| b.add_predicates(vec!["c", "d"].into_iter().map(|x| x.to_string())))
-            .and_then(|(_, b)| b.add_values(vec!["e"].into_iter().map(|x| x.to_string())))
-            .and_then(|(_, b)| b.into_phase2())
-            .and_then(|b| b.add_triple(1, 1, 1))
-            .and_then(|b| b.add_triple(1, 2, 1))
-            .and_then(|b| b.add_triple(2, 1, 1))
-            .and_then(|b| b.add_triple(2, 2, 1))
-            .and_then(|b| b.finalize());
+        let future = async {
+            builder
+                .add_nodes(vec!["a", "b"].into_iter().map(|x| x.to_string()))
+                .await?;
+            builder
+                .add_predicates(vec!["c", "d"].into_iter().map(|x| x.to_string()))
+                .await?;
+            builder
+                .add_values(vec!["e"].into_iter().map(|x| x.to_string()))
+                .await?;
 
-        oneshot::spawn(future, &runtime.executor()).wait().unwrap();
+            let mut builder = builder.into_phase2().await?;
+            builder.add_triple(1, 1, 1).await?;
+            builder.add_triple(1, 2, 1).await?;
+            builder.add_triple(2, 1, 1).await?;
+            builder.add_triple(2, 2, 1).await?;
 
-        let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files)
-            .wait()
-            .unwrap();
+            builder.finalize().await?;
+            BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files).await
+        };
+
+        let layer = runtime.handle().block_on(future).unwrap();
 
         let triples_by_object: Vec<_> = layer
             .objects()
@@ -922,15 +880,15 @@ pub mod tests {
 
     #[test]
     fn stream_base_triples() {
-        let runtime = Runtime::new().unwrap();
-        let layer_files = example_base_layer_files(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let layer_files = example_base_layer_files(&runtime.handle());
 
         let stream = open_base_triple_stream(
             layer_files.s_p_adjacency_list_files,
             layer_files.sp_o_adjacency_list_files,
         );
 
-        let triples: Vec<_> = stream.collect().wait().unwrap();
+        let triples: Vec<_> = runtime.block_on(stream.try_collect()).unwrap();
 
         assert_eq!(
             vec![
@@ -948,10 +906,10 @@ pub mod tests {
 
     #[test]
     fn count_triples() {
-        let runtime = Runtime::new().unwrap();
-        let layer_files = example_base_layer_files(&runtime.executor());
-        let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &layer_files)
-            .wait()
+        let mut runtime = Runtime::new().unwrap();
+        let layer_files = example_base_layer_files(&runtime.handle());
+        let layer = runtime
+            .block_on(BaseLayer::load_from_files([1, 2, 3, 4, 5], &layer_files))
             .unwrap();
 
         assert_eq!(7, layer.triple_layer_addition_count());

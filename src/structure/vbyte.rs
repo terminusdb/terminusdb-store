@@ -14,9 +14,8 @@
 //! [reference Java implementation]: https://github.com/rdfhdt/hdt-java/blob/master/hdt-java-core/src/main/java/org/rdfhdt/hdt/compact/integer/VByte.java
 //! [Protocol Buffers]: https://developers.google.com/protocol-buffers/docs/encoding
 
-use futures::prelude::*;
-use std::io::Error;
-use tokio::io::{write_all, AsyncWrite};
+use futures::io;
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 /// The maximum number of bytes required for any `u64` in a variable-byte encoding.
 pub const MAX_ENCODING_LEN: usize = 10;
@@ -166,13 +165,15 @@ pub fn encode_vec(num: u64) -> Vec<u8> {
 
 /// Encodes a `u64` with a variable-byte encoding in a `Vec` and writes that `Vec` to the
 /// destination `dest` in a future.
-pub fn write_async<A>(dest: A, num: u64) -> Box<dyn Future<Item = (A, usize), Error = Error> + Send>
+pub async fn write_async<A>(dest: &mut A, num: u64) -> io::Result<usize>
 where
-    A: 'static + AsyncWrite + Send,
+    A: 'static + AsyncWrite + Unpin + Send,
 {
     let vec = encode_vec(num);
     let len = vec.len();
-    Box::new(write_all(dest, vec).map(move |(dest, _)| (dest, len)))
+    dest.write_all(&vec).await?;
+
+    Ok(len)
 }
 
 #[cfg(test)]

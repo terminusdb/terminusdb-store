@@ -8,13 +8,14 @@ use super::internal::*;
 use super::layer::*;
 use crate::storage::*;
 use crate::structure::*;
-use futures::future;
-use futures::prelude::*;
-use futures::stream;
 use rayon::prelude::*;
 
 use std::io;
+use std::pin::Pin;
 use std::sync::Arc;
+
+use futures::stream::{self, Stream, StreamExt};
+use futures::task::{Context, Poll};
 
 /// A child layer.
 ///
@@ -45,14 +46,13 @@ pub struct ChildLayer {
 }
 
 impl ChildLayer {
-    pub fn load_from_files<F: FileLoad + FileStore + Clone>(
+    pub async fn load_from_files<F: FileLoad + FileStore + Clone>(
         name: [u32; 5],
         parent: Arc<InternalLayer>,
         files: &ChildLayerFiles<F>,
-    ) -> impl Future<Item = Self, Error = std::io::Error> {
-        files
-            .map_all()
-            .map(move |maps| Self::load(name, parent, maps))
+    ) -> io::Result<Self> {
+        let maps = files.map_all().await?;
+        Ok(Self::load(name, parent, maps))
     }
 
     pub fn load(name: [u32; 5], parent: Arc<InternalLayer>, maps: ChildLayerMaps) -> ChildLayer {
@@ -273,32 +273,13 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
 
     /// Add a node string.
     ///
-    /// Does nothing if the node already exists in the paretn, and
+    /// Does nothing if the node already exists in the parent, and
     /// panics if the given node string is not a lexical successor of
     /// the previous node string.
-    pub fn add_node(
-        self,
-        node: &str,
-    ) -> impl Future<Item = (u64, Self), Error = std::io::Error> + Send {
+    pub async fn add_node(&mut self, node: &str) -> io::Result<u64> {
         match self.parent.subject_id(node) {
-            None => {
-                let ChildLayerFileBuilder {
-                    parent,
-                    files,
-                    builder,
-                } = self;
-                future::Either::A(builder.add_node(node).map(move |(result, builder)| {
-                    (
-                        result,
-                        ChildLayerFileBuilder {
-                            parent,
-                            files,
-                            builder,
-                        },
-                    )
-                }))
-            }
-            Some(id) => future::Either::B(future::ok((id, self))),
+            None => self.builder.add_node(node).await,
+            Some(id) => Ok(id),
         }
     }
 
@@ -307,34 +288,10 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// Does nothing if the predicate already exists in the paretn, and
     /// panics if the given predicate string is not a lexical successor of
     /// the previous predicate string.
-    pub fn add_predicate(
-        self,
-        predicate: &str,
-    ) -> impl Future<Item = (u64, Self), Error = std::io::Error> + Send {
+    pub async fn add_predicate(&mut self, predicate: &str) -> io::Result<u64> {
         match self.parent.predicate_id(predicate) {
-            None => {
-                let ChildLayerFileBuilder {
-                    parent,
-                    files,
-                    builder,
-                } = self;
-
-                future::Either::A(
-                    builder
-                        .add_predicate(predicate)
-                        .map(move |(result, builder)| {
-                            (
-                                result,
-                                ChildLayerFileBuilder {
-                                    parent,
-                                    files,
-                                    builder,
-                                },
-                            )
-                        }),
-                )
-            }
-            Some(id) => future::Either::B(future::ok((id, self))),
+            None => self.builder.add_predicate(predicate).await,
+            Some(id) => Ok(id),
         }
     }
 
@@ -343,29 +300,10 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// Does nothing if the value already exists in the paretn, and
     /// panics if the given value string is not a lexical successor of
     /// the previous value string.
-    pub fn add_value(
-        self,
-        value: &str,
-    ) -> impl Future<Item = (u64, Self), Error = std::io::Error> + Send {
+    pub async fn add_value(&mut self, value: &str) -> io::Result<u64> {
         match self.parent.object_value_id(value) {
-            None => {
-                let ChildLayerFileBuilder {
-                    parent,
-                    files,
-                    builder,
-                } = self;
-                future::Either::A(builder.add_value(value).map(move |(result, builder)| {
-                    (
-                        result,
-                        ChildLayerFileBuilder {
-                            parent,
-                            files,
-                            builder,
-                        },
-                    )
-                }))
-            }
-            Some(id) => future::Either::B(future::ok((id, self))),
+            None => self.builder.add_value(value).await,
+            Some(id) => Ok(id),
         }
     }
 
@@ -375,23 +313,21 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// added nodes are a lexical succesor of any of these
     /// nodes. Skips any nodes that are already part of the base
     /// layer.
-    pub fn add_nodes<I: 'static + IntoIterator<Item = String> + Send>(
-        self,
+    pub async fn add_nodes<I: 'static + IntoIterator<Item = String> + Send>(
+        &mut self,
         nodes: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error> + Send
+    ) -> io::Result<Vec<u64>>
     where
         <I as std::iter::IntoIterator>::IntoIter: Send,
     {
-        stream::iter_ok(nodes.into_iter()).fold(
-            (Vec::new(), self),
-            |(mut result, builder), node| {
-                builder.add_node(&node).map(|(id, builder)| {
-                    result.push(id);
+        // TODO bulk check node existence
+        let mut result = Vec::new();
+        for node in nodes {
+            let id = self.add_node(&node).await?;
+            result.push(id);
+        }
 
-                    (result, builder)
-                })
-            },
-        )
+        Ok(result)
     }
 
     /// Add predicates from an iterable.
@@ -400,23 +336,21 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// previous added predicates are a lexical succesor of any of
     /// these predicates. Skips any predicates that are already part
     /// of the base layer.
-    pub fn add_predicates<I: 'static + IntoIterator<Item = String> + Send>(
-        self,
+    pub async fn add_predicates<I: 'static + IntoIterator<Item = String> + Send>(
+        &mut self,
         predicates: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error> + Send
+    ) -> io::Result<Vec<u64>>
     where
         <I as std::iter::IntoIterator>::IntoIter: Send,
     {
-        stream::iter_ok(predicates.into_iter()).fold(
-            (Vec::new(), self),
-            |(mut result, builder), predicate| {
-                builder.add_predicate(&predicate).map(|(id, builder)| {
-                    result.push(id);
+        // TODO bulk check predicate existence
+        let mut result = Vec::new();
+        for predicate in predicates {
+            let id = self.add_predicate(&predicate).await?;
+            result.push(id);
+        }
 
-                    (result, builder)
-                })
-            },
-        )
+        Ok(result)
     }
 
     /// Add values from an iterable.
@@ -425,78 +359,57 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// added values are a lexical succesor of any of these
     /// values. Skips any nodes that are already part of the base
     /// layer.
-    pub fn add_values<I: 'static + IntoIterator<Item = String> + Send>(
-        self,
+    pub async fn add_values<I: 'static + IntoIterator<Item = String> + Send>(
+        &mut self,
         values: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error> + Send
+    ) -> io::Result<Vec<u64>>
     where
         <I as std::iter::IntoIterator>::IntoIter: Send,
     {
-        stream::iter_ok(values.into_iter()).fold(
-            (Vec::new(), self),
-            |(mut result, builder), value| {
-                builder.add_value(&value).map(|(id, builder)| {
-                    result.push(id);
+        // TODO bulk check predicate existence
+        let mut result = Vec::new();
+        for value in values {
+            let id = self.add_value(&value).await?;
+            result.push(id);
+        }
 
-                    (result, builder)
-                })
-            },
-        )
+        Ok(result)
     }
 
     /// Turn this builder into a phase 2 builder that will take triple data.
-    pub fn into_phase2(
-        self,
-    ) -> impl Future<Item = ChildLayerFileBuilderPhase2<F>, Error = std::io::Error> {
+    pub async fn into_phase2(self) -> io::Result<ChildLayerFileBuilderPhase2<F>> {
         let ChildLayerFileBuilder {
             parent,
             files,
             builder,
         } = self;
 
-        let dict_maps_fut = vec![
-            files.node_dictionary_files.blocks_file.map(),
-            files.node_dictionary_files.offsets_file.map(),
-            files.predicate_dictionary_files.blocks_file.map(),
-            files.predicate_dictionary_files.offsets_file.map(),
-            files.value_dictionary_files.blocks_file.map(),
-            files.value_dictionary_files.offsets_file.map(),
-        ];
+        builder.finalize().await?;
 
-        builder
-            .finalize()
-            .and_then(move |_| future::join_all(dict_maps_fut))
-            .and_then(move |dict_maps| {
-                let node_dict_r = PfcDict::parse(dict_maps[0].clone(), dict_maps[1].clone());
-                if node_dict_r.is_err() {
-                    return future::err(node_dict_r.err().unwrap().into());
-                }
-                let node_dict = node_dict_r.unwrap();
+        let node_dict_blocks_map = files.node_dictionary_files.blocks_file.map().await?;
+        let node_dict_offsets_map = files.node_dictionary_files.offsets_file.map().await?;
+        let predicate_dict_blocks_map = files.predicate_dictionary_files.blocks_file.map().await?;
+        let predicate_dict_offsets_map =
+            files.predicate_dictionary_files.offsets_file.map().await?;
+        let value_dict_blocks_map = files.value_dictionary_files.blocks_file.map().await?;
+        let value_dict_offsets_map = files.value_dictionary_files.offsets_file.map().await?;
 
-                let pred_dict_r = PfcDict::parse(dict_maps[2].clone(), dict_maps[3].clone());
-                if pred_dict_r.is_err() {
-                    return future::err(pred_dict_r.err().unwrap().into());
-                }
-                let pred_dict = pred_dict_r.unwrap();
+        let node_dict = PfcDict::parse(node_dict_blocks_map, node_dict_offsets_map)?;
+        let pred_dict = PfcDict::parse(predicate_dict_blocks_map, predicate_dict_offsets_map)?;
+        let val_dict = PfcDict::parse(value_dict_blocks_map, value_dict_offsets_map)?;
 
-                let val_dict_r = PfcDict::parse(dict_maps[4].clone(), dict_maps[5].clone());
-                if val_dict_r.is_err() {
-                    return future::err(val_dict_r.err().unwrap().into());
-                }
-                let val_dict = val_dict_r.unwrap();
+        // TODO: it is a bit silly to parse the dictionaries just for this. surely we can get the counts in an easier way?
+        let num_nodes = node_dict.len();
+        let num_predicates = pred_dict.len();
+        let num_values = val_dict.len();
 
-                let num_nodes = node_dict.len();
-                let num_predicates = pred_dict.len();
-                let num_values = val_dict.len();
-
-                future::ok(ChildLayerFileBuilderPhase2::new(
-                    parent,
-                    files,
-                    num_nodes,
-                    num_predicates,
-                    num_values,
-                ))
-            })
+        Ok(ChildLayerFileBuilderPhase2::new(
+            parent,
+            files,
+            num_nodes,
+            num_predicates,
+            num_values,
+        ))
     }
 }
 
@@ -550,100 +463,68 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         }
     }
 
-    fn add_triple_unchecked(
-        self,
+    async fn add_triple_unchecked(
+        &mut self,
         subject: u64,
         predicate: u64,
         object: u64,
-    ) -> impl Future<Item = Self, Error = std::io::Error> + Send {
-        let ChildLayerFileBuilderPhase2 {
-            parent,
-            files,
-
-            pos_builder,
-            neg_builder,
-        } = self;
-
-        pos_builder
+    ) -> io::Result<()> {
+        self.pos_builder
             .add_triple(subject, predicate, object)
-            .map(move |pos_builder| ChildLayerFileBuilderPhase2 {
-                parent,
-                files,
-
-                pos_builder,
-                neg_builder,
-            })
+            .await
     }
 
     /// Add the given subject, predicate and object.
     ///
     /// This will panic if a greater triple has already been added,
     /// and do nothing if the triple is already part of the parent.
-    pub fn add_triple(
-        self,
+    pub async fn add_triple(
+        &mut self,
         subject: u64,
         predicate: u64,
         object: u64,
-    ) -> impl Future<Item = Self, Error = std::io::Error> + Send {
-        if self.parent.triple_exists(subject, predicate, object) {
-            // no need to do anything
-            return future::Either::A(future::ok(self));
+    ) -> io::Result<()> {
+        if !self.parent.triple_exists(subject, predicate, object) {
+            self.add_triple_unchecked(subject, predicate, object).await
+        } else {
+            Ok(())
         }
-
-        future::Either::B(self.add_triple_unchecked(subject, predicate, object))
     }
 
-    fn remove_triple_unchecked(
-        self,
+    async fn remove_triple_unchecked(
+        &mut self,
         subject: u64,
         predicate: u64,
         object: u64,
-    ) -> impl Future<Item = Self, Error = std::io::Error> + Send {
-        let ChildLayerFileBuilderPhase2 {
-            parent,
-            files,
-
-            pos_builder,
-            neg_builder,
-        } = self;
-
-        neg_builder
+    ) -> io::Result<()> {
+        self.neg_builder
             .add_triple(subject, predicate, object)
-            .map(move |neg_builder| ChildLayerFileBuilderPhase2 {
-                parent,
-                files,
-
-                pos_builder,
-                neg_builder,
-            })
+            .await
     }
 
     /// Remove the given subject, predicate and object.
     ///
     /// This will panic if a greater triple has already been removed,
     /// and do nothing if the parent doesn't know aobut this triple.
-    pub fn remove_triple(
-        self,
+    pub async fn remove_triple(
+        &mut self,
         subject: u64,
         predicate: u64,
         object: u64,
-    ) -> impl Future<Item = Self, Error = std::io::Error> + Send {
-        if !self.parent.triple_exists(subject, predicate, object) {
-            // no need to do anything
-            return future::Either::A(future::ok(self));
+    ) -> io::Result<()> {
+        if self.parent.triple_exists(subject, predicate, object) {
+            self.remove_triple_unchecked(subject, predicate, object)
+                .await
+        } else {
+            Ok(())
         }
-
-        future::Either::B(self.remove_triple_unchecked(subject, predicate, object))
     }
 
     /// Add the given triple.
     ///
     /// This will panic if a greater triple has already been added,
     /// and do nothing if the parent already contains this triple.
-    pub fn add_id_triples(
-        self,
-        triples: Vec<IdTriple>,
-    ) -> impl Future<Item = Self, Error = std::io::Error> + Send {
+    pub async fn add_id_triples(&mut self, triples: Vec<IdTriple>) -> io::Result<()> {
         let parent = self.parent.clone();
         let filtered: Vec<_> = triples
             .into_par_iter()
@@ -651,19 +532,20 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
                 !parent.triple_exists(triple.subject, triple.predicate, triple.object)
             })
             .collect();
-        stream::iter_ok(filtered).fold(self, |b, triple| {
-            b.add_triple_unchecked(triple.subject, triple.predicate, triple.object)
-        })
+
+        for triple in filtered {
+            self.add_triple_unchecked(triple.subject, triple.predicate, triple.object)
+                .await?;
+        }
+
+        Ok(())
     }
 
     /// Remove the given triple.
     ///
     /// This will panic if a greater triple has already been removed,
     /// and do nothing if the parent doesn't know aobut this triple.
-    pub fn remove_id_triples(
-        self,
-        triples: Vec<IdTriple>,
-    ) -> impl Future<Item = Self, Error = std::io::Error> + Send {
+    pub async fn remove_id_triples(&mut self, triples: Vec<IdTriple>) -> io::Result<()> {
         let parent = self.parent.clone();
         let filtered: Vec<_> = triples
             .into_par_iter()
@@ -671,51 +553,48 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
                 parent.triple_exists(triple.subject, triple.predicate, triple.object)
             })
             .collect();
-        stream::iter_ok(filtered).fold(self, |b, triple| {
-            b.remove_triple_unchecked(triple.subject, triple.predicate, triple.object)
-        })
+
+        for triple in filtered {
+            self.remove_triple_unchecked(triple.subject, triple.predicate, triple.object)
+                .await?;
+        }
+
+        Ok(())
     }
 
     /// Write the layer data to storage.
-    pub fn finalize(self) -> impl Future<Item = (), Error = std::io::Error> + Send {
-        let builder_futs = vec![self.pos_builder.finalize(), self.neg_builder.finalize()];
+    pub async fn finalize(self) -> io::Result<()> {
+        let pos_task = tokio::spawn(self.pos_builder.finalize());
+        let neg_task = tokio::spawn(self.neg_builder.finalize());
 
-        let pos_s_p_files = self.files.pos_s_p_adjacency_list_files;
-        let pos_sp_o_files = self.files.pos_sp_o_adjacency_list_files;
-        let pos_o_ps_files = self.files.pos_o_ps_adjacency_list_files;
-        let pos_objects_file = self.files.pos_objects_file;
-        let neg_s_p_files = self.files.neg_s_p_adjacency_list_files;
-        let neg_sp_o_files = self.files.neg_sp_o_adjacency_list_files;
-        let neg_o_ps_files = self.files.neg_o_ps_adjacency_list_files;
-        let neg_objects_file = self.files.neg_objects_file;
+        pos_task.await??;
+        neg_task.await??;
 
-        let pos_predicate_wavelet_tree_files = self.files.pos_predicate_wavelet_tree_files;
-        let neg_predicate_wavelet_tree_files = self.files.neg_predicate_wavelet_tree_files;
+        let pos_indexes_task = tokio::spawn(build_indexes(
+            self.files.pos_s_p_adjacency_list_files,
+            self.files.pos_sp_o_adjacency_list_files,
+            self.files.pos_o_ps_adjacency_list_files,
+            Some(self.files.pos_objects_file),
+            self.files.pos_predicate_wavelet_tree_files,
+        ));
+        let neg_indexes_task = tokio::spawn(build_indexes(
+            self.files.neg_s_p_adjacency_list_files,
+            self.files.neg_sp_o_adjacency_list_files,
+            self.files.neg_o_ps_adjacency_list_files,
+            Some(self.files.neg_objects_file),
+            self.files.neg_predicate_wavelet_tree_files,
+        ));
 
-        future::join_all(builder_futs)
-            .and_then(|_| {
-                build_indexes(
-                    pos_s_p_files,
-                    pos_sp_o_files,
-                    pos_o_ps_files,
-                    Some(pos_objects_file),
-                    pos_predicate_wavelet_tree_files,
-                )
-                .join(build_indexes(
-                    neg_s_p_files,
-                    neg_sp_o_files,
-                    neg_o_ps_files,
-                    Some(neg_objects_file),
-                    neg_predicate_wavelet_tree_files,
-                ))
-            })
-            .map(|_| ())
+        pos_indexes_task.await??;
+        neg_indexes_task.await??;
+
+        Ok(())
     }
 }
 
 pub struct ChildTripleStream<
-    S1: Stream<Item = u64, Error = io::Error>,
-    S2: Stream<Item = (u64, u64), Error = io::Error> + Send,
+    S1: Stream<Item = io::Result<u64>> + Unpin + Send,
+    S2: Stream<Item = io::Result<(u64, u64)>> + Unpin + Send,
 > {
     subjects_stream: stream::Peekable<S1>,
     s_p_stream: stream::Peekable<S2>,
@@ -726,8 +605,8 @@ pub struct ChildTripleStream<
 }
 
 impl<
-        S1: Stream<Item = u64, Error = io::Error>,
-        S2: Stream<Item = (u64, u64), Error = io::Error> + Send,
+        S1: Stream<Item = io::Result<u64>> + Unpin + Send,
+        S2: Stream<Item = io::Result<(u64, u64)>> + Unpin + Send,
     > ChildTripleStream<S1, S2>
 {
     fn new(subjects_stream: S1, s_p_stream: S2, sp_o_stream: S2) -> ChildTripleStream<S1, S2> {
@@ -743,69 +622,95 @@ impl<
 }
 
 impl<
-        S1: Stream<Item = u64, Error = io::Error>,
-        S2: Stream<Item = (u64, u64), Error = io::Error> + Send,
+        S1: Stream<Item = io::Result<u64>> + Unpin + Send,
+        S2: Stream<Item = io::Result<(u64, u64)>> + Unpin + Send,
     > Stream for ChildTripleStream<S1, S2>
 {
-    type Item = (u64, u64, u64);
-    type Error = io::Error;
+    type Item = io::Result<(u64, u64, u64)>;
 
-    fn poll(&mut self) -> Result<Async<Option<(u64, u64, u64)>>, io::Error> {
-        let sp_o = self.sp_o_stream.peek().map(|x| x.map(|x| x.map(|x| *x)));
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+    ) -> Poll<Option<io::Result<(u64, u64, u64)>>> {
+        let sp_o = Pin::new(&mut self.sp_o_stream).poll_peek(cx);
         match sp_o {
-            Err(e) => Err(e),
-            Ok(Async::NotReady) => Ok(Async::NotReady),
-            Ok(Async::Ready(None)) => Ok(Async::Ready(None)),
-            Ok(Async::Ready(Some((sp, o)))) => {
+            Poll::Ready(Some(Ok((sp, o)))) => {
+                let sp = *sp;
+                let o = *o;
                 if sp > self.last_sp {
-                    let s_p = self.s_p_stream.peek().map(|x| x.map(|x| x.map(|x| *x)));
+                    let s_p = Pin::new(&mut self.s_p_stream).poll_peek(cx);
                     match s_p {
-                        Err(e) => Err(e),
-                        Ok(Async::NotReady) => Ok(Async::NotReady),
-                        Ok(Async::Ready(None)) => Err(io::Error::new(
+                        Poll::Ready(None) => Poll::Ready(Some(Err(io::Error::new(
                             io::ErrorKind::UnexpectedEof,
                             "unexpected end of s_p_stream",
-                        )),
-                        Ok(Async::Ready(Some((s, p)))) => {
+                        )))),
+                        Poll::Ready(Some(Ok((s, p)))) => {
+                            let s = *s;
+                            let p = *p;
                             if s > self.last_s_p.0 {
-                                let mapped_s = self
-                                    .subjects_stream
-                                    .peek()
-                                    .map(|x| x.map(|x| x.map(|x| *x)));
+                                let mapped_s = Pin::new(&mut self.subjects_stream).poll_peek(cx);
                                 match mapped_s {
-                                    Err(e) => Err(e),
-                                    Ok(Async::NotReady) => Ok(Async::NotReady),
-                                    Ok(Async::Ready(None)) => Err(io::Error::new(
+                                    Poll::Ready(None) => Poll::Ready(Some(Err(io::Error::new(
                                         io::ErrorKind::UnexpectedEof,
                                         "unexpected end of subjects_stream",
-                                    )),
-                                    Ok(Async::Ready(Some(mapped_s))) => {
-                                        self.sp_o_stream.poll().expect("peeked stream sp_o_stream with confirmed result did not have result on poll");
-                                        self.s_p_stream.poll().expect("peeked stream s_p_stream with confirmed result did not have result on poll");
-                                        self.subjects_stream.poll().expect("peeked stream subjects_stream with confirmed result did not have result on poll");
+                                    )))),
+                                    Poll::Ready(Some(Ok(mapped_s))) => {
+                                        let mapped_s = *mapped_s;
+                                        util::assert_poll_next(
+                                            Pin::new(&mut self.subjects_stream),
+                                            cx,
+                                        )
+                                        .unwrap();
+                                        util::assert_poll_next(Pin::new(&mut self.s_p_stream), cx)
+                                            .unwrap();
+                                        util::assert_poll_next(Pin::new(&mut self.sp_o_stream), cx)
+                                            .unwrap();
                                         self.last_mapped_s = mapped_s;
                                         self.last_s_p = (s, p);
                                         self.last_sp = sp;
 
-                                        Ok(Async::Ready(Some((mapped_s, p, o))))
+                                        Poll::Ready(Some(Ok((mapped_s, p, o))))
                                     }
+                                    Poll::Ready(Some(Err(_))) => {
+                                        Poll::Ready(Some(Err(util::assert_poll_next(
+                                            Pin::new(&mut self.subjects_stream),
+                                            cx,
+                                        )
+                                        .err()
+                                        .unwrap())))
+                                    }
+                                    Poll::Pending => Poll::Pending,
                                 }
                             } else {
-                                self.sp_o_stream.poll().expect("peeked stream sp_o_stream with confirmed result did not have result on poll");
-                                self.s_p_stream.poll().expect("peeked stream s_p_stream with confirmed result did not have result on poll");
+                                util::assert_poll_next(Pin::new(&mut self.s_p_stream), cx).unwrap();
+                                util::assert_poll_next(Pin::new(&mut self.sp_o_stream), cx)
+                                    .unwrap();
                                 self.last_s_p = (s, p);
                                 self.last_sp = sp;
 
-                                Ok(Async::Ready(Some((self.last_mapped_s, p, o))))
+                                Poll::Ready(Some(Ok((self.last_mapped_s, p, o))))
                             }
                         }
+                        Poll::Ready(Some(Err(_))) => Poll::Ready(Some(Err(
+                            util::assert_poll_next(Pin::new(&mut self.s_p_stream), cx)
+                                .err()
+                                .unwrap(),
+                        ))),
+                        Poll::Pending => Poll::Pending,
                     }
                 } else {
-                    self.sp_o_stream.poll().expect("peeked stream sp_o_stream with confirmed result did not have result on poll");
-
-                    Ok(Async::Ready(Some((self.last_mapped_s, self.last_s_p.1, o))))
+                    util::assert_poll_next(Pin::new(&mut self.sp_o_stream), cx).unwrap();
+                    Poll::Ready(Some(Ok((self.last_mapped_s, self.last_s_p.1, o))))
                 }
             }
+            Poll::Ready(Some(Err(_))) => Poll::Ready(Some(Err(util::assert_poll_next(
+                Pin::new(&mut self.sp_o_stream),
+                cx,
+            )
+            .err()
+            .unwrap()))),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
         }
     }
 }
@@ -814,7 +719,7 @@ pub fn open_child_triple_stream<F: 'static + FileLoad + FileStore>(
     subjects_file: F,
     s_p_files: AdjacencyListFiles<F>,
     sp_o_files: AdjacencyListFiles<F>,
-) -> impl Stream<Item = (u64, u64, u64), Error = io::Error> + Send {
+) -> impl Stream<Item = io::Result<(u64, u64, u64)>> + Unpin + Send {
     let subjects_stream = logarray_stream_entries(subjects_file);
     let s_p_stream =
         adjacency_list_stream_pairs(s_p_files.bitindex_files.bits_file, s_p_files.nums_file);
@@ -829,7 +734,7 @@ pub mod tests {
     use super::*;
     use crate::layer::base::tests::*;
     use crate::storage::memory::*;
-    use futures::sync::oneshot;
+    use futures::stream::TryStreamExt;
     use tokio::runtime::Runtime;
 
     pub fn child_layer_files() -> ChildLayerFiles<MemoryBackedStore> {
@@ -915,21 +820,22 @@ pub mod tests {
 
     #[test]
     fn empty_child_layer_equivalent_to_parent() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
 
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = child_builder.into_phase2().and_then(|b| b.finalize());
+        let fut = async {
+            let builder = child_builder.into_phase2().await?;
+            builder.finalize().await?;
 
-        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
+        };
 
-        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
-            .wait()
-            .unwrap();
+        let child_layer = runtime.block_on(fut).unwrap();
 
         assert!(child_layer.triple_exists(1, 1, 1));
         assert!(child_layer.triple_exists(2, 1, 1));
@@ -944,25 +850,24 @@ pub mod tests {
 
     #[test]
     fn child_layer_can_have_inserts() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
 
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = child_builder
-            .into_phase2()
-            .and_then(|b| b.add_triple(2, 1, 2))
-            .and_then(|b| b.add_triple(3, 3, 3))
-            .and_then(|b| b.finalize());
+        let fut = async {
+            let mut b = child_builder.into_phase2().await?;
+            b.add_triple(2, 1, 2).await?;
+            b.add_triple(3, 3, 3).await?;
+            b.finalize().await?;
 
-        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
+        };
 
-        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
-            .wait()
-            .unwrap();
+        let child_layer = runtime.block_on(fut).unwrap();
 
         assert!(child_layer.triple_exists(1, 1, 1));
         assert!(child_layer.triple_exists(2, 1, 1));
@@ -979,25 +884,24 @@ pub mod tests {
 
     #[test]
     fn child_layer_can_have_deletes() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
 
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = child_builder
-            .into_phase2()
-            .and_then(|b| b.remove_triple(2, 1, 1))
-            .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize());
+        let fut = async {
+            let mut b = child_builder.into_phase2().await?;
+            b.remove_triple(2, 1, 1).await?;
+            b.remove_triple(3, 2, 5).await?;
+            b.finalize().await?;
 
-        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
+        };
 
-        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
-            .wait()
-            .unwrap();
+        let child_layer = runtime.block_on(fut).unwrap();
 
         assert!(child_layer.triple_exists(1, 1, 1));
         assert!(!child_layer.triple_exists(2, 1, 1));
@@ -1012,25 +916,24 @@ pub mod tests {
 
     #[test]
     fn child_layer_can_have_inserts_and_deletes() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = child_builder
-            .into_phase2()
-            .and_then(|b| b.add_triple(1, 2, 3))
-            .and_then(|b| b.add_triple(2, 3, 4))
-            .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize());
+        let fut = async {
+            let mut b = child_builder.into_phase2().await?;
+            b.add_triple(1, 2, 3).await?;
+            b.add_triple(2, 3, 4).await?;
+            b.remove_triple(3, 2, 5).await?;
+            b.finalize().await?;
 
-        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
+        };
 
-        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
-            .wait()
-            .unwrap();
+        let child_layer = runtime.block_on(fut).unwrap();
 
         assert!(child_layer.triple_exists(1, 1, 1));
         assert!(child_layer.triple_exists(1, 2, 3));
@@ -1047,25 +950,24 @@ pub mod tests {
 
     #[test]
     fn iterate_child_layer_triples() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = child_builder
-            .into_phase2()
-            .and_then(|b| b.add_triple(1, 2, 3))
-            .and_then(|b| b.add_triple(2, 3, 4))
-            .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize());
+        let fut = async {
+            let mut b = child_builder.into_phase2().await?;
+            b.add_triple(1, 2, 3).await?;
+            b.add_triple(2, 3, 4).await?;
+            b.remove_triple(3, 2, 5).await?;
+            b.finalize().await?;
 
-        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
+        };
 
-        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
-            .wait()
-            .unwrap();
+        let child_layer = runtime.block_on(fut).unwrap();
 
         let subjects: Vec<_> = child_layer
             .triples()
@@ -1089,25 +991,24 @@ pub mod tests {
 
     #[test]
     fn iterate_child_layer_triples_by_object() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = child_builder
-            .into_phase2()
-            .and_then(|b| b.add_triple(1, 2, 3))
-            .and_then(|b| b.add_triple(2, 3, 4))
-            .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize());
+        let fut = async {
+            let mut b = child_builder.into_phase2().await?;
+            b.add_triple(1, 2, 3).await?;
+            b.add_triple(2, 3, 4).await?;
+            b.remove_triple(3, 2, 5).await?;
+            b.finalize().await?;
 
-        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
+        };
 
-        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
-            .wait()
-            .unwrap();
+        let child_layer = runtime.block_on(fut).unwrap();
 
         let triples: Vec<_> = child_layer
             .objects()
@@ -1133,31 +1034,30 @@ pub mod tests {
 
     #[test]
     fn iterate_child_layer_triples_by_objects_with_equal_predicates() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = empty_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = empty_base_layer(&runtime.handle());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
-        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = child_builder
-            .add_node("a")
-            .and_then(|(_, b)| b.add_predicate("b"))
-            .and_then(|(_, b)| b.add_predicate("c"))
-            .and_then(|(_, b)| b.add_value("d"))
-            .and_then(|(_, b)| b.into_phase2())
-            .and_then(|b| b.add_triple(1, 1, 1))
-            .and_then(|b| b.add_triple(1, 1, 2))
-            .and_then(|b| b.add_triple(1, 2, 1))
-            .and_then(|b| b.add_triple(2, 1, 1))
-            .and_then(|b| b.add_triple(2, 2, 1))
-            .and_then(|b| b.finalize());
+        let mut b = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
+        let fut = async {
+            b.add_node("a").await?;
+            b.add_predicate("b").await?;
+            b.add_predicate("c").await?;
+            b.add_value("d").await?;
+            let mut b = b.into_phase2().await?;
+            b.add_triple(1, 1, 1).await?;
+            b.add_triple(1, 1, 2).await?;
+            b.add_triple(1, 2, 1).await?;
+            b.add_triple(2, 1, 1).await?;
+            b.add_triple(2, 2, 1).await?;
+            b.finalize().await?;
 
-        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
+        };
 
-        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
-            .wait()
-            .unwrap();
+        let child_layer = runtime.block_on(fut).unwrap();
 
         let triples: Vec<_> = child_layer
             .objects()
@@ -1174,25 +1074,24 @@ pub mod tests {
 
     #[test]
     fn lookup_child_layer_triples_by_predicate() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = child_builder
-            .into_phase2()
-            .and_then(|b| b.add_triple(1, 2, 3))
-            .and_then(|b| b.add_triple(2, 3, 4))
-            .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize());
+        let fut = async {
+            let mut b = child_builder.into_phase2().await?;
+            b.add_triple(1, 2, 3).await?;
+            b.add_triple(2, 3, 4).await?;
+            b.remove_triple(3, 2, 5).await?;
+            b.finalize().await?;
 
-        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
+        };
 
-        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
-            .wait()
-            .unwrap();
+        let child_layer = runtime.block_on(fut).unwrap();
 
         let lookup = child_layer.lookup_predicate(1).unwrap();
         let pairs: Vec<_> = lookup
@@ -1231,24 +1130,23 @@ pub mod tests {
 
     #[test]
     fn adding_new_nodes_predicates_and_values_in_child() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = child_builder
-            .into_phase2()
-            .and_then(|b| b.add_triple(11, 2, 3))
-            .and_then(|b| b.add_triple(12, 3, 4))
-            .and_then(|b| b.finalize());
+        let fut = async {
+            let mut b = child_builder.into_phase2().await?;
+            b.add_triple(11, 2, 3).await?;
+            b.add_triple(12, 3, 4).await?;
+            b.finalize().await?;
 
-        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
+        };
 
-        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
-            .wait()
-            .unwrap();
+        let child_layer = runtime.block_on(fut).unwrap();
 
         assert!(child_layer.triple_exists(11, 2, 3));
         assert!(child_layer.triple_exists(12, 3, 4));
@@ -1256,25 +1154,25 @@ pub mod tests {
 
     #[test]
     fn old_dictionary_entries_in_child() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
-        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = child_builder
-            .add_node("foo")
-            .and_then(|(_, b)| b.add_predicate("bar"))
-            .and_then(|(_, b)| b.add_value("baz"))
-            .and_then(|(_, b)| b.into_phase2())
-            .and_then(|b| b.finalize());
+        let mut b = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
+        let fut = async {
+            b.add_node("foo").await?;
+            b.add_predicate("bar").await?;
+            b.add_value("baz").await?;
 
-        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
+            let b = b.into_phase2().await?;
+            b.finalize().await?;
 
-        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
-            .wait()
-            .unwrap();
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
+        };
+
+        let child_layer = runtime.block_on(fut).unwrap();
 
         assert_eq!(3, child_layer.subject_id("bbbbb").unwrap());
         assert_eq!(2, child_layer.predicate_id("fghij").unwrap());
@@ -1295,25 +1193,25 @@ pub mod tests {
 
     #[test]
     fn new_dictionary_entries_in_child() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
-        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = child_builder
-            .add_node("foo")
-            .and_then(|(_, b)| b.add_predicate("bar"))
-            .and_then(|(_, b)| b.add_value("baz"))
-            .and_then(|(_, b)| b.into_phase2())
-            .and_then(|b| b.finalize());
+        let mut b = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
+        let fut = async {
+            b.add_node("foo").await?;
+            b.add_predicate("bar").await?;
+            b.add_value("baz").await?;
+            let b = b.into_phase2().await?;
 
-        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
+            b.finalize().await?;
 
-        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
-            .wait()
-            .unwrap();
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
+        };
+
+        let child_layer = runtime.block_on(fut).unwrap();
 
         assert_eq!(11, child_layer.subject_id("foo").unwrap());
         assert_eq!(5, child_layer.predicate_id("bar").unwrap());
@@ -1334,26 +1232,25 @@ pub mod tests {
 
     #[test]
     fn lookup_additions_by_subject() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = child_builder
-            .into_phase2()
-            .and_then(|b| b.add_triple(1, 3, 4))
-            .and_then(|b| b.add_triple(2, 2, 2))
-            .and_then(|b| b.add_triple(3, 4, 5))
-            .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize());
+        let fut = async {
+            let mut b = child_builder.into_phase2().await?;
+            b.add_triple(1, 3, 4).await?;
+            b.add_triple(2, 2, 2).await?;
+            b.add_triple(3, 4, 5).await?;
+            b.remove_triple(3, 2, 5).await?;
+            b.finalize().await?;
 
-        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
+        };
 
-        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
-            .wait()
-            .unwrap();
+        let child_layer = runtime.block_on(fut).unwrap();
 
         let result: Vec<_> = child_layer
             .subject_additions()
@@ -1367,26 +1264,25 @@ pub mod tests {
 
     #[test]
     fn lookup_additions_by_predicate() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = child_builder
-            .into_phase2()
-            .and_then(|b| b.add_triple(1, 3, 4))
-            .and_then(|b| b.add_triple(2, 2, 2))
-            .and_then(|b| b.add_triple(3, 4, 5))
-            .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize());
+        let fut = async {
+            let mut b = child_builder.into_phase2().await?;
+            b.add_triple(1, 3, 4).await?;
+            b.add_triple(2, 2, 2).await?;
+            b.add_triple(3, 4, 5).await?;
+            b.remove_triple(3, 2, 5).await?;
+            b.finalize().await?;
 
-        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
+        };
 
-        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
-            .wait()
-            .unwrap();
+        let child_layer = runtime.block_on(fut).unwrap();
 
         let result: Vec<_> = child_layer
             .predicate_additions()
@@ -1400,26 +1296,25 @@ pub mod tests {
 
     #[test]
     fn lookup_additions_by_object() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = child_builder
-            .into_phase2()
-            .and_then(|b| b.add_triple(1, 3, 4))
-            .and_then(|b| b.add_triple(2, 2, 2))
-            .and_then(|b| b.add_triple(3, 4, 5))
-            .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize());
+        let fut = async {
+            let mut b = child_builder.into_phase2().await?;
+            b.add_triple(1, 3, 4).await?;
+            b.add_triple(2, 2, 2).await?;
+            b.add_triple(3, 4, 5).await?;
+            b.remove_triple(3, 2, 5).await?;
+            b.finalize().await?;
 
-        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
+        };
 
-        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
-            .wait()
-            .unwrap();
+        let child_layer = runtime.block_on(fut).unwrap();
 
         let result: Vec<_> = child_layer
             .object_additions()
@@ -1433,26 +1328,25 @@ pub mod tests {
 
     #[test]
     fn lookup_removals_by_subject() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = child_builder
-            .into_phase2()
-            .and_then(|b| b.add_triple(1, 3, 4))
-            .and_then(|b| b.remove_triple(2, 1, 1))
-            .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.remove_triple(4, 3, 6))
-            .and_then(|b| b.finalize());
+        let fut = async {
+            let mut b = child_builder.into_phase2().await?;
+            b.add_triple(1, 3, 4).await?;
+            b.remove_triple(2, 1, 1).await?;
+            b.remove_triple(3, 2, 5).await?;
+            b.remove_triple(4, 3, 6).await?;
+            b.finalize().await?;
 
-        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
+        };
 
-        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
-            .wait()
-            .unwrap();
+        let child_layer = runtime.block_on(fut).unwrap();
 
         let result: Vec<_> = child_layer
             .subject_removals()
@@ -1466,26 +1360,25 @@ pub mod tests {
 
     #[test]
     fn lookup_removals_by_predicate() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = child_builder
-            .into_phase2()
-            .and_then(|b| b.add_triple(1, 3, 4))
-            .and_then(|b| b.remove_triple(2, 1, 1))
-            .and_then(|b| b.remove_triple(2, 3, 6))
-            .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize());
+        let fut = async {
+            let mut b = child_builder.into_phase2().await?;
+            b.add_triple(1, 3, 4).await?;
+            b.remove_triple(2, 1, 1).await?;
+            b.remove_triple(2, 3, 6).await?;
+            b.remove_triple(3, 2, 5).await?;
+            b.finalize().await?;
 
-        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
+        };
 
-        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
-            .wait()
-            .unwrap();
+        let child_layer = runtime.block_on(fut).unwrap();
 
         let result: Vec<_> = child_layer
             .predicate_removals()
@@ -1499,26 +1392,25 @@ pub mod tests {
 
     #[test]
     fn lookup_removals_by_object() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = child_builder
-            .into_phase2()
-            .and_then(|b| b.add_triple(1, 3, 4))
-            .and_then(|b| b.remove_triple(2, 1, 1))
-            .and_then(|b| b.remove_triple(2, 3, 6))
-            .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize());
+        let fut = async {
+            let mut b = child_builder.into_phase2().await?;
+            b.add_triple(1, 3, 4).await?;
+            b.remove_triple(2, 1, 1).await?;
+            b.remove_triple(2, 3, 6).await?;
+            b.remove_triple(3, 2, 5).await?;
+            b.finalize().await?;
 
-        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
+        };
 
-        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
-            .wait()
-            .unwrap();
+        let child_layer = runtime.block_on(fut).unwrap();
 
         let result: Vec<_> = child_layer
             .object_removals()
@@ -1532,27 +1424,25 @@ pub mod tests {
 
     #[test]
     fn create_empty_child_layer() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = child_builder
-            .into_phase2()
-            .and_then(|b| b.add_triple(1, 3, 4))
-            .and_then(|b| b.remove_triple(2, 1, 1))
-            .and_then(|b| b.remove_triple(2, 3, 6))
-            .and_then(|b| b.remove_triple(3, 2, 5))
-            .and_then(|b| b.finalize());
+        let fut = async {
+            let mut b = child_builder.into_phase2().await?;
+            b.add_triple(1, 3, 4).await?;
+            b.remove_triple(2, 1, 1).await?;
+            b.remove_triple(2, 3, 6).await?;
+            b.remove_triple(3, 2, 5).await?;
+            b.finalize().await?;
 
-        oneshot::spawn(fut, &runtime.executor()).wait().unwrap();
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent.clone(), &child_files).await
+        };
 
-        let child_layer =
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent.clone(), &child_files)
-                .wait()
-                .unwrap();
+        let child_layer = runtime.block_on(fut).unwrap();
 
         assert_eq!(
             parent.node_and_value_count(),
@@ -1563,30 +1453,32 @@ pub mod tests {
 
     #[test]
     fn child_layer_with_multiple_pairs_pointing_at_same_object_lookup_by_objects() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = empty_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = empty_base_layer(&runtime.handle());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
-        let builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
+        let mut b = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
 
-        let future = builder
-            .add_nodes(vec!["a", "b"].into_iter().map(|x| x.to_string()))
-            .and_then(|(_, b)| b.add_predicates(vec!["c", "d"].into_iter().map(|x| x.to_string())))
-            .and_then(|(_, b)| b.add_values(vec!["e"].into_iter().map(|x| x.to_string())))
-            .and_then(|(_, b)| b.into_phase2())
-            .and_then(|b| b.add_triple(1, 1, 1))
-            .and_then(|b| b.add_triple(1, 2, 1))
-            .and_then(|b| b.add_triple(2, 1, 1))
-            .and_then(|b| b.add_triple(2, 2, 1))
-            .and_then(|b| b.finalize());
+        let fut = async {
+            b.add_nodes(vec!["a", "b"].into_iter().map(|x| x.to_string()))
+                .await?;
+            b.add_predicates(vec!["c", "d"].into_iter().map(|x| x.to_string()))
+                .await?;
+            b.add_values(vec!["e"].into_iter().map(|x| x.to_string()))
+                .await?;
 
-        oneshot::spawn(future, &runtime.executor()).wait().unwrap();
+            let mut b = b.into_phase2().await?;
+            b.add_triple(1, 1, 1).await?;
+            b.add_triple(1, 2, 1).await?;
+            b.add_triple(2, 1, 1).await?;
+            b.add_triple(2, 2, 1).await?;
+            b.finalize().await?;
 
-        let child_layer =
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent.clone(), &child_files)
-                .wait()
-                .unwrap();
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent.clone(), &child_files).await
+        };
+
+        let child_layer = runtime.block_on(fut).unwrap();
 
         let triples_by_object: Vec<_> = child_layer
             .objects()
@@ -1605,27 +1497,28 @@ pub mod tests {
 
     #[test]
     fn stream_child_triples() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
         let builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
 
-        let future = builder
-            .into_phase2()
-            .and_then(|b| b.add_triple(1, 2, 1))
-            .and_then(|b| b.add_triple(3, 1, 5))
-            .and_then(|b| b.add_triple(5, 2, 3))
-            .and_then(|b| b.add_triple(5, 2, 4))
-            .and_then(|b| b.add_triple(5, 2, 5))
-            .and_then(|b| b.add_triple(5, 3, 1))
-            .and_then(|b| b.remove_triple(2, 1, 1))
-            .and_then(|b| b.remove_triple(2, 3, 6))
-            .and_then(|b| b.remove_triple(4, 3, 6))
-            .and_then(|b| b.finalize());
+        let fut = async {
+            let mut b = builder.into_phase2().await?;
+            b.add_triple(1, 2, 1).await?;
+            b.add_triple(3, 1, 5).await?;
+            b.add_triple(5, 2, 3).await?;
+            b.add_triple(5, 2, 4).await?;
+            b.add_triple(5, 2, 5).await?;
+            b.add_triple(5, 3, 1).await?;
+            b.remove_triple(2, 1, 1).await?;
+            b.remove_triple(2, 3, 6).await?;
+            b.remove_triple(4, 3, 6).await?;
+            b.finalize().await
+        };
 
-        oneshot::spawn(future, &runtime.executor()).wait().unwrap();
+        runtime.block_on(fut).unwrap();
 
         let addition_stream = open_child_triple_stream(
             child_files.pos_subjects_file,
@@ -1638,8 +1531,8 @@ pub mod tests {
             child_files.neg_sp_o_adjacency_list_files,
         );
 
-        let addition_triples: Vec<_> = addition_stream.collect().wait().unwrap();
-        let removal_triples: Vec<_> = removal_stream.collect().wait().unwrap();
+        let addition_triples: Vec<_> = runtime.block_on(addition_stream.try_collect()).unwrap();
+        let removal_triples: Vec<_> = runtime.block_on(removal_stream.try_collect()).unwrap();
 
         assert_eq!(
             vec![
@@ -1658,30 +1551,30 @@ pub mod tests {
 
     #[test]
     fn count_triples() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
         let builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
 
-        let future = builder
-            .into_phase2()
-            .and_then(|b| b.add_triple(1, 2, 1))
-            .and_then(|b| b.add_triple(3, 1, 5))
-            .and_then(|b| b.add_triple(5, 2, 3))
-            .and_then(|b| b.add_triple(5, 2, 4))
-            .and_then(|b| b.add_triple(5, 2, 5))
-            .and_then(|b| b.add_triple(5, 3, 1))
-            .and_then(|b| b.remove_triple(2, 1, 1))
-            .and_then(|b| b.remove_triple(2, 3, 6))
-            .and_then(|b| b.remove_triple(4, 3, 6))
-            .and_then(|b| b.finalize());
+        let fut = async {
+            let mut b = builder.into_phase2().await?;
+            b.add_triple(1, 2, 1).await?;
+            b.add_triple(3, 1, 5).await?;
+            b.add_triple(5, 2, 3).await?;
+            b.add_triple(5, 2, 4).await?;
+            b.add_triple(5, 2, 5).await?;
+            b.add_triple(5, 3, 1).await?;
+            b.remove_triple(2, 1, 1).await?;
+            b.remove_triple(2, 3, 6).await?;
+            b.remove_triple(4, 3, 6).await?;
+            b.finalize().await?;
 
-        oneshot::spawn(future, &runtime.executor()).wait().unwrap();
-        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
-            .wait()
-            .unwrap();
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
+        };
+
+        let child_layer = runtime.block_on(fut).unwrap();
 
         assert_eq!(6, child_layer.triple_layer_addition_count());
         assert_eq!(3, child_layer.triple_layer_removal_count());

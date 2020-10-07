@@ -7,9 +7,9 @@ pub mod bitarray;
 pub mod bitindex;
 pub mod bititer;
 pub mod logarray;
-pub mod mapped_dict;
+//pub mod mapped_dict;
 pub mod pfc;
-mod util;
+pub mod util;
 pub mod vbyte;
 pub mod wavelettree;
 

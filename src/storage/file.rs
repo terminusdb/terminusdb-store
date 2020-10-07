@@ -1,11 +1,13 @@
 //! storage traits that the builders and loaders can rely on
 
 use bytes::Bytes;
-use futures::prelude::*;
-use tokio::prelude::*;
+use futures::future::{self, Future};
+use futures::io;
+use std::pin::Pin;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 pub trait FileStore: Clone + Send + Sync {
-    type Write: AsyncWrite + Send;
+    type Write: AsyncWrite + Unpin + Send;
     fn open_write(&self) -> Self::Write {
         self.open_write_from(0)
     }
@@ -13,7 +15,7 @@ pub trait FileStore: Clone + Send + Sync {
 }
 
 pub trait FileLoad: Clone + Send + Sync {
-    type Read: AsyncRead + Send;
+    type Read: AsyncRead + Unpin + Send;
 
     // TODO - exists and size should also be future-enabled
     fn exists(&self) -> bool;
@@ -22,14 +24,15 @@ pub trait FileLoad: Clone + Send + Sync {
         self.open_read_from(0)
     }
     fn open_read_from(&self, offset: usize) -> Self::Read;
-    fn map(&self) -> Box<dyn Future<Item = Bytes, Error = std::io::Error> + Send>;
+    fn map(&self) -> Pin<Box<dyn Future<Output = io::Result<Bytes>> + Send>>;
 
-    fn map_if_exists(
-        &self,
-    ) -> Box<dyn Future<Item = Option<Bytes>, Error = std::io::Error> + Send> {
-        Box::new(match self.exists() {
-            false => future::Either::A(future::ok(None)),
-            true => future::Either::B(self.map().map(|m| Some(m))),
+    fn map_if_exists(&self) -> Pin<Box<dyn Future<Output = io::Result<Option<Bytes>>> + Send>> {
+        Box::pin(match self.exists() {
+            false => future::Either::Left(future::ok(None)),
+            true => {
+                let fut = self.map();
+                future::Either::Right(async { Ok(Some(fut.await?)) })
+            }
         })
     }
 }
@@ -92,47 +95,34 @@ pub struct BaseLayerMaps {
 }
 
 impl<F: FileLoad + FileStore> BaseLayerFiles<F> {
-    pub fn map_all(&self) -> impl Future<Item = BaseLayerMaps, Error = std::io::Error> {
-        let dict_futs = vec![
-            self.node_dictionary_files.map_all(),
-            self.predicate_dictionary_files.map_all(),
-            self.value_dictionary_files.map_all(),
-        ];
+    pub async fn map_all(&self) -> io::Result<BaseLayerMaps> {
+        let node_dictionary_maps = self.node_dictionary_files.map_all().await?;
+        let predicate_dictionary_maps = self.predicate_dictionary_files.map_all().await?;
+        let value_dictionary_maps = self.value_dictionary_files.map_all().await?;
 
-        let so_futs = vec![
-            self.subjects_file.map_if_exists(),
-            self.objects_file.map_if_exists(),
-        ];
+        let subjects_map = self.subjects_file.map_if_exists().await?;
+        let objects_map = self.objects_file.map_if_exists().await?;
 
-        let aj_futs = vec![
-            self.s_p_adjacency_list_files.map_all(),
-            self.sp_o_adjacency_list_files.map_all(),
-            self.o_ps_adjacency_list_files.map_all(),
-        ];
+        let s_p_adjacency_list_maps = self.s_p_adjacency_list_files.map_all().await?;
+        let sp_o_adjacency_list_maps = self.sp_o_adjacency_list_files.map_all().await?;
+        let o_ps_adjacency_list_maps = self.o_ps_adjacency_list_files.map_all().await?;
 
-        future::join_all(dict_futs)
-            .join(future::join_all(so_futs))
-            .join(future::join_all(aj_futs))
-            .join(self.predicate_wavelet_tree_files.map_all())
-            .map(
-                |(((dict_results, so_results), aj_results), predicate_wavelet_tree_maps)| {
-                    BaseLayerMaps {
-                        node_dictionary_maps: dict_results[0].clone(),
-                        predicate_dictionary_maps: dict_results[1].clone(),
-                        value_dictionary_maps: dict_results[2].clone(),
+        let predicate_wavelet_tree_maps = self.predicate_wavelet_tree_files.map_all().await?;
 
-                        subjects_map: so_results[0].clone(),
-                        objects_map: so_results[1].clone(),
+        Ok(BaseLayerMaps {
+            node_dictionary_maps,
+            predicate_dictionary_maps,
+            value_dictionary_maps,
 
-                        s_p_adjacency_list_maps: aj_results[0].clone(),
-                        sp_o_adjacency_list_maps: aj_results[1].clone(),
+            subjects_map,
+            objects_map,
 
-                        o_ps_adjacency_list_maps: aj_results[2].clone(),
+            s_p_adjacency_list_maps,
+            sp_o_adjacency_list_maps,
+            o_ps_adjacency_list_maps,
 
-                        predicate_wavelet_tree_maps,
-                    }
-                },
-            )
+            predicate_wavelet_tree_maps,
+        })
     }
 }
 
@@ -181,60 +171,49 @@ pub struct ChildLayerMaps {
 }
 
 impl<F: FileLoad + FileStore + Clone> ChildLayerFiles<F> {
-    pub fn map_all(&self) -> impl Future<Item = ChildLayerMaps, Error = std::io::Error> {
-        let dict_futs = vec![
-            self.node_dictionary_files.map_all(),
-            self.predicate_dictionary_files.map_all(),
-            self.value_dictionary_files.map_all(),
-        ];
+    pub async fn map_all(&self) -> io::Result<ChildLayerMaps> {
+        let node_dictionary_maps = self.node_dictionary_files.map_all().await?;
+        let predicate_dictionary_maps = self.predicate_dictionary_files.map_all().await?;
+        let value_dictionary_maps = self.value_dictionary_files.map_all().await?;
 
-        let sub_futs = vec![
-            self.pos_subjects_file.map(),
-            self.pos_objects_file.map(),
-            self.neg_subjects_file.map(),
-            self.neg_objects_file.map(),
-        ];
+        let pos_subjects_map = self.pos_subjects_file.map().await?;
+        let neg_subjects_map = self.neg_subjects_file.map().await?;
+        let pos_objects_map = self.pos_objects_file.map().await?;
+        let neg_objects_map = self.neg_objects_file.map().await?;
 
-        let aj_futs = vec![
-            self.pos_s_p_adjacency_list_files.map_all(),
-            self.pos_sp_o_adjacency_list_files.map_all(),
-            self.pos_o_ps_adjacency_list_files.map_all(),
-            self.neg_s_p_adjacency_list_files.map_all(),
-            self.neg_sp_o_adjacency_list_files.map_all(),
-            self.neg_o_ps_adjacency_list_files.map_all(),
-        ];
+        let pos_s_p_adjacency_list_maps = self.pos_s_p_adjacency_list_files.map_all().await?;
+        let pos_sp_o_adjacency_list_maps = self.pos_sp_o_adjacency_list_files.map_all().await?;
+        let pos_o_ps_adjacency_list_maps = self.pos_o_ps_adjacency_list_files.map_all().await?;
 
-        let wt_futs = vec![
-            self.pos_predicate_wavelet_tree_files.map_all(),
-            self.neg_predicate_wavelet_tree_files.map_all(),
-        ];
+        let neg_s_p_adjacency_list_maps = self.neg_s_p_adjacency_list_files.map_all().await?;
+        let neg_sp_o_adjacency_list_maps = self.neg_sp_o_adjacency_list_files.map_all().await?;
+        let neg_o_ps_adjacency_list_maps = self.neg_o_ps_adjacency_list_files.map_all().await?;
 
-        future::join_all(dict_futs)
-            .join(future::join_all(sub_futs))
-            .join(future::join_all(aj_futs))
-            .join(future::join_all(wt_futs))
-            .map(
-                |(((dict_results, sub_results), aj_results), wt_results)| ChildLayerMaps {
-                    node_dictionary_maps: dict_results[0].clone(),
-                    predicate_dictionary_maps: dict_results[1].clone(),
-                    value_dictionary_maps: dict_results[2].clone(),
+        let pos_predicate_wavelet_tree_maps =
+            self.pos_predicate_wavelet_tree_files.map_all().await?;
+        let neg_predicate_wavelet_tree_maps =
+            self.neg_predicate_wavelet_tree_files.map_all().await?;
 
-                    pos_subjects_map: sub_results[0].clone(),
-                    pos_objects_map: sub_results[1].clone(),
-                    neg_subjects_map: sub_results[2].clone(),
-                    neg_objects_map: sub_results[3].clone(),
+        Ok(ChildLayerMaps {
+            node_dictionary_maps,
+            predicate_dictionary_maps,
+            value_dictionary_maps,
 
-                    pos_s_p_adjacency_list_maps: aj_results[0].clone(),
-                    pos_sp_o_adjacency_list_maps: aj_results[1].clone(),
-                    pos_o_ps_adjacency_list_maps: aj_results[2].clone(),
-                    neg_s_p_adjacency_list_maps: aj_results[3].clone(),
-                    neg_sp_o_adjacency_list_maps: aj_results[4].clone(),
-                    neg_o_ps_adjacency_list_maps: aj_results[5].clone(),
+            pos_subjects_map,
+            pos_objects_map,
+            neg_subjects_map,
+            neg_objects_map,
 
-                    pos_predicate_wavelet_tree_maps: wt_results[0].clone(),
-                    neg_predicate_wavelet_tree_maps: wt_results[1].clone(),
-                },
-            )
+            pos_s_p_adjacency_list_maps,
+            pos_sp_o_adjacency_list_maps,
+            pos_o_ps_adjacency_list_maps,
+            neg_s_p_adjacency_list_maps,
+            neg_sp_o_adjacency_list_maps,
+            neg_o_ps_adjacency_list_maps,
+
+            pos_predicate_wavelet_tree_maps,
+            neg_predicate_wavelet_tree_maps,
+        })
     }
 }
 
@@ -245,12 +224,6 @@ pub struct DictionaryMaps {
 }
 
 #[derive(Clone)]
-pub struct AdjacencyListMaps {
-    pub bitindex_maps: BitIndexMaps,
-    pub nums_map: Bytes,
-}
-
-#[derive(Clone)]
 pub struct DictionaryFiles<F: 'static + FileLoad + FileStore> {
     pub blocks_file: F,
     pub offsets_file: F,
@@ -258,30 +231,14 @@ pub struct DictionaryFiles<F: 'static + FileLoad + FileStore> {
 }
 
 impl<F: 'static + FileLoad + FileStore> DictionaryFiles<F> {
-    pub fn map_all(&self) -> impl Future<Item = DictionaryMaps, Error = std::io::Error> {
-        let futs = vec![self.blocks_file.map(), self.offsets_file.map()];
-        future::join_all(futs).map(|results| DictionaryMaps {
-            blocks_map: results[0].clone(),
-            offsets_map: results[1].clone(),
+    pub async fn map_all(&self) -> io::Result<DictionaryMaps> {
+        let blocks_map = self.blocks_file.map().await?;
+        let offsets_map = self.offsets_file.map().await?;
+
+        Ok(DictionaryMaps {
+            blocks_map,
+            offsets_map,
         })
-    }
-}
-
-#[derive(Clone)]
-pub struct AdjacencyListFiles<F: 'static + FileLoad> {
-    pub bitindex_files: BitIndexFiles<F>,
-    pub nums_file: F,
-}
-
-impl<F: 'static + FileLoad + FileStore> AdjacencyListFiles<F> {
-    pub fn map_all(&self) -> impl Future<Item = AdjacencyListMaps, Error = std::io::Error> {
-        self.bitindex_files
-            .map_all()
-            .join(self.nums_file.map())
-            .map(|(bitindex_maps, nums_map)| AdjacencyListMaps {
-                bitindex_maps,
-                nums_map,
-            })
     }
 }
 
@@ -300,16 +257,39 @@ pub struct BitIndexFiles<F: 'static + FileLoad> {
 }
 
 impl<F: 'static + FileLoad + FileStore> BitIndexFiles<F> {
-    pub fn map_all(&self) -> impl Future<Item = BitIndexMaps, Error = std::io::Error> {
-        let futs = vec![
-            self.bits_file.map(),
-            self.blocks_file.map(),
-            self.sblocks_file.map(),
-        ];
-        future::join_all(futs).map(|results| BitIndexMaps {
-            bits_map: results[0].clone(),
-            blocks_map: results[1].clone(),
-            sblocks_map: results[2].clone(),
+    pub async fn map_all(&self) -> io::Result<BitIndexMaps> {
+        let bits_map = self.bits_file.map().await?;
+        let blocks_map = self.blocks_file.map().await?;
+        let sblocks_map = self.sblocks_file.map().await?;
+
+        Ok(BitIndexMaps {
+            bits_map,
+            blocks_map,
+            sblocks_map,
+        })
+    }
+}
+
+#[derive(Clone)]
+pub struct AdjacencyListMaps {
+    pub bitindex_maps: BitIndexMaps,
+    pub nums_map: Bytes,
+}
+
+#[derive(Clone)]
+pub struct AdjacencyListFiles<F: 'static + FileLoad> {
+    pub bitindex_files: BitIndexFiles<F>,
+    pub nums_file: F,
+}
+
+impl<F: 'static + FileLoad + FileStore> AdjacencyListFiles<F> {
+    pub async fn map_all(&self) -> io::Result<AdjacencyListMaps> {
+        let bitindex_maps = self.bitindex_files.map_all().await?;
+        let nums_map = self.nums_file.map().await?;
+
+        Ok(AdjacencyListMaps {
+            bitindex_maps,
+            nums_map,
         })
     }
 }

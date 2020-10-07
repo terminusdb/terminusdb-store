@@ -3,9 +3,7 @@
 //! Since not everyone likes tokio, or dealing with async code, this
 //! module exposes the same API as the asynchronous store API, only
 //! without any futures.
-use futures::future;
-use futures::prelude::*;
-use futures::sync::oneshot;
+use futures::Future;
 use tokio::runtime::Runtime;
 
 use std::io;
@@ -29,24 +27,8 @@ lazy_static! {
 /// directly on the async api functions resulted in a memory leak in
 /// tokio_threadpool. Spawning the future indirectly appears to work
 /// without memory leak.
-fn task_sync<T: 'static + Send, F: 'static + Future<Item = T, Error = io::Error> + Send>(
-    future: F,
-) -> Result<T, io::Error> {
-    let (tx, rx) = oneshot::channel();
-    let wrapped_future = future::lazy(|| {
-        tokio::spawn(future.then(|r| tx.send(r)).map(|_| ()).map_err(|_| ()));
-        future::ok::<(), io::Error>(())
-    });
-
-    let receiver_future = rx
-        .map_err(|_| io::Error::new(io::ErrorKind::Other, "canceled"))
-        .and_then(|r| r);
-
-    oneshot::spawn(
-        wrapped_future.and_then(|_| receiver_future),
-        &RUNTIME.executor(),
-    )
-    .wait()
+fn task_sync<T: Send, F: Future<Output = T> + Send>(future: F) -> T {
+    RUNTIME.handle().block_on(future)
 }
 
 /// A wrapper over a SimpleLayerBuilder, providing a thread-safe sharable interface

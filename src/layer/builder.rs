@@ -1,13 +1,11 @@
 use std::io;
 
-use futures::future;
-use futures::prelude::*;
-use futures::stream;
-
+use futures::stream::TryStreamExt;
 use rayon::prelude::*;
 
 use super::layer::*;
 use crate::storage::*;
+use crate::structure::util;
 use crate::structure::*;
 
 pub struct DictionarySetFileBuilder<F: 'static + FileStore> {
@@ -45,150 +43,93 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
     /// Add a node string.
     ///
     /// Panics if the given node string is not a lexical successor of the previous node string.
-    pub fn add_node(self, node: &str) -> impl Future<Item = (u64, Self), Error = std::io::Error> {
-        let DictionarySetFileBuilder {
-            node_dictionary_builder,
-            predicate_dictionary_builder,
-            value_dictionary_builder,
-        } = self;
+    pub async fn add_node(&mut self, node: &str) -> io::Result<u64> {
+        let id = self.node_dictionary_builder.add(node).await?;
 
-        node_dictionary_builder
-            .add(node)
-            .map(move |(result, node_dictionary_builder)| {
-                (
-                    result,
-                    DictionarySetFileBuilder {
-                        node_dictionary_builder,
-                        predicate_dictionary_builder,
-                        value_dictionary_builder,
-                    },
-                )
-            })
+        Ok(id)
     }
 
     /// Add a predicate string.
     ///
     /// Panics if the given predicate string is not a lexical successor of the previous node string.
-    pub fn add_predicate(
-        self,
-        predicate: &str,
-    ) -> impl Future<Item = (u64, Self), Error = std::io::Error> {
-        let DictionarySetFileBuilder {
-            node_dictionary_builder,
-            predicate_dictionary_builder,
-            value_dictionary_builder,
-        } = self;
+    pub async fn add_predicate(&mut self, predicate: &str) -> io::Result<u64> {
+        let id = self.predicate_dictionary_builder.add(predicate).await?;
 
-        predicate_dictionary_builder.add(predicate).map(
-            move |(result, predicate_dictionary_builder)| {
-                (
-                    result,
-                    DictionarySetFileBuilder {
-                        node_dictionary_builder,
-                        predicate_dictionary_builder,
-                        value_dictionary_builder,
-                    },
-                )
-            },
-        )
+        Ok(id)
     }
 
     /// Add a value string.
     ///
     /// Panics if the given value string is not a lexical successor of the previous value string.
-    pub fn add_value(self, value: &str) -> impl Future<Item = (u64, Self), Error = std::io::Error> {
-        let DictionarySetFileBuilder {
-            node_dictionary_builder,
-            predicate_dictionary_builder,
-            value_dictionary_builder,
-        } = self;
+    pub async fn add_value(&mut self, value: &str) -> io::Result<u64> {
+        let id = self.value_dictionary_builder.add(value).await?;
 
-        value_dictionary_builder
-            .add(value)
-            .map(move |(result, value_dictionary_builder)| {
-                (
-                    result,
-                    DictionarySetFileBuilder {
-                        node_dictionary_builder,
-                        predicate_dictionary_builder,
-                        value_dictionary_builder,
-                    },
-                )
-            })
+        Ok(id)
     }
 
     /// Add nodes from an iterable.
     ///
     /// Panics if the nodes are not in lexical order, or if previous added nodes are a lexical succesor of any of these nodes.
-    pub fn add_nodes<I: 'static + IntoIterator<Item = String> + Send + Sync>(
-        self,
+    pub async fn add_nodes<I: 'static + IntoIterator<Item = String> + Unpin + Send + Sync>(
+        &mut self,
         nodes: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error>
+    ) -> io::Result<Vec<u64>>
     where
-        <I as std::iter::IntoIterator>::IntoIter: Send + Sync,
+        <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
     {
-        stream::iter_ok(nodes.into_iter()).fold(
-            (Vec::new(), self),
-            |(mut result, builder), node| {
-                builder.add_node(&node).map(|(id, builder)| {
-                    result.push(id);
+        let mut ids = Vec::new();
+        for node in nodes {
+            let id = self.add_node(&node).await?;
+            ids.push(id);
+        }
 
-                    (result, builder)
-                })
-            },
-        )
+        Ok(ids)
     }
 
     /// Add predicates from an iterable.
     ///
     /// Panics if the predicates are not in lexical order, or if previous added predicates are a lexical succesor of any of these predicates.
-    pub fn add_predicates<I: 'static + IntoIterator<Item = String> + Send + Sync>(
-        self,
+    pub async fn add_predicates<I: 'static + IntoIterator<Item = String> + Unpin + Send + Sync>(
+        &mut self,
         predicates: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error>
+    ) -> io::Result<Vec<u64>>
     where
-        <I as std::iter::IntoIterator>::IntoIter: Send + Sync,
+        <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
     {
-        stream::iter_ok(predicates.into_iter()).fold(
-            (Vec::new(), self),
-            |(mut result, builder), predicate| {
-                builder.add_predicate(&predicate).map(|(id, builder)| {
-                    result.push(id);
+        let mut ids = Vec::new();
+        for predicate in predicates {
+            let id = self.add_predicate(&predicate).await?;
+            ids.push(id);
+        }
 
-                    (result, builder)
-                })
-            },
-        )
+        Ok(ids)
     }
 
     /// Add values from an iterable.
     ///
     /// Panics if the values are not in lexical order, or if previous added values are a lexical succesor of any of these values.
-    pub fn add_values<I: 'static + IntoIterator<Item = String> + Send + Sync>(
-        self,
+    pub async fn add_values<I: 'static + IntoIterator<Item = String> + Unpin + Send + Sync>(
+        &mut self,
         values: I,
-    ) -> impl Future<Item = (Vec<u64>, Self), Error = std::io::Error>
+    ) -> io::Result<Vec<u64>>
     where
-        <I as std::iter::IntoIterator>::IntoIter: Send + Sync,
+        <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
     {
-        stream::iter_ok(values.into_iter()).fold(
-            (Vec::new(), self),
-            |(mut result, builder), value| {
-                builder.add_value(&value).map(|(id, builder)| {
-                    result.push(id);
+        let mut ids = Vec::new();
+        for value in values {
+            let id = self.add_value(&value).await?;
+            ids.push(id);
+        }
 
-                    (result, builder)
-                })
-            },
-        )
+        Ok(ids)
     }
 
-    pub fn finalize(self) -> impl Future<Item = (), Error = io::Error> + Send {
-        let finalize_nodedict = self.node_dictionary_builder.finalize();
-        let finalize_preddict = self.predicate_dictionary_builder.finalize();
-        let finalize_valdict = self.value_dictionary_builder.finalize();
+    pub async fn finalize(self) -> io::Result<()> {
+        self.node_dictionary_builder.finalize().await?;
+        self.predicate_dictionary_builder.finalize().await?;
+        self.value_dictionary_builder.finalize().await?;
 
-        future::join_all(vec![finalize_nodedict, finalize_preddict, finalize_valdict]).map(|_| ())
+        Ok(())
     }
 }
 
@@ -260,220 +201,178 @@ impl<F: 'static + FileLoad + FileStore> TripleFileBuilder<F> {
     /// Add the given subject, predicate and object.
     ///
     /// This will panic if a greater triple has already been added.
-    pub fn add_triple(
-        self,
+    pub async fn add_triple(
+        &mut self,
         subject: u64,
         predicate: u64,
         object: u64,
-    ) -> impl Future<Item = Self, Error = std::io::Error> + Send {
-        let TripleFileBuilder {
-            mut subjects,
-            subjects_file,
-            s_p_adjacency_list_builder,
-            sp_o_adjacency_list_builder,
-            last_subject,
-            last_predicate,
-        } = self;
-
-        if subject < last_subject {
-            panic!("layer builder got addition in wrong order (subject is {} while previously {} was pushed)", subject, last_subject)
-        } else if last_subject == subject && last_predicate == predicate {
+    ) -> io::Result<()> {
+        if subject < self.last_subject {
+            panic!("layer builder got addition in wrong order (subject is {} while previously {} was pushed)", subject, self.last_subject)
+        } else if self.last_subject == subject && self.last_predicate == predicate {
             // only the second adjacency list has to be pushed to
-            let count = s_p_adjacency_list_builder.count() + 1;
-            future::Either::A(sp_o_adjacency_list_builder.push(count, object).map(
-                move |sp_o_adjacency_list_builder| TripleFileBuilder {
-                    subjects,
-                    subjects_file,
-                    s_p_adjacency_list_builder,
-                    sp_o_adjacency_list_builder,
-                    last_subject: subject,
-                    last_predicate: predicate,
-                },
-            ))
+            let count = self.s_p_adjacency_list_builder.count() + 1;
+
+            self.sp_o_adjacency_list_builder.push(count, object).await?;
         } else {
             // both list have to be pushed to
-            if subjects.is_some() && subject != last_subject {
-                subjects.as_mut().unwrap().push(subject);
+            if self.subjects.is_some() && subject != self.last_subject {
+                self.subjects.as_mut().unwrap().push(subject);
             }
-            let mapped_subject = subjects.as_ref().map(|s| s.len() as u64).unwrap_or(subject);
-            future::Either::B(
-                s_p_adjacency_list_builder
-                    .push(mapped_subject, predicate)
-                    .and_then(move |s_p_adjacency_list_builder| {
-                        let count = s_p_adjacency_list_builder.count() + 1;
-                        sp_o_adjacency_list_builder.push(count, object).map(
-                            move |sp_o_adjacency_list_builder| TripleFileBuilder {
-                                subjects,
-                                subjects_file,
-                                s_p_adjacency_list_builder,
-                                sp_o_adjacency_list_builder,
-                                last_subject: subject,
-                                last_predicate: predicate,
-                            },
-                        )
-                    }),
-            )
+            let mapped_subject = self
+                .subjects
+                .as_ref()
+                .map(|s| s.len() as u64)
+                .unwrap_or(subject);
+            self.s_p_adjacency_list_builder
+                .push(mapped_subject, predicate)
+                .await?;
+            let count = self.s_p_adjacency_list_builder.count() + 1;
+
+            self.sp_o_adjacency_list_builder.push(count, object).await?;
         }
+
+        self.last_subject = subject;
+        self.last_predicate = predicate;
+
+        Ok(())
     }
 
     /// Add the given triples.
     ///
     /// This will panic if a greater triple has already been added.
-    pub fn add_id_triples<I: 'static + IntoIterator<Item = IdTriple>>(
-        self,
+    pub async fn add_id_triples<I: 'static + IntoIterator<Item = IdTriple>>(
+        &mut self,
         triples: I,
-    ) -> impl Future<Item = Self, Error = std::io::Error> {
-        stream::iter_ok(triples).fold(self, |b, triple| {
-            b.add_triple(triple.subject, triple.predicate, triple.object)
-        })
+    ) -> io::Result<()> {
+        for triple in triples {
+            self.add_triple(triple.subject, triple.predicate, triple.object)
+                .await?;
+        }
+
+        Ok(())
     }
 
-    pub fn finalize(self) -> impl Future<Item = (), Error = std::io::Error> + Send {
-        let aj_futs = vec![
-            self.s_p_adjacency_list_builder.finalize(),
-            self.sp_o_adjacency_list_builder.finalize(),
-        ];
+    pub async fn finalize(self) -> io::Result<()> {
+        self.s_p_adjacency_list_builder.finalize().await?;
+        self.sp_o_adjacency_list_builder.finalize().await?;
 
-        let subjects_fut = match self.subjects {
-            None => future::Either::A(future::ok(())),
-            Some(subjects) => {
-                // isn't this just last_subject?
-                let max_subject = if subjects.is_empty() {
-                    0
-                } else {
-                    subjects[subjects.len() - 1]
-                };
-                let subjects_width = 1 + (max_subject as f32).log2().ceil() as u8;
-                let subjects_logarray_builder = LogArrayFileBuilder::new(
-                    self.subjects_file.unwrap().open_write(),
-                    subjects_width,
-                );
-                future::Either::B(
-                    subjects_logarray_builder
-                        .push_all(stream::iter_ok(subjects))
-                        .and_then(|b| b.finalize())
-                        .map(|_| ()),
-                )
-            }
+        if let Some(subjects) = self.subjects {
+            // isn't this just last_subject?
+            let max_subject = if subjects.is_empty() {
+                0
+            } else {
+                subjects[subjects.len() - 1]
+            };
+
+            let subjects_width = 1 + (max_subject as f32).log2().ceil() as u8;
+            let mut subjects_logarray_builder =
+                LogArrayFileBuilder::new(self.subjects_file.unwrap().open_write(), subjects_width);
+
+            subjects_logarray_builder
+                .push_all(util::stream_iter_ok(subjects))
+                .await?;
+            subjects_logarray_builder.finalize().await?;
         };
 
-        future::join_all(aj_futs).join(subjects_fut).map(|_| ())
+        Ok(())
     }
 }
 
-pub fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad + FileStore>(
+pub async fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad + FileStore>(
     sp_o_files: AdjacencyListFiles<FLoad>,
     o_ps_files: AdjacencyListFiles<F>,
     objects_file: Option<F>,
-) -> impl Future<Item = (), Error = std::io::Error> {
-    let build_object_index = objects_file.is_some();
-    adjacency_list_stream_pairs(sp_o_files.bitindex_files.bits_file, sp_o_files.nums_file)
-        .map(move |(left, right)| (right, left))
-        .fold(
-            (Vec::new(), Vec::new(), 0),
-            move |(mut pairs_set, mut objects_set, _), (left, right)| {
-                pairs_set.push((left, right));
-                if build_object_index {
-                    objects_set.push(left);
-                }
-                future::ok::<_, std::io::Error>((pairs_set, objects_set, right))
-            },
-        )
-        .and_then(move |(mut pairs, mut objects, greatest_sp)| {
-            let aj_width = ((greatest_sp + 1) as f32).log2().ceil() as u8;
-            let o_ps_adjacency_list_builder = AdjacencyListBuilder::new(
-                o_ps_files.bitindex_files.bits_file,
-                o_ps_files.bitindex_files.blocks_file.open_write(),
-                o_ps_files.bitindex_files.sblocks_file.open_write(),
-                o_ps_files.nums_file.open_write(),
-                aj_width,
-            );
+) -> io::Result<()> {
+    let build_sparse_index = objects_file.is_some();
+    let mut aj_stream =
+        adjacency_list_stream_pairs(sp_o_files.bitindex_files.bits_file, sp_o_files.nums_file);
+    let mut pairs = Vec::new();
+    let mut greatest_sp = 0;
+    // gather up pairs
+    while let Some((sp, object)) = aj_stream.try_next().await? {
+        greatest_sp = sp;
+        pairs.push((object, sp));
+    }
+    pairs.par_sort_unstable();
 
-            pairs.par_sort_unstable();
+    let aj_width = ((greatest_sp + 1) as f32).log2().ceil() as u8;
+    let mut o_ps_adjacency_list_builder = AdjacencyListBuilder::new(
+        o_ps_files.bitindex_files.bits_file,
+        o_ps_files.bitindex_files.blocks_file.open_write(),
+        o_ps_files.bitindex_files.sblocks_file.open_write(),
+        o_ps_files.nums_file.open_write(),
+        aj_width,
+    );
 
-            let objects_builder;
-            let build_o_ps_task;
-            if let Some(objects_file) = objects_file {
-                objects.par_sort_unstable();
-                objects.dedup();
-                let greatest_object = objects.iter().next_back().unwrap_or(&0);
-                let objects_width = ((*greatest_object + 1) as f32).log2().ceil() as u8;
-                objects_builder = Some(LogArrayFileBuilder::new(
-                    objects_file.open_write(),
-                    objects_width,
-                ));
-                let iter = pairs
-                    .into_iter()
-                    .scan((0, 0), |(compressed, last), (left, right)| {
-                        if left > *last {
-                            *compressed += 1;
-                        }
+    if build_sparse_index {
+        // a sparse index compresses the adjacency list so that all objects in use are remapped to form a continuous range.
+        // We need to iterate over the pairs, and write them out without gaps.
 
-                        *last = left;
+        let mut objects = Vec::new();
+        let mut last_object = 0;
+        let mut object_ix = 0;
+        for (object, sp) in pairs {
+            if object > last_object {
+                object_ix += 1;
+                last_object = object;
 
-                        Some((*compressed, right))
-                    });
-                build_o_ps_task = future::Either::A(
-                    o_ps_adjacency_list_builder
-                        .push_all(stream::iter_ok(iter))
-                        .and_then(|builder| builder.finalize()),
-                );
-            } else {
-                objects_builder = None;
-                build_o_ps_task = future::Either::B(
-                    o_ps_adjacency_list_builder
-                        .push_all(stream::iter_ok(pairs))
-                        .and_then(|builder| builder.finalize()),
-                );
+                // keep track of all objects in use in a separate list
+                objects.push(object);
             }
 
-            let build_objects_task = match objects_builder {
-                None => future::Either::A(future::ok(())),
-                Some(objects_builder) => future::Either::B(
-                    objects_builder
-                        .push_all(stream::iter_ok(objects))
-                        .and_then(|builder| builder.finalize())
-                        .map(|_| ()),
-                ),
-            };
+            o_ps_adjacency_list_builder.push(object_ix, sp).await?;
+        }
+        let objects_width = ((last_object + 1) as f32).log2().ceil() as u8;
 
-            build_o_ps_task.join(build_objects_task)
-        })
-        .map(|_| ())
+        // write out the object list
+        let mut objects_builder =
+            LogArrayFileBuilder::new(objects_file.unwrap().open_write(), objects_width);
+        objects_builder
+            .push_all(util::stream_iter_ok(objects))
+            .await?;
+        objects_builder.finalize().await?;
+    } else {
+        o_ps_adjacency_list_builder
+            .push_all(util::stream_iter_ok(pairs))
+            .await?;
+    }
+
+    o_ps_adjacency_list_builder.finalize().await
 }
 
-pub fn build_predicate_index<FLoad: 'static + FileLoad, F: 'static + FileLoad + FileStore>(
+pub async fn build_predicate_index<FLoad: 'static + FileLoad, F: 'static + FileLoad + FileStore>(
     source: FLoad,
     destination_bits: F,
     destination_blocks: F,
     destination_sblocks: F,
-) -> impl Future<Item = (), Error = std::io::Error> + Send {
+) -> io::Result<()> {
     build_wavelet_tree_from_logarray(
         source,
         destination_bits,
         destination_blocks,
         destination_sblocks,
     )
+    .await
 }
 
-pub fn build_indexes<FLoad: 'static + FileLoad, F: 'static + FileLoad + FileStore>(
+pub async fn build_indexes<FLoad: 'static + FileLoad, F: 'static + FileLoad + FileStore>(
     s_p_files: AdjacencyListFiles<FLoad>,
     sp_o_files: AdjacencyListFiles<FLoad>,
     o_ps_files: AdjacencyListFiles<F>,
     objects_file: Option<F>,
     wavelet_files: BitIndexFiles<F>,
-) -> impl Future<Item = (), Error = std::io::Error> + Send {
-    let executor = tokio::executor::DefaultExecutor::current();
-    let object_index_task = build_object_index(sp_o_files, o_ps_files, objects_file);
-    let predicate_index_task = build_predicate_index(
+) -> io::Result<()> {
+    let object_index_task = tokio::spawn(build_object_index(sp_o_files, o_ps_files, objects_file));
+    let predicate_index_task = tokio::spawn(build_predicate_index(
         s_p_files.nums_file,
         wavelet_files.bits_file,
         wavelet_files.blocks_file,
         wavelet_files.sblocks_file,
-    );
+    ));
 
-    let task1_handle = futures::sync::oneshot::spawn(object_index_task, &executor);
-    let task2_handle = futures::sync::oneshot::spawn(predicate_index_task, &executor);
+    object_index_task.await??;
+    predicate_index_task.await??;
 
-    task1_handle.join(task2_handle).map(|_| ())
+    Ok(())
 }

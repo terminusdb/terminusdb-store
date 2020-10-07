@@ -3,8 +3,6 @@
 //! It is expected that most users of this library will work exclusively with the types contained in this module.
 pub mod sync;
 
-use futures::future;
-use futures::prelude::*;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
@@ -21,6 +19,13 @@ use std::io;
 use rayon;
 use rayon::prelude::*;
 
+/// A store, storing a set of layers and database labels pointing to these layers
+#[derive(Clone)]
+pub struct Store {
+    label_store: Arc<dyn LabelStore>,
+    layer_store: Arc<dyn LayerStore>,
+}
+
 /// A wrapper over a SimpleLayerBuilder, providing a thread-safe sharable interface
 ///
 /// The SimpleLayerBuilder requires one to have a mutable reference to
@@ -36,8 +41,10 @@ pub struct StoreLayerBuilder {
 }
 
 impl StoreLayerBuilder {
-    fn new(store: Store) -> impl Future<Item = Self, Error = io::Error> + Send {
-        store.layer_store.create_base_layer().map(|builder| Self {
+    async fn new(store: Store) -> io::Result<Self> {
+        let builder = store.layer_store.create_base_layer().await?;
+
+        Ok(Self {
             name: builder.name(),
             builder: RwLock::new(Some(builder)),
             store,
@@ -94,7 +101,7 @@ impl StoreLayerBuilder {
         self.with_builder(move |b| b.remove_id_triple(triple))
     }
 
-    /// Returns a Future which will yield true if this layer has been committed, and false otherwise.
+    /// Returns true if this layer has been committed, and false otherwise.
     pub fn committed(&self) -> bool {
         self.builder
             .read()
@@ -103,37 +110,37 @@ impl StoreLayerBuilder {
     }
 
     /// Commit the layer to storage without loading the resulting layer
-    pub fn commit_no_load(&self) -> impl Future<Item = (), Error = std::io::Error> + Send {
-        let mut guard = self
-            .builder
-            .write()
-            .expect("rwlock write should always succeed");
+    pub async fn commit_no_load(&self) -> io::Result<()> {
         let mut builder = None;
+        {
+            let mut guard = self
+                .builder
+                .write()
+                .expect("rwlock write should always succeed");
 
-        // Setting the builder to None ensures that committed() detects we already committed (or tried to do so anyway)
-        std::mem::swap(&mut builder, &mut guard);
+            // Setting the builder to None ensures that committed() detects we already committed (or tried to do so anyway)
+            std::mem::swap(&mut builder, &mut guard);
+        }
 
         match builder {
-            None => future::Either::A(future::err(io::Error::new(
+            None => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "builder has already been committed",
-            ))),
-            Some(builder) => future::Either::B(builder.commit_boxed()),
+            )),
+            Some(builder) => builder.commit_boxed().await,
         }
     }
 
     /// Commit the layer to storage
-    pub fn commit(&self) -> impl Future<Item = StoreLayer, Error = std::io::Error> + Send {
-        let store = self.store.clone();
+    pub async fn commit(&self) -> io::Result<StoreLayer> {
         let name = self.name;
-        self.commit_no_load().and_then(move |_| {
-            store.layer_store.get_layer(name).map(move |layer| {
-                StoreLayer::wrap(
-                    layer.expect("layer that was just created was not found in store"),
-                    store,
-                )
-            })
-        })
+        self.commit_no_load().await?;
+
+        let layer = self.store.layer_store.get_layer(name).await?;
+        Ok(StoreLayer::wrap(
+            layer.expect("layer that was just created was not found in store"),
+            self.store.clone(),
+        ))
     }
 
     pub fn apply_delta(&self, delta: &StoreLayer) -> Result<(), io::Error> {
@@ -174,44 +181,40 @@ impl StoreLayer {
     }
 
     /// Create a layer builder based on this layer
-    pub fn open_write(&self) -> impl Future<Item = StoreLayerBuilder, Error = io::Error> + Send {
-        let store = self.store.clone();
-        self.store
+    pub async fn open_write(&self) -> io::Result<StoreLayerBuilder> {
+        let layer = self
+            .store
             .layer_store
             .create_child_layer(self.layer.name())
-            .map(move |layer| StoreLayerBuilder::wrap(layer, store))
+            .await?;
+
+        Ok(StoreLayerBuilder::wrap(layer, self.store.clone()))
     }
 
-    pub fn parent(&self) -> Box<dyn Future<Item = Option<StoreLayer>, Error = io::Error> + Send> {
+    pub async fn parent(&self) -> io::Result<Option<StoreLayer>> {
         let parent_name = self.layer.parent_name();
 
-        let store = self.store.clone();
-
-        Box::new(match parent_name {
-            None => future::Either::A(future::ok(None)),
-            Some(parent_name) => future::Either::B(
-                self.store
-                    .layer_store
-                    .get_layer(parent_name)
-                    .map(move |l| l.map(|layer| StoreLayer::wrap(layer, store))),
-            ),
-        })
+        match parent_name {
+            None => Ok(None),
+            Some(parent_name) => match self.store.layer_store.get_layer(parent_name).await? {
+                None => Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "parent layer not found even though it should exist",
+                )),
+                Some(layer) => Ok(Some(StoreLayer::wrap(layer, self.store.clone()))),
+            },
+        }
     }
 
-    pub fn squash(&self) -> impl Future<Item = StoreLayer, Error = io::Error> + Send {
-        let self_clone = self.clone();
-
+    pub async fn squash(&self) -> io::Result<StoreLayer> {
         // TODO check if we already committed
-        self.store
-            .create_base_layer()
-            .and_then(move |new_builder: StoreLayerBuilder| {
-                self_clone.triples().par_bridge().for_each(|t| {
-                    let st = self_clone.id_triple_to_string(&t).unwrap();
-                    new_builder.add_string_triple(st).unwrap()
-                });
+        let new_builder = self.store.create_base_layer().await?;
+        self.triples().par_bridge().for_each(|t| {
+            let st = self.id_triple_to_string(&t).unwrap();
+            new_builder.add_string_triple(st).unwrap()
+        });
 
-                new_builder.commit()
-            })
+        new_builder.commit().await
     }
 }
 
@@ -464,125 +467,69 @@ impl NamedGraph {
     }
 
     /// Returns the layer this database points at
-    pub fn head(&self) -> impl Future<Item = Option<StoreLayer>, Error = io::Error> + Send {
-        let store = self.store.clone();
-        store
-            .label_store
-            .get_label(&self.label)
-            .and_then(move |new_label| match new_label {
-                None => Box::new(future::err(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "database not found",
-                ))),
-                Some(new_label) => {
-                    let result: Box<dyn Future<Item = _, Error = _> + Send> = match new_label.layer
-                    {
-                        None => Box::new(future::ok(None)),
-                        Some(layer) => {
-                            Box::new(store.layer_store.get_layer(layer).map(move |layer| {
-                                layer.map(move |layer| StoreLayer::wrap(layer, store))
-                            }))
-                        }
-                    };
-                    result
+    pub async fn head(&self) -> io::Result<Option<StoreLayer>> {
+        let new_label = self.store.label_store.get_label(&self.label).await?;
+
+        match new_label {
+            None => Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "database not found",
+            )),
+            Some(new_label) => match new_label.layer {
+                None => Ok(None),
+                Some(layer) => {
+                    let layer = self.store.layer_store.get_layer(layer).await?;
+                    match layer {
+                        None => Err(io::Error::new(
+                            io::ErrorKind::NotFound,
+                            "layer not found even though it is pointed at by a label",
+                        )),
+                        Some(layer) => Ok(Some(StoreLayer::wrap(layer, self.store.clone()))),
+                    }
                 }
-            })
+            },
+        }
     }
 
     /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise
-    pub fn set_head(
-        &self,
-        layer: &StoreLayer,
-    ) -> impl Future<Item = bool, Error = io::Error> + Send {
-        let store = self.store.clone();
-        let store2 = self.store.clone();
+    pub async fn set_head(&self, layer: &StoreLayer) -> io::Result<bool> {
         let layer_name = layer.name();
-        let cloned_layer = layer.layer.clone();
-        store
-            .label_store
-            .get_label(&self.label)
-            .and_then(move |label| {
-                let result: Box<dyn Future<Item = _, Error = _> + Send> = match label {
-                    None => Box::new(future::err(io::Error::new(
-                        io::ErrorKind::NotFound,
-                        "label not found",
-                    ))),
-                    Some(label) => Box::new(
-                        {
-                            let result: Box<dyn Future<Item = _, Error = _> + Send> = match label
-                                .layer
-                            {
-                                None => Box::new(future::ok(true)),
-                                Some(layer_name) => Box::new(
-                                    store.layer_store.get_layer(layer_name).and_then(move |l| {
-                                        l.map(|l| {
-                                            future::Either::A(
-                                                store.layer_store.layer_is_ancestor_of(
-                                                    cloned_layer.name(),
-                                                    l.name(),
-                                                ),
-                                            )
-                                        })
-                                        .unwrap_or(future::Either::B(future::ok(false)))
-                                    }),
-                                ),
-                            };
+        let label = self.store.label_store.get_label(&self.label).await?;
+        if label.is_none() {
+            return Err(io::Error::new(io::ErrorKind::NotFound, "label not found"));
+        }
+        let label = label.unwrap();
 
-                            result
-                        }
-                        .and_then(move |b| {
-                            let result: Box<dyn Future<Item = _, Error = _> + Send> = if b {
-                                Box::new(
-                                    store2
-                                        .label_store
-                                        .set_label(&label, layer_name)
-                                        .map(|_| true),
-                                )
-                            } else {
-                                Box::new(future::ok(false))
-                            };
+        let set_is_ok = match label.layer {
+            None => true,
+            Some(retrieved_layer_name) => {
+                self.store
+                    .layer_store
+                    .layer_is_ancestor_of(layer_name, retrieved_layer_name)
+                    .await?
+            }
+        };
 
-                            result
-                        }),
-                    ),
-                };
-                result
-            })
+        if set_is_ok {
+            self.store.label_store.set_label(&label, layer_name).await?;
+        }
+
+        Ok(set_is_ok)
     }
 
     /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise
-    pub fn force_set_head(
-        &self,
-        layer: &StoreLayer,
-    ) -> impl Future<Item = bool, Error = io::Error> + Send {
-        let store = self.store.clone();
+    pub async fn force_set_head(&self, layer: &StoreLayer) -> io::Result<bool> {
         let layer_name = layer.name();
-        store
-            .label_store
-            .get_label(&self.label)
-            .and_then(move |label| {
-                let result: Box<dyn Future<Item = _, Error = _> + Send> = match label {
-                    None => Box::new(future::err(io::Error::new(
-                        io::ErrorKind::NotFound,
-                        "label not found",
-                    ))),
-                    Some(label) => Box::new({
-                        store
-                            .label_store
-                            .set_label(&label, layer_name)
-                            .map(|_| true)
-                    }),
-                };
-                result
-            })
-    }
-}
+        let label = self.store.label_store.get_label(&self.label).await?;
+        match label {
+            None => Err(io::Error::new(io::ErrorKind::NotFound, "label not found")),
+            Some(label) => {
+                self.store.label_store.set_label(&label, layer_name).await?;
 
-/// A store, storing a set of layers and database labels pointing to these layers
-#[derive(Clone)]
-pub struct Store {
-    label_store: Arc<dyn LabelStore>,
-    layer_store: Arc<dyn LayerStore>,
+                Ok(true)
+            }
+        }
+    }
 }
 
 impl Store {
@@ -600,44 +547,27 @@ impl Store {
     /// Create a new database with the given name
     ///
     /// If the database already exists, this will return an error
-    pub fn create(
-        &self,
-        label: &str,
-    ) -> impl Future<Item = NamedGraph, Error = std::io::Error> + Send {
-        let store = self.clone();
-        self.label_store
-            .create_label(label)
-            .map(move |label| NamedGraph::new(label.name, store))
+    pub async fn create(&self, label: &str) -> io::Result<NamedGraph> {
+        let label = self.label_store.create_label(label).await?;
+        Ok(NamedGraph::new(label.name, self.clone()))
     }
 
     /// Open an existing database with the given name, or None if it does not exist
-    pub fn open(
-        &self,
-        label: &str,
-    ) -> impl Future<Item = Option<NamedGraph>, Error = std::io::Error> {
-        let store = self.clone();
-        self.label_store
-            .get_label(label)
-            .map(move |label| label.map(|label| NamedGraph::new(label.name, store)))
+    pub async fn open(&self, label: &str) -> io::Result<Option<NamedGraph>> {
+        let label = self.label_store.get_label(label).await?;
+        Ok(label.map(|label| NamedGraph::new(label.name, self.clone())))
     }
 
-    pub fn get_layer_from_id(
-        &self,
-        layer: [u32; 5],
-    ) -> impl Future<Item = Option<StoreLayer>, Error = std::io::Error> {
-        let store = self.clone();
-        self.layer_store
-            .get_layer(layer)
-            .map(move |layer| layer.map(move |l| StoreLayer::wrap(l, store)))
+    pub async fn get_layer_from_id(&self, layer: [u32; 5]) -> io::Result<Option<StoreLayer>> {
+        let layer = self.layer_store.get_layer(layer).await?;
+        Ok(layer.map(|layer| StoreLayer::wrap(layer, self.clone())))
     }
 
     /// Create a base layer builder, unattached to any database label
     ///
     /// After having committed it, use `set_head` on a `NamedGraph` to attach it.
-    pub fn create_base_layer(
-        &self,
-    ) -> impl Future<Item = StoreLayerBuilder, Error = io::Error> + Send {
-        StoreLayerBuilder::new(self.clone())
+    pub async fn create_base_layer(&self) -> io::Result<StoreLayerBuilder> {
+        StoreLayerBuilder::new(self.clone()).await
     }
 
     pub fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
@@ -674,218 +604,122 @@ pub fn open_directory_store<P: Into<PathBuf>>(path: P) -> Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::sync::oneshot;
     use tempfile::tempdir;
     use tokio::runtime::Runtime;
 
-    #[test]
-    fn create_and_manipulate_memory_database() {
-        let runtime = Runtime::new().unwrap();
+    fn create_and_manipulate_database(mut runtime: Runtime, store: Store) {
+        let database = runtime.block_on(store.create("foodb")).unwrap();
 
-        let store = open_memory_store();
-        let database = oneshot::spawn(store.create("foodb"), &runtime.executor())
-            .wait()
-            .unwrap();
-
-        let head = oneshot::spawn(database.head(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let head = runtime.block_on(database.head()).unwrap();
         assert!(head.is_none());
 
-        let mut builder = oneshot::spawn(store.create_base_layer(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let mut builder = runtime.block_on(store.create_base_layer()).unwrap();
         builder
             .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
-        let layer = oneshot::spawn(builder.commit(), &runtime.executor())
-            .wait()
-            .unwrap();
-        assert!(
-            oneshot::spawn(database.set_head(&layer), &runtime.executor())
-                .wait()
-                .unwrap()
-        );
+        let layer = runtime.block_on(builder.commit()).unwrap();
+        assert!(runtime.block_on(database.set_head(&layer)).unwrap());
 
-        builder = oneshot::spawn(layer.open_write(), &runtime.executor())
-            .wait()
-            .unwrap();
+        builder = runtime.block_on(layer.open_write()).unwrap();
         builder
             .add_string_triple(StringTriple::new_value("pig", "says", "oink"))
             .unwrap();
 
-        let layer2 = oneshot::spawn(builder.commit(), &runtime.executor())
-            .wait()
-            .unwrap();
-        assert!(
-            oneshot::spawn(database.set_head(&layer2), &runtime.executor())
-                .wait()
-                .unwrap()
-        );
+        let layer2 = runtime.block_on(builder.commit()).unwrap();
+        assert!(runtime.block_on(database.set_head(&layer2)).unwrap());
         let layer2_name = layer2.name();
 
-        let layer = oneshot::spawn(database.head(), &runtime.executor())
-            .wait()
-            .unwrap()
-            .unwrap();
+        let layer = runtime.block_on(database.head()).unwrap().unwrap();
 
         assert_eq!(layer2_name, layer.name());
         assert!(layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
+    }
+
+    #[test]
+    fn create_and_manipulate_memory_database() {
+        let runtime = Runtime::new().unwrap();
+        let store = open_memory_store();
+
+        create_and_manipulate_database(runtime, store);
     }
 
     #[test]
     fn create_and_manipulate_directory_database() {
         let runtime = Runtime::new().unwrap();
         let dir = tempdir().unwrap();
-
         let store = open_directory_store(dir.path());
-        let database = oneshot::spawn(store.create("foodb"), &runtime.executor())
-            .wait()
-            .unwrap();
 
-        let head = oneshot::spawn(database.head(), &runtime.executor())
-            .wait()
-            .unwrap();
-        assert!(head.is_none());
-
-        let mut builder = oneshot::spawn(store.create_base_layer(), &runtime.executor())
-            .wait()
-            .unwrap();
-        builder
-            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
-            .unwrap();
-
-        let layer = oneshot::spawn(builder.commit(), &runtime.executor())
-            .wait()
-            .unwrap();
-        assert!(
-            oneshot::spawn(database.set_head(&layer), &runtime.executor())
-                .wait()
-                .unwrap()
-        );
-
-        builder = oneshot::spawn(layer.open_write(), &runtime.executor())
-            .wait()
-            .unwrap();
-        builder
-            .add_string_triple(StringTriple::new_value("pig", "says", "oink"))
-            .unwrap();
-
-        let layer2 = oneshot::spawn(builder.commit(), &runtime.executor())
-            .wait()
-            .unwrap();
-        assert!(
-            oneshot::spawn(database.set_head(&layer2), &runtime.executor())
-                .wait()
-                .unwrap()
-        );
-        let layer2_name = layer2.name();
-
-        let layer = oneshot::spawn(database.head(), &runtime.executor())
-            .wait()
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(layer2_name, layer.name());
-        assert!(layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
-        assert!(layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
+        create_and_manipulate_database(runtime, store);
     }
 
     #[test]
     fn create_layer_and_retrieve_it_by_id() {
-        let runtime = Runtime::new().unwrap();
+        let mut runtime = Runtime::new().unwrap();
 
         let store = open_memory_store();
-        let builder = oneshot::spawn(store.create_base_layer(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let builder = runtime.block_on(store.create_base_layer()).unwrap();
         builder
             .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
-        let layer = oneshot::spawn(builder.commit(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let layer = runtime.block_on(builder.commit()).unwrap();
 
         let id = layer.name();
 
-        let layer2 = oneshot::spawn(store.get_layer_from_id(id), &runtime.executor())
-            .wait()
+        let layer2 = runtime
+            .block_on(store.get_layer_from_id(id))
             .unwrap()
             .unwrap();
+
         assert!(layer2.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
     }
 
     #[test]
     fn commit_builder_makes_builder_committed() {
-        let runtime = Runtime::new().unwrap();
+        let mut runtime = Runtime::new().unwrap();
 
         let store = open_memory_store();
-        let builder = oneshot::spawn(store.create_base_layer(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let builder = runtime.block_on(store.create_base_layer()).unwrap();
+
         builder
             .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
         assert!(!builder.committed());
 
-        let _layer = oneshot::spawn(builder.commit(), &runtime.executor())
-            .wait()
-            .unwrap();
+        runtime.block_on(builder.commit_no_load()).unwrap();
 
         assert!(builder.committed());
     }
 
     #[test]
     fn hard_reset() {
-        let runtime = Runtime::new().unwrap();
+        let mut runtime = Runtime::new().unwrap();
 
         let store = open_memory_store();
-        let database = oneshot::spawn(store.create("foodb"), &runtime.executor())
-            .wait()
-            .unwrap();
+        let database = runtime.block_on(store.create("foodb")).unwrap();
 
-        let builder1 = oneshot::spawn(store.create_base_layer(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let builder1 = runtime.block_on(store.create_base_layer()).unwrap();
         builder1
             .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
-        let layer1 = oneshot::spawn(builder1.commit(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let layer1 = runtime.block_on(builder1.commit()).unwrap();
 
-        assert!(
-            oneshot::spawn(database.set_head(&layer1), &runtime.executor())
-                .wait()
-                .unwrap()
-        );
+        assert!(runtime.block_on(database.set_head(&layer1)).unwrap());
 
-        let builder2 = oneshot::spawn(store.create_base_layer(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let builder2 = runtime.block_on(store.create_base_layer()).unwrap();
         builder2
             .add_string_triple(StringTriple::new_value("duck", "says", "quack"))
             .unwrap();
 
-        let layer2 = oneshot::spawn(builder2.commit(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let layer2 = runtime.block_on(builder2.commit()).unwrap();
 
-        assert!(
-            oneshot::spawn(database.force_set_head(&layer2), &runtime.executor())
-                .wait()
-                .unwrap()
-        );
+        assert!(runtime.block_on(database.force_set_head(&layer2)).unwrap());
 
-        let new_layer = oneshot::spawn(database.head(), &runtime.executor())
-            .wait()
-            .unwrap()
-            .unwrap();
+        let new_layer = runtime.block_on(database.head()).unwrap().unwrap();
 
         assert!(new_layer.string_triple_exists(&StringTriple::new_value("duck", "says", "quack")));
         assert!(!new_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
@@ -893,76 +727,53 @@ mod tests {
 
     #[test]
     fn create_two_layers_and_squash() {
-        let runtime = Runtime::new().unwrap();
+        let mut runtime = Runtime::new().unwrap();
 
         let store = open_memory_store();
-        let builder = oneshot::spawn(store.create_base_layer(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let builder = runtime.block_on(store.create_base_layer()).unwrap();
         builder
             .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
-        let layer = oneshot::spawn(builder.commit(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let layer = runtime.block_on(builder.commit()).unwrap();
 
-        let builder2 = oneshot::spawn(layer.open_write(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let builder2 = runtime.block_on(layer.open_write()).unwrap();
 
         builder2
             .add_string_triple(StringTriple::new_value("dog", "says", "woof"))
             .unwrap();
 
-        let layer2 = oneshot::spawn(builder2.commit(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let layer2 = runtime.block_on(builder2.commit()).unwrap();
 
-        let new = oneshot::spawn(layer2.squash(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let new = runtime.block_on(layer2.squash()).unwrap();
 
         assert!(new.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(new.string_triple_exists(&StringTriple::new_value("dog", "says", "woof")));
-        assert!(oneshot::spawn(new.parent(), &runtime.executor())
-            .wait()
-            .unwrap()
-            .is_none());
+        assert!(runtime.block_on(new.parent()).unwrap().is_none());
     }
 
     #[test]
     fn apply_a_base_delta() {
-        let runtime = Runtime::new().unwrap();
+        let mut runtime = Runtime::new().unwrap();
 
         let store = open_memory_store();
-        let builder = oneshot::spawn(store.create_base_layer(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let builder = runtime.block_on(store.create_base_layer()).unwrap();
 
         builder
             .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
-        let layer = oneshot::spawn(builder.commit(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let layer = runtime.block_on(builder.commit()).unwrap();
 
-        let builder2 = oneshot::spawn(layer.open_write(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let builder2 = runtime.block_on(layer.open_write()).unwrap();
 
         builder2
             .add_string_triple(StringTriple::new_value("dog", "says", "woof"))
             .unwrap();
 
-        let layer2 = oneshot::spawn(builder2.commit(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let layer2 = runtime.block_on(builder2.commit()).unwrap();
 
-        let delta_builder_1 = oneshot::spawn(store.create_base_layer(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let delta_builder_1 = runtime.block_on(store.create_base_layer()).unwrap();
 
         delta_builder_1
             .add_string_triple(StringTriple::new_value("dog", "says", "woof"))
@@ -971,13 +782,9 @@ mod tests {
             .add_string_triple(StringTriple::new_value("cat", "says", "meow"))
             .unwrap();
 
-        let delta_1 = oneshot::spawn(delta_builder_1.commit(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let delta_1 = runtime.block_on(delta_builder_1.commit()).unwrap();
 
-        let delta_builder_2 = oneshot::spawn(delta_1.open_write(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let delta_builder_2 = runtime.block_on(delta_1.open_write()).unwrap();
 
         delta_builder_2
             .add_string_triple(StringTriple::new_value("crow", "says", "caw"))
@@ -986,19 +793,13 @@ mod tests {
             .remove_string_triple(StringTriple::new_value("cat", "says", "meow"))
             .unwrap();
 
-        let delta = oneshot::spawn(delta_builder_2.commit(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let delta = runtime.block_on(delta_builder_2.commit()).unwrap();
 
-        let rebase_builder = oneshot::spawn(layer2.open_write(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let rebase_builder = runtime.block_on(layer2.open_write()).unwrap();
 
         let _ = rebase_builder.apply_delta(&delta).unwrap();
 
-        let rebase_layer = oneshot::spawn(rebase_builder.commit(), &runtime.executor())
-            .wait()
-            .unwrap();
+        let rebase_layer = runtime.block_on(rebase_builder.commit()).unwrap();
 
         assert!(rebase_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(rebase_layer.string_triple_exists(&StringTriple::new_value("crow", "says", "caw")));

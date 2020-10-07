@@ -1,14 +1,19 @@
 #![allow(unused)]
 use crate::storage::{layer, Label};
 use fs2::*;
+use futures::future::Future;
+use futures::task::{Context, Poll};
+use std::io::Read;
 use std::io::{self, SeekFrom};
 use std::path::*;
+use std::pin::Pin;
 use tokio::fs;
-use tokio::prelude::*;
-use tokio_threadpool::blocking;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::task::{spawn_blocking, JoinHandle};
 
 pub struct LockedFileLockFuture {
     file: Option<std::fs::File>,
+    spawn: Option<JoinHandle<()>>,
     exclusive: bool,
 }
 
@@ -16,6 +21,7 @@ impl LockedFileLockFuture {
     fn new_shared(file: std::fs::File) -> Self {
         Self {
             file: Some(file),
+            spawn: None,
             exclusive: false,
         }
     }
@@ -23,42 +29,49 @@ impl LockedFileLockFuture {
     fn new_exclusive(file: std::fs::File) -> Self {
         Self {
             file: Some(file),
+            spawn: None,
             exclusive: true,
         }
     }
 }
 
 impl Future for LockedFileLockFuture {
-    type Item = std::fs::File;
-    type Error = io::Error;
+    type Output = io::Result<std::fs::File>;
 
-    fn poll(&mut self) -> Result<Async<std::fs::File>, io::Error> {
-        if self.file.is_none() {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<std::fs::File>> {
+        if self.file.is_some() {
+            if self.spawn.is_none() {
+                let file = self
+                    .file
+                    .as_ref()
+                    .unwrap()
+                    .try_clone()
+                    .expect("file clone failed");
+                let exclusive = self.exclusive;
+                self.spawn = Some(spawn_blocking(move || {
+                    if exclusive {
+                        file.lock_exclusive()
+                            .expect("failed to acquire exclusive lock")
+                    } else {
+                        file.lock_shared()
+                            .expect("failed to acquire exclusive lock")
+                    }
+                }));
+            }
+
+            match Pin::new(&mut self.spawn.as_mut().unwrap()).poll(cx) {
+                Poll::Ready(Ok(_)) => {
+                    let mut file = None;
+                    std::mem::swap(&mut file, &mut self.file);
+                    Poll::Ready(Ok(file.unwrap()))
+                }
+                Poll::Pending => Poll::Pending,
+                Poll::Ready(Err(_)) => {
+                    panic!("polled LockedFileLockFuture outside of a tokio context")
+                }
+            }
+        } else {
             panic!("polled LockedFileLockFuture after completion");
-        }
-
-        match blocking(|| {
-            if self.exclusive {
-                self.file
-                    .as_ref()
-                    .unwrap()
-                    .lock_exclusive()
-                    .expect("failed to acquire exclusive lock")
-            } else {
-                self.file
-                    .as_ref()
-                    .unwrap()
-                    .lock_shared()
-                    .expect("failed to acquire exclusive lock")
-            }
-        }) {
-            Ok(Async::Ready(_)) => {
-                let mut file = None;
-                std::mem::swap(&mut file, &mut self.file);
-                Ok(Async::Ready(file.unwrap()))
-            }
-            Ok(Async::NotReady) => Ok(Async::NotReady),
-            Err(_) => panic!("polled LockedFileLockFuture outside of a tokio threadpool context"),
         }
     }
 }
@@ -69,69 +82,76 @@ pub struct LockedFile {
 }
 
 impl LockedFile {
-    pub fn open<P: 'static + AsRef<Path> + Send>(
-        path: P,
-    ) -> impl Future<Item = Self, Error = io::Error> + Send {
-        fs::OpenOptions::new()
+    pub async fn open<P: 'static + AsRef<Path> + Send>(path: P) -> io::Result<Self> {
+        let file = fs::OpenOptions::new()
             .read(true)
             .open(path)
-            .map(|f| f.into_std())
-            .and_then(|f| match f.try_lock_shared() {
-                Ok(()) => future::Either::A(future::ok(f)),
-                Err(_) => future::Either::B(LockedFileLockFuture::new_shared(f)),
-            })
-            .map(|f| LockedFile {
-                file: Some(fs::File::from_std(f)),
-            })
+            .await?
+            .into_std()
+            .await;
+        let file = match file.try_lock_shared() {
+            Ok(()) => file,
+            Err(_) => LockedFileLockFuture::new_shared(file).await?,
+        };
+
+        Ok(LockedFile {
+            file: Some(fs::File::from_std(file)),
+        })
     }
 
-    pub fn try_open<P: 'static + AsRef<Path> + Send>(
-        path: P,
-    ) -> impl Future<Item = Option<Self>, Error = io::Error> + Send {
-        Self::open(path)
-            .map(|f| Some(f))
-            .or_else(|e| match e.kind() {
+    pub async fn try_open<P: 'static + AsRef<Path> + Send>(path: P) -> io::Result<Option<Self>> {
+        match Self::open(path).await {
+            Ok(f) => Ok(Some(f)),
+            Err(e) => match e.kind() {
                 io::ErrorKind::NotFound => Ok(None),
                 _ => Err(e),
-            })
+            },
+        }
     }
 
-    pub fn create_and_open<P: 'static + AsRef<Path> + Send>(
-        path: P,
-    ) -> impl Future<Item = Self, Error = io::Error> + Send {
+    pub async fn create_and_open<P: 'static + AsRef<Path> + Send>(path: P) -> io::Result<Self> {
         let path = PathBuf::from(path.as_ref());
-        Self::try_open(path.clone()).and_then(move |f| match f {
-            Some(file) => future::Either::A(future::ok(file)),
-            None => future::Either::B(
-                fs::OpenOptions::new()
+        match Self::try_open(path.clone()).await? {
+            Some(file) => Ok(file),
+            None => {
+                let mut file = fs::OpenOptions::new()
                     .write(true)
                     .truncate(false)
                     .create(true)
                     .open(path.clone())
-                    .and_then(|f| tokio::io::shutdown(f))
-                    .and_then(|_| Self::open(path)),
-            ),
-        })
+                    .await?;
+                file.shutdown().await?;
+                Self::open(path).await
+            }
+        }
     }
 }
 
-impl Read for LockedFile {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, io::Error> {
-        self.file
-            .as_mut()
-            .expect("tried to read from dropped LockedFile")
-            .read(buf)
+impl AsyncRead for LockedFile {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+        buf: &mut [u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(
+            self.file
+                .as_mut()
+                .expect("tried to read from dropped LockedFile"),
+        )
+        .poll_read(cx, buf)
     }
 }
-
-impl AsyncRead for LockedFile {}
 
 impl Drop for LockedFile {
     fn drop(&mut self) {
         let mut file = None;
         std::mem::swap(&mut file, &mut self.file);
         if file.is_some() {
-            file.unwrap().into_std().unlock().unwrap();
+            file.unwrap()
+                .try_into_std()
+                .expect("could not convert tokio file into std")
+                .unlock()
+                .unwrap();
         }
     }
 }
@@ -140,131 +160,100 @@ pub struct ExclusiveLockedFile {
     file: Option<fs::File>,
 }
 impl ExclusiveLockedFile {
-    pub fn create_and_open<P: 'static + AsRef<Path> + Send>(
-        path: P,
-    ) -> impl Future<Item = Self, Error = io::Error> + Send {
-        fs::OpenOptions::new()
+    pub async fn create_and_open<P: 'static + AsRef<Path> + Send>(path: P) -> io::Result<Self> {
+        let file = fs::OpenOptions::new()
             .create_new(true)
             .read(false)
             .write(true)
             .open(path)
-            .map(|f| f.into_std())
-            .and_then(|f| match f.try_lock_exclusive() {
-                Ok(()) => Box::new(future::ok(f))
-                    as Box<dyn Future<Item = std::fs::File, Error = io::Error> + Send>,
-                Err(_) => Box::new(LockedFileLockFuture::new_exclusive(f)),
-            })
-            .map(|f| ExclusiveLockedFile {
-                file: Some(fs::File::from_std(f)),
-            })
+            .await?
+            .into_std()
+            .await;
+
+        let file = match file.try_lock_exclusive() {
+            Ok(()) => file,
+            Err(_) => LockedFileLockFuture::new_exclusive(file).await?,
+        };
+
+        Ok(ExclusiveLockedFile {
+            file: Some(fs::File::from_std(file)),
+        })
     }
 
-    pub fn open<P: 'static + AsRef<Path> + Send>(
-        path: P,
-    ) -> impl Future<Item = Self, Error = io::Error> + Send {
-        fs::OpenOptions::new()
+    pub async fn open<P: 'static + AsRef<Path> + Send>(path: P) -> io::Result<Self> {
+        let file = fs::OpenOptions::new()
             .read(true)
             .write(true)
             .open(path)
-            .map(|f| f.into_std())
-            .and_then(|f| match f.try_lock_exclusive() {
-                Ok(()) => Box::new(future::ok(f))
-                    as Box<dyn Future<Item = std::fs::File, Error = io::Error> + Send>,
-                Err(_) => Box::new(LockedFileLockFuture::new_exclusive(f)),
-            })
-            .map(|f| ExclusiveLockedFile {
-                file: Some(fs::File::from_std(f)),
-            })
+            .await?
+            .into_std()
+            .await;
+
+        let file = match file.try_lock_exclusive() {
+            Ok(()) => file,
+            Err(_) => LockedFileLockFuture::new_exclusive(file).await?,
+        };
+
+        Ok(ExclusiveLockedFile {
+            file: Some(fs::File::from_std(file)),
+        })
     }
 
-    pub fn truncate(self) -> impl Future<Item = Self, Error = io::Error> + Send {
-        self.seek(SeekFrom::Current(0))
-            .and_then(|(file, pos)| SetLenFuture {
-                file: Some(file),
-                len: pos,
-            })
-    }
-
-    pub fn do_shutdown(mut self) -> impl Future<Item = (), Error = io::Error> + Send {
-        future::poll_fn(move || self.shutdown())
+    pub async fn truncate(&mut self) -> io::Result<()> {
+        let file = self
+            .file
+            .as_mut()
+            .expect("tried to truncate a dropped file");
+        let pos = file.seek(SeekFrom::Current(0)).await?;
+        file.set_len(pos).await
     }
 }
 
-struct SetLenFuture {
-    file: Option<ExclusiveLockedFile>,
-    len: u64,
-}
-
-impl Future for SetLenFuture {
-    type Item = ExclusiveLockedFile;
-    type Error = io::Error;
-
-    fn poll(&mut self) -> Result<Async<ExclusiveLockedFile>, io::Error> {
-        let mut file = None;
-        std::mem::swap(&mut file, &mut self.file);
-
-        let mut file = file.expect("tried to poll unfinished future");
-
-        file.file
-            .as_mut()
-            .expect("tried to poll dropped file")
-            .poll_set_len(self.len)
-            .map(|a| match a {
-                Async::NotReady => {
-                    let mut file = Some(file);
-                    std::mem::swap(&mut file, &mut self.file);
-                    Async::NotReady
-                }
-                Async::Ready(_) => Async::Ready(file),
-            })
-    }
-}
-
-impl Read for ExclusiveLockedFile {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, io::Error> {
-        self.file
-            .as_mut()
-            .expect("tried to read from dropped LockedFile")
-            .read(buf)
-    }
-}
-
-impl AsyncRead for ExclusiveLockedFile {}
-
-impl Write for ExclusiveLockedFile {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, io::Error> {
-        self.file
-            .as_mut()
-            .expect("tried to write to dropped ExclusiveLockedFile")
-            .write(buf)
-    }
-
-    fn flush(&mut self) -> Result<(), io::Error> {
-        self.file
-            .as_mut()
-            .expect("tried to flush dropped LockedFileWrite")
-            .flush()
+impl AsyncRead for ExclusiveLockedFile {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+        buf: &mut [u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(
+            self.file
+                .as_mut()
+                .expect("tried to read from dropped ExclusiveLockedFile"),
+        )
+        .poll_read(cx, buf)
     }
 }
 
 impl AsyncWrite for ExclusiveLockedFile {
-    fn shutdown(&mut self) -> Result<Async<()>, io::Error> {
-        let result = self
-            .file
-            .as_mut()
-            .expect("tried to shutdown dropped ExclusiveLockedFile")
-            .shutdown();
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(
+            self.file
+                .as_mut()
+                .expect("tried to write to a dropped ExclusiveLockedFile"),
+        )
+        .poll_write(cx, buf)
+    }
 
-        match result {
-            Ok(Async::Ready(())) => {
-                let mut file = None;
-                std::mem::swap(&mut file, &mut self.file);
-                file.unwrap().into_std().unlock().unwrap();
-            }
-            _ => {}
-        };
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+        Pin::new(
+            self.file
+                .as_mut()
+                .expect("tried to flush a dropped ExclusiveLockedFile"),
+        )
+        .poll_flush(cx)
+    }
 
-        result
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+        Pin::new(
+            self.file
+                .as_mut()
+                .expect("tried to shutdown a dropped ExclusiveLockedFile"),
+        )
+        .poll_shutdown(cx)
     }
 }
 
@@ -273,50 +262,11 @@ impl Drop for ExclusiveLockedFile {
         let mut file = None;
         std::mem::swap(&mut file, &mut self.file);
         if file.is_some() {
-            // getting here is not really where we want to be.
-            // Ideally user code would have called shutdown, which would have made file None.
-            // Since we got here, the lock has not yet been cleared, which we do here.
-            file.unwrap().into_std().unlock().unwrap();
-
-            // it is a good indicator that we didn't properly close
-            // during a write, which is rather important on shared
-            // file systems like NFS, which sync and report errors on
-            // close.
-            // To make that work well, it also needs to report a backtrace - maybe just on nightly.
+            file.unwrap()
+                .try_into_std()
+                .expect("could not convert tokio file into std")
+                .unlock()
+                .unwrap();
         }
-    }
-}
-
-pub trait FutureSeekable: Sized {
-    fn seek(self, pos: SeekFrom) -> Box<dyn Future<Item = (Self, u64), Error = io::Error> + Send>;
-}
-
-impl FutureSeekable for LockedFile {
-    fn seek(
-        mut self,
-        pos: SeekFrom,
-    ) -> Box<dyn Future<Item = (Self, u64), Error = io::Error> + Send> {
-        let mut file = None;
-        std::mem::swap(&mut file, &mut self.file);
-        let file = file.expect("tried to seek in dropped LockedFile");
-        Box::new(
-            file.seek(pos)
-                .map(|(file, pos)| (LockedFile { file: Some(file) }, pos)),
-        )
-    }
-}
-
-impl FutureSeekable for ExclusiveLockedFile {
-    fn seek(
-        mut self,
-        pos: SeekFrom,
-    ) -> Box<dyn Future<Item = (Self, u64), Error = io::Error> + Send> {
-        let mut file = None;
-        std::mem::swap(&mut file, &mut self.file);
-        let file = file.expect("tried to seek in dropped ExclusiveLockedFile");
-        Box::new(
-            file.seek(pos)
-                .map(|(file, pos)| (ExclusiveLockedFile { file: Some(file) }, pos)),
-        )
     }
 }

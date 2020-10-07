@@ -1,7 +1,9 @@
-use futures::prelude::*;
-use futures::stream::{Peekable, Stream};
-use std::io::Error;
-use tokio::io::AsyncWrite;
+use futures::io::Result;
+use futures::stream::{Peekable, Stream, StreamExt};
+use futures::task::{Context, Poll};
+use std::marker::Unpin;
+use std::pin::Pin;
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 pub fn find_common_prefix(b1: &[u8], b2: &[u8]) -> usize {
     let mut common = 0;
@@ -16,44 +18,40 @@ pub fn find_common_prefix(b1: &[u8], b2: &[u8]) -> usize {
     common
 }
 
-pub fn write_nul_terminated_bytes<W: AsyncWrite>(
-    w: W,
-    bytes: Vec<u8>,
-) -> impl Future<Item = (W, usize), Error = Error> {
-    tokio::io::write_all(w, bytes).and_then(|(w, slice)| {
-        let count = slice.len() + 1;
-        tokio::io::write_all(w, [0]).map(move |(w, _)| (w, count))
-    })
-}
+pub async fn write_nul_terminated_bytes<W: AsyncWrite + Unpin>(
+    w: &mut W,
+    bytes: &[u8],
+) -> Result<usize> {
+    w.write_all(&bytes).await?;
+    w.write_all(&[0]).await?;
 
-/// Write a buffer to `w`. Don't pass the buffer to the result.
-pub fn write_all<W, B>(w: W, b: B) -> impl Future<Item = W, Error = Error>
-where
-    W: AsyncWrite,
-    B: AsRef<[u8]>,
-{
-    tokio::io::write_all(w, b).map(|(w, _)| w)
+    let count = bytes.len() + 1;
+
+    Ok(count)
 }
 
 /// Write a buffer to `w`.
-pub fn write_padding<W: AsyncWrite>(
-    w: W,
+pub async fn write_padding<W: AsyncWrite + Unpin>(
+    w: &mut W,
     current_pos: usize,
     width: u8,
-) -> impl Future<Item = W, Error = Error> {
+) -> Result<()> {
     let required_padding = (width as usize - current_pos % width as usize) % width as usize;
-    write_all(w, vec![0; required_padding]) // there has to be a better way
+    w.write_all(&vec![0; required_padding]).await?;
+
+    Ok(())
 }
 
 /// Write a `u64` in big-endian order to `w`.
-pub fn write_u64<W: AsyncWrite>(w: W, num: u64) -> impl Future<Item = W, Error = Error> {
-    write_all(w, num.to_be_bytes())
+pub async fn write_u64<W: AsyncWrite + Unpin>(w: &mut W, num: u64) -> Result<()> {
+    w.write_all(&num.to_be_bytes()).await?;
+
+    Ok(())
 }
 
 struct SortedStream<
     T,
-    E,
-    S: 'static + Stream<Item = T, Error = E> + Send,
+    S: 'static + Stream<Item = T> + Unpin + Send,
     F: 'static + Fn(&[Option<&T>]) -> Option<usize>,
 > {
     streams: Vec<Peekable<S>>,
@@ -62,32 +60,30 @@ struct SortedStream<
 
 impl<
         T,
-        E,
-        S: 'static + Stream<Item = T, Error = E> + Send,
-        F: 'static + Fn(&[Option<&T>]) -> Option<usize>,
-    > Stream for SortedStream<T, E, S, F>
+        S: 'static + Stream<Item = T> + Unpin + Send,
+        F: 'static + Fn(&[Option<&T>]) -> Option<usize> + Unpin,
+    > Stream for SortedStream<T, S, F>
 {
     type Item = T;
-    type Error = E;
 
-    fn poll(&mut self) -> Result<Async<Option<T>>, E> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<T>> {
         let mut v = Vec::with_capacity(self.streams.len());
-        for s in self.streams.iter_mut() {
-            match s.peek() {
-                Ok(Async::Ready(val)) => v.push(val),
-                Ok(Async::NotReady) => return Ok(Async::NotReady),
-                Err(e) => return Err(e),
+        let self_ = self.get_mut();
+        for s in self_.streams.iter_mut() {
+            match Pin::new(s).poll_peek(cx) {
+                Poll::Ready(val) => v.push(val),
+                Poll::Pending => return Poll::Pending,
             }
         }
 
-        let ix = (self.pick_fn)(&v[..]);
+        let ix = (self_.pick_fn)(&v[..]);
 
         match ix {
-            None => Ok(Async::Ready(None)),
+            None => Poll::Ready(None),
             Some(ix) => {
-                let next = self.streams[ix].poll();
+                let next = Pin::new(&mut self_.streams[ix]).poll_next(cx);
                 match next {
-                    Ok(Async::Ready(next)) => Ok(Async::Ready(next)),
+                    Poll::Ready(next) => Poll::Ready(next),
                     _ => panic!("unexpected result in stream polling - reported ready earlier but not on later poll")
                 }
             }
@@ -97,13 +93,12 @@ impl<
 
 pub fn sorted_stream<
     T,
-    E,
-    S: 'static + Stream<Item = T, Error = E> + Send,
-    F: 'static + Fn(&[Option<&T>]) -> Option<usize>,
+    S: 'static + Stream<Item = T> + Unpin + Send,
+    F: 'static + Fn(&[Option<&T>]) -> Option<usize> + Unpin,
 >(
     streams: Vec<S>,
     pick_fn: F,
-) -> impl Stream<Item = T, Error = E> {
+) -> impl Stream<Item = T> {
     let peekable_streams = streams.into_iter().map(|s| s.peekable()).collect();
     SortedStream {
         streams: peekable_streams,
@@ -111,9 +106,23 @@ pub fn sorted_stream<
     }
 }
 
+pub fn stream_iter_ok<T, E, I: IntoIterator<Item = T>>(
+    iter: I,
+) -> impl Stream<Item = std::result::Result<T, E>> {
+    futures::stream::iter(iter).map(|x| Ok::<T, E>(x))
+}
+
+pub fn assert_poll_next<T, S: Stream<Item = T>>(stream: Pin<&mut S>, cx: &mut Context) -> T {
+    match stream.poll_next(cx) {
+        Poll::Ready(Some(item)) => item,
+        _ => panic!("stream was expected to have a result but did not."),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::executor::block_on;
 
     #[test]
     fn sort_some_streams() {
@@ -122,9 +131,9 @@ mod tests {
         let v3 = vec![0, 1, 2, 3, 4];
 
         let streams = vec![
-            futures::stream::iter_ok::<_, ()>(v1),
-            futures::stream::iter_ok(v2),
-            futures::stream::iter_ok(v3),
+            futures::stream::iter(v1),
+            futures::stream::iter(v2),
+            futures::stream::iter(v3),
         ];
 
         let sorted = sorted_stream(streams, |results| {
@@ -136,7 +145,7 @@ mod tests {
                 .map(|x| x.0)
         });
 
-        let result = sorted.collect().wait().unwrap();
+        let result: Vec<_> = block_on(sorted.collect());
 
         assert_eq!(vec![0, 1, 1, 2, 3, 3, 4, 5, 7, 8, 9, 12, 15], result);
     }

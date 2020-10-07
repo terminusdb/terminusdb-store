@@ -13,9 +13,12 @@ use super::base::*;
 use super::child::*;
 use super::layer::*;
 use crate::storage::*;
-use futures::prelude::*;
 use std::collections::{HashMap, HashSet};
+use std::io;
+use std::pin::Pin;
 use std::sync::Arc;
+
+use futures::future::Future;
 
 use rayon;
 use rayon::prelude::*;
@@ -36,9 +39,9 @@ pub trait LayerBuilder: Send + Sync {
     /// Remove an id triple
     fn remove_id_triple(&mut self, triple: IdTriple);
     /// Commit the layer to storage
-    fn commit(self) -> Box<dyn Future<Item = (), Error = std::io::Error> + Send>;
+    fn commit(self) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>>;
     /// Commit a boxed layer to storage
-    fn commit_boxed(self: Box<Self>) -> Box<dyn Future<Item = (), Error = std::io::Error> + Send>;
+    fn commit_boxed(self: Box<Self>) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>>;
 }
 
 /// A layer builder
@@ -109,32 +112,33 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
         }
     }
 
-    fn commit(self) -> Box<dyn Future<Item = (), Error = std::io::Error> + Send> {
-        let parent = self.parent.clone();
-        let mut additions: Vec<_> = match parent {
-            None => self
-                .additions
+    fn commit(self) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> {
+        let SimpleLayerBuilder {
+            name: _,
+            parent,
+            files,
+            additions,
+            id_additions,
+            removals,
+            id_removals,
+        } = self;
+
+        let mut additions: Vec<_> = match parent.clone() {
+            None => additions
                 .into_iter()
                 .map(|triple| triple.to_unresolved())
                 .collect(),
-            Some(parent) => self
-                .additions
+            Some(parent) => additions
                 .into_par_iter()
                 .map(move |triple| parent.string_triple_to_partially_resolved(triple))
                 .collect(),
         };
 
-        additions.extend(
-            self.id_additions
-                .into_iter()
-                .map(|triple| triple.to_resolved()),
-        );
+        additions.extend(id_additions.into_iter().map(|triple| triple.to_resolved()));
 
-        let parent = self.parent.clone();
-        let mut removals: Vec<_>;
-        if let Some(parent) = parent {
-            removals = self
-                .removals
+        let mut filtered_removals: Vec<_>;
+        if let Some(parent) = parent.clone() {
+            filtered_removals = removals
                 .into_par_iter()
                 .filter_map(move |triple| {
                     parent
@@ -143,12 +147,12 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                 })
                 .collect();
 
-            removals.extend(self.id_removals.into_iter().map(|triple| triple));
+            filtered_removals.extend(id_removals.into_iter().map(|triple| triple));
 
-            removals.par_sort_unstable();
-            removals.dedup();
+            filtered_removals.par_sort_unstable();
+            filtered_removals.dedup();
         } else {
-            removals = Vec::with_capacity(0);
+            filtered_removals = Vec::with_capacity(0);
         }
 
         let (unresolved_nodes, (unresolved_predicates, unresolved_values)) = rayon::join(
@@ -226,110 +230,92 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
         let unresolved_nodes2 = unresolved_nodes.clone();
         let unresolved_predicates2 = unresolved_predicates.clone();
         let unresolved_values2 = unresolved_values.clone();
-        match self.parent {
-            Some(parent) => {
-                let files = self.files.into_child();
-                let builder = ChildLayerFileBuilder::from_files(parent.clone(), &files);
 
-                Box::new(
-                    builder
-                        .add_nodes(unresolved_nodes)
-                        .and_then(|(nodes, b)| {
-                            b.add_predicates(unresolved_predicates)
-                                .and_then(|(predicates, b)| {
-                                    b.add_values(unresolved_values).and_then(|(values, b)| {
-                                        b.into_phase2().map(move |b| (b, nodes, predicates, values))
-                                    })
-                                })
+        Box::pin(async {
+            match parent {
+                Some(parent) => {
+                    let files = files.into_child();
+                    let mut builder = ChildLayerFileBuilder::from_files(parent.clone(), &files);
+
+                    // TODO this should be done in parallel
+                    let node_ids = builder.add_nodes(unresolved_nodes).await?;
+                    let predicate_ids = builder.add_predicates(unresolved_predicates).await?;
+                    let value_ids = builder.add_values(unresolved_values).await?;
+
+                    let mut builder = builder.into_phase2().await?;
+
+                    let counts = parent.all_counts();
+                    let parent_node_offset = counts.node_count as u64 + counts.value_count as u64;
+                    let parent_predicate_offset = counts.predicate_count as u64;
+                    let mut node_map = HashMap::new();
+                    for (node, id) in unresolved_nodes2.into_iter().zip(node_ids) {
+                        node_map.insert(node, id + parent_node_offset);
+                    }
+                    let mut predicate_map = HashMap::new();
+                    for (predicate, id) in unresolved_predicates2.into_iter().zip(predicate_ids) {
+                        predicate_map.insert(predicate, id + parent_predicate_offset);
+                    }
+                    let mut value_map = HashMap::new();
+                    for (value, id) in unresolved_values2.into_iter().zip(value_ids) {
+                        value_map.insert(value, id + parent_node_offset + node_map.len() as u64);
+                    }
+
+                    let mut add_triples: Vec<_> = additions
+                        .into_iter()
+                        .map(|t| {
+                            t.resolve_with(&node_map, &predicate_map, &value_map)
+                                .expect("triple should have been resolvable")
                         })
-                        .and_then(move |(builder, node_ids, predicate_ids, value_ids)| {
-                            let counts = parent.all_counts();
-                            let parent_node_offset =
-                                counts.node_count as u64 + counts.value_count as u64;
-                            let parent_predicate_offset = counts.predicate_count as u64;
-                            let mut node_map = HashMap::new();
-                            for (node, id) in unresolved_nodes2.into_iter().zip(node_ids) {
-                                node_map.insert(node, id + parent_node_offset);
-                            }
-                            let mut predicate_map = HashMap::new();
-                            for (predicate, id) in
-                                unresolved_predicates2.into_iter().zip(predicate_ids)
-                            {
-                                predicate_map.insert(predicate, id + parent_predicate_offset);
-                            }
-                            let mut value_map = HashMap::new();
-                            for (value, id) in unresolved_values2.into_iter().zip(value_ids) {
-                                value_map
-                                    .insert(value, id + parent_node_offset + node_map.len() as u64);
-                            }
+                        .collect();
+                    add_triples.par_sort_unstable();
+                    add_triples.dedup();
 
-                            let mut add_triples: Vec<_> = additions
-                                .into_iter()
-                                .map(|t| {
-                                    t.resolve_with(&node_map, &predicate_map, &value_map)
-                                        .expect("triple should have been resolvable")
-                                })
-                                .collect();
-                            add_triples.par_sort_unstable();
-                            add_triples.dedup();
+                    // TODO this should be in parallel
+                    builder.add_id_triples(add_triples).await?;
+                    builder.remove_id_triples(filtered_removals).await?;
+                    builder.finalize().await
+                }
+                None => {
+                    let files = files.into_base();
+                    let mut builder = BaseLayerFileBuilder::from_files(&files);
 
-                            builder
-                                .add_id_triples(add_triples)
-                                .and_then(move |b| b.remove_id_triples(removals))
-                                .and_then(|b| b.finalize())
-                        }),
-                )
-            }
-            None => {
-                let files = self.files.into_base();
-                let builder = BaseLayerFileBuilder::from_files(&files);
+                    // TODO - this is exactly the same as above. We should generalize builder and run it once on the generalized instead.
+                    let node_ids = builder.add_nodes(unresolved_nodes).await?;
+                    let predicate_ids = builder.add_predicates(unresolved_predicates).await?;
+                    let value_ids = builder.add_values(unresolved_values).await?;
 
-                // TODO - this is exactly the same as above. We should generalize builder and run it once on the generalized instead.
-                Box::new(
-                    builder
-                        .add_nodes(unresolved_nodes)
-                        .and_then(|(nodes, b)| {
-                            b.add_predicates(unresolved_predicates)
-                                .and_then(|(predicates, b)| {
-                                    b.add_values(unresolved_values).and_then(|(values, b)| {
-                                        b.into_phase2().map(move |b| (b, nodes, predicates, values))
-                                    })
-                                })
+                    let mut builder = builder.into_phase2().await?;
+                    let mut node_map = HashMap::new();
+                    for (node, id) in unresolved_nodes2.into_iter().zip(node_ids) {
+                        node_map.insert(node, id);
+                    }
+                    let mut predicate_map = HashMap::new();
+                    for (predicate, id) in unresolved_predicates2.into_iter().zip(predicate_ids) {
+                        predicate_map.insert(predicate, id);
+                    }
+                    let mut value_map = HashMap::new();
+                    for (value, id) in unresolved_values2.into_iter().zip(value_ids) {
+                        value_map.insert(value, id + node_map.len() as u64);
+                    }
+
+                    let mut triples: Vec<_> = additions
+                        .into_iter()
+                        .map(|t| {
+                            t.resolve_with(&node_map, &predicate_map, &value_map)
+                                .expect("triple should have been resolvable")
                         })
-                        .and_then(move |(builder, node_ids, predicate_ids, value_ids)| {
-                            let mut node_map = HashMap::new();
-                            for (node, id) in unresolved_nodes2.into_iter().zip(node_ids) {
-                                node_map.insert(node, id);
-                            }
-                            let mut predicate_map = HashMap::new();
-                            for (predicate, id) in
-                                unresolved_predicates2.into_iter().zip(predicate_ids)
-                            {
-                                predicate_map.insert(predicate, id);
-                            }
-                            let mut value_map = HashMap::new();
-                            for (value, id) in unresolved_values2.into_iter().zip(value_ids) {
-                                value_map.insert(value, id + node_map.len() as u64);
-                            }
+                        .collect();
+                    triples.par_sort_unstable();
+                    triples.dedup();
 
-                            let mut triples: Vec<_> = additions
-                                .into_iter()
-                                .map(|t| {
-                                    t.resolve_with(&node_map, &predicate_map, &value_map)
-                                        .expect("triple should have been resolvable")
-                                })
-                                .collect();
-                            triples.par_sort_unstable();
-                            triples.dedup();
-
-                            builder.add_id_triples(triples).and_then(|b| b.finalize())
-                        }),
-                )
+                    builder.add_id_triples(triples).await?;
+                    builder.finalize().await
+                }
             }
-        }
+        })
     }
 
-    fn commit_boxed(self: Box<Self>) -> Box<dyn Future<Item = (), Error = std::io::Error> + Send> {
+    fn commit_boxed(self: Box<Self>) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> {
         let builder = *self;
         builder.commit()
     }
@@ -340,8 +326,7 @@ mod tests {
     use super::*;
     use crate::layer::internal::InternalLayer;
     use crate::storage::memory::*;
-    use futures::sync::oneshot;
-    use tokio::runtime::{Runtime, TaskExecutor};
+    use tokio::runtime::{Handle, Runtime};
 
     fn new_base_files() -> BaseLayerFiles<MemoryBackedStore> {
         BaseLayerFiles {
@@ -474,7 +459,7 @@ mod tests {
         }
     }
 
-    fn example_base_layer(executor: &TaskExecutor) -> Arc<InternalLayer> {
+    fn example_base_layer(handle: &Handle) -> Arc<InternalLayer> {
         let name = [1, 2, 3, 4, 5];
         let files = new_base_files();
         let mut builder = SimpleLayerBuilder::new(name, files.clone());
@@ -483,16 +468,18 @@ mod tests {
         builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
         builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
 
-        oneshot::spawn(builder.commit(), executor).wait().unwrap();
+        handle.block_on(builder.commit()).unwrap();
 
-        let layer = BaseLayer::load_from_files(name, &files).wait().unwrap();
+        let layer = handle
+            .block_on(BaseLayer::load_from_files(name, &files))
+            .unwrap();
         Arc::new(layer.into())
     }
 
     #[test]
     fn simple_base_layer_construction() {
         let runtime = Runtime::new().unwrap();
-        let layer = example_base_layer(&runtime.executor());
+        let layer = example_base_layer(&runtime.handle());
 
         assert!(layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
@@ -501,8 +488,8 @@ mod tests {
 
     #[test]
     fn simple_child_layer_construction() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
         let files = new_child_files();
         let name = [0, 0, 0, 0, 0];
         let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
@@ -511,12 +498,13 @@ mod tests {
         builder.add_string_triple(StringTriple::new_node("horse", "likes", "cow"));
         builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
 
-        oneshot::spawn(builder.commit(), &runtime.executor())
-            .wait()
-            .unwrap();
         let child_layer = Arc::new(
-            ChildLayer::load_from_files(name, base_layer, &files)
-                .wait()
+            runtime
+                .block_on(async {
+                    builder.commit().await?;
+
+                    ChildLayer::load_from_files(name, base_layer, &files).await
+                })
                 .unwrap(),
         );
 
@@ -533,8 +521,8 @@ mod tests {
 
     #[test]
     fn multi_level_layers() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.executor());
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
         let name2 = [0, 0, 0, 0, 0];
         let files2 = new_child_files();
         let mut builder =
@@ -544,12 +532,10 @@ mod tests {
         builder.add_string_triple(StringTriple::new_node("horse", "likes", "cow"));
         builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
 
-        oneshot::spawn(builder.commit(), &runtime.executor())
-            .wait()
-            .unwrap();
+        runtime.block_on(builder.commit()).unwrap();
         let layer2: Arc<InternalLayer> = Arc::new(
-            ChildLayer::load_from_files(name2, base_layer, &files2)
-                .wait()
+            runtime
+                .block_on(ChildLayer::load_from_files(name2, base_layer, &files2))
                 .unwrap()
                 .into(),
         );
@@ -561,12 +547,10 @@ mod tests {
         builder.add_string_triple(StringTriple::new_node("horse", "likes", "pig"));
         builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
 
-        oneshot::spawn(builder.commit(), &runtime.executor())
-            .wait()
-            .unwrap();
+        runtime.block_on(builder.commit()).unwrap();
         let layer3: Arc<InternalLayer> = Arc::new(
-            ChildLayer::load_from_files(name3, layer2, &files3)
-                .wait()
+            runtime
+                .block_on(ChildLayer::load_from_files(name3, layer2, &files3))
                 .unwrap()
                 .into(),
         );
@@ -576,13 +560,12 @@ mod tests {
         builder = SimpleLayerBuilder::from_parent(name4, layer3.clone(), files4.clone());
         builder.remove_string_triple(StringTriple::new_value("pig", "says", "oink"));
         builder.add_string_triple(StringTriple::new_node("cow", "likes", "horse"));
-        oneshot::spawn(builder.commit(), &runtime.executor())
-            .wait()
-            .unwrap();
-        let layer4 = Arc::new(
-            ChildLayer::load_from_files(name4, layer3, &files4)
-                .wait()
-                .unwrap(),
+        runtime.block_on(builder.commit()).unwrap();
+        let layer4: Arc<InternalLayer> = Arc::new(
+            runtime
+                .block_on(ChildLayer::load_from_files(name4, layer3, &files4))
+                .unwrap()
+                .into(),
         );
 
         assert!(layer4.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));

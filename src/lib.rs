@@ -32,7 +32,7 @@
 extern crate lazy_static;
 
 pub mod layer;
-pub mod logging;
+//pub mod logging;
 pub mod storage;
 pub mod store;
 pub mod structure;

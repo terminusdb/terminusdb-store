@@ -1,15 +1,14 @@
 //! Implementation for a Plain Front-Coding (PFC) dictionary.
 
 use byteorder::{BigEndian, ByteOrder};
-use bytes::Bytes;
-use bytes::BytesMut;
-use futures::future;
+use bytes::{Buf, Bytes, BytesMut};
+use futures::stream::{Stream, StreamExt};
 use std::cmp::{Ord, Ordering};
 use std::error::Error;
 use std::fmt::Display;
 use std::io;
-use tokio::codec::{Decoder, FramedRead};
-use tokio::prelude::*;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio_util::codec::{Decoder, FramedRead};
 
 use super::logarray::*;
 use super::util::*;
@@ -36,9 +35,9 @@ impl From<LogArrayError> for PfcError {
 
 impl Error for PfcError {}
 
-impl Into<std::io::Error> for PfcError {
-    fn into(self) -> std::io::Error {
-        std::io::Error::new(std::io::ErrorKind::InvalidData, self)
+impl From<PfcError> for io::Error {
+    fn from(err: PfcError) -> std::io::Error {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, err)
     }
 }
 
@@ -304,7 +303,7 @@ impl PfcDict {
     }
 }
 
-pub struct PfcDictFileBuilder<W: tokio::io::AsyncWrite + Send> {
+pub struct PfcDictFileBuilder<W: tokio::io::AsyncWrite + Unpin + Send> {
     /// the file that this builder writes the pfc blocks to
     pfc_blocks_file: W,
     /// the file that this builder writes the block offsets to
@@ -317,7 +316,7 @@ pub struct PfcDictFileBuilder<W: tokio::io::AsyncWrite + Send> {
     index: Vec<u64>,
 }
 
-impl<W: 'static + tokio::io::AsyncWrite + Send> PfcDictFileBuilder<W> {
+impl<W: 'static + tokio::io::AsyncWrite + Unpin + Send> PfcDictFileBuilder<W> {
     pub fn new(pfc_blocks_file: W, pfc_block_offsets_file: W) -> PfcDictFileBuilder<W> {
         PfcDictFileBuilder {
             pfc_blocks_file,
@@ -328,103 +327,62 @@ impl<W: 'static + tokio::io::AsyncWrite + Send> PfcDictFileBuilder<W> {
             index: Vec::new(),
         }
     }
-    pub fn add(
-        self,
-        s: &str,
-    ) -> impl Future<Item = (u64, PfcDictFileBuilder<W>), Error = std::io::Error> + Send {
-        let count = self.count;
-        let size = self.size;
-        let mut index = self.index;
-
+    pub async fn add(&mut self, s: &str) -> io::Result<u64> {
         let bytes = s.as_bytes().to_vec();
         if self.count % BLOCK_SIZE == 0 {
             if self.count != 0 {
                 // this is the start of a block, but not the start of the first block
                 // we need to store an index
-                index.push(size as u64);
+                self.index.push(self.size as u64);
             }
-            let pfc_block_offsets_file = self.pfc_block_offsets_file;
-            future::Either::A(
-                write_nul_terminated_bytes(self.pfc_blocks_file, bytes.clone()).and_then(
-                    move |(f, len)| {
-                        future::ok((
-                            (count + 1) as u64,
-                            PfcDictFileBuilder {
-                                pfc_blocks_file: f,
-                                pfc_block_offsets_file,
-                                count: count + 1,
-                                size: size + len,
-                                last: Some(bytes),
-                                index: index,
-                            },
-                        ))
-                    },
-                ),
-            )
+            let len = write_nul_terminated_bytes(&mut self.pfc_blocks_file, &bytes).await?;
+            self.size += len;
         } else {
             let s_bytes = s.as_bytes();
-            let common = find_common_prefix(&self.last.unwrap(), s_bytes);
+            let common = find_common_prefix(&self.last.as_ref().unwrap(), s_bytes);
             let postfix = s_bytes[common..].to_vec();
-            let pfc_block_offsets_file = self.pfc_block_offsets_file;
-            future::Either::B(
-                vbyte::write_async(self.pfc_blocks_file, common as u64).and_then(
-                    move |(pfc_blocks_file, common_len)| {
-                        write_nul_terminated_bytes(pfc_blocks_file, postfix).map(
-                            move |(pfc_blocks_file, slice_len)| {
-                                (
-                                    (count + 1) as u64,
-                                    PfcDictFileBuilder {
-                                        pfc_blocks_file,
-                                        pfc_block_offsets_file,
-                                        count: count + 1,
-                                        size: size + common_len + slice_len,
-                                        last: Some(bytes),
-                                        index: index,
-                                    },
-                                )
-                            },
-                        )
-                    },
-                ),
-            )
+            let common_len = vbyte::write_async(&mut self.pfc_blocks_file, common as u64).await?;
+            let slice_len = write_nul_terminated_bytes(&mut self.pfc_blocks_file, &postfix).await?;
+            self.size += common_len + slice_len;
         }
+
+        self.count += 1;
+        self.last = Some(bytes);
+
+        Ok(self.count as u64)
     }
 
-    pub fn add_all<I: 'static + Iterator<Item = String> + Send>(
-        self,
-        it: I,
-    ) -> impl Future<Item = (Vec<u64>, PfcDictFileBuilder<W>), Error = std::io::Error> + Send {
-        future::loop_fn((self, it, Vec::new()), |(builder, mut it, mut result)| {
-            let next = it.next();
-            match next {
-                None => future::Either::A(future::ok(future::Loop::Break((result, builder)))),
-                Some(s) => future::Either::B(builder.add(&s).and_then(move |(r, b)| {
-                    result.push(r);
-                    future::ok(future::Loop::Continue((b, it, result)))
-                })),
-            }
-        })
+    pub async fn add_all<'a, I: 'static + Iterator<Item = &'a str> + Send>(
+        &mut self,
+        mut it: I,
+    ) -> io::Result<Vec<u64>> {
+        let mut result = Vec::new();
+        while let Some(next) = it.next() {
+            let r = self.add(next).await?;
+            result.push(r);
+        }
+
+        Ok(result)
     }
 
     /// finish the data structure
-    pub fn finalize(self) -> impl Future<Item = (), Error = std::io::Error> {
+    pub async fn finalize(mut self) -> io::Result<()> {
         let width = if self.index.is_empty() {
             1
         } else {
             64 - self.index[self.index.len() - 1].leading_zeros()
         };
-        let builder = LogArrayFileBuilder::new(self.pfc_block_offsets_file, width as u8);
+        let mut builder = LogArrayFileBuilder::new(self.pfc_block_offsets_file, width as u8);
         let count = self.count as u64;
 
-        let write_offsets = builder
-            .push_all(futures::stream::iter_ok(self.index))
-            .and_then(|b| b.finalize());
+        builder.push_all(stream_iter_ok(self.index)).await?;
+        builder.finalize().await?;
 
-        let finalize_blocks = write_padding(self.pfc_blocks_file, self.size, 8)
-            .and_then(move |w| write_u64(w, count))
-            .and_then(|w| tokio::io::flush(w));
+        write_padding(&mut self.pfc_blocks_file, self.size, 8).await?;
+        write_u64(&mut self.pfc_blocks_file, count).await?;
+        self.pfc_blocks_file.flush().await?;
 
-        write_offsets.join(finalize_blocks).map(|_| ())
+        Ok(())
     }
 }
 
@@ -496,47 +454,58 @@ impl Decoder for PfcDecoder {
     }
 }
 
-pub fn dict_file_get_count<F: 'static + FileLoad>(
-    file: F,
-) -> impl Future<Item = u64, Error = io::Error> + Send {
-    tokio::io::read_exact(file.open_read_from(file.size() - 8), vec![0; 8])
-        .map(|(_, buf)| BigEndian::read_u64(&buf))
+pub async fn dict_file_get_count<F: 'static + FileLoad>(file: F) -> io::Result<u64> {
+    let mut result = vec![0; 8];
+    file.open_read_from(file.size() - 8)
+        .read_exact(&mut result)
+        .await?;
+    Ok(BigEndian::read_u64(&result))
 }
 
-pub fn dict_reader_to_stream<A: 'static + AsyncRead + Send>(
+pub fn dict_reader_to_stream<A: 'static + AsyncRead + Unpin + Send>(
     r: A,
-) -> impl Stream<Item = String, Error = io::Error> + Send {
+) -> impl Stream<Item = io::Result<String>> + Unpin + Send {
     FramedRead::new(r, PfcDecoder::new())
 }
 
-pub fn dict_reader_to_indexed_stream<A: 'static + AsyncRead + Send>(
+pub fn dict_reader_to_indexed_stream<A: 'static + AsyncRead + Unpin + Send>(
     r: A,
     offset: u64,
-) -> impl Stream<Item = (u64, String), Error = io::Error> + Send {
-    let count_stream = futures::stream::unfold(offset, |c| Some(Ok((c + 1, c + 1))));
+) -> impl Stream<Item = io::Result<(u64, String)>> + Send {
     let dict_stream = dict_reader_to_stream(r);
-    count_stream.zip(dict_stream)
+
+    dict_stream.enumerate().map(move |(i, x)| match x {
+        Ok(x) => Ok(((i + 1) as u64 + offset, x)),
+        Err(e) => Err(e),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::storage::memory::*;
+    use futures::executor::block_on;
+    use futures::stream::TryStreamExt;
 
     #[test]
     fn can_create_pfc_dict_small() {
         let contents = vec!["aaaaa", "aabbb", "ccccc"];
         let blocks = MemoryBackedStore::new();
         let offsets = MemoryBackedStore::new();
-        let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
-        builder
-            .add_all(contents.into_iter().map(|s| s.to_string()))
-            .and_then(|(_, b)| b.finalize())
-            .wait()
-            .unwrap();
+        let mut builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
+        block_on(async {
+            builder.add_all(contents.into_iter()).await?;
+            builder.finalize().await?;
 
-        let p =
-            PfcDict::parse(blocks.map().wait().unwrap(), offsets.map().wait().unwrap()).unwrap();
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
+
+        let p = PfcDict::parse(
+            block_on(blocks.map()).unwrap(),
+            block_on(offsets.map()).unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(Some("aaaaa".to_string()), p.get(0));
         assert_eq!(Some("aabbb".to_string()), p.get(1));
@@ -568,16 +537,21 @@ mod tests {
 
         let blocks = MemoryBackedStore::new();
         let offsets = MemoryBackedStore::new();
-        let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
+        let mut builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
 
-        builder
-            .add_all(contents.into_iter().map(|s| s.to_string()))
-            .and_then(|(_, b)| b.finalize())
-            .wait()
-            .unwrap();
+        block_on(async {
+            builder.add_all(contents.into_iter()).await?;
+            builder.finalize().await?;
 
-        let p =
-            PfcDict::parse(blocks.map().wait().unwrap(), offsets.map().wait().unwrap()).unwrap();
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
+
+        let p = PfcDict::parse(
+            block_on(blocks.map()).unwrap(),
+            block_on(offsets.map()).unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(Some("aaaaa".to_string()), p.get(0));
         assert_eq!(Some("aabbb".to_string()), p.get(1));
@@ -612,16 +586,21 @@ mod tests {
 
         let blocks = MemoryBackedStore::new();
         let offsets = MemoryBackedStore::new();
-        let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
+        let mut builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
 
-        builder
-            .add_all(contents.into_iter().map(|s| s.to_string()))
-            .and_then(|(_, b)| b.finalize())
-            .wait()
-            .unwrap();
+        block_on(async {
+            builder.add_all(contents.into_iter()).await?;
+            builder.finalize().await?;
 
-        let dict =
-            PfcDict::parse(blocks.map().wait().unwrap(), offsets.map().wait().unwrap()).unwrap();
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
+
+        let dict = PfcDict::parse(
+            block_on(blocks.map()).unwrap(),
+            block_on(offsets.map()).unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(Some(0), dict.id("aaaaa"));
         assert_eq!(Some(5), dict.id("arf"));
@@ -660,16 +639,21 @@ mod tests {
 
         let blocks = MemoryBackedStore::new();
         let offsets = MemoryBackedStore::new();
-        let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
+        let mut builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
 
-        builder
-            .add_all(contents.clone().into_iter().map(|s| s.to_string()))
-            .and_then(|(_, b)| b.finalize())
-            .wait()
-            .unwrap();
+        block_on(async {
+            builder.add_all(contents.clone().into_iter()).await?;
+            builder.finalize().await?;
 
-        let dict =
-            PfcDict::parse(blocks.map().wait().unwrap(), offsets.map().wait().unwrap()).unwrap();
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
+
+        let dict = PfcDict::parse(
+            block_on(blocks.map()).unwrap(),
+            block_on(offsets.map()).unwrap(),
+        )
+        .unwrap();
 
         let result: Vec<String> = dict.strings().collect();
         assert_eq!(contents, result);
@@ -700,17 +684,19 @@ mod tests {
 
         let blocks = MemoryBackedStore::new();
         let offsets = MemoryBackedStore::new();
-        let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
+        let mut builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
 
-        builder
-            .add_all(contents.clone().into_iter().map(|s| s.to_string()))
-            .and_then(|(_, b)| b.finalize())
-            .wait()
-            .unwrap();
+        block_on(async {
+            builder.add_all(contents.clone().into_iter()).await?;
+            builder.finalize().await?;
+
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
 
         let stream = dict_reader_to_stream(blocks.open_read());
 
-        let result: Vec<String> = stream.collect().wait().unwrap();
+        let result: Vec<String> = block_on(stream.try_collect()).unwrap();
         assert_eq!(contents, result);
     }
 
@@ -737,17 +723,19 @@ mod tests {
 
         let blocks = MemoryBackedStore::new();
         let offsets = MemoryBackedStore::new();
-        let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
+        let mut builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
 
-        builder
-            .add_all(contents.clone().into_iter().map(|s| s.to_string()))
-            .and_then(|(_, b)| b.finalize())
-            .wait()
-            .unwrap();
+        block_on(async {
+            builder.add_all(contents.clone().into_iter()).await?;
+            builder.finalize().await?;
+
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
 
         let stream = dict_reader_to_stream(blocks.open_read());
 
-        let result: Vec<String> = stream.collect().wait().unwrap();
+        let result: Vec<String> = block_on(stream.try_collect()).unwrap();
         assert_eq!(contents, result);
     }
 
@@ -776,17 +764,19 @@ mod tests {
 
         let blocks = MemoryBackedStore::new();
         let offsets = MemoryBackedStore::new();
-        let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
+        let mut builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
 
-        builder
-            .add_all(contents.clone().into_iter().map(|s| s.to_string()))
-            .and_then(|(_, b)| b.finalize())
-            .wait()
-            .unwrap();
+        block_on(async {
+            builder.add_all(contents.clone().into_iter()).await?;
+            builder.finalize().await?;
+
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
 
         let stream = dict_reader_to_indexed_stream(blocks.open_read(), 0);
 
-        let result: Vec<(u64, String)> = stream.collect().wait().unwrap();
+        let result: Vec<(u64, String)> = block_on(stream.try_collect()).unwrap();
         assert_eq!((1, "aaaaa".to_string()), result[0]);
         assert_eq!((8, "barf".to_string()), result[7]);
         assert_eq!((9, "berf".to_string()), result[8]);
@@ -817,15 +807,17 @@ mod tests {
 
         let blocks = MemoryBackedStore::new();
         let offsets = MemoryBackedStore::new();
-        let builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
+        let mut builder = PfcDictFileBuilder::new(blocks.open_write(), offsets.open_write());
 
-        builder
-            .add_all(contents.clone().into_iter().map(|s| s.to_string()))
-            .and_then(|(_, b)| b.finalize())
-            .wait()
-            .unwrap();
+        block_on(async {
+            builder.add_all(contents.clone().into_iter()).await?;
+            builder.finalize().await?;
 
-        let count = dict_file_get_count(blocks).wait().unwrap();
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
+
+        let count = block_on(dict_file_get_count(blocks)).unwrap();
 
         assert_eq!(18, count);
     }

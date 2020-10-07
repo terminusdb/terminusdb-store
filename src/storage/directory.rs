@@ -4,15 +4,17 @@ use bytes::Bytes;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use futures::prelude::*;
+use futures::stream::TryStreamExt;
+use futures::{future, Future};
 use locking::*;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
-use std::io::{self, Seek, SeekFrom};
+use std::io::{self, Read, Seek, SeekFrom};
 use std::path::PathBuf;
+use std::pin::Pin;
 use tar::Archive;
 use tokio::fs::{self, *};
-use tokio::prelude::*;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::*;
 
@@ -58,19 +60,19 @@ impl FileLoad for FileBackedStore {
         File::from_std(f)
     }
 
-    fn map(&self) -> Box<dyn Future<Item = Bytes, Error = std::io::Error> + Send> {
+    fn map(&self) -> Pin<Box<dyn Future<Output = io::Result<Bytes>> + Send>> {
         let file = self.clone();
-        Box::new(future::lazy(move || {
-            if file.size() == 0 {
-                future::Either::A(future::ok(Bytes::new()))
+        Box::pin(async move {
+            let size = file.size();
+            if size == 0 {
+                Ok(Bytes::new())
             } else {
-                let f = file.open_read();
-                future::Either::B(
-                    tokio::io::read_to_end(f, Vec::with_capacity(file.size()))
-                        .map(|(_, vec)| Bytes::from(vec)),
-                )
+                let mut f = file.open_read();
+                let mut v = Vec::with_capacity(file.size());
+                f.read_to_end(&mut v).await?;
+                Ok(Bytes::from(v))
             }
-        }))
+        })
     }
 }
 
@@ -101,85 +103,87 @@ impl DirectoryLayerStore {
 
 impl PersistentLayerStore for DirectoryLayerStore {
     type File = FileBackedStore;
-    fn directories(&self) -> Box<dyn Future<Item = Vec<[u32; 5]>, Error = io::Error> + Send> {
-        Box::new(
-            fs::read_dir(self.path.clone())
-                .flatten_stream()
-                .map(|direntry| (direntry.file_name(), direntry))
-                .and_then(|(dir_name, direntry)| {
-                    future::poll_fn(move || direntry.poll_file_type())
-                        .map(move |ft| (dir_name, ft.is_dir()))
-                })
-                .filter_map(|(dir_name, is_dir)| match is_dir {
-                    true => Some(dir_name),
-                    false => None,
-                })
-                .and_then(|dir_name| {
-                    dir_name
-                        .to_str()
-                        .ok_or(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "unexpected non-utf8 directory name",
-                        ))
-                        .map(|s| s.to_owned())
-                })
-                .and_then(|s| string_to_name(&s))
-                .collect(),
-        )
+    fn directories(&self) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
+        let path = self.path.clone();
+        Box::pin(async move {
+            let mut stream = fs::read_dir(path).await?;
+            let mut result = Vec::new();
+            while let Some(direntry) = stream.try_next().await? {
+                if direntry.file_type().await?.is_dir() {
+                    let os_name = direntry.file_name();
+                    let name = os_name.to_str().ok_or(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "unexpected non-utf8 directory name",
+                    ))?;
+                    result.push(string_to_name(name)?);
+                }
+            }
+
+            Ok(result)
+        })
     }
 
-    fn create_directory(&self) -> Box<dyn Future<Item = [u32; 5], Error = io::Error> + Send> {
+    fn create_directory(&self) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
         let name = rand::random();
         let mut p = self.path.clone();
         let name_str = name_to_string(name);
         p.push(&name_str[0..PREFIX_DIR_SIZE]);
         p.push(name_str);
 
-        Box::new(fs::create_dir_all(p).map(move |_| name))
+        Box::pin(async move {
+            fs::create_dir_all(p).await?;
+
+            Ok(name)
+        })
     }
 
     fn directory_exists(
         &self,
         name: [u32; 5],
-    ) -> Box<dyn Future<Item = bool, Error = io::Error> + Send> {
+    ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> {
         let mut p = self.path.clone();
         let name = name_to_string(name);
         p.push(&name[0..PREFIX_DIR_SIZE]);
         p.push(name);
 
-        Box::new(fs::metadata(p).then(|result| match result {
-            Ok(f) => Ok(f.is_dir()),
-            Err(_) => Ok(false),
-        }))
+        Box::pin(async move {
+            match fs::metadata(p).await {
+                Ok(m) => Ok(m.is_dir()),
+                Err(_) => Ok(false),
+            }
+        })
     }
 
     fn get_file(
         &self,
         directory: [u32; 5],
         name: &str,
-    ) -> Box<dyn Future<Item = Self::File, Error = io::Error> + Send> {
+    ) -> Pin<Box<dyn Future<Output = io::Result<Self::File>> + Send>> {
         let mut p = self.path.clone();
         let dir_name = name_to_string(directory);
         p.push(&dir_name[0..PREFIX_DIR_SIZE]);
         p.push(dir_name);
         p.push(name);
-        Box::new(future::ok(FileBackedStore::new(p)))
+        Box::pin(future::ok(FileBackedStore::new(p)))
     }
 
     fn file_exists(
         &self,
         directory: [u32; 5],
         file: &str,
-    ) -> Box<dyn Future<Item = bool, Error = io::Error> + Send> {
+    ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> {
         let mut p = self.path.clone();
         let dir_name = name_to_string(directory);
         p.push(&dir_name[0..PREFIX_DIR_SIZE]);
         p.push(dir_name);
         p.push(file);
-        Box::new(fs::metadata(p).then(|result| match result {
-            Ok(f) => Ok(f.is_file()),
-            Err(_) => Ok(false),
-        }))
+
+        Box::pin(async move {
+            match fs::metadata(p).await {
+                Ok(m) => Ok(m.is_file()),
+                Err(_) => Ok(false),
+            }
+        })
     }
 
     fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
@@ -249,125 +253,129 @@ impl DirectoryLabelStore {
     }
 }
 
-fn get_label_from_file(path: PathBuf) -> impl Future<Item = Label, Error = io::Error> + Send {
+async fn get_label_from_file<P: Into<PathBuf>>(path: P) -> io::Result<Label> {
+    let path: PathBuf = path.into();
     let label = path.file_stem().unwrap().to_str().unwrap().to_owned();
 
-    LockedFile::open(path)
-        .and_then(|f| tokio::io::read_to_end(f, Vec::new()))
-        .and_then(move |(_f, data)| {
-            let s = String::from_utf8_lossy(&data);
-            let lines: Vec<&str> = s.lines().collect();
-            if lines.len() != 2 {
-                let result: Box<dyn Future<Item = _, Error = _> + Send> =
-                    Box::new(future::err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!(
-                            "expected label file to have two lines. contents were ({:?})",
-                            lines
-                        ),
-                    )));
-                return result;
-            }
-            let version_str = &lines[0];
-            let layer_str = &lines[1];
+    let mut file = LockedFile::open(path).await?;
+    let mut data = Vec::new();
+    file.read_to_end(&mut data).await?;
 
-            let version = u64::from_str_radix(version_str, 10);
-            if version.is_err() {
-                return Box::new(future::err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!(
-                        "expected first line of label file to be a number but it was {}",
-                        version_str
-                    ),
-                )));
-            }
+    let s = String::from_utf8_lossy(&data);
+    let lines: Vec<&str> = s.lines().collect();
+    if lines.len() != 2 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "expected label file to have two lines. contents were ({:?})",
+                lines
+            ),
+        ));
+    }
 
-            if layer_str.is_empty() {
-                Box::new(future::ok(Label {
-                    name: label,
-                    layer: None,
-                    version: version.unwrap(),
-                }))
-            } else {
-                let layer = layer::string_to_name(layer_str);
-                Box::new(layer.into_future().map(|layer| Label {
-                    name: label,
-                    layer: Some(layer),
-                    version: version.unwrap(),
-                }))
-            }
+    let version_str = &lines[0];
+    let layer_str = &lines[1];
+
+    let version = u64::from_str_radix(version_str, 10);
+    if version.is_err() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "expected first line of label file to be a number but it was {}",
+                version_str
+            ),
+        ));
+    }
+
+    if layer_str.is_empty() {
+        Ok(Label {
+            name: label,
+            layer: None,
+            version: version.unwrap(),
         })
+    } else {
+        let layer = layer::string_to_name(layer_str)?;
+        Ok(Label {
+            name: label,
+            layer: Some(layer),
+            version: version.unwrap(),
+        })
+    }
 }
 
 impl LabelStore for DirectoryLabelStore {
-    fn labels(&self) -> Box<dyn Future<Item = Vec<Label>, Error = io::Error> + Send> {
-        Box::new(
-            fs::read_dir(self.path.clone())
-                .flatten_stream()
-                .map(|direntry| (direntry.file_name(), direntry))
-                .and_then(|(dir_name, direntry)| {
-                    future::poll_fn(move || direntry.poll_file_type())
-                        .map(move |ft| (dir_name, ft.is_file()))
-                })
-                .filter(|(file_name, is_file)| {
-                    file_name.to_str().unwrap().ends_with(".label") && *is_file
-                })
-                .and_then(|(file_name, _)| get_label_from_file(file_name.into()))
-                .collect(),
-        )
+    fn labels(&self) -> Pin<Box<dyn Future<Output = io::Result<Vec<Label>>> + Send>> {
+        let path = self.path.clone();
+        Box::pin(async move {
+            let mut stream = fs::read_dir(path).await?;
+            let mut result = Vec::new();
+            while let Some(direntry) = stream.try_next().await? {
+                if direntry.file_type().await?.is_file() {
+                    let os_name = direntry.file_name();
+                    let name = os_name.to_str().ok_or(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "unexpected non-utf8 directory name",
+                    ))?;
+                    if name.ends_with(".label") {
+                        let label = get_label_from_file(name).await?;
+                        result.push(label);
+                    }
+                }
+            }
+
+            Ok(result)
+        })
     }
 
-    fn create_label(&self, label: &str) -> Box<dyn Future<Item = Label, Error = io::Error> + Send> {
+    fn create_label(&self, label: &str) -> Pin<Box<dyn Future<Output = io::Result<Label>> + Send>> {
         let mut p = self.path.clone();
         let label = label.to_owned();
         p.push(format!("{}.label", label));
         let contents = format!("0\n\n").into_bytes();
-        Box::new(
-            fs::metadata(p.clone())
-                .then(move |metadata| match metadata {
-                    Ok(_) => future::err(io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        "database already exists",
-                    )),
-                    Err(e) => match e.kind() {
-                        io::ErrorKind::NotFound => future::ok(p),
-                        _ => future::err(e),
-                    },
-                })
-                .and_then(|p| {
-                    ExclusiveLockedFile::create_and_open(p)
-                        .and_then(|f| tokio::io::write_all(f, contents))
-                        .map(move |_| Label::new_empty(&label))
-                }),
-        )
+        Box::pin(async move {
+            match fs::metadata(&p).await {
+                Ok(_) => Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "database already exists",
+                )),
+                Err(e) => match e.kind() {
+                    io::ErrorKind::NotFound => {
+                        let mut file = ExclusiveLockedFile::create_and_open(p).await?;
+                        file.write_all(&contents).await?;
+                        file.flush().await?;
+
+                        Ok(Label::new_empty(&label))
+                    }
+                    _ => Err(e),
+                },
+            }
+        })
     }
 
     fn get_label(
         &self,
         label: &str,
-    ) -> Box<dyn Future<Item = Option<Label>, Error = io::Error> + Send> {
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<Label>>> + Send>> {
         let label = label.to_owned();
         let mut p = self.path.clone();
         p.push(format!("{}.label", label));
 
-        Box::new(
-            get_label_from_file(p)
-                .map(|label| Some(label))
-                .or_else(move |e| {
-                    if e.kind() == io::ErrorKind::NotFound {
-                        Ok(None)
-                    } else {
-                        Err(e)
-                    }
-                }),
-        )
+        Box::pin(async move {
+            match get_label_from_file(p).await {
+                Ok(label) => Ok(Some(label)),
+                Err(e) => match e.kind() {
+                    io::ErrorKind::NotFound => Ok(None),
+                    _ => Err(e),
+                },
+            }
+        })
     }
 
     fn set_label_option(
         &self,
         label: &Label,
         layer: Option<[u32; 5]>,
-    ) -> Box<dyn Future<Item = Option<Label>, Error = io::Error> + Send> {
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<Label>>> + Send>> {
         let mut p = self.path.clone();
         p.push(format!("{}.label", label.name));
 
@@ -380,20 +388,19 @@ impl LabelStore for DirectoryLabelStore {
             }
         };
 
-        Box::new(self.get_label(&label.name).and_then(move |l| {
-            if l == Some(old_label) {
+        let get_label = self.get_label(&label.name);
+        Box::pin(async move {
+            let retrieved_label = get_label.await?;
+            if retrieved_label == Some(old_label) {
                 // all good, let's a go
-                // TODO: this box should not be necessary here
-                let result: Box<dyn Future<Item = _, Error = _> + Send> = Box::new(
-                    ExclusiveLockedFile::open(p)
-                        .and_then(|f| tokio::io::write_all(f, contents))
-                        .map(|_| Some(new_label)),
-                );
-                result
+                let mut file = ExclusiveLockedFile::open(p).await?;
+                file.write_all(&contents).await?;
+                file.flush().await?;
+                Ok(Some(new_label))
             } else {
-                Box::new(future::ok(None))
+                Ok(None)
             }
-        }))
+        })
     }
 }
 
@@ -466,7 +473,6 @@ pub fn pack_layer_parents<'a, R: io::Read>(
 mod tests {
     use super::*;
     use crate::layer::*;
-    use futures::sync::oneshot;
     use tempfile::tempdir;
     use tokio::runtime::Runtime;
 
@@ -475,15 +481,19 @@ mod tests {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("foo");
         let file = FileBackedStore::new(file_path);
-        let runtime = Runtime::new().unwrap();
+        let mut runtime = Runtime::new().unwrap();
 
-        let w = file.open_write();
-        let task = tokio::io::write_all(w, [1, 2, 3])
-            .and_then(move |_| tokio::io::read_to_end(file.open_read(), Vec::new()))
-            .map(move |(_, buf)| buf);
+        let mut w = file.open_write();
+        let buf = runtime
+            .block_on(async {
+                w.write_all(&[1, 2, 3]).await?;
+                w.flush().await?;
+                let mut result = Vec::new();
+                file.open_read().read_to_end(&mut result).await?;
 
-        let buf = oneshot::spawn(task, &runtime.executor()).wait().unwrap();
-        runtime.shutdown_now();
+                Ok::<_, io::Error>(result)
+            })
+            .unwrap();
 
         assert_eq!(vec![1, 2, 3], buf);
     }
@@ -493,13 +503,17 @@ mod tests {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("foo");
         let file = FileBackedStore::new(file_path);
-        let runtime = Runtime::new().unwrap();
+        let mut runtime = Runtime::new().unwrap();
 
-        let w = file.open_write();
-        let task = tokio::io::write_all(w, [1, 2, 3]).and_then(move |_| file.map());
+        let mut w = file.open_write();
+        let map = runtime
+            .block_on(async {
+                w.write_all(&[1, 2, 3]).await?;
+                w.flush().await?;
 
-        let map = oneshot::spawn(task, &runtime.executor()).wait().unwrap();
-        runtime.shutdown_now();
+                file.map().await
+            })
+            .unwrap();
 
         assert_eq!(&vec![1, 2, 3][..], &map.as_ref()[..]);
     }
@@ -509,58 +523,54 @@ mod tests {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("foo");
         let file = FileBackedStore::new(file_path);
-        let runtime = Runtime::new().unwrap();
+        let mut runtime = Runtime::new().unwrap();
 
-        let w = file.open_write();
+        let mut w = file.open_write();
         let mut contents = vec![0u8; 4096 << 4];
         for i in 0..contents.capacity() {
             contents[i] = (i as usize % 256) as u8;
         }
+        let map = runtime
+            .block_on(async {
+                w.write_all(&contents).await?;
+                w.flush().await?;
 
-        let task = tokio::io::write_all(w, contents.clone()).and_then(move |_| file.map());
-
-        let map = oneshot::spawn(task, &runtime.executor()).wait().unwrap();
-        runtime.shutdown_now();
+                file.map().await
+            })
+            .unwrap();
 
         assert_eq!(contents, map.as_ref());
     }
 
     #[test]
     fn create_layers_from_directory_store() {
-        let runtime = Runtime::new().unwrap();
+        let mut runtime = Runtime::new().unwrap();
         let dir = tempdir().unwrap();
         let store = DirectoryLayerStore::new(dir.path());
-        let task = store
-            .create_base_layer()
-            .and_then(|mut builder| {
+
+        let layer = runtime
+            .block_on(async {
+                let mut builder = store.create_base_layer().await?;
                 let base_name = builder.name();
 
                 builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
                 builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
                 builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
 
-                builder.commit_boxed().map(move |_| base_name)
+                builder.commit_boxed().await?;
+
+                let mut builder = store.create_child_layer(base_name).await?;
+                let child_name = builder.name();
+
+                builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
+                builder.add_string_triple(StringTriple::new_node("cow", "likes", "pig"));
+
+                builder.commit_boxed().await?;
+
+                store.get_layer(child_name).await
             })
-            .and_then(move |base_name| {
-                store
-                    .create_child_layer(base_name)
-                    .and_then(|mut builder| {
-                        let child_name = builder.name();
-
-                        builder
-                            .remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
-                        builder.add_string_triple(StringTriple::new_node("cow", "likes", "pig"));
-
-                        builder.commit_boxed().map(move |_| child_name)
-                    })
-                    .and_then(move |child_name| store.get_layer(child_name))
-            });
-
-        let layer = oneshot::spawn(task, &runtime.executor())
-            .wait()
             .unwrap()
             .unwrap();
-        runtime.shutdown_now();
 
         assert!(layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
@@ -572,14 +582,16 @@ mod tests {
     fn directory_create_and_retrieve_equal_label() {
         let dir = tempdir().unwrap();
         let store = DirectoryLabelStore::new(dir.path());
-        let runtime = Runtime::new().unwrap();
+        let mut runtime = Runtime::new().unwrap();
 
-        let task = store
-            .create_label("foo")
-            .and_then(move |stored| store.get_label("foo").map(|retrieved| (stored, retrieved)));
+        let (stored, retrieved) = runtime
+            .block_on(async {
+                let stored = store.create_label("foo").await?;
+                let retrieved = store.get_label("foo").await?;
 
-        let (stored, retrieved) = oneshot::spawn(task, &runtime.executor()).wait().unwrap();
-        runtime.shutdown_now();
+                Ok::<_, io::Error>((stored, retrieved))
+            })
+            .unwrap();
 
         assert_eq!(None, stored.layer);
         assert_eq!(stored, retrieved.unwrap());
@@ -589,19 +601,18 @@ mod tests {
     fn directory_update_label_succeeds() {
         let dir = tempdir().unwrap();
         let store = DirectoryLabelStore::new(dir.path());
-        let runtime = Runtime::new().unwrap();
+        let mut runtime = Runtime::new().unwrap();
 
-        let task = store.create_label("foo").and_then(move |stored| {
-            store
-                .set_label(&stored, [6, 7, 8, 9, 10])
-                .and_then(move |_| store.get_label("foo"))
-        });
+        let retrieved = runtime
+            .block_on(async {
+                let stored = store.create_label("foo").await?;
+                store.set_label(&stored, [6, 7, 8, 9, 10]).await?;
 
-        let retrieved = oneshot::spawn(task, &runtime.executor())
-            .wait()
+                store.get_label("foo").await
+            })
             .unwrap()
             .unwrap();
-        runtime.shutdown_now();
+
         assert_eq!(Some([6, 7, 8, 9, 10]), retrieved.layer);
     }
 
@@ -609,20 +620,18 @@ mod tests {
     fn directory_update_label_twice_from_same_label_object_fails() {
         let dir = tempdir().unwrap();
         let store = DirectoryLabelStore::new(dir.path());
-        let runtime = Runtime::new().unwrap();
+        let mut runtime = Runtime::new().unwrap();
 
-        let task = store.create_label("foo").and_then(move |stored1| {
-            store
-                .set_label(&stored1, [6, 7, 8, 9, 10])
-                .and_then(move |stored2| {
-                    store
-                        .set_label(&stored1, [10, 9, 8, 7, 6])
-                        .map(|stored3| (stored2, stored3))
-                })
-        });
+        let (stored2, stored3) = runtime
+            .block_on(async {
+                let stored1 = store.create_label("foo").await?;
 
-        let (stored2, stored3) = oneshot::spawn(task, &runtime.executor()).wait().unwrap();
-        runtime.shutdown_now();
+                let stored2 = store.set_label(&stored1, [6, 7, 8, 9, 10]).await?;
+                let stored3 = store.set_label(&stored1, [10, 9, 8, 7, 6]).await?;
+
+                Ok::<_, io::Error>((stored2, stored3))
+            })
+            .unwrap();
 
         assert!(stored2.is_some());
         assert!(stored3.is_none());
@@ -630,17 +639,13 @@ mod tests {
 
     #[test]
     fn directory_create_label_twice_errors() {
-        let runtime = Runtime::new().unwrap();
-        let executor = runtime.executor();
+        let mut runtime = Runtime::new().unwrap();
 
         let dir = tempdir().unwrap();
         let store = DirectoryLabelStore::new(dir.path());
 
-        oneshot::spawn(store.create_label("foo"), &executor)
-            .wait()
-            .unwrap();
-        let result = oneshot::spawn(store.create_label("foo"), &executor).wait();
-        runtime.shutdown_now();
+        runtime.block_on(store.create_label("foo")).unwrap();
+        let result = runtime.block_on(store.create_label("foo"));
 
         assert!(result.is_err());
 

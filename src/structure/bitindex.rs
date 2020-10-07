@@ -4,8 +4,9 @@ use bytes::Bytes;
 
 use super::bitarray::*;
 use super::logarray::*;
-use futures::prelude::*;
-use tokio::prelude::*;
+use futures::io;
+use futures::stream::StreamExt;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 // a block is 64 bit, which is the register size on modern architectures
 // Block size is not tunable, and therefore no const is defined here.
@@ -312,56 +313,45 @@ impl BitIndex {
     }
 }
 
-pub fn build_bitindex<
-    R: 'static + AsyncRead + Send,
-    W1: 'static + AsyncWrite + Send,
-    W2: 'static + AsyncWrite + Send,
+pub async fn build_bitindex<
+    R: 'static + AsyncRead + Unpin + Send,
+    W1: 'static + AsyncWrite + Unpin + Send,
+    W2: 'static + AsyncWrite + Unpin + Send,
 >(
     bitarray: R,
     blocks: W1,
     sblocks: W2,
-) -> Box<dyn Future<Item = (W1, W2), Error = std::io::Error> + Send> {
+) -> io::Result<()> {
     let block_stream = bitarray_stream_blocks(bitarray);
     // the following widths are unoptimized, but should always be large enough
-    let blocks_builder =
+    let mut blocks_builder =
         LogArrayFileBuilder::new(blocks, 64 - (SBLOCK_SIZE * 64).leading_zeros() as u8);
-    let sblocks_builder = LogArrayFileBuilder::new(sblocks, 64);
+    let mut sblocks_builder = LogArrayFileBuilder::new(sblocks, 64);
+
     // we chunk block_stream into blocks of SBLOCK size for further processing
-    Box::new(
-        block_stream
-            .chunks(SBLOCK_SIZE)
-            .fold(
-                (sblocks_builder, blocks_builder, 0),
-                |(sblocks_builder, blocks_builder, tally), chunk| {
-                    let block_ranks: Vec<u8> = chunk.iter().map(|b| b.count_ones() as u8).collect();
-                    let sblock_subrank = block_ranks.iter().fold(0u64, |s, &i| s + i as u64);
-                    let sblock_rank = sblock_subrank + tally;
-                    stream::iter_ok(block_ranks)
-                        .fold(
-                            (blocks_builder, sblock_subrank),
-                            |(builder, rank), block_rank| {
-                                builder.push(rank as u64).map(move |blocks_builder| {
-                                    (blocks_builder, rank - block_rank as u64)
-                                })
-                            },
-                        )
-                        .and_then(move |(blocks_builder, _)| {
-                            sblocks_builder
-                                .push(sblock_rank)
-                                .map(move |sblocks_builder| {
-                                    (sblocks_builder, blocks_builder, sblock_rank)
-                                })
-                        })
-                },
-            )
-            .and_then(|(sblocks_builder, blocks_builder, _)| {
-                blocks_builder.finalize().and_then(|blocks_file| {
-                    sblocks_builder
-                        .finalize()
-                        .map(move |sblocks_file| (blocks_file, sblocks_file))
-                })
-            }),
-    ) // TODO it would be better to return the various streams here. However, we have no access to block_stream as it was consumed.
+    let mut sblock_rank = 0;
+    let mut stream = block_stream.chunks(SBLOCK_SIZE);
+    while let Some(chunk) = stream.next().await {
+        let mut block_ranks = Vec::with_capacity(chunk.len());
+        for num in chunk {
+            block_ranks.push(num?.count_ones() as u64);
+        }
+
+        let mut sblock_subrank = block_ranks.iter().sum();
+        sblock_rank += sblock_subrank;
+
+        for block_rank in block_ranks {
+            blocks_builder.push(sblock_subrank).await?;
+            sblock_subrank -= block_rank;
+        }
+
+        sblocks_builder.push(sblock_rank).await?;
+    }
+
+    blocks_builder.finalize().await?;
+    sblocks_builder.finalize().await?;
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -369,32 +359,36 @@ mod tests {
     use super::*;
     use crate::storage::memory::*;
     use crate::storage::*;
+    use crate::structure::util::stream_iter_ok;
+    use futures::executor::block_on;
 
     #[test]
     pub fn rank1_works() {
         let bits = MemoryBackedStore::new();
-        let ba_builder = BitArrayFileBuilder::new(bits.open_write());
+        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write());
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
-        ba_builder
-            .push_all(stream::iter_ok(contents))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+
+        block_on(async {
+            ba_builder.push_all(stream_iter_ok(contents)).await?;
+            ba_builder.finalize().await?;
+
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
 
         let index_blocks = MemoryBackedStore::new();
         let index_sblocks = MemoryBackedStore::new();
-        build_bitindex(
+        block_on(build_bitindex(
             bits.open_read(),
             index_blocks.open_write(),
             index_sblocks.open_write(),
-        )
-        .wait()
+        ))
         .unwrap();
 
         let index = BitIndex::from_maps(
-            bits.map().wait().unwrap(),
-            index_blocks.map().wait().unwrap(),
-            index_sblocks.map().wait().unwrap(),
+            block_on(bits.map()).unwrap(),
+            block_on(index_blocks.map()).unwrap(),
+            block_on(index_sblocks.map()).unwrap(),
         );
 
         for i in 0..123456 {
@@ -405,28 +399,30 @@ mod tests {
     #[test]
     pub fn select1_works() {
         let bits = MemoryBackedStore::new();
-        let ba_builder = BitArrayFileBuilder::new(bits.open_write());
+        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write());
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
-        ba_builder
-            .push_all(stream::iter_ok(contents))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+
+        block_on(async {
+            ba_builder.push_all(stream_iter_ok(contents)).await?;
+            ba_builder.finalize().await?;
+
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
 
         let index_blocks = MemoryBackedStore::new();
         let index_sblocks = MemoryBackedStore::new();
-        build_bitindex(
+        block_on(build_bitindex(
             bits.open_read(),
             index_blocks.open_write(),
             index_sblocks.open_write(),
-        )
-        .wait()
+        ))
         .unwrap();
 
         let index = BitIndex::from_maps(
-            bits.map().wait().unwrap(),
-            index_blocks.map().wait().unwrap(),
-            index_sblocks.map().wait().unwrap(),
+            block_on(bits.map()).unwrap(),
+            block_on(index_blocks.map()).unwrap(),
+            block_on(index_sblocks.map()).unwrap(),
         );
 
         for i in 1..(123456 / 3) {
@@ -439,28 +435,30 @@ mod tests {
     #[test]
     pub fn rank1_ranged() {
         let bits = MemoryBackedStore::new();
-        let ba_builder = BitArrayFileBuilder::new(bits.open_write());
+        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write());
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
-        ba_builder
-            .push_all(stream::iter_ok(contents))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+
+        block_on(async {
+            ba_builder.push_all(stream_iter_ok(contents)).await?;
+            ba_builder.finalize().await?;
+
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
 
         let index_blocks = MemoryBackedStore::new();
         let index_sblocks = MemoryBackedStore::new();
-        build_bitindex(
+        block_on(build_bitindex(
             bits.open_read(),
             index_blocks.open_write(),
             index_sblocks.open_write(),
-        )
-        .wait()
+        ))
         .unwrap();
 
         let index = BitIndex::from_maps(
-            bits.map().wait().unwrap(),
-            index_blocks.map().wait().unwrap(),
-            index_sblocks.map().wait().unwrap(),
+            block_on(bits.map()).unwrap(),
+            block_on(index_blocks.map()).unwrap(),
+            block_on(index_sblocks.map()).unwrap(),
         );
 
         assert_eq!(0, index.rank1_from_range(6, 6));
@@ -473,28 +471,30 @@ mod tests {
     #[test]
     pub fn select1_ranged() {
         let bits = MemoryBackedStore::new();
-        let ba_builder = BitArrayFileBuilder::new(bits.open_write());
+        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write());
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
-        ba_builder
-            .push_all(stream::iter_ok(contents))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+
+        block_on(async {
+            ba_builder.push_all(stream_iter_ok(contents)).await?;
+            ba_builder.finalize().await?;
+
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
 
         let index_blocks = MemoryBackedStore::new();
         let index_sblocks = MemoryBackedStore::new();
-        build_bitindex(
+        block_on(build_bitindex(
             bits.open_read(),
             index_blocks.open_write(),
             index_sblocks.open_write(),
-        )
-        .wait()
+        ))
         .unwrap();
 
         let index = BitIndex::from_maps(
-            bits.map().wait().unwrap(),
-            index_blocks.map().wait().unwrap(),
-            index_sblocks.map().wait().unwrap(),
+            block_on(bits.map()).unwrap(),
+            block_on(index_blocks.map()).unwrap(),
+            block_on(index_sblocks.map()).unwrap(),
         );
 
         assert_eq!(None, index.select1_from_range(0, 6, 6));
@@ -508,28 +508,30 @@ mod tests {
     #[test]
     pub fn rank0_works() {
         let bits = MemoryBackedStore::new();
-        let ba_builder = BitArrayFileBuilder::new(bits.open_write());
+        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write());
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
-        ba_builder
-            .push_all(stream::iter_ok(contents))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+
+        block_on(async {
+            ba_builder.push_all(stream_iter_ok(contents)).await?;
+            ba_builder.finalize().await?;
+
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
 
         let index_blocks = MemoryBackedStore::new();
         let index_sblocks = MemoryBackedStore::new();
-        build_bitindex(
+        block_on(build_bitindex(
             bits.open_read(),
             index_blocks.open_write(),
             index_sblocks.open_write(),
-        )
-        .wait()
+        ))
         .unwrap();
 
         let index = BitIndex::from_maps(
-            bits.map().wait().unwrap(),
-            index_blocks.map().wait().unwrap(),
-            index_sblocks.map().wait().unwrap(),
+            block_on(bits.map()).unwrap(),
+            block_on(index_blocks.map()).unwrap(),
+            block_on(index_sblocks.map()).unwrap(),
         );
 
         for i in 0..123456 {
@@ -540,28 +542,30 @@ mod tests {
     #[test]
     pub fn select0_works() {
         let bits = MemoryBackedStore::new();
-        let ba_builder = BitArrayFileBuilder::new(bits.open_write());
+        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write());
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
-        ba_builder
-            .push_all(stream::iter_ok(contents))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+
+        block_on(async {
+            ba_builder.push_all(stream_iter_ok(contents)).await?;
+            ba_builder.finalize().await?;
+
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
 
         let index_blocks = MemoryBackedStore::new();
         let index_sblocks = MemoryBackedStore::new();
-        build_bitindex(
+        block_on(build_bitindex(
             bits.open_read(),
             index_blocks.open_write(),
             index_sblocks.open_write(),
-        )
-        .wait()
+        ))
         .unwrap();
 
         let index = BitIndex::from_maps(
-            bits.map().wait().unwrap(),
-            index_blocks.map().wait().unwrap(),
-            index_sblocks.map().wait().unwrap(),
+            block_on(bits.map()).unwrap(),
+            block_on(index_blocks.map()).unwrap(),
+            block_on(index_sblocks.map()).unwrap(),
         );
 
         for i in 1..=(123456 * 2 / 3) {
@@ -574,28 +578,30 @@ mod tests {
     #[test]
     pub fn rank0_ranged() {
         let bits = MemoryBackedStore::new();
-        let ba_builder = BitArrayFileBuilder::new(bits.open_write());
+        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write());
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
-        ba_builder
-            .push_all(stream::iter_ok(contents))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+
+        block_on(async {
+            ba_builder.push_all(stream_iter_ok(contents)).await?;
+            ba_builder.finalize().await?;
+
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
 
         let index_blocks = MemoryBackedStore::new();
         let index_sblocks = MemoryBackedStore::new();
-        build_bitindex(
+        block_on(build_bitindex(
             bits.open_read(),
             index_blocks.open_write(),
             index_sblocks.open_write(),
-        )
-        .wait()
+        ))
         .unwrap();
 
         let index = BitIndex::from_maps(
-            bits.map().wait().unwrap(),
-            index_blocks.map().wait().unwrap(),
-            index_sblocks.map().wait().unwrap(),
+            block_on(bits.map()).unwrap(),
+            block_on(index_blocks.map()).unwrap(),
+            block_on(index_sblocks.map()).unwrap(),
         );
 
         assert_eq!(0, index.rank0_from_range(5, 5));
@@ -609,28 +615,30 @@ mod tests {
     #[test]
     pub fn select0_ranged() {
         let bits = MemoryBackedStore::new();
-        let ba_builder = BitArrayFileBuilder::new(bits.open_write());
+        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write());
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
-        ba_builder
-            .push_all(stream::iter_ok(contents))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+
+        block_on(async {
+            ba_builder.push_all(stream_iter_ok(contents)).await?;
+            ba_builder.finalize().await?;
+
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
 
         let index_blocks = MemoryBackedStore::new();
         let index_sblocks = MemoryBackedStore::new();
-        build_bitindex(
+        block_on(build_bitindex(
             bits.open_read(),
             index_blocks.open_write(),
             index_sblocks.open_write(),
-        )
-        .wait()
+        ))
         .unwrap();
 
         let index = BitIndex::from_maps(
-            bits.map().wait().unwrap(),
-            index_blocks.map().wait().unwrap(),
-            index_sblocks.map().wait().unwrap(),
+            block_on(bits.map()).unwrap(),
+            block_on(index_blocks.map()).unwrap(),
+            block_on(index_sblocks.map()).unwrap(),
         );
 
         assert_eq!(None, index.select0_from_range(0, 6, 6));

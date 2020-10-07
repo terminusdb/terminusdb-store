@@ -3,8 +3,8 @@
 use super::bitarray::*;
 use super::bitindex::*;
 use super::logarray::*;
+use super::util;
 use crate::storage::*;
-use futures::prelude::*;
 use tokio::prelude::*;
 
 use std::convert::TryInto;
@@ -264,14 +264,17 @@ fn push_to_fragments(num: u64, width: u8, fragments: &mut Vec<FragmentBuilder>) 
 }
 
 /// Build a wavelet tree from an iterator
-pub fn build_wavelet_tree_from_iter<I: Iterator<Item = u64>, F: 'static + FileLoad + FileStore>(
+pub async fn build_wavelet_tree_from_iter<
+    I: Iterator<Item = u64>,
+    F: 'static + FileLoad + FileStore,
+>(
     width: u8,
     source: I,
     destination_bits: F,
     destination_blocks: F,
     destination_sblocks: F,
-) -> impl Future<Item = (), Error = std::io::Error> + Send {
-    let bits = BitArrayFileBuilder::new(destination_bits.open_write());
+) -> io::Result<()> {
+    let mut bits = BitArrayFileBuilder::new(destination_bits.open_write());
     let mut fragments = create_fragments(width);
 
     for num in source {
@@ -280,20 +283,21 @@ pub fn build_wavelet_tree_from_iter<I: Iterator<Item = u64>, F: 'static + FileLo
 
     let iter = fragments.into_iter().flat_map(|f| f.into_iter());
 
-    bits.push_all(stream::iter_ok(iter))
-        .and_then(|bitarray| bitarray.finalize())
-        .and_then(move |_| {
-            build_bitindex(
-                destination_bits.open_read(),
-                destination_blocks.open_write(),
-                destination_sblocks.open_write(),
-            )
-        })
-        .map(|_| ())
+    bits.push_all(util::stream_iter_ok(iter)).await?;
+    bits.finalize().await?;
+
+    build_bitindex(
+        destination_bits.open_read(),
+        destination_blocks.open_write(),
+        destination_sblocks.open_write(),
+    )
+    .await?;
+
+    Ok(())
 }
 
 /// Build a wavelet tree from a file storing a logarray.
-pub fn build_wavelet_tree_from_logarray<
+pub async fn build_wavelet_tree_from_logarray<
     FLoad: 'static + FileLoad,
     F: 'static + FileLoad + FileStore,
 >(
@@ -301,25 +305,27 @@ pub fn build_wavelet_tree_from_logarray<
     destination_bits: F,
     destination_blocks: F,
     destination_sblocks: F,
-) -> impl Future<Item = (), Error = std::io::Error> + Send {
-    source
-        .map()
-        .and_then(|bytes| LogArray::parse(bytes).map_err(|e| e.into()))
-        .and_then(move |logarray| {
-            build_wavelet_tree_from_iter(
-                logarray.width(),
-                logarray.iter(),
-                destination_bits,
-                destination_blocks,
-                destination_sblocks,
-            )
-        })
+) -> io::Result<()> {
+    let bytes = source.map().await?;
+    let logarray = LogArray::parse(bytes)?;
+
+    build_wavelet_tree_from_iter(
+        logarray.width(),
+        logarray.iter(),
+        destination_bits,
+        destination_blocks,
+        destination_sblocks,
+    )
+    .await?;
+
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::storage::memory::*;
+    use futures::executor::block_on;
 
     #[test]
     fn generate_and_decode_wavelet_tree_from_vec() {
@@ -331,19 +337,18 @@ mod tests {
         let wavelet_blocks_file = MemoryBackedStore::new();
         let wavelet_sblocks_file = MemoryBackedStore::new();
 
-        build_wavelet_tree_from_iter(
+        block_on(build_wavelet_tree_from_iter(
             5,
             contents_closure.into_iter(),
             wavelet_bits_file.clone(),
             wavelet_blocks_file.clone(),
             wavelet_sblocks_file.clone(),
-        )
-        .wait()
+        ))
         .unwrap();
 
-        let wavelet_bits = wavelet_bits_file.map().wait().unwrap();
-        let wavelet_blocks = wavelet_blocks_file.map().wait().unwrap();
-        let wavelet_sblocks = wavelet_sblocks_file.map().wait().unwrap();
+        let wavelet_bits = block_on(wavelet_bits_file.map()).unwrap();
+        let wavelet_blocks = block_on(wavelet_blocks_file.map()).unwrap();
+        let wavelet_sblocks = block_on(wavelet_sblocks_file.map()).unwrap();
 
         let wavelet_bitindex = BitIndex::from_maps(wavelet_bits, wavelet_blocks, wavelet_sblocks);
         let wavelet_tree = WaveletTree::from_parts(wavelet_bitindex, 5);
@@ -356,31 +361,34 @@ mod tests {
     #[test]
     fn generate_and_decode_wavelet_tree_from_logarray() {
         let logarray_file = MemoryBackedStore::new();
-        let logarray_builder = LogArrayFileBuilder::new(logarray_file.open_write(), 5);
+        let mut logarray_builder = LogArrayFileBuilder::new(logarray_file.open_write(), 5);
         let contents = vec![21, 1, 30, 13, 23, 21, 3, 0, 21, 21, 12, 11];
         let contents_len = contents.len();
-        logarray_builder
-            .push_all(stream::iter_ok(contents.clone()))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+        block_on(async {
+            logarray_builder
+                .push_all(util::stream_iter_ok(contents.clone()))
+                .await?;
+            logarray_builder.finalize().await?;
+
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
 
         let wavelet_bits_file = MemoryBackedStore::new();
         let wavelet_blocks_file = MemoryBackedStore::new();
         let wavelet_sblocks_file = MemoryBackedStore::new();
 
-        build_wavelet_tree_from_logarray(
+        block_on(build_wavelet_tree_from_logarray(
             logarray_file,
             wavelet_bits_file.clone(),
             wavelet_blocks_file.clone(),
             wavelet_sblocks_file.clone(),
-        )
-        .wait()
+        ))
         .unwrap();
 
-        let wavelet_bits = wavelet_bits_file.map().wait().unwrap();
-        let wavelet_blocks = wavelet_blocks_file.map().wait().unwrap();
-        let wavelet_sblocks = wavelet_sblocks_file.map().wait().unwrap();
+        let wavelet_bits = block_on(wavelet_bits_file.map()).unwrap();
+        let wavelet_blocks = block_on(wavelet_blocks_file.map()).unwrap();
+        let wavelet_sblocks = block_on(wavelet_sblocks_file.map()).unwrap();
 
         let wavelet_bitindex = BitIndex::from_maps(wavelet_bits, wavelet_blocks, wavelet_sblocks);
         let wavelet_tree = WaveletTree::from_parts(wavelet_bitindex, 5);
@@ -399,19 +407,18 @@ mod tests {
         let wavelet_blocks_file = MemoryBackedStore::new();
         let wavelet_sblocks_file = MemoryBackedStore::new();
 
-        build_wavelet_tree_from_iter(
+        block_on(build_wavelet_tree_from_iter(
             4,
             contents_closure.into_iter(),
             wavelet_bits_file.clone(),
             wavelet_blocks_file.clone(),
             wavelet_sblocks_file.clone(),
-        )
-        .wait()
+        ))
         .unwrap();
 
-        let wavelet_bits = wavelet_bits_file.map().wait().unwrap();
-        let wavelet_blocks = wavelet_blocks_file.map().wait().unwrap();
-        let wavelet_sblocks = wavelet_sblocks_file.map().wait().unwrap();
+        let wavelet_bits = block_on(wavelet_bits_file.map()).unwrap();
+        let wavelet_blocks = block_on(wavelet_blocks_file.map()).unwrap();
+        let wavelet_sblocks = block_on(wavelet_sblocks_file.map()).unwrap();
 
         let wavelet_bitindex = BitIndex::from_maps(wavelet_bits, wavelet_blocks, wavelet_sblocks);
         let wavelet_tree = WaveletTree::from_parts(wavelet_bitindex, 4);
@@ -435,19 +442,18 @@ mod tests {
         let wavelet_blocks_file = MemoryBackedStore::new();
         let wavelet_sblocks_file = MemoryBackedStore::new();
 
-        build_wavelet_tree_from_iter(
+        block_on(build_wavelet_tree_from_iter(
             4,
             contents_closure.into_iter(),
             wavelet_bits_file.clone(),
             wavelet_blocks_file.clone(),
             wavelet_sblocks_file.clone(),
-        )
-        .wait()
+        ))
         .unwrap();
 
-        let wavelet_bits = wavelet_bits_file.map().wait().unwrap();
-        let wavelet_blocks = wavelet_blocks_file.map().wait().unwrap();
-        let wavelet_sblocks = wavelet_sblocks_file.map().wait().unwrap();
+        let wavelet_bits = block_on(wavelet_bits_file.map()).unwrap();
+        let wavelet_blocks = block_on(wavelet_blocks_file.map()).unwrap();
+        let wavelet_sblocks = block_on(wavelet_sblocks_file.map()).unwrap();
 
         let wavelet_bitindex = BitIndex::from_maps(wavelet_bits, wavelet_blocks, wavelet_sblocks);
         let wavelet_tree = WaveletTree::from_parts(wavelet_bitindex, 4);
@@ -456,7 +462,7 @@ mod tests {
     }
 
     #[test]
-    fn lookup_wavelet_byeond_end() {
+    fn lookup_wavelet_beyond_end() {
         let contents = vec![8, 3, 8, 8, 1, 2, 3, 2, 8, 9, 3, 3, 6, 7, 0, 4, 8, 7, 3];
         let contents_closure = contents.clone();
 
@@ -464,19 +470,18 @@ mod tests {
         let wavelet_blocks_file = MemoryBackedStore::new();
         let wavelet_sblocks_file = MemoryBackedStore::new();
 
-        build_wavelet_tree_from_iter(
+        block_on(build_wavelet_tree_from_iter(
             4,
             contents_closure.into_iter(),
             wavelet_bits_file.clone(),
             wavelet_blocks_file.clone(),
             wavelet_sblocks_file.clone(),
-        )
-        .wait()
+        ))
         .unwrap();
 
-        let wavelet_bits = wavelet_bits_file.map().wait().unwrap();
-        let wavelet_blocks = wavelet_blocks_file.map().wait().unwrap();
-        let wavelet_sblocks = wavelet_sblocks_file.map().wait().unwrap();
+        let wavelet_bits = block_on(wavelet_bits_file.map()).unwrap();
+        let wavelet_blocks = block_on(wavelet_blocks_file.map()).unwrap();
+        let wavelet_sblocks = block_on(wavelet_sblocks_file.map()).unwrap();
 
         let wavelet_bitindex = BitIndex::from_maps(wavelet_bits, wavelet_blocks, wavelet_sblocks);
         let wavelet_tree = WaveletTree::from_parts(wavelet_bitindex, 4);
@@ -493,19 +498,18 @@ mod tests {
         let wavelet_blocks_file = MemoryBackedStore::new();
         let wavelet_sblocks_file = MemoryBackedStore::new();
 
-        build_wavelet_tree_from_iter(
+        block_on(build_wavelet_tree_from_iter(
             4,
             contents_closure.into_iter(),
             wavelet_bits_file.clone(),
             wavelet_blocks_file.clone(),
             wavelet_sblocks_file.clone(),
-        )
-        .wait()
+        ))
         .unwrap();
 
-        let wavelet_bits = wavelet_bits_file.map().wait().unwrap();
-        let wavelet_blocks = wavelet_blocks_file.map().wait().unwrap();
-        let wavelet_sblocks = wavelet_sblocks_file.map().wait().unwrap();
+        let wavelet_bits = block_on(wavelet_bits_file.map()).unwrap();
+        let wavelet_blocks = block_on(wavelet_blocks_file.map()).unwrap();
+        let wavelet_sblocks = block_on(wavelet_sblocks_file.map()).unwrap();
 
         let wavelet_bitindex = BitIndex::from_maps(wavelet_bits, wavelet_blocks, wavelet_sblocks);
         let wavelet_tree = WaveletTree::from_parts(wavelet_bitindex, 4);
@@ -527,19 +531,18 @@ mod tests {
         let wavelet_blocks_file = MemoryBackedStore::new();
         let wavelet_sblocks_file = MemoryBackedStore::new();
 
-        build_wavelet_tree_from_iter(
+        block_on(build_wavelet_tree_from_iter(
             4,
             contents_closure.into_iter(),
             wavelet_bits_file.clone(),
             wavelet_blocks_file.clone(),
             wavelet_sblocks_file.clone(),
-        )
-        .wait()
+        ))
         .unwrap();
 
-        let wavelet_bits = wavelet_bits_file.map().wait().unwrap();
-        let wavelet_blocks = wavelet_blocks_file.map().wait().unwrap();
-        let wavelet_sblocks = wavelet_sblocks_file.map().wait().unwrap();
+        let wavelet_bits = block_on(wavelet_bits_file.map()).unwrap();
+        let wavelet_blocks = block_on(wavelet_blocks_file.map()).unwrap();
+        let wavelet_sblocks = block_on(wavelet_sblocks_file.map()).unwrap();
 
         let wavelet_bitindex = BitIndex::from_maps(wavelet_bits, wavelet_blocks, wavelet_sblocks);
         let wavelet_tree = WaveletTree::from_parts(wavelet_bitindex, 4);

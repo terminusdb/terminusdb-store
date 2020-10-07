@@ -175,15 +175,13 @@ mod tests {
     use crate::layer::child::tests::*;
     use crate::layer::*;
 
-    use futures::prelude::*;
-    use futures::sync::oneshot;
     use std::sync::Arc;
-    use tokio::runtime::{Runtime, TaskExecutor};
+    use tokio::runtime::{Handle, Runtime};
 
     #[test]
     fn base_triple_predicate_iterator() {
         let runtime = Runtime::new().unwrap();
-        let base_layer: InternalLayer = example_base_layer(&runtime.executor()).into();
+        let base_layer: InternalLayer = example_base_layer(runtime.handle()).into();
 
         let triples: Vec<_> = base_layer.triple_additions_p(3).collect();
         let expected = vec![
@@ -195,28 +193,33 @@ mod tests {
         assert_eq!(expected, triples);
     }
 
-    fn child_layer(executor: &TaskExecutor) -> InternalLayer {
-        let base_layer = example_base_layer(executor);
+    fn child_layer(handle: &Handle) -> InternalLayer {
+        let base_layer = example_base_layer(handle);
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
 
         let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = child_builder
-            .into_phase2()
-            .and_then(|b| b.add_triple(1, 2, 3))
-            .and_then(|b| b.add_triple(3, 3, 4))
-            .and_then(|b| b.add_triple(3, 5, 6))
-            .and_then(|b| b.remove_triple(1, 1, 1))
-            .and_then(|b| b.remove_triple(2, 1, 3))
-            .and_then(|b| b.remove_triple(2, 3, 6))
-            .and_then(|b| b.remove_triple(4, 3, 6))
-            .and_then(|b| b.finalize());
+        let fut = async {
+            let mut builder = child_builder.into_phase2().await?;
+            builder.add_triple(1, 2, 3).await?;
+            builder.add_triple(3, 3, 4).await?;
+            builder.add_triple(3, 5, 6).await?;
+            builder.remove_triple(1, 1, 1).await?;
+            builder.remove_triple(2, 1, 3).await?;
+            builder.remove_triple(2, 3, 6).await?;
+            builder.remove_triple(4, 3, 6).await?;
+            builder.finalize().await
+        };
 
-        oneshot::spawn(fut, executor).wait().unwrap();
+        handle.block_on(fut).unwrap();
 
-        ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
-            .wait()
+        handle
+            .block_on(ChildLayer::load_from_files(
+                [5, 4, 3, 2, 1],
+                parent,
+                &child_files,
+            ))
             .unwrap()
             .into()
     }
@@ -224,7 +227,7 @@ mod tests {
     #[test]
     fn child_triple_addition_iterator() {
         let runtime = Runtime::new().unwrap();
-        let layer = child_layer(&runtime.executor());
+        let layer = child_layer(runtime.handle());
 
         let triples: Vec<_> = layer.triple_additions_p(3).collect();
 
@@ -236,7 +239,7 @@ mod tests {
     #[test]
     fn child_triple_removal_iterator() {
         let runtime = Runtime::new().unwrap();
-        let layer = child_layer(&runtime.executor());
+        let layer = child_layer(runtime.handle());
 
         let triples: Vec<_> = layer.triple_removals_p(3).collect();
 
@@ -249,56 +252,57 @@ mod tests {
     use crate::storage::LayerStore;
     #[test]
     fn combined_iterator_for_predicate() {
-        let runtime = Runtime::new().unwrap();
+        let mut runtime = Runtime::new().unwrap();
         let store = MemoryLayerStore::new();
-        let mut builder = store.create_base_layer().wait().unwrap();
+        let mut builder = runtime.block_on(store.create_base_layer()).unwrap();
         let base_name = builder.name();
 
         builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
         builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
         builder.add_string_triple(StringTriple::new_node("cow", "likes", "duck"));
         builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
-        oneshot::spawn(builder.commit_boxed(), &runtime.executor())
-            .wait()
-            .unwrap();
+        runtime.block_on(builder.commit_boxed()).unwrap();
 
-        builder = store.create_child_layer(base_name).wait().unwrap();
+        builder = runtime
+            .block_on(store.create_child_layer(base_name))
+            .unwrap();
         let child1_name = builder.name();
 
         builder.add_string_triple(StringTriple::new_value("horse", "says", "neigh"));
         builder.add_string_triple(StringTriple::new_node("horse", "likes", "horse"));
-        oneshot::spawn(builder.commit_boxed(), &runtime.executor())
-            .wait()
-            .unwrap();
+        runtime.block_on(builder.commit_boxed()).unwrap();
 
-        builder = store.create_child_layer(child1_name).wait().unwrap();
+        builder = runtime
+            .block_on(store.create_child_layer(child1_name))
+            .unwrap();
         let child2_name = builder.name();
 
         builder.remove_string_triple(StringTriple::new_node("duck", "hates", "cow"));
         builder.add_string_triple(StringTriple::new_node("duck", "likes", "cow"));
-        oneshot::spawn(builder.commit_boxed(), &runtime.executor())
-            .wait()
-            .unwrap();
+        runtime.block_on(builder.commit_boxed()).unwrap();
 
-        builder = store.create_child_layer(child2_name).wait().unwrap();
+        builder = runtime
+            .block_on(store.create_child_layer(child2_name))
+            .unwrap();
         let child3_name = builder.name();
 
         builder.remove_string_triple(StringTriple::new_node("duck", "likes", "cow"));
         builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
-        oneshot::spawn(builder.commit_boxed(), &runtime.executor())
-            .wait()
-            .unwrap();
+        runtime.block_on(builder.commit_boxed()).unwrap();
 
-        builder = store.create_child_layer(child3_name).wait().unwrap();
+        builder = runtime
+            .block_on(store.create_child_layer(child3_name))
+            .unwrap();
         let child4_name = builder.name();
 
         builder.remove_string_triple(StringTriple::new_node("duck", "hates", "cow"));
         builder.add_string_triple(StringTriple::new_node("duck", "likes", "cow"));
-        oneshot::spawn(builder.commit_boxed(), &runtime.executor())
-            .wait()
-            .unwrap();
+        runtime.block_on(builder.commit_boxed()).unwrap();
 
-        let layer = store.get_layer(child4_name).wait().unwrap().unwrap();
+        let layer = runtime
+            .block_on(store.get_layer(child4_name))
+            .unwrap()
+            .unwrap();
 
         let predicate_id = layer.predicate_id("likes").unwrap();
         let triples: Vec<_> = layer

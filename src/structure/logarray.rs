@@ -53,9 +53,12 @@ use super::util;
 use crate::storage::*;
 use byteorder::{BigEndian, ByteOrder};
 use bytes::{Bytes, BytesMut};
-use futures::{future, prelude::*};
+use futures::future::FutureExt;
+use futures::stream::{self, Stream, StreamExt};
+use std::pin::Pin;
 use std::{cmp::Ordering, convert::TryFrom, error, fmt, io};
-use tokio::codec::{Decoder, FramedRead};
+use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio_util::codec::{Decoder, FramedRead};
 
 // Static assertion: We expect the system architecture bus width to be >= 32 bits. If it is not,
 // the following line will cause a compiler error. (Ignore the unrelated error message itself.)
@@ -319,7 +322,7 @@ impl LogArray {
 }
 
 /// write a logarray directly to an AsyncWrite
-pub struct LogArrayFileBuilder<W: tokio::io::AsyncWrite> {
+pub struct LogArrayFileBuilder<W: AsyncWrite + Unpin> {
     /// Destination of the log array data
     file: W,
     /// Bit width of an element
@@ -332,7 +335,7 @@ pub struct LogArrayFileBuilder<W: tokio::io::AsyncWrite> {
     count: u32,
 }
 
-impl<W: tokio::io::AsyncWrite> LogArrayFileBuilder<W> {
+impl<W: AsyncWrite + Unpin> LogArrayFileBuilder<W> {
     pub fn new(w: W, width: u8) -> LogArrayFileBuilder<W> {
         LogArrayFileBuilder {
             file: w,
@@ -350,106 +353,84 @@ impl<W: tokio::io::AsyncWrite> LogArrayFileBuilder<W> {
         self.count
     }
 
-    pub fn push(self, val: u64) -> impl Future<Item = LogArrayFileBuilder<W>, Error = io::Error> {
-        let LogArrayFileBuilder {
-            file,
-            width,
-            current,
-            offset,
-            count,
-        } = self;
-
+    pub async fn push(&mut self, val: u64) -> io::Result<()> {
         // This is the minimum number of leading zeros that a decoded value should have.
-        let leading_zeros = 64 - width;
+        let leading_zeros = 64 - self.width;
 
         // If `val` does not fit in the `width`, return an error.
-        future::result(if val.leading_zeros() < u32::from(leading_zeros) {
-            Err(io::Error::new(
+        if val.leading_zeros() < u32::from(leading_zeros) {
+            return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("expected value ({}) to fit in {} bits", val, width),
-            ))
-        } else {
-            Ok(())
-        })
-        // Otherwise, push `val` onto the log array.
-        .and_then(move |_| {
-            // Advance the element count since we know we're going to write `val`.
-            let count = count + 1;
-
-            // Write the first part of `val` to `current`, putting the msb of `val` at the `offset`
-            // bit. This may be either the upper bits of `val` only or all of it. We check later.
-            let current = current | val << leading_zeros >> offset;
-
-            // Increment `offset` past `val`.
-            let offset = offset + width;
-
-            // Check if the new `offset` is larger than 64.
-            if offset >= 64 {
-                // We have filled `current`, so write it to the destination.
-                future::Either::A(util::write_u64(file, current).map(move |file| {
-                    // Wrap the offset with the word size.
-                    let offset = offset - 64;
-
-                    // Initialize the new `current`.
-                    let current = if offset == 0 {
-                        // Zero is needed for bitwise OR-ing new values.
-                        0
-                    } else {
-                        // This is the second part of `val`: the lower bits.
-                        val << 64 - offset
-                    };
-
-                    LogArrayFileBuilder {
-                        file,
-                        width,
-                        count,
-                        current,
-                        offset,
-                    }
-                }))
-            } else {
-                // We have not filled `current`, so return and wait for another `push`.
-                future::Either::B(future::ok(LogArrayFileBuilder {
-                    file,
-                    width,
-                    count,
-                    current,
-                    offset,
-                }))
-            }
-        })
-    }
-
-    pub fn push_all<S: Stream<Item = u64, Error = io::Error>>(
-        self,
-        vals: S,
-    ) -> impl Future<Item = LogArrayFileBuilder<W>, Error = io::Error> {
-        vals.fold(self, |x, val| x.push(val))
-    }
-
-    fn finalize_data(self) -> impl Future<Item = W, Error = io::Error> {
-        if u64::from(self.count) * u64::from(self.width) & 0b11_1111 == 0 {
-            future::Either::A(future::ok(self.file))
-        } else {
-            future::Either::B(util::write_u64(self.file, self.current))
+                format!("expected value ({}) to fit in {} bits", val, self.width),
+            ));
         }
+
+        // Otherwise, push `val` onto the log array.
+        // Advance the element count since we know we're going to write `val`.
+        self.count = self.count + 1;
+
+        // Write the first part of `val` to `current`, putting the msb of `val` at the `offset`
+        // bit. This may be either the upper bits of `val` only or all of it. We check later.
+        self.current = self.current | val << leading_zeros >> self.offset;
+
+        // Increment `offset` past `val`.
+        self.offset = self.offset + self.width;
+
+        // Check if the new `offset` is larger than 64.
+        if self.offset >= 64 {
+            // We have filled `current`, so write it to the destination.
+            util::write_u64(&mut self.file, self.current).await?;
+            // Wrap the offset with the word size.
+            self.offset -= 64;
+
+            // Initialize the new `current`.
+            self.current = if self.offset == 0 {
+                // Zero is needed for bitwise OR-ing new values.
+                0
+            } else {
+                // This is the second part of `val`: the lower bits.
+                val << 64 - self.offset
+            };
+        }
+
+        Ok(())
     }
 
-    pub fn finalize(self) -> impl Future<Item = W, Error = io::Error> {
+    pub async fn push_all<S: Stream<Item = io::Result<u64>> + Unpin>(
+        &mut self,
+        mut vals: S,
+    ) -> io::Result<()> {
+        while let Some(val) = vals.next().await {
+            self.push(val?).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn finalize_data(&mut self) -> io::Result<()> {
+        if u64::from(self.count) * u64::from(self.width) & 0b11_1111 != 0 {
+            util::write_u64(&mut self.file, self.current).await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn finalize(mut self) -> io::Result<W> {
         let len = self.count;
         let width = self.width;
 
         // Write the final data word.
-        self.finalize_data()
-            // Write the control word.
-            .and_then(move |file| {
-                let mut buf = [0; 8];
-                BigEndian::write_u32(&mut buf, len);
-                buf[4] = width;
-                util::write_all(file, buf)
-            })
-            // Flush the destination.
-            .and_then(tokio::io::flush)
+        self.finalize_data().await?;
+
+        // Write the control word.
+        let mut buf = [0; 8];
+        BigEndian::write_u32(&mut buf, len);
+        buf[4] = width;
+        self.file.write_all(&buf).await?;
+
+        self.file.flush().await?;
+
+        Ok(self.file)
     }
 }
 
@@ -579,29 +560,30 @@ impl Decoder for LogArrayDecoder {
     }
 }
 
-pub fn logarray_file_get_length_and_width<F: FileLoad>(
-    f: F,
-) -> impl Future<Item = (F, u32, u8), Error = io::Error> {
-    LogArrayError::validate_input_buf_size(f.size())
-        .map_or_else(|e| Err(e.into()), |_| Ok(f))
-        .into_future()
-        .and_then(|f| {
-            tokio::io::read_exact(f.open_read_from(f.size() - 8), [0; 8]).map(|(_, buf)| (f, buf))
-        })
-        .and_then(|(f, control_word)| {
-            read_control_word(&control_word, f.size())
-                .map_or_else(|e| Err(e.into()), |(len, width)| Ok((f, len, width)))
-                .into_future()
-        })
+pub async fn logarray_file_get_length_and_width<F: FileLoad>(f: F) -> io::Result<(u32, u8)> {
+    LogArrayError::validate_input_buf_size(f.size())?;
+
+    let mut buf = [0; 8];
+    f.open_read_from(f.size() - 8).read_exact(&mut buf).await?;
+    Ok(read_control_word(&buf, f.size())?)
 }
 
-pub fn logarray_stream_entries<F: FileLoad>(f: F) -> impl Stream<Item = u64, Error = io::Error> {
-    logarray_file_get_length_and_width(f)
-        .map(|(f, len, width)| {
-            FramedRead::new(f.open_read(), LogArrayDecoder::new_unchecked(width, len))
-        })
-        .into_stream()
-        .flatten()
+pub fn logarray_stream_entries<F: 'static + FileLoad>(
+    f: F,
+) -> impl Stream<Item = io::Result<u64>> + Unpin + Send {
+    Box::pin(
+        logarray_file_get_length_and_width(f.clone())
+            .map(move |result| match result {
+                Ok((len, width)) => Box::pin(FramedRead::new(
+                    f.open_read(),
+                    LogArrayDecoder::new_unchecked(width, len),
+                ))
+                    as Pin<Box<dyn Stream<Item = io::Result<u64>> + Send>>,
+                Err(e) => Box::pin(stream::iter(vec![Err(e)])),
+            })
+            .into_stream()
+            .flatten(),
+    )
 }
 
 #[derive(Clone)]
@@ -682,7 +664,9 @@ impl MonotonicLogArray {
 mod tests {
     use super::*;
     use crate::storage::memory::*;
-    use futures::stream;
+    use crate::structure::util::stream_iter_ok;
+    use futures::executor::block_on;
+    use futures::stream::TryStreamExt;
 
     #[test]
     fn log_array_error() {
@@ -776,21 +760,25 @@ mod tests {
     #[should_panic(expected = "expected value (8) to fit in 3 bits")]
     fn log_array_file_builder_panic() {
         let store = MemoryBackedStore::new();
-        let builder = LogArrayFileBuilder::new(store.open_write(), 3);
-        builder.push(8).wait().unwrap();
+        let mut builder = LogArrayFileBuilder::new(store.open_write(), 3);
+        block_on(builder.push(8)).unwrap();
     }
 
     #[test]
     fn generate_then_parse_works() {
         let store = MemoryBackedStore::new();
-        let builder = LogArrayFileBuilder::new(store.open_write(), 5);
-        builder
-            .push_all(stream::iter_ok(vec![1, 3, 2, 5, 12, 31, 18]))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+        let mut builder = LogArrayFileBuilder::new(store.open_write(), 5);
+        block_on(async {
+            builder
+                .push_all(stream_iter_ok(vec![1, 3, 2, 5, 12, 31, 18]))
+                .await?;
+            builder.finalize().await?;
 
-        let content = store.map().wait().unwrap();
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
+
+        let content = block_on(store.map()).unwrap();
 
         let logarray = LogArray::parse(content).unwrap();
 
@@ -904,33 +892,30 @@ mod tests {
     #[test]
     fn logarray_file_get_length_and_width_errors() {
         let store = MemoryBackedStore::new();
-        let _ = tokio::io::write_all(store.open_write(), [0, 0, 0]).wait();
+        let _ = block_on(store.open_write().write_all(&[0, 0, 0]));
         assert_eq!(
             io::Error::from(LogArrayError::InputBufferTooSmall(3)).to_string(),
-            logarray_file_get_length_and_width(store)
-                .wait()
+            block_on(logarray_file_get_length_and_width(store))
                 .err()
                 .unwrap()
                 .to_string()
         );
 
         let store = MemoryBackedStore::new();
-        let _ = tokio::io::write_all(store.open_write(), [0, 0, 0, 0, 65, 0, 0, 0]).wait();
+        let _ = block_on(store.open_write().write_all(&[0, 0, 0, 0, 65, 0, 0, 0]));
         assert_eq!(
             io::Error::from(LogArrayError::WidthTooLarge(65)).to_string(),
-            logarray_file_get_length_and_width(store)
-                .wait()
+            block_on(logarray_file_get_length_and_width(store))
                 .err()
                 .unwrap()
                 .to_string()
         );
 
         let store = MemoryBackedStore::new();
-        let _ = tokio::io::write_all(store.open_write(), [0, 0, 0, 1, 17, 0, 0, 0]).wait();
+        let _ = block_on(store.open_write().write_all(&[0, 0, 0, 1, 17, 0, 0, 0]));
         assert_eq!(
             io::Error::from(LogArrayError::UnexpectedInputBufferSize(8, 16, 1, 17)).to_string(),
-            logarray_file_get_length_and_width(store)
-                .wait()
+            block_on(logarray_file_get_length_and_width(store))
                 .err()
                 .unwrap()
                 .to_string()
@@ -940,14 +925,17 @@ mod tests {
     #[test]
     fn generate_then_stream_works() {
         let store = MemoryBackedStore::new();
-        let builder = LogArrayFileBuilder::new(store.open_write(), 5);
-        builder
-            .push_all(stream::iter_ok(0..31))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+        let mut builder = LogArrayFileBuilder::new(store.open_write(), 5);
+        block_on(async {
+            builder.push_all(stream_iter_ok(0..31)).await?;
+            builder.finalize().await?;
 
-        let entries: Vec<u64> = logarray_stream_entries(store).collect().wait().unwrap();
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
+
+        let entries: Vec<u64> =
+            block_on(logarray_stream_entries(store).try_collect::<Vec<u64>>()).unwrap();
         let expected: Vec<u64> = (0..31).collect();
         assert_eq!(expected, entries);
     }
@@ -955,15 +943,17 @@ mod tests {
     #[test]
     fn iterate_over_logarray() {
         let store = MemoryBackedStore::new();
-        let builder = LogArrayFileBuilder::new(store.open_write(), 5);
+        let mut builder = LogArrayFileBuilder::new(store.open_write(), 5);
         let original = vec![1, 3, 2, 5, 12, 31, 18];
-        builder
-            .push_all(stream::iter_ok(original.clone()))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+        block_on(async {
+            builder.push_all(stream_iter_ok(original.clone())).await?;
+            builder.finalize().await?;
 
-        let content = store.map().wait().unwrap();
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
+
+        let content = block_on(store.map()).unwrap();
 
         let logarray = LogArray::parse(content).unwrap();
 
@@ -975,15 +965,17 @@ mod tests {
     #[test]
     fn iterate_over_logarray_slice() {
         let store = MemoryBackedStore::new();
-        let builder = LogArrayFileBuilder::new(store.open_write(), 5);
-        let original = vec![1, 3, 2, 5, 12, 31, 18];
-        builder
-            .push_all(stream::iter_ok(original))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+        let mut builder = LogArrayFileBuilder::new(store.open_write(), 5);
+        let original: Vec<u64> = vec![1, 3, 2, 5, 12, 31, 18];
+        block_on(async {
+            builder.push_all(stream_iter_ok(original)).await?;
+            builder.finalize().await?;
 
-        let content = store.map().wait().unwrap();
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
+
+        let content = block_on(store.map()).unwrap();
 
         let logarray = LogArray::parse(content).unwrap();
         let slice = logarray.slice(2, 3);
@@ -996,15 +988,17 @@ mod tests {
     #[test]
     fn monotonic_logarray_index_lookup() {
         let store = MemoryBackedStore::new();
-        let builder = LogArrayFileBuilder::new(store.open_write(), 5);
+        let mut builder = LogArrayFileBuilder::new(store.open_write(), 5);
         let original = vec![1, 3, 5, 6, 7, 10, 11, 15, 16, 18, 20, 25, 31];
-        builder
-            .push_all(stream::iter_ok(original.clone()))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+        block_on(async {
+            builder.push_all(stream_iter_ok(original.clone())).await?;
+            builder.finalize().await?;
 
-        let content = store.map().wait().unwrap();
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
+
+        let content = block_on(store.map()).unwrap();
 
         let logarray = LogArray::parse(content).unwrap();
         let monotonic = MonotonicLogArray::from_logarray(logarray);
@@ -1020,15 +1014,16 @@ mod tests {
     #[test]
     fn monotonic_logarray_near_index_lookup() {
         let store = MemoryBackedStore::new();
-        let builder = LogArrayFileBuilder::new(store.open_write(), 5);
+        let mut builder = LogArrayFileBuilder::new(store.open_write(), 5);
         let original = vec![3, 5, 6, 7, 10, 11, 15, 16, 18, 20, 25, 31];
-        builder
-            .push_all(stream::iter_ok(original.clone()))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+        block_on(async {
+            builder.push_all(stream_iter_ok(original.clone())).await?;
+            builder.finalize().await?;
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
 
-        let content = store.map().wait().unwrap();
+        let content = block_on(store.map()).unwrap();
 
         let logarray = LogArray::parse(content).unwrap();
         let monotonic = MonotonicLogArray::from_logarray(logarray);
@@ -1049,14 +1044,16 @@ mod tests {
     fn writing_64_bits_of_data() {
         let store = MemoryBackedStore::new();
         let original = vec![1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8];
-        let builder = LogArrayFileBuilder::new(store.open_write(), 4);
-        builder
-            .push_all(stream::iter_ok(original.clone()))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+        let mut builder = LogArrayFileBuilder::new(store.open_write(), 4);
+        block_on(async {
+            builder.push_all(stream_iter_ok(original.clone())).await?;
+            builder.finalize().await?;
 
-        let content = store.map().wait().unwrap();
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
+
+        let content = block_on(store.map()).unwrap();
         let logarray = LogArray::parse(content).unwrap();
         assert_eq!(original, logarray.iter().collect::<Vec<_>>());
         assert_eq!(16, logarray.len());

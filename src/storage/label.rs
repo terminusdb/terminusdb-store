@@ -1,4 +1,6 @@
-use futures::prelude::*;
+use futures::future::Future;
+use std::io;
+use std::pin::Pin;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Label {
@@ -33,33 +35,30 @@ impl Label {
 }
 
 pub trait LabelStore: Send + Sync {
-    fn labels(&self) -> Box<dyn Future<Item = Vec<Label>, Error = std::io::Error> + Send>;
-    fn create_label(
-        &self,
-        name: &str,
-    ) -> Box<dyn Future<Item = Label, Error = std::io::Error> + Send>;
+    fn labels(&self) -> Pin<Box<dyn Future<Output = io::Result<Vec<Label>>> + Send>>;
+    fn create_label(&self, name: &str) -> Pin<Box<dyn Future<Output = io::Result<Label>> + Send>>;
     fn get_label(
         &self,
         name: &str,
-    ) -> Box<dyn Future<Item = Option<Label>, Error = std::io::Error> + Send>;
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<Label>>> + Send>>;
     fn set_label_option(
         &self,
         label: &Label,
         layer: Option<[u32; 5]>,
-    ) -> Box<dyn Future<Item = Option<Label>, Error = std::io::Error> + Send>;
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<Label>>> + Send>>;
 
     fn set_label(
         &self,
         label: &Label,
         layer: [u32; 5],
-    ) -> Box<dyn Future<Item = Option<Label>, Error = std::io::Error> + Send> {
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<Label>>> + Send>> {
         self.set_label_option(label, Some(layer))
     }
 
     fn clear_label(
         &self,
         label: &Label,
-    ) -> Box<dyn Future<Item = Option<Label>, Error = std::io::Error> + Send> {
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<Label>>> + Send>> {
         self.set_label_option(label, None)
     }
 }

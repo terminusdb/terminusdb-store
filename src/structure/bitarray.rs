@@ -33,12 +33,12 @@ use crate::storage::*;
 use crate::structure::bititer::BitIter;
 use byteorder::{BigEndian, ByteOrder};
 use bytes::{Bytes, BytesMut};
-use futures::prelude::*;
-use std::{convert::TryFrom, error, fmt, io};
-use tokio::{
-    codec::{Decoder, FramedRead},
-    prelude::*,
-};
+use futures::future::FutureExt;
+use futures::io;
+use futures::stream::{Stream, StreamExt, TryStreamExt};
+use std::{convert::TryFrom, error, fmt};
+use tokio::prelude::*;
+use tokio_util::codec::{Decoder, FramedRead};
 
 /// A thread-safe, reference-counted, compressed bit sequence.
 ///
@@ -209,7 +209,7 @@ pub struct BitArrayFileBuilder<W> {
     count: u64,
 }
 
-impl<W: AsyncWrite> BitArrayFileBuilder<W> {
+impl<W: AsyncWrite + Unpin> BitArrayFileBuilder<W> {
     pub fn new(dest: W) -> BitArrayFileBuilder<W> {
         BitArrayFileBuilder {
             dest,
@@ -218,74 +218,57 @@ impl<W: AsyncWrite> BitArrayFileBuilder<W> {
         }
     }
 
-    pub fn push(self, bit: bool) -> impl Future<Item = BitArrayFileBuilder<W>, Error = io::Error> {
-        let BitArrayFileBuilder {
-            current,
-            count,
-            dest,
-        } = self;
-
+    pub async fn push(&mut self, bit: bool) -> io::Result<()> {
         // Set the bit in the current word.
-        let current = if bit {
+        if bit {
             // Determine the position of the bit to be set from `count`.
-            let pos = count & 0b11_1111;
-            current | 0x8000_0000_0000_0000 >> pos
-        } else {
-            current
-        };
+            let pos = self.count & 0b11_1111;
+            self.current |= 0x8000_0000_0000_0000 >> pos;
+        }
 
         // Advance the bit count.
-        let count = count + 1;
+        self.count += 1;
 
         // Check if the new `count` has reached a word boundary.
-        if count & 0b11_1111 == 0 {
+        if self.count & 0b11_1111 == 0 {
             // We have filled `current`, so write it to the destination.
-            future::Either::A(util::write_u64(dest, current).map(move |dest| {
-                BitArrayFileBuilder {
-                    // Initialize `current` for bitwise OR-ing new values.
-                    current: 0,
-                    count,
-                    dest,
-                }
-            }))
-        } else {
-            // We have not filled `current`, so return and wait for another `push`.
-            future::Either::B(future::ok(BitArrayFileBuilder {
-                current,
-                count,
-                dest,
-            }))
+            util::write_u64(&mut self.dest, self.current).await?;
+            self.current = 0;
         }
+
+        Ok(())
     }
 
-    pub fn push_all<S: Stream<Item = bool, Error = io::Error>>(
-        self,
-        stream: S,
-    ) -> impl Future<Item = BitArrayFileBuilder<W>, Error = io::Error> {
-        stream.fold(self, |builder, bit| builder.push(bit))
-    }
-
-    fn finalize_data(self) -> impl Future<Item = W, Error = io::Error> {
-        let BitArrayFileBuilder {
-            current,
-            count,
-            dest,
-        } = self;
-        if count & 0b11_1111 == 0 {
-            future::Either::A(future::ok(dest))
-        } else {
-            future::Either::B(util::write_u64(dest, current))
+    pub async fn push_all<S: Stream<Item = io::Result<bool>> + Unpin>(
+        &mut self,
+        mut stream: S,
+    ) -> io::Result<()> {
+        while let Some(bit) = stream.next().await {
+            let bit = bit?;
+            self.push(bit).await?;
         }
+
+        Ok(())
     }
 
-    pub fn finalize(self) -> impl Future<Item = W, Error = io::Error> {
+    async fn finalize_data(&mut self) -> io::Result<()> {
+        if self.count & 0b11_1111 != 0 {
+            util::write_u64(&mut self.dest, self.current).await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn finalize(mut self) -> io::Result<W> {
         let count = self.count;
         // Write the final data word.
-        self.finalize_data()
-            // Write the control word.
-            .and_then(move |dest| util::write_u64(dest, count))
-            // Flush the `dest`.
-            .and_then(tokio::io::flush)
+        self.finalize_data().await?;
+        // Write the control word.
+        util::write_u64(&mut self.dest, count).await?;
+        // Flush the `dest`.
+        self.dest.flush().await?;
+
+        Ok(self.dest)
     }
 
     pub fn count(&self) -> u64 {
@@ -328,47 +311,45 @@ impl Decoder for BitArrayBlockDecoder {
     }
 }
 
-pub fn bitarray_stream_blocks<R: AsyncRead>(r: R) -> FramedRead<R, BitArrayBlockDecoder> {
+pub fn bitarray_stream_blocks<R: AsyncRead + Unpin>(r: R) -> FramedRead<R, BitArrayBlockDecoder> {
     FramedRead::new(r, BitArrayBlockDecoder { readahead: None })
 }
 
 /// Read the length (number of bits) from a `FileLoad`.
-fn bitarray_len_from_file<F: FileLoad>(f: F) -> impl Future<Item = (F, u64), Error = io::Error> {
-    BitArrayError::validate_input_buf_size(f.size())
-        .map_or_else(|e| Err(e.into()), |_| Ok(f))
-        .into_future()
-        .and_then(|f| {
-            tokio::io::read_exact(f.open_read_from(f.size() - 8), [0; 8]).map(|(_, buf)| (f, buf))
-        })
-        .and_then(|(f, control_word)| {
-            read_control_word(&control_word, f.size())
-                .map_or_else(|e| Err(e.into()), |len| Ok((f, len)))
-                .into_future()
-        })
+async fn bitarray_len_from_file<F: FileLoad>(f: F) -> io::Result<u64> {
+    BitArrayError::validate_input_buf_size(f.size())?;
+    let mut control_word = vec![0; 8];
+    f.open_read_from(f.size() - 8)
+        .read_exact(&mut control_word)
+        .await?;
+    Ok(read_control_word(&control_word, f.size())?)
 }
 
-pub fn bitarray_stream_bits<F: FileLoad>(f: F) -> impl Stream<Item = bool, Error = io::Error> {
+pub fn bitarray_stream_bits<F: FileLoad>(f: F) -> impl Stream<Item = io::Result<bool>> + Unpin {
     // Read the length.
-    bitarray_len_from_file(f)
+    Box::pin(bitarray_len_from_file(f.clone()))
         .into_stream()
-        .map(move |(f, len)| {
+        .map_ok(move |len| {
             // Read the words into a `Stream`.
             bitarray_stream_blocks(f.open_read())
                 // For each word, read the bits into a `Stream`.
-                .map(|block| stream::iter_ok(BitIter::new(block)))
+                .map_ok(|block| util::stream_iter_ok(BitIter::new(block)))
                 // Turn the `Stream` of bit `Stream`s into a bit `Stream`.
-                .flatten()
+                .try_flatten()
+                .into_stream()
                 // Cut the `Stream` off after the length of bits is reached.
-                .take(len)
+                .take(len as usize)
         })
         // Turn the `Stream` of bit `Stream`s into a bit `Stream`.
-        .flatten()
+        .try_flatten()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::storage::memory::*;
+    use futures::executor::block_on;
+    use futures::future;
 
     #[test]
     fn bit_array_error() {
@@ -445,13 +426,16 @@ mod tests {
         let x = MemoryBackedStore::new();
         let contents = vec![true, true, false, false, true];
 
-        BitArrayFileBuilder::new(x.open_write())
-            .push_all(stream::iter_ok(contents))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+        let mut builder = BitArrayFileBuilder::new(x.open_write());
+        block_on(async {
+            builder.push_all(util::stream_iter_ok(contents)).await?;
+            builder.finalize().await?;
 
-        let loaded = x.map().wait().unwrap();
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
+
+        let loaded = block_on(x.map()).unwrap();
 
         let bitarray = BitArray::from_bits(loaded).unwrap();
 
@@ -467,13 +451,16 @@ mod tests {
         let x = MemoryBackedStore::new();
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
 
-        BitArrayFileBuilder::new(x.open_write())
-            .push_all(stream::iter_ok(contents))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+        let mut builder = BitArrayFileBuilder::new(x.open_write());
+        block_on(async {
+            builder.push_all(util::stream_iter_ok(contents)).await?;
+            builder.finalize().await?;
 
-        let loaded = x.map().wait().unwrap();
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
+
+        let loaded = block_on(x.map()).unwrap();
 
         let bitarray = BitArray::from_bits(loaded).unwrap();
 
@@ -485,22 +472,20 @@ mod tests {
     #[test]
     fn bitarray_len_from_file_errors() {
         let store = MemoryBackedStore::new();
-        let _ = tokio::io::write_all(store.open_write(), [0, 0, 0]).wait();
+        block_on(store.open_write().write_all(&[0, 0, 0])).unwrap();
         assert_eq!(
             io::Error::from(BitArrayError::InputBufferTooSmall(3)).to_string(),
-            bitarray_len_from_file(store)
-                .wait()
+            block_on(bitarray_len_from_file(store))
                 .err()
                 .unwrap()
                 .to_string()
         );
 
         let store = MemoryBackedStore::new();
-        let _ = tokio::io::write_all(store.open_write(), [0, 0, 0, 0, 0, 0, 0, 2]).wait();
+        block_on(store.open_write().write_all(&[0, 0, 0, 0, 0, 0, 0, 2])).unwrap();
         assert_eq!(
             io::Error::from(BitArrayError::UnexpectedInputBufferSize(8, 16, 2)).to_string(),
-            bitarray_len_from_file(store)
-                .wait()
+            block_on(bitarray_len_from_file(store))
                 .err()
                 .unwrap()
                 .to_string()
@@ -510,19 +495,20 @@ mod tests {
     #[test]
     pub fn stream_blocks() {
         let x = MemoryBackedStore::new();
-        let contents = (0..).map(|n| n % 4 == 1).take(256);
+        let contents: Vec<bool> = (0..).map(|n| n % 4 == 1).take(256).collect();
 
-        BitArrayFileBuilder::new(x.open_write())
-            .push_all(stream::iter_ok(contents))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+        let mut builder = BitArrayFileBuilder::new(x.open_write());
+        block_on(async {
+            builder.push_all(util::stream_iter_ok(contents)).await?;
+            builder.finalize().await?;
+
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
 
         let stream = bitarray_stream_blocks(x.open_read());
 
-        stream
-            .for_each(|block| Ok(assert_eq!(0x4444444444444444, block)))
-            .wait()
+        block_on(stream.try_for_each(|block| future::ok(assert_eq!(0x4444444444444444, block))))
             .unwrap();
     }
 
@@ -531,13 +517,18 @@ mod tests {
         let x = MemoryBackedStore::new();
         let contents: Vec<_> = (0..).map(|n| n % 4 == 1).take(123).collect();
 
-        BitArrayFileBuilder::new(x.open_write())
-            .push_all(stream::iter_ok(contents.clone()))
-            .and_then(|b| b.finalize())
-            .wait()
-            .unwrap();
+        let mut builder = BitArrayFileBuilder::new(x.open_write());
+        block_on(async {
+            builder
+                .push_all(util::stream_iter_ok(contents.clone()))
+                .await?;
+            builder.finalize().await?;
 
-        let result = bitarray_stream_bits(x).collect().wait().unwrap();
+            Ok::<_, io::Error>(())
+        })
+        .unwrap();
+
+        let result: Vec<_> = block_on(bitarray_stream_bits(x).try_collect()).unwrap();
 
         assert_eq!(contents, result);
     }

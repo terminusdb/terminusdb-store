@@ -1370,31 +1370,36 @@ mod tests {
     }
 
     use crate::layer::base::tests::*;
-    use futures::prelude::*;
-    use futures::sync::oneshot;
     use tokio::runtime::Runtime;
     #[test]
     fn base_layer_with_gaps_addition_count() {
-        let runtime = Runtime::new().unwrap();
+        let mut runtime = Runtime::new().unwrap();
         let files = base_layer_files();
 
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
 
-        let builder = BaseLayerFileBuilder::from_files(&files);
-        let future = builder
-            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
-            .and_then(move |(_, b)| b.add_predicates(predicates.into_iter().map(|s| s.to_string())))
-            .and_then(move |(_, b)| b.add_values(values.into_iter().map(|s| s.to_string())))
-            .and_then(|(_, b)| b.into_phase2())
-            .and_then(|b| b.add_triple(3, 3, 3))
-            .and_then(|b| b.finalize());
+        let mut builder = BaseLayerFileBuilder::from_files(&files);
+        let future = async {
+            builder
+                .add_nodes(nodes.into_iter().map(|s| s.to_string()))
+                .await?;
+            builder
+                .add_predicates(predicates.into_iter().map(|s| s.to_string()))
+                .await?;
+            builder
+                .add_values(values.into_iter().map(|s| s.to_string()))
+                .await?;
+            let mut builder = builder.into_phase2().await?;
+            builder.add_triple(3, 3, 3).await?;
+            builder.finalize().await
+        };
 
-        oneshot::spawn(future, &runtime.executor()).wait().unwrap();
+        runtime.block_on(future).unwrap();
 
-        let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
-            .wait()
+        let layer = runtime
+            .block_on(BaseLayer::load_from_files([1, 2, 3, 4, 5], &files))
             .unwrap();
 
         assert_eq!(1, layer.triple_layer_addition_count());
