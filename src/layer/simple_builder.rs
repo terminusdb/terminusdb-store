@@ -30,6 +30,8 @@ use rayon::prelude::*;
 pub trait LayerBuilder: Send + Sync {
     /// Returns the name of the layer being built
     fn name(&self) -> [u32; 5];
+    /// Return the parent if it exists
+    fn parent(&self) -> Option<Arc<dyn Layer>>;
     /// Add a string triple
     fn add_string_triple(&mut self, triple: StringTriple);
     /// Add an id triple
@@ -90,6 +92,10 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
 impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuilder<F> {
     fn name(&self) -> [u32; 5] {
         self.name
+    }
+
+    fn parent(&self) -> Option<Arc<dyn Layer>> {
+        self.parent.clone()
     }
 
     fn add_string_triple(&mut self, triple: StringTriple) {

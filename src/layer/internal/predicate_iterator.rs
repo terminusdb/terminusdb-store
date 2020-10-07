@@ -8,6 +8,7 @@ pub struct InternalLayerTriplePredicateIterator {
     predicate_wavelet_lookup: WaveletLookup,
     subject_iterator: InternalLayerTripleSubjectIterator,
     predicate_pos: u64,
+    sp_boundary: bool,
     peeked: Option<IdTriple>,
 }
 
@@ -30,6 +31,7 @@ impl InternalLayerTriplePredicateIterator {
             predicate_wavelet_lookup: predicate_wavelet_lookup.clone(),
             subject_iterator,
             predicate_pos: 0,
+            sp_boundary: true,
             peeked: None,
         }
     }
@@ -66,11 +68,29 @@ impl Iterator for InternalLayerTriplePredicateIterator {
 
             return peeked;
         }
-        if self.next_pos() {
-            self.subject_iterator.next()
-        } else {
-            None
+        if self.sp_boundary {
+            // We have reached the end of our previous lookup.
+            // we need to look up the next predicate.
+            if !self.next_pos() {
+                // but there is no next pedicate, so return here.
+                return None;
+            }
         }
+        let result = self.subject_iterator.next();
+
+        // Check the next entry of the subject iterator.
+        // If it has a different subject and predicate than before, we
+        // set the sp_boundary flag, ensuring that upon the subsequent
+        // next() call, we move on to the next predicate.
+        let next = self.subject_iterator.peek();
+        if next.is_none() || next.map(|t|(t.subject, t.predicate)) != result.map(|t|(t.subject, t.predicate)) {
+            self.sp_boundary = true;
+        }
+        else {
+            self.sp_boundary = false;
+        }
+
+        result
     }
 }
 
@@ -318,4 +338,33 @@ mod tests {
 
         assert_eq!(expected, triples);
     }
+
+
+    #[test]
+    fn one_subject_two_objects() {
+        let mut runtime = Runtime::new().unwrap();
+        let store = MemoryLayerStore::new();
+        let mut builder = runtime.block_on(store.create_base_layer()).unwrap();
+        let base_name = builder.name();
+
+        builder.add_string_triple(StringTriple::new_node("cow", "says", "moo"));
+        builder.add_string_triple(StringTriple::new_node("cow", "says", "quack"));
+        runtime.block_on(builder.commit_boxed())
+            .unwrap();
+
+        let layer = runtime.block_on(store.get_layer(base_name)).unwrap().unwrap();
+        let predicate_id = layer.predicate_id("says").unwrap();
+        let triples: Vec<_> = layer
+            .triples_p(predicate_id)
+            .map(|t| layer.id_triple_to_string(&t).unwrap())
+            .collect();
+
+        let expected = vec![
+            StringTriple::new_node("cow", "says", "moo"),
+            StringTriple::new_node("cow", "says", "quack"),
+        ];
+
+        assert_eq!(expected, triples);
+    }
+
 }

@@ -35,6 +35,7 @@ pub struct Store {
 /// consuming itself on commit, this wrapper will simply mark itself
 /// as having committed, returning errors on further calls.
 pub struct StoreLayerBuilder {
+    parent: Option<Arc<dyn Layer>>,
     builder: RwLock<Option<Box<dyn LayerBuilder>>>,
     name: [u32; 5],
     store: Store,
@@ -45,6 +46,7 @@ impl StoreLayerBuilder {
         let builder = store.layer_store.create_base_layer().await?;
 
         Ok(Self {
+            parent: builder.parent(),
             name: builder.name(),
             builder: RwLock::new(Some(builder)),
             store,
@@ -53,6 +55,7 @@ impl StoreLayerBuilder {
 
     fn wrap(builder: Box<dyn LayerBuilder>, store: Store) -> Self {
         StoreLayerBuilder {
+            parent: builder.parent(),
             name: builder.name(),
             builder: RwLock::new(Some(builder)),
             store,
@@ -79,6 +82,10 @@ impl StoreLayerBuilder {
     /// Returns the name of the layer being built
     pub fn name(&self) -> [u32; 5] {
         self.name
+    }
+
+    pub fn parent(&self) -> Option<Arc<dyn Layer>> {
+        self.parent.clone()
     }
 
     /// Add a string triple
@@ -159,6 +166,39 @@ impl StoreLayerBuilder {
                     delta
                         .id_triple_to_string(&t)
                         .map(|st| self.remove_string_triple(st));
+                })
+            },
+        );
+
+        Ok(())
+    }
+
+    pub fn apply_diff(&self, other: &StoreLayer) -> Result<(), io::Error> {
+        // create a child builder and use it directly
+        // first check what dictionary entries we don't know about, add those
+        rayon::join(
+            || {
+                if let Some(this) = self.parent() {
+                    this.triples().par_bridge().for_each(|t| {
+                        this.id_triple_to_string(&t).map(|st| {
+                            if !other.string_triple_exists(&st) {
+                                self.remove_string_triple(st).unwrap()
+                            };
+                        });
+                    })
+                };
+            },
+            || {
+                other.triples().par_bridge().for_each(|t| {
+                    other.id_triple_to_string(&t).map(|st| {
+                        if let Some(this) = self.parent() {
+                            if !this.string_triple_exists(&st) {
+                                self.add_string_triple(st).unwrap()
+                            }
+                        } else {
+                            self.add_string_triple(st).unwrap()
+                        };
+                    });
                 })
             },
         );
