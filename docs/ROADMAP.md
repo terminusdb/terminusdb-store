@@ -10,6 +10,10 @@ We have vaguely divided the tasks into "Now", "Next", and "Later" depending on w
 
 # Now
 
+* Delta Rollups
+
+    Delta rollups are performance optimisations that allow multiple delta layers to be "rolled-up" into a single layer which gives us effective access to the top layer of the delta-rollup with much better performance, while retaining all of the individual commits in a queryable manner.
+
 * Content addressable hashing
 
     Layers are currently addressed using a randomly generated identifier. It would be much better to generate this from a hash of the data. This will simplify much of layer management and avoid duplication.
