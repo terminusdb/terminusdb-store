@@ -28,7 +28,7 @@ impl InternalLayerTriplePredicateIterator {
 
         Self {
             len,
-            predicate_wavelet_lookup: predicate_wavelet_lookup.clone(),
+            predicate_wavelet_lookup: predicate_wavelet_lookup,
             subject_iterator,
             predicate_pos: 0,
             sp_boundary: true,
