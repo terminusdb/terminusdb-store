@@ -1418,6 +1418,17 @@ impl PartiallyResolvedTriple {
             ))
         }
     }
+
+    pub fn make_resolved_or_zero(&mut self) {
+        if !self.subject.is_resolved()
+            || !self.predicate.is_resolved()
+            || !self.object.is_resolved()
+        {
+            self.subject = PossiblyResolved::Resolved(0);
+            self.predicate = PossiblyResolved::Resolved(0);
+            self.object = PossiblyResolved::Resolved(0);
+        }
+    }
 }
 
 /// The type of an object in a triple.

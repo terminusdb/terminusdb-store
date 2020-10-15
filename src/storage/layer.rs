@@ -684,7 +684,8 @@ impl LayerStore for CachedLayerStore {
         &self,
         parent: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn LayerBuilder>>> + Send>> {
-        self.inner.create_child_layer_with_cache(parent, self.cache.clone())
+        self.inner
+            .create_child_layer_with_cache(parent, self.cache.clone())
     }
 
     fn create_child_layer_with_cache(

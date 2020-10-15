@@ -207,6 +207,10 @@ impl<F: 'static + FileLoad + FileStore> TripleFileBuilder<F> {
         predicate: u64,
         object: u64,
     ) -> io::Result<()> {
+        if subject == 0 || predicate == 0 || object == 0 {
+            return Ok(());
+        }
+
         if subject < self.last_subject {
             panic!("layer builder got addition in wrong order (subject is {} while previously {} was pushed)", subject, self.last_subject)
         } else if self.last_subject == subject && self.last_predicate == predicate {

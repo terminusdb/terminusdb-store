@@ -856,6 +856,10 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
     }
 
     fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
+        if subject == 0 || predicate == 0 || object == 0 {
+            return false;
+        }
+
         if self.triple_addition_exists(subject, predicate, object) {
             return true;
         }
@@ -1271,6 +1275,10 @@ fn layer_triple_exists(
     predicate: u64,
     object: u64,
 ) -> bool {
+    if subject == 0 || predicate == 0 || object == 0 {
+        return false;
+    }
+
     let s_position = match subjects.as_ref() {
         None => {
             if subject > s_p_adjacency_list.left_count() as u64 {

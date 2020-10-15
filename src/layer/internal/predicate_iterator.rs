@@ -83,10 +83,11 @@ impl Iterator for InternalLayerTriplePredicateIterator {
         // set the sp_boundary flag, ensuring that upon the subsequent
         // next() call, we move on to the next predicate.
         let next = self.subject_iterator.peek();
-        if next.is_none() || next.map(|t|(t.subject, t.predicate)) != result.map(|t|(t.subject, t.predicate)) {
+        if next.is_none()
+            || next.map(|t| (t.subject, t.predicate)) != result.map(|t| (t.subject, t.predicate))
+        {
             self.sp_boundary = true;
-        }
-        else {
+        } else {
             self.sp_boundary = false;
         }
 
@@ -339,7 +340,6 @@ mod tests {
         assert_eq!(expected, triples);
     }
 
-
     #[test]
     fn one_subject_two_objects() {
         let mut runtime = Runtime::new().unwrap();
@@ -349,10 +349,12 @@ mod tests {
 
         builder.add_string_triple(StringTriple::new_node("cow", "says", "moo"));
         builder.add_string_triple(StringTriple::new_node("cow", "says", "quack"));
-        runtime.block_on(builder.commit_boxed())
-            .unwrap();
+        runtime.block_on(builder.commit_boxed()).unwrap();
 
-        let layer = runtime.block_on(store.get_layer(base_name)).unwrap().unwrap();
+        let layer = runtime
+            .block_on(store.get_layer(base_name))
+            .unwrap()
+            .unwrap();
         let predicate_id = layer.predicate_id("says").unwrap();
         let triples: Vec<_> = layer
             .triples_p(predicate_id)
@@ -366,5 +368,4 @@ mod tests {
 
         assert_eq!(expected, triples);
     }
-
 }

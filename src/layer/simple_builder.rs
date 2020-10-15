@@ -107,15 +107,11 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
     }
 
     fn remove_string_triple(&mut self, triple: StringTriple) {
-        if self.parent.is_some() {
-            self.removals.push(triple);
-        }
+        self.removals.push(triple);
     }
 
     fn remove_id_triple(&mut self, triple: IdTriple) {
-        if self.parent.is_some() {
-            self.id_removals.push(triple);
-        }
+        self.id_removals.push(triple);
     }
 
     fn commit(self) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> {
@@ -129,124 +125,80 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
             id_removals,
         } = self;
 
-        let mut additions: Vec<_> = match parent.clone() {
-            None => additions
-                .into_iter()
-                .map(|triple| triple.to_unresolved())
-                .collect(),
-            Some(parent) => additions
-                .into_par_iter()
-                .map(move |triple| parent.string_triple_to_partially_resolved(triple))
-                .collect(),
-        };
-
-        additions.extend(id_additions.into_iter().map(|triple| triple.to_resolved()));
-
-        let mut filtered_removals: Vec<_>;
-        if let Some(parent) = parent.clone() {
-            filtered_removals = removals
-                .into_par_iter()
-                .filter_map(move |triple| {
-                    parent
-                        .string_triple_to_partially_resolved(triple)
-                        .as_resolved()
-                })
-                .collect();
-
-            filtered_removals.extend(id_removals.into_iter().map(|triple| triple));
-
-            filtered_removals.par_sort_unstable();
-            filtered_removals.dedup();
-        } else {
-            filtered_removals = Vec::with_capacity(0);
-        }
-
-        let (unresolved_nodes, (unresolved_predicates, unresolved_values)) = rayon::join(
+        let (mut additions, mut removals) = rayon::join(
             || {
-                let unresolved_nodes_set: HashSet<_> = additions
-                    .par_iter()
-                    .filter_map(|triple| {
-                        let subject = match triple.subject.is_resolved() {
-                            true => None,
-                            false => Some(triple.subject.as_ref().unwrap_unresolved().to_owned()),
-                        };
-                        let object = match triple.object.is_resolved() {
-                            true => None,
-                            false => match triple.object.as_ref().unwrap_unresolved() {
-                                ObjectType::Node(node) => Some(node.to_owned()),
-                                _ => None,
-                            },
-                        };
+                let mut additions: Vec<_> = match parent.as_ref() {
+                    None => additions
+                        .into_iter()
+                        .map(|triple| triple.to_unresolved())
+                        .collect(),
+                    Some(parent) => additions
+                        .into_par_iter()
+                        .map(move |triple| parent.string_triple_to_partially_resolved(triple))
+                        .collect(),
+                };
 
-                        match (subject, object) {
-                            (Some(subject), Some(object)) => Some(vec![subject, object]),
-                            (Some(subject), _) => Some(vec![subject]),
-                            (_, Some(object)) => Some(vec![object]),
-                            _ => None,
-                        }
-                    })
-                    .flatten()
-                    .collect();
+                additions.extend(id_additions.into_iter().map(|triple| triple.to_resolved()));
+                additions.par_sort_unstable();
+                additions.dedup();
 
-                let mut unresolved_nodes: Vec<_> = unresolved_nodes_set.into_iter().collect();
-                unresolved_nodes.par_sort_unstable();
-
-                unresolved_nodes
+                additions
             },
             || {
-                rayon::join(
-                    || {
-                        let unresolved_predicates_set: HashSet<_> = additions
-                            .par_iter()
-                            .filter_map(|triple| match triple.predicate.is_resolved() {
-                                true => None,
-                                false => {
-                                    Some(triple.predicate.as_ref().unwrap_unresolved().to_owned())
-                                }
-                            })
-                            .collect();
-                        let mut unresolved_predicates: Vec<_> =
-                            unresolved_predicates_set.into_iter().collect();
-                        unresolved_predicates.par_sort_unstable();
+                let mut removals: Vec<_> = match parent.as_ref() {
+                    None => removals
+                        .into_iter()
+                        .map(|triple| triple.to_unresolved())
+                        .collect(),
+                    Some(parent) => removals
+                        .into_par_iter()
+                        .map(move |triple| parent.string_triple_to_partially_resolved(triple))
+                        .collect(),
+                };
 
-                        unresolved_predicates
-                    },
-                    || {
-                        let unresolved_values_set: HashSet<_> = additions
-                            .par_iter()
-                            .filter_map(|triple| match triple.object.is_resolved() {
-                                true => None,
-                                false => match triple.object.as_ref().unwrap_unresolved() {
-                                    ObjectType::Value(value) => Some(value.to_owned()),
-                                    _ => None,
-                                },
-                            })
-                            .collect();
-                        let mut unresolved_values: Vec<_> =
-                            unresolved_values_set.into_iter().collect();
-                        unresolved_values.par_sort_unstable();
-                        unresolved_values
-                    },
-                )
+                removals.extend(id_removals.into_iter().map(|triple| triple.to_resolved()));
+                removals.par_sort_unstable();
+                removals.dedup();
+
+                removals
             },
         );
 
-        // store a copy. The original will be used to build the dictionaries.
-        // The copy will be used later on to map unresolved strings to their id's before inserting
-        let unresolved_nodes2 = unresolved_nodes.clone();
-        let unresolved_predicates2 = unresolved_predicates.clone();
-        let unresolved_values2 = unresolved_values.clone();
+        // there's now a sorted list of additions and a sorted list of
+        // removals, all as resolved as they can possibly be at this
+        // point.  In order to support no-ops (where you add and
+        // remove the same triple in the same builder), we need to
+        // cross off the instances that appear in both lists.
+        // 'crossing off' is accomplished by setting the particular
+        // triple to (0,0,0), which is understood by the rest of the
+        // code to mean a no-op.
 
+        zero_equivalents(&mut additions, &mut removals);
+
+        // in addition, all removals that aren't resolved at this
+        // point are actually no-ops.
+        if parent.is_some() {
+            removals
+                .par_iter_mut()
+                .for_each(|triple| triple.make_resolved_or_zero())
+        }
+
+        // collect all strings we don't yet know about
+        let (unresolved_nodes, unresolved_predicates, unresolved_values) =
+            collect_unresolved_strings(&additions);
+
+        // time to build things
         Box::pin(async {
             match parent {
                 Some(parent) => {
                     let files = files.into_child();
                     let mut builder = ChildLayerFileBuilder::from_files(parent.clone(), &files);
 
-                    // TODO this should be done in parallel
-                    let node_ids = builder.add_nodes(unresolved_nodes).await?;
-                    let predicate_ids = builder.add_predicates(unresolved_predicates).await?;
-                    let value_ids = builder.add_values(unresolved_values).await?;
+                    let node_ids = builder.add_nodes(unresolved_nodes.clone()).await?;
+                    let predicate_ids = builder
+                        .add_predicates(unresolved_predicates.clone())
+                        .await?;
+                    let value_ids = builder.add_values(unresolved_values.clone()).await?;
 
                     let mut builder = builder.into_phase2().await?;
 
@@ -254,15 +206,15 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                     let parent_node_offset = counts.node_count as u64 + counts.value_count as u64;
                     let parent_predicate_offset = counts.predicate_count as u64;
                     let mut node_map = HashMap::new();
-                    for (node, id) in unresolved_nodes2.into_iter().zip(node_ids) {
+                    for (node, id) in unresolved_nodes.into_iter().zip(node_ids) {
                         node_map.insert(node, id + parent_node_offset);
                     }
                     let mut predicate_map = HashMap::new();
-                    for (predicate, id) in unresolved_predicates2.into_iter().zip(predicate_ids) {
+                    for (predicate, id) in unresolved_predicates.into_iter().zip(predicate_ids) {
                         predicate_map.insert(predicate, id + parent_predicate_offset);
                     }
                     let mut value_map = HashMap::new();
-                    for (value, id) in unresolved_values2.into_iter().zip(value_ids) {
+                    for (value, id) in unresolved_values.into_iter().zip(value_ids) {
                         value_map.insert(value, id + parent_node_offset + node_map.len() as u64);
                     }
 
@@ -274,47 +226,52 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                         })
                         .collect();
                     add_triples.par_sort_unstable();
-                    add_triples.dedup();
+                    let remove_triples: Vec<_> = removals
+                        .into_iter()
+                        .filter_map(|r| r.as_resolved())
+                        .collect();
 
                     // TODO this should be in parallel
                     builder.add_id_triples(add_triples).await?;
-                    builder.remove_id_triples(filtered_removals).await?;
+                    builder.remove_id_triples(remove_triples).await?;
                     builder.finalize().await
                 }
                 None => {
+                    // TODO almost same as above, should be more generic
                     let files = files.into_base();
                     let mut builder = BaseLayerFileBuilder::from_files(&files);
 
-                    // TODO - this is exactly the same as above. We should generalize builder and run it once on the generalized instead.
-                    let node_ids = builder.add_nodes(unresolved_nodes).await?;
-                    let predicate_ids = builder.add_predicates(unresolved_predicates).await?;
-                    let value_ids = builder.add_values(unresolved_values).await?;
+                    let node_ids = builder.add_nodes(unresolved_nodes.clone()).await?;
+                    let predicate_ids = builder
+                        .add_predicates(unresolved_predicates.clone())
+                        .await?;
+                    let value_ids = builder.add_values(unresolved_values.clone()).await?;
 
                     let mut builder = builder.into_phase2().await?;
+
                     let mut node_map = HashMap::new();
-                    for (node, id) in unresolved_nodes2.into_iter().zip(node_ids) {
+                    for (node, id) in unresolved_nodes.into_iter().zip(node_ids) {
                         node_map.insert(node, id);
                     }
                     let mut predicate_map = HashMap::new();
-                    for (predicate, id) in unresolved_predicates2.into_iter().zip(predicate_ids) {
+                    for (predicate, id) in unresolved_predicates.into_iter().zip(predicate_ids) {
                         predicate_map.insert(predicate, id);
                     }
                     let mut value_map = HashMap::new();
-                    for (value, id) in unresolved_values2.into_iter().zip(value_ids) {
+                    for (value, id) in unresolved_values.into_iter().zip(value_ids) {
                         value_map.insert(value, id + node_map.len() as u64);
                     }
 
-                    let mut triples: Vec<_> = additions
+                    let mut add_triples: Vec<_> = additions
                         .into_iter()
                         .map(|t| {
                             t.resolve_with(&node_map, &predicate_map, &value_map)
                                 .expect("triple should have been resolvable")
                         })
                         .collect();
-                    triples.par_sort_unstable();
-                    triples.dedup();
+                    add_triples.par_sort_unstable();
 
-                    builder.add_id_triples(triples).await?;
+                    builder.add_id_triples(add_triples).await?;
                     builder.finalize().await
                 }
             }
@@ -325,6 +282,118 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
         let builder = *self;
         builder.commit()
     }
+}
+
+fn zero_equivalents(
+    additions: &mut [PartiallyResolvedTriple],
+    removals: &mut [PartiallyResolvedTriple],
+) {
+    let mut removals_iter = removals.iter_mut().peekable();
+    'outer: for mut addition in additions {
+        let mut next = removals_iter.peek();
+        if next == None {
+            break;
+        }
+
+        if next < Some(&mut addition) {
+            loop {
+                removals_iter.next().unwrap();
+                next = removals_iter.peek();
+
+                if next == None {
+                    break 'outer;
+                } else if next >= Some(&mut addition) {
+                    break;
+                }
+            }
+        }
+
+        if next == Some(&mut addition) {
+            let mut removal = removals_iter.next().unwrap();
+            addition.subject = PossiblyResolved::Resolved(0);
+            addition.predicate = PossiblyResolved::Resolved(0);
+            addition.object = PossiblyResolved::Resolved(0);
+
+            removal.subject = PossiblyResolved::Resolved(0);
+            removal.predicate = PossiblyResolved::Resolved(0);
+            removal.object = PossiblyResolved::Resolved(0);
+        }
+    }
+}
+
+fn collect_unresolved_strings(
+    triples: &[PartiallyResolvedTriple],
+) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let (unresolved_nodes, (unresolved_predicates, unresolved_values)) = rayon::join(
+        || {
+            let unresolved_nodes_set: HashSet<_> = triples
+                .par_iter()
+                .filter_map(|triple| {
+                    let subject = match triple.subject.is_resolved() {
+                        true => None,
+                        false => Some(triple.subject.as_ref().unwrap_unresolved().to_owned()),
+                    };
+                    let object = match triple.object.is_resolved() {
+                        true => None,
+                        false => match triple.object.as_ref().unwrap_unresolved() {
+                            ObjectType::Node(node) => Some(node.to_owned()),
+                            _ => None,
+                        },
+                    };
+
+                    match (subject, object) {
+                        (Some(subject), Some(object)) => {
+                            Some(vec![subject.to_owned(), object.to_owned()])
+                        }
+                        (Some(subject), _) => Some(vec![subject.to_owned()]),
+                        (_, Some(object)) => Some(vec![object.to_owned()]),
+                        _ => None,
+                    }
+                })
+                .flatten()
+                .collect();
+
+            let mut unresolved_nodes: Vec<_> = unresolved_nodes_set.into_iter().collect();
+            unresolved_nodes.par_sort_unstable();
+
+            unresolved_nodes
+        },
+        || {
+            rayon::join(
+                || {
+                    let unresolved_predicates_set: HashSet<_> = triples
+                        .par_iter()
+                        .filter_map(|triple| match triple.predicate.is_resolved() {
+                            true => None,
+                            false => Some(triple.predicate.as_ref().unwrap_unresolved().to_owned()),
+                        })
+                        .collect();
+                    let mut unresolved_predicates: Vec<_> =
+                        unresolved_predicates_set.into_iter().collect();
+                    unresolved_predicates.par_sort_unstable();
+
+                    unresolved_predicates
+                },
+                || {
+                    let unresolved_values_set: HashSet<_> = triples
+                        .par_iter()
+                        .filter_map(|triple| match triple.object.is_resolved() {
+                            true => None,
+                            false => match triple.object.as_ref().unwrap_unresolved() {
+                                ObjectType::Value(value) => Some(value.to_owned()),
+                                _ => None,
+                            },
+                        })
+                        .collect();
+                    let mut unresolved_values: Vec<_> = unresolved_values_set.into_iter().collect();
+                    unresolved_values.par_sort_unstable();
+                    unresolved_values
+                },
+            )
+        },
+    );
+
+    (unresolved_nodes, unresolved_predicates, unresolved_values)
 }
 
 #[cfg(test)]
@@ -582,5 +651,235 @@ mod tests {
 
         assert!(!layer4.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
         assert!(!layer4.string_triple_exists(&StringTriple::new_node("horse", "likes", "cow")));
+    }
+
+    #[test]
+    fn remove_and_add_same_triple_on_base_layer_is_noop() {
+        let mut runtime = Runtime::new().unwrap();
+        let files = new_base_files();
+        let name = [0, 0, 0, 0, 0];
+        let mut builder = SimpleLayerBuilder::new(name, files.clone());
+
+        builder.remove_string_triple(StringTriple::new_value("crow", "says", "caw"));
+        builder.add_string_triple(StringTriple::new_value("crow", "says", "caw"));
+
+        runtime.block_on(builder.commit()).unwrap();
+        let base_layer: Arc<InternalLayer> = Arc::new(
+            runtime
+                .block_on(BaseLayer::load_from_files(name, &files))
+                .unwrap()
+                .into(),
+        );
+
+        assert!(!base_layer.string_triple_exists(&StringTriple::new_value("crow", "says", "caw")));
+    }
+
+    #[test]
+    fn add_and_remove_same_triple_on_base_layer_is_noop() {
+        let mut runtime = Runtime::new().unwrap();
+        let files = new_base_files();
+        let name = [0, 0, 0, 0, 0];
+        let mut builder = SimpleLayerBuilder::new(name, files.clone());
+
+        builder.add_string_triple(StringTriple::new_value("crow", "says", "caw"));
+        builder.remove_string_triple(StringTriple::new_value("crow", "says", "caw"));
+
+        runtime.block_on(builder.commit()).unwrap();
+        let base_layer: Arc<InternalLayer> = Arc::new(
+            runtime
+                .block_on(BaseLayer::load_from_files(name, &files))
+                .unwrap()
+                .into(),
+        );
+
+        assert!(!base_layer.string_triple_exists(&StringTriple::new_value("crow", "says", "caw")));
+    }
+
+    #[test]
+    fn remove_and_add_same_existing_triple_on_child_layer_is_noop() {
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
+        let files = new_child_files();
+        let name = [0, 0, 0, 0, 0];
+        let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
+
+        builder.remove_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+
+        runtime.block_on(builder.commit()).unwrap();
+        let child_layer: Arc<InternalLayer> = Arc::new(
+            runtime
+                .block_on(ChildLayer::load_from_files(name, base_layer, &files))
+                .unwrap()
+                .into(),
+        );
+
+        assert!(child_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+    }
+
+    #[test]
+    fn add_and_remove_same_existing_triple_on_child_layer_is_noop() {
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
+        let files = new_child_files();
+        let name = [0, 0, 0, 0, 0];
+        let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
+
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.remove_string_triple(StringTriple::new_value("cow", "says", "moo"));
+
+        runtime.block_on(builder.commit()).unwrap();
+        let child_layer: Arc<InternalLayer> = Arc::new(
+            runtime
+                .block_on(ChildLayer::load_from_files(name, base_layer, &files))
+                .unwrap()
+                .into(),
+        );
+
+        assert!(child_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+    }
+
+    #[test]
+    fn remove_and_add_same_nonexisting_triple_on_child_layer_is_noop() {
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
+        let files = new_child_files();
+        let name = [0, 0, 0, 0, 0];
+        let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
+
+        builder.remove_string_triple(StringTriple::new_value("crow", "says", "caw"));
+        builder.add_string_triple(StringTriple::new_value("crow", "says", "caw"));
+
+        runtime.block_on(builder.commit()).unwrap();
+        let child_layer: Arc<InternalLayer> = Arc::new(
+            runtime
+                .block_on(ChildLayer::load_from_files(name, base_layer, &files))
+                .unwrap()
+                .into(),
+        );
+
+        assert!(!child_layer.string_triple_exists(&StringTriple::new_value("crow", "says", "caw")));
+    }
+
+    #[test]
+    fn add_and_remove_same_nonexisting_triple_on_child_layer_is_noop() {
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
+        let files = new_child_files();
+        let name = [0, 0, 0, 0, 0];
+        let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
+
+        builder.add_string_triple(StringTriple::new_value("crow", "says", "caw"));
+        builder.remove_string_triple(StringTriple::new_value("crow", "says", "caw"));
+
+        runtime.block_on(builder.commit()).unwrap();
+        let child_layer: Arc<InternalLayer> = Arc::new(
+            runtime
+                .block_on(ChildLayer::load_from_files(name, base_layer, &files))
+                .unwrap()
+                .into(),
+        );
+
+        assert!(!child_layer.string_triple_exists(&StringTriple::new_value("crow", "says", "caw")));
+    }
+
+    #[test]
+    fn remove_and_add_same_triple_by_id_and_string_on_child_layer_is_noop() {
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
+        let files = new_child_files();
+        let name = [0, 0, 0, 0, 0];
+        let node_id = base_layer.subject_id("cow").unwrap();
+        let predicate_id = base_layer.predicate_id("says").unwrap();
+        let value_id = base_layer.object_value_id("moo").unwrap();
+        let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
+
+        builder.remove_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.add_id_triple(IdTriple::new(node_id, predicate_id, value_id));
+
+        runtime.block_on(builder.commit()).unwrap();
+        let child_layer: Arc<InternalLayer> = Arc::new(
+            runtime
+                .block_on(ChildLayer::load_from_files(name, base_layer, &files))
+                .unwrap()
+                .into(),
+        );
+
+        assert!(child_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+    }
+
+    #[test]
+    fn remove_and_add_same_triple_by_string_and_id_on_child_layer_is_noop() {
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
+        let files = new_child_files();
+        let name = [0, 0, 0, 0, 0];
+        let node_id = base_layer.subject_id("cow").unwrap();
+        let predicate_id = base_layer.predicate_id("says").unwrap();
+        let value_id = base_layer.object_value_id("moo").unwrap();
+        let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
+
+        builder.remove_id_triple(IdTriple::new(node_id, predicate_id, value_id));
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+
+        runtime.block_on(builder.commit()).unwrap();
+        let child_layer: Arc<InternalLayer> = Arc::new(
+            runtime
+                .block_on(ChildLayer::load_from_files(name, base_layer, &files))
+                .unwrap()
+                .into(),
+        );
+
+        assert!(child_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+    }
+
+    #[test]
+    fn add_and_remove_same_triple_by_id_and_string_on_child_layer_is_noop() {
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
+        let files = new_child_files();
+        let name = [0, 0, 0, 0, 0];
+        let node_id = base_layer.subject_id("cow").unwrap();
+        let predicate_id = base_layer.predicate_id("says").unwrap();
+        let value_id = base_layer.object_value_id("moo").unwrap();
+        let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
+
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.remove_id_triple(IdTriple::new(node_id, predicate_id, value_id));
+
+        runtime.block_on(builder.commit()).unwrap();
+        let child_layer: Arc<InternalLayer> = Arc::new(
+            runtime
+                .block_on(ChildLayer::load_from_files(name, base_layer, &files))
+                .unwrap()
+                .into(),
+        );
+
+        assert!(child_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+    }
+
+    #[test]
+    fn add_and_remove_same_triple_by_string_and_id_on_child_layer_is_noop() {
+        let mut runtime = Runtime::new().unwrap();
+        let base_layer = example_base_layer(&runtime.handle());
+        let files = new_child_files();
+        let name = [0, 0, 0, 0, 0];
+        let node_id = base_layer.subject_id("cow").unwrap();
+        let predicate_id = base_layer.predicate_id("says").unwrap();
+        let value_id = base_layer.object_value_id("moo").unwrap();
+        let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
+
+        builder.add_id_triple(IdTriple::new(node_id, predicate_id, value_id));
+        builder.remove_string_triple(StringTriple::new_value("cow", "says", "moo"));
+
+        runtime.block_on(builder.commit()).unwrap();
+        let child_layer: Arc<InternalLayer> = Arc::new(
+            runtime
+                .block_on(ChildLayer::load_from_files(name, base_layer, &files))
+                .unwrap()
+                .into(),
+        );
+
+        assert!(child_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
     }
 }
