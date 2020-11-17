@@ -4,9 +4,11 @@ use byteorder::{BigEndian, ByteOrder};
 use bytes::{Buf, Bytes, BytesMut};
 use futures::stream::{Stream, StreamExt};
 use std::cmp::{Ord, Ordering};
+use std::convert::TryInto;
 use std::error::Error;
 use std::fmt::Display;
 use std::io;
+use std::hash::{Hash, Hasher};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio_util::codec::{Decoder, FramedRead};
 
@@ -49,30 +51,28 @@ pub struct PfcBlock {
 
 const BLOCK_SIZE: usize = 8;
 
-// the owned version is pretty much equivalent. There should be a way to make this one implementation with generics but I haven't figured out how!
-pub struct PfcBlockIterator {
+pub struct PfcBlockEntryIterator {
     block: PfcBlock,
     count: usize,
     pos: usize,
-    string: Vec<u8>,
 }
 
-impl Iterator for PfcBlockIterator {
-    type Item = String;
+impl Iterator for PfcBlockEntryIterator {
+    type Item = (usize, Bytes);
 
-    fn next(&mut self) -> Option<String> {
+    fn next(&mut self) -> Option<(usize, Bytes)> {
         if self.pos == 0 {
-            // we gotta read the initial prefix first (a nul-terminated string)
-            self.string = self.block.head();
-
             self.count = 1;
-            self.pos = self.string.len() + 1;
+            let head = self.block.head();
+            self.pos = head.len() + 1;
+
+            Some((0, head))
         } else if self.count < self.block.n_strings {
             // at pos we read a vbyte with the length of the common prefix
             let (common, common_len) =
                 vbyte::decode(&self.block.encoded_strings.as_ref()[self.pos..])
                     .expect("encoding error in self-managed data");
-            self.string.truncate(common as usize);
+
             self.pos += common_len;
 
             // next up is the suffix, again as a nul-terminated string.
@@ -82,16 +82,37 @@ impl Iterator for PfcBlockIterator {
                     .position(|&b| b == 0)
                     .unwrap();
 
-            self.string
-                .extend_from_slice(&self.block.encoded_strings.as_ref()[self.pos..postfix_end]);
+            let result = (common.try_into().expect("string prefix was too long to fit in a usize"), self.block.encoded_strings.slice(self.pos..postfix_end));
 
             self.pos = postfix_end + 1;
             self.count += 1;
-        } else {
-            return None;
-        }
 
-        Some(String::from_utf8(self.string.clone()).unwrap())
+            Some(result)
+        } else {
+            None
+        }
+    }
+}
+
+pub struct PfcBlockIterator {
+    entry_iterator: PfcBlockEntryIterator,
+    string: Vec<u8>
+}
+
+impl Iterator for PfcBlockIterator {
+    type Item = String;
+
+    fn next(&mut self) -> Option<String> {
+        if let Some((prefix_size, postfix)) = self.entry_iterator.next() {
+            let mut prefix = self.string[..prefix_size].to_vec();
+            prefix.extend_from_slice(postfix.as_ref());
+            self.string = prefix;
+
+            Some(String::from_utf8(self.string.clone()).unwrap())
+        }
+        else {
+            None
+        }
     }
 }
 
@@ -110,31 +131,111 @@ impl PfcBlock {
         })
     }
 
-    pub fn head(&self) -> Vec<u8> {
+    pub fn head(&self) -> Bytes {
         let first_end = self
             .encoded_strings
             .as_ref()
             .iter()
             .position(|&b| b == 0)
             .unwrap();
-        let mut v = Vec::new();
-        v.extend_from_slice(&self.encoded_strings.as_ref()[..first_end]);
 
-        v
+        self.encoded_strings.slice(..first_end)
+    }
+
+    /*
+    pub fn prefix(&self, mut entry: usize) -> Vec<u8> {
+        let mut prefix = self.head().to_vec();
+
+        // if 0, then the prefix is equal to head
+        // if anything else, we have to move through the entries
+        // cutting away at the prefix to get the real entry
+        // or adding to it, depending on how much of the prefix we're interested in
+        //
+        // really, lower entries further down mean we never actually need to eat more prefix than that.
+        while entry != 0 {
+
+        }
+    }
+    */
+
+    fn block_entries(&self) -> PfcBlockEntryIterator {
+        PfcBlockEntryIterator {
+            block: self.clone(),
+            count: 0,
+            pos: 0,
+        }
+    }
+
+    fn entries(&self) -> PfcDictEntryIterator {
+        PfcDictEntryIterator {
+            block_iter: self.block_entries(),
+            parts: Vec::with_capacity(BLOCK_SIZE)
+        }
     }
 
     pub fn strings(&self) -> PfcBlockIterator {
         PfcBlockIterator {
-            block: self.clone(),
-            count: 0,
-            pos: 0,
-            string: Vec::new(),
+            entry_iterator: self.block_entries(),
+            string: Vec::with_capacity(BLOCK_SIZE),
+        }
+    }
+
+    pub fn entry(&self, index: usize) -> Option<PfcDictEntry> {
+        if index < self.n_strings {
+            let entries: Vec<_> = self.block_entries().take(index+1).collect();
+            let mut take_prefix_lengths = vec![0_usize;entries.len()-1];
+
+            // first, gather all the prefix lengths.
+            // we scan the prefix lengths in reverse order, and make sure that
+            // each prefix that we write down is less than or equal to a later
+            // prefix. This way we never take too much.
+            let (mut last,_) = entries[index];
+            for ix in (1..entries.len()).rev() {
+                let (prefix, _) = entries[ix];
+                if prefix < last {
+                    take_prefix_lengths[ix-1] = prefix;
+                    last = prefix;
+                }
+                else {
+                    take_prefix_lengths[ix-1] = last;
+                }
+            }
+
+            // Having written down the prefixes, we now turn it into a list
+            // of how much prefix we're interested in for every individual string.
+            // This is a simple matter of subtracting two adjacent entries.
+            for ix in 1..take_prefix_lengths.len() {
+                take_prefix_lengths[ix] -= take_prefix_lengths[ix-1];
+            }
+
+            let (_, postfix) = &entries[index];
+            let mut result = Vec::with_capacity(BLOCK_SIZE);
+
+            for ((_, entry), take) in entries.iter().zip(take_prefix_lengths.iter()) {
+                result.push(entry.slice(..*take));
+            }
+
+            result.push(postfix.clone());
+
+            Some(PfcDictEntry {
+                parts: result
+            })
+        } else {
+            None
         }
     }
 
     pub fn get(&self, index: usize) -> Option<String> {
-        if index < self.n_strings {
-            self.strings().nth(index)
+        if let Some(entry) = self.entry(index) {
+            let len: usize = entry.parts.iter().map(|p|p.len()).sum();
+            
+            let mut result = Vec::with_capacity(len);
+
+            for part in entry.parts {
+                result.extend_from_slice(&part);
+            }
+
+            Some(String::from_utf8(result).unwrap())
         } else {
             None
         }
@@ -146,54 +247,240 @@ impl PfcBlock {
     }
 }
 
-#[derive(Clone)]
-pub struct PfcDict {
-    n_strings: u64,
-    block_offsets: LogArray,
-    blocks: Bytes,
-}
-
-pub struct PfcDictIterator {
+pub struct PfcDictBlockIterator {
     dict: PfcDict,
-    block_index: usize,
-    block: Option<PfcBlockIterator>,
+    block_index: usize
 }
 
-impl Iterator for PfcDictIterator {
-    type Item = String;
+impl PfcDictBlockIterator {
+    fn new(dict: PfcDict) -> Self {
+        Self {
+            dict,
+            block_index: 0
+        }
+    }
+}
 
-    fn next(&mut self) -> Option<String> {
+impl Iterator for PfcDictBlockIterator {
+    type Item = PfcBlock;
+
+    fn next(&mut self) -> Option<PfcBlock> {
         if self.block_index >= self.dict.block_offsets.len() + 1 {
             return None;
-        } else if self.block.is_none() {
+        } else {
             let block_offset = if self.block_index == 0 {
                 0
             } else {
                 self.dict.block_offsets.entry(self.block_index - 1)
             } as usize;
             let remainder = self.dict.n_strings as usize - self.block_index * BLOCK_SIZE;
+
+            self.block_index += 1;
+
             let mut block = self.dict.blocks.clone();
             block.advance(block_offset);
             if remainder >= BLOCK_SIZE {
-                self.block = Some(PfcBlock::parse(block).unwrap().strings());
+                Some(PfcBlock::parse(block).unwrap())
             } else {
-                self.block = Some(
+                Some(
                     PfcBlock::parse_incomplete(block, remainder)
                         .unwrap()
-                        .strings(),
-                );
+                )
             }
-        }
-
-        match self.block.as_mut().unwrap().next() {
-            None => {
-                self.block_index += 1;
-                self.block = None;
-                self.next()
-            }
-            Some(s) => Some(s),
         }
     }
+}
+
+pub struct PfcDictEntryIterator {
+    block_iter: PfcBlockEntryIterator,
+    parts: Vec<Bytes>
+}
+
+impl Iterator for PfcDictEntryIterator {
+    type Item = PfcDictEntry;
+    fn next(&mut self) -> Option<PfcDictEntry> {
+        if let Some((mut prefix_len, bytes)) = self.block_iter.next() {
+            let mut end;
+            if prefix_len == 0 {
+                end = 0;
+            }
+            else {
+                end = self.parts.len();
+                for (index, part) in self.parts.iter_mut().enumerate() {
+                    match prefix_len.cmp(&part.len()) {
+                        Ordering::Greater => {
+                            prefix_len -= part.len();
+                        },
+                        Ordering::Less => {
+                            end = index+1;
+                            let new_bytes = part.slice(..prefix_len);
+                            *part = new_bytes;
+                            break;
+                        },
+                        Ordering::Equal => {
+                            end = index+1;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            self.parts.truncate(end);
+            self.parts.push(bytes);
+
+            Some(PfcDictEntry {
+                parts: self.parts.clone()
+            })
+        }
+        else {
+            None
+        }
+    }
+}
+
+/// An entry in a pfc dictionary.
+///
+/// This is a low-memory structure, basically just holding a pointer, some metadata and a block entry number.
+/// Its purpose is for use in sorting of dictionary entries without having to copy a lot of strings.
+#[derive(Clone)]
+pub struct PfcDictEntry {
+    parts: Vec<Bytes>
+}
+
+impl PfcDictEntry {
+    pub fn len(&self) -> usize {
+        self.parts.iter().map(|b|b.len()).sum::<usize>()
+    }
+
+    pub fn to_string(&self) -> String {
+        let len = self.len();
+        let mut vec = Vec::with_capacity(len);
+
+        for part in self.parts.iter() {
+            vec.extend(part);
+        }
+
+        String::from_utf8(vec).unwrap()
+    }
+
+    /// optimize size
+    ///
+    /// For short strings, a list of pointers may be much less
+    /// efficient than a copy of the string.  This will copy the
+    /// underlying string if that is the case.
+    pub fn optimize(&mut self) {
+        let overhead_size = std::mem::size_of::<Bytes>() * self.parts.len();
+
+        if std::mem::size_of::<Bytes>() + self.len() < overhead_size {
+            let mut bytes = BytesMut::with_capacity(self.len());
+            for part in self.parts.iter() {
+                bytes.extend(part);
+            }
+
+            self.parts = vec![bytes.freeze()];
+        }
+    }
+}
+
+impl PartialEq for PfcDictEntry {
+    fn eq(&self, other: &Self) -> bool {
+        // unequal length, so can't be equal
+        if self.len() != other.len() {
+            return false;
+        }
+
+        return self.cmp(other) == Ordering::Equal;
+    }
+}
+
+impl Eq for PfcDictEntry {}
+
+impl Hash for PfcDictEntry {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        for part in self.parts.iter() {
+            state.write(part);
+        }
+    }
+}
+
+impl Ord for PfcDictEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // both are empty, so equal
+        if self.len() == 0 && other.len() == 0 {
+            return Ordering::Equal;
+        }
+
+        let mut it1 = self.parts.iter();
+        let mut it2 = other.parts.iter();
+        let mut part1 = it1.next().unwrap().clone();
+        let mut part2 = it2.next().unwrap().clone();
+
+        loop {
+            if part1.len() == part2.len() {
+                match part1.cmp(&part2) {
+                    Ordering::Less => return Ordering::Less,
+                    Ordering::Greater => return Ordering::Greater,
+                    Ordering::Equal => {}
+                }
+
+                let p1_next = it1.next();
+                let p2_next = it2.next();
+
+                if let (Some(p1), Some(p2)) = (p1_next, p2_next) {
+                    part1 = p1.clone();
+                    part2 = p2.clone();
+                }
+                else if p1_next.is_none() && p2_next.is_none() {
+                    // done! everything has been compared equally and nothign remains.
+                    return Ordering::Equal;
+                }
+                else if p1_next.is_none() {
+                    // the left side is a prefix of the right side
+
+                    return Ordering::Less;
+                }
+                else {
+                    return Ordering::Greater;
+                }
+            }
+
+            else if part1.len() < part2.len() {
+                let part2_slice = part2.slice(0..part1.len());
+                match part1.cmp(&part2_slice) {
+                    Ordering::Less => return Ordering::Less,
+                    Ordering::Greater => return Ordering::Greater,
+                    Ordering::Equal => {}
+                }
+
+                part1 = it1.next().expect("expected next element due to equal sizes").clone();
+                part2 = part2.slice(part1.len()..);
+            }
+            else {
+                let part1_slice = part1.slice(0..part2.len());
+                match part1_slice.cmp(&part2) {
+                    Ordering::Less => return Ordering::Less,
+                    Ordering::Greater => return Ordering::Greater,
+                    Ordering::Equal => {}
+                }
+
+                part1 = part1.slice(part2.len()..);
+                part2 = it2.next().expect("expected next element due to equal sizes").clone();
+            }
+        }
+    }
+}
+
+impl PartialOrd for PfcDictEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[derive(Clone)]
+pub struct PfcDict {
+    n_strings: u64,
+    block_offsets: LogArray,
+    blocks: Bytes,
 }
 
 impl PfcDict {
@@ -213,7 +500,7 @@ impl PfcDict {
         self.n_strings as usize
     }
 
-    pub fn get(&self, ix: usize) -> Option<String> {
+    fn calculate_block_offset_index(&self, ix: usize) -> Option<(u64, usize)> {
         if (ix as u64) < self.n_strings {
             let block_index = ix / BLOCK_SIZE;
             let block_offset = if block_index == 0 {
@@ -221,11 +508,33 @@ impl PfcDict {
             } else {
                 self.block_offsets.entry(block_index - 1)
             };
-            let mut block = self.blocks.clone();
-            block.advance(block_offset as usize);
-            let block = PfcBlock::parse(block).unwrap();
 
             let index_in_block = ix % BLOCK_SIZE;
+            Some((block_offset, index_in_block))
+        } else {
+            None
+        }
+    }
+
+    pub fn entry(&self, ix: usize) -> Option<PfcDictEntry> {
+        if let Some((block_offset, index_in_block)) = self.calculate_block_offset_index(ix) {
+
+            let mut block_bytes = self.blocks.clone();
+            block_bytes.advance(block_offset as usize);
+
+            let block = PfcBlock::parse(block_bytes).unwrap();
+            block.entry(index_in_block)
+        } else {
+            None
+        }
+    }
+
+    pub fn get(&self, ix: usize) -> Option<String> {
+        if let Some((block_offset, index_in_block)) = self.calculate_block_offset_index(ix) {
+            let mut block_bytes = self.blocks.clone();
+            block_bytes.advance(block_offset as usize);
+
+            let block = PfcBlock::parse(block_bytes).unwrap();
             block.get(index_in_block)
         } else {
             None
@@ -294,12 +603,16 @@ impl PfcDict {
         None
     }
 
-    pub fn strings(&self) -> PfcDictIterator {
-        PfcDictIterator {
-            dict: self.clone(),
-            block_index: 0,
-            block: None,
-        }
+    pub fn strings(&self) -> impl Iterator<Item=String> {
+        let block_iterator = PfcDictBlockIterator::new(self.clone());
+
+        block_iterator.flat_map(|block| block.strings())
+    }
+
+    pub fn entries(&self) -> impl Iterator<Item=PfcDictEntry> {
+        let block_iterator = PfcDictBlockIterator::new(self.clone());
+
+        block_iterator.flat_map(|block| block.entries())
     }
 }
 
