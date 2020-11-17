@@ -365,6 +365,52 @@ impl PfcDictEntry {
             self.parts = vec![bytes.freeze()];
         }
     }
+
+    pub fn buf_eq<B:Buf>(&self, mut b:B) -> bool {
+        if self.len() != b.remaining() {
+            false
+        }
+        else if self.len() == 0 {
+            true
+        }
+        else {
+            let mut it = self.parts.iter();
+            let mut part = it.next().unwrap();
+            loop {
+                let slice = b.bytes();
+
+                match part.len().cmp(&slice.len()) {
+                    Ordering::Less => {
+                        if part.as_ref() != &slice[..part.len()] {
+                            return false;
+                        }
+                    },
+                    Ordering::Equal => {
+                        if &part != &slice {
+                            return false;
+                        }
+
+                        if let Some(next) = it.next() {
+                            part = next;
+                        }
+                        else {
+                            // done!
+                            return true;
+                        }
+                    },
+                    Ordering::Greater => {
+                        if part.slice(..slice.len()) != slice {
+                            return false;
+                        }
+
+                        part = it.next().unwrap();
+                    }
+                }
+
+                b.advance(part.len());
+            }
+        }
+    }
 }
 
 impl PartialEq for PfcDictEntry {
@@ -527,6 +573,7 @@ impl PfcDict {
     }
 
     pub fn id(&self, s: &str) -> Option<u64> {
+        let s_bytes = s.as_bytes();
         // let's binary search
         let mut min = 0;
         let mut max = self.block_offsets.len();
@@ -544,9 +591,7 @@ impl PfcDict {
             let head_end = block_slice.iter().position(|&b| b == 0).unwrap();
             let head_slice = &block_slice[..head_end];
 
-            let head = String::from_utf8(head_slice.to_vec()).unwrap();
-
-            match s.cmp(&head) {
+            match s_bytes.cmp(head_slice) {
                 Ordering::Less => {
                     if mid == 0 {
                         // we checked the first block and determined that the string should be in the previous block, if it exists.
@@ -578,8 +623,8 @@ impl PfcDict {
         };
 
         let mut count = 0;
-        for block_string in block.strings() {
-            if block_string == s {
+        for block_entry in block.entries() {
+            if block_entry.buf_eq(s_bytes) {
                 return Some((found * BLOCK_SIZE + count) as u64);
             }
             count += 1;
