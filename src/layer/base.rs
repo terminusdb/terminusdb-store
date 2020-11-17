@@ -145,6 +145,14 @@ impl InternalLayerImpl for BaseLayer {
         &self.value_dictionary
     }
 
+    fn parent_node_value_count(&self) -> usize {
+        0
+    }
+
+    fn parent_predicate_count(&self) -> usize {
+        0
+    }
+
     fn pos_s_p_adjacency_list(&self) -> &AdjacencyList {
         &self.s_p_adjacency_list
     }

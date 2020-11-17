@@ -51,6 +51,9 @@ pub trait InternalLayerImpl {
     fn predicate_dictionary(&self) -> &PfcDict;
     fn value_dictionary(&self) -> &PfcDict;
 
+    fn parent_node_value_count(&self) -> usize;
+    fn parent_predicate_count(&self) -> usize;
+
     fn pos_s_p_adjacency_list(&self) -> &AdjacencyList;
     fn pos_sp_o_adjacency_list(&self) -> &AdjacencyList;
     fn pos_o_ps_adjacency_list(&self) -> &AdjacencyList;
@@ -215,23 +218,13 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
     }
 
     fn node_and_value_count(&self) -> usize {
-        let mut parent_option = self.immediate_parent();
-        let mut count = self.node_dictionary().len() + self.value_dictionary().len();
-        while let Some(parent) = parent_option {
-            count += parent.node_dict_len() + parent.value_dict_len();
-            parent_option = parent.immediate_parent();
-        }
-        count
+        self.parent_node_value_count()
+            + self.node_dictionary().len()
+            + self.value_dictionary().len()
     }
 
     fn predicate_count(&self) -> usize {
-        let mut parent_option = self.immediate_parent();
-        let mut count = self.predicate_dictionary().len();
-        while let Some(parent) = parent_option {
-            count += parent.predicate_dict_len();
-            parent_option = parent.immediate_parent();
-        }
-        count
+        self.parent_predicate_count() + self.predicate_dictionary().len()
     }
 
     fn subject_id<'a>(&'a self, subject: &str) -> Option<u64> {
@@ -1081,6 +1074,14 @@ impl InternalLayerImpl for InternalLayer {
     }
     fn value_dictionary(&self) -> &PfcDict {
         (&**self).value_dictionary()
+    }
+
+    fn parent_node_value_count(&self) -> usize {
+        (&**self).parent_node_value_count()
+    }
+
+    fn parent_predicate_count(&self) -> usize {
+        (&**self).parent_predicate_count()
     }
 
     fn pos_s_p_adjacency_list(&self) -> &AdjacencyList {

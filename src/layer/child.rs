@@ -29,6 +29,9 @@ pub struct ChildLayer {
     predicate_dictionary: PfcDict,
     value_dictionary: PfcDict,
 
+    parent_node_value_count: usize,
+    parent_predicate_count: usize,
+
     pos_subjects: MonotonicLogArray,
     pos_objects: MonotonicLogArray,
     pos_s_p_adjacency_list: AdjacencyList,
@@ -71,6 +74,9 @@ impl ChildLayer {
             maps.value_dictionary_maps.offsets_map,
         )
         .unwrap();
+
+        let parent_node_value_count = parent.node_and_value_count();
+        let parent_predicate_count = parent.predicate_count();
 
         let pos_subjects =
             MonotonicLogArray::from_logarray(LogArray::parse(maps.pos_subjects_map).unwrap());
@@ -146,6 +152,9 @@ impl ChildLayer {
             predicate_dictionary: predicate_dictionary,
             value_dictionary: value_dictionary,
 
+            parent_node_value_count,
+            parent_predicate_count,
+
             pos_subjects,
             pos_objects,
             neg_subjects,
@@ -192,6 +201,14 @@ impl InternalLayerImpl for ChildLayer {
 
     fn value_dictionary(&self) -> &PfcDict {
         &self.value_dictionary
+    }
+
+    fn parent_node_value_count(&self) -> usize {
+        self.parent_node_value_count
+    }
+
+    fn parent_predicate_count(&self) -> usize {
+        self.parent_predicate_count
     }
 
     fn pos_s_p_adjacency_list(&self) -> &AdjacencyList {
