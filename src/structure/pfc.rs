@@ -142,22 +142,6 @@ impl PfcBlock {
         self.encoded_strings.slice(..first_end)
     }
 
-    /*
-    pub fn prefix(&self, mut entry: usize) -> Vec<u8> {
-        let mut prefix = self.head().to_vec();
-
-        // if 0, then the prefix is equal to head
-        // if anything else, we have to move through the entries
-        // cutting away at the prefix to get the real entry
-        // or adding to it, depending on how much of the prefix we're interested in
-        //
-        // really, lower entries further down mean we never actually need to eat more prefix than that.
-        while entry != 0 {
-
-        }
-    }
-    */
-
     fn block_entries(&self) -> PfcBlockEntryIterator {
         PfcBlockEntryIterator {
             block: self.clone(),
@@ -217,9 +201,7 @@ impl PfcBlock {
 
             result.push(postfix.clone());
 
-            Some(PfcDictEntry {
-                parts: result
-            })
+            Some(PfcDictEntry::new_optimized(result))
         } else {
             None
         }
@@ -227,15 +209,7 @@ impl PfcBlock {
 
     pub fn get(&self, index: usize) -> Option<String> {
         if let Some(entry) = self.entry(index) {
-            let len: usize = entry.parts.iter().map(|p|p.len()).sum();
-            
-            let mut result = Vec::with_capacity(len);
-
-            for part in entry.parts {
-                result.extend_from_slice(&part);
-            }
-
-            Some(String::from_utf8(result).unwrap())
+            Some(entry.to_string())
         } else {
             None
         }
@@ -328,9 +302,7 @@ impl Iterator for PfcDictEntryIterator {
             self.parts.truncate(end);
             self.parts.push(bytes);
 
-            Some(PfcDictEntry {
-                parts: self.parts.clone()
-            })
+            Some(PfcDictEntry::new_optimized(self.parts.clone()))
         }
         else {
             None
@@ -348,6 +320,19 @@ pub struct PfcDictEntry {
 }
 
 impl PfcDictEntry {
+    pub fn new(parts: Vec<Bytes>) -> Self {
+        Self {
+            parts
+        }
+    }
+
+    pub fn new_optimized(parts: Vec<Bytes>) -> Self {
+        let mut entry = Self::new(parts);
+        entry.optimize();
+
+        entry
+    }
+
     pub fn len(&self) -> usize {
         self.parts.iter().map(|b|b.len()).sum::<usize>()
     }
