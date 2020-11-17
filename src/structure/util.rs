@@ -106,6 +106,56 @@ pub fn sorted_stream<
     }
 }
 
+struct SortedIterator<
+    T,
+    I: 'static + Iterator<Item = T> + Send,
+    F: 'static + Fn(&[Option<&T>]) -> Option<usize>,
+> {
+    iters: Vec<std::iter::Peekable<I>>,
+    pick_fn: F,
+}
+
+impl<
+        T,
+        I: 'static + Iterator<Item = T> + Send,
+        F: 'static + Fn(&[Option<&T>]) -> Option<usize>,
+    > Iterator for SortedIterator<T, I, F>
+{
+    type Item = T;
+
+    fn next(&mut self) -> Option<T> {
+        let mut v = Vec::with_capacity(self.iters.len());
+        for s in self.iters.iter_mut() {
+            v.push(s.peek());
+        }
+
+        let ix = (self.pick_fn)(&v[..]);
+
+        match ix {
+            None => None,
+            Some(ix) => self.iters[ix].next(),
+        }
+    }
+}
+
+pub fn sorted_iterator<
+    T,
+    I: 'static + Iterator<Item = T> + Send,
+    F: 'static + Fn(&[Option<&T>]) -> Option<usize>,
+>(
+    iters: Vec<I>,
+    pick_fn: F,
+) -> impl Iterator<Item = T> {
+    let peekable_iters = iters
+        .into_iter()
+        .map(|s| std::iter::Iterator::peekable(s))
+        .collect();
+    SortedIterator {
+        iters: peekable_iters,
+        pick_fn,
+    }
+}
+
 pub fn stream_iter_ok<T, E, I: IntoIterator<Item = T>>(
     iter: I,
 ) -> impl Stream<Item = std::result::Result<T, E>> {
