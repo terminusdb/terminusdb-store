@@ -169,6 +169,10 @@ pub fn assert_poll_next<T, S: Stream<Item = T>>(stream: Pin<&mut S>, cx: &mut Co
     }
 }
 
+pub fn calculate_width(size: u64) -> u8 {
+    ((size + 1) as f32).log2().ceil() as u8
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

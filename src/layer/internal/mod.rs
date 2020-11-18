@@ -106,6 +106,28 @@ pub trait InternalLayerImpl {
         self.value_dictionary().get(id)
     }
 
+    fn node_dict_entries_zero_index(&self) -> Box<dyn Iterator<Item=(u64, PfcDictEntry)>+Send> {
+        let parent_node_value_count = self.parent_node_value_count();
+        Box::new(self.node_dictionary().entries()
+            .enumerate()
+            .map(move |(i,e)| ((i+parent_node_value_count) as u64, e)))
+    }
+
+    fn value_dict_entries_zero_index(&self) -> Box<dyn Iterator<Item=(u64, PfcDictEntry)>+Send> {
+        let parent_node_value_count = self.parent_node_value_count();
+        let node_count = self.node_dict_len();
+        Box::new(self.value_dictionary().entries()
+            .enumerate()
+            .map(move |(i,e)| ((i+parent_node_value_count+node_count) as u64, e)))
+    }
+
+    fn predicate_dict_entries_zero_index(&self) -> Box<dyn Iterator<Item=(u64, PfcDictEntry)>+Send> {
+        let parent_predicate_count = self.parent_predicate_count();
+        Box::new(self.predicate_dictionary().entries()
+            .enumerate()
+            .map(move |(i,e)| ((i+parent_predicate_count) as u64, e)))
+    }
+
     fn internal_triple_additions(&self) -> OptInternalLayerTripleSubjectIterator {
         OptInternalLayerTripleSubjectIterator(Some(InternalLayerTripleSubjectIterator::new(
             self.pos_subjects(),
@@ -1027,6 +1049,21 @@ impl InternalLayer {
             Self::Base(base) => base as &dyn Layer,
             Self::Child(child) => child as &dyn Layer,
         }
+    }
+
+    pub fn immediate_layers(&self) -> Vec<&InternalLayer> {
+        let mut layer = Some(self);
+        let mut result = Vec::new();
+
+        while let Some(l) = layer {
+            result.push(l);
+
+            layer = l.immediate_parent();
+        }
+
+        result.reverse();
+
+        result
     }
 }
 

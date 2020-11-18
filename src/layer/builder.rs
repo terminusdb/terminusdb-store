@@ -152,8 +152,8 @@ impl<F: 'static + FileLoad + FileStore> TripleFileBuilder<F> {
         num_values: usize,
         subjects_file: Option<F>,
     ) -> Self {
-        let s_p_width = ((num_predicates + 1) as f32).log2().ceil() as u8;
-        let sp_o_width = ((num_nodes + num_values + 1) as f32).log2().ceil() as u8;
+        let s_p_width = util::calculate_width(num_predicates as u64);
+        let sp_o_width = util::calculate_width((num_nodes + num_values) as u64);
 
         let s_p_adjacency_list_builder = AdjacencyListBuilder::new(
             s_p_adjacency_list_files.bitindex_files.bits_file,
@@ -269,7 +269,7 @@ impl<F: 'static + FileLoad + FileStore> TripleFileBuilder<F> {
                 subjects[subjects.len() - 1]
             };
 
-            let subjects_width = 1 + (max_subject as f32).log2().ceil() as u8;
+            let subjects_width = util::calculate_width(max_subject);
             let mut subjects_logarray_builder =
                 LogArrayFileBuilder::new(self.subjects_file.unwrap().open_write(), subjects_width);
 
@@ -300,7 +300,7 @@ pub async fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad
     }
     pairs.par_sort_unstable();
 
-    let aj_width = ((greatest_sp + 1) as f32).log2().ceil() as u8;
+    let aj_width = util::calculate_width(greatest_sp);
     let mut o_ps_adjacency_list_builder = AdjacencyListBuilder::new(
         o_ps_files.bitindex_files.bits_file,
         o_ps_files.bitindex_files.blocks_file.open_write(),
@@ -327,7 +327,7 @@ pub async fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad
 
             o_ps_adjacency_list_builder.push(object_ix, sp).await?;
         }
-        let objects_width = ((last_object + 1) as f32).log2().ceil() as u8;
+        let objects_width = util::calculate_width(last_object);
 
         // write out the object list
         let mut objects_builder =

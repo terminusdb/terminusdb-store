@@ -6,6 +6,7 @@
 mod base;
 mod builder;
 mod child;
+mod id_map;
 mod internal;
 mod layer;
 mod simple_builder;
