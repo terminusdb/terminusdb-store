@@ -334,6 +334,11 @@ impl PfcDictEntry {
     }
 
     pub fn to_string(&self) -> String {
+        let vec = self.to_bytes();
+        String::from_utf8(vec).unwrap()
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
         let len = self.len();
         let mut vec = Vec::with_capacity(len);
 
@@ -341,7 +346,7 @@ impl PfcDictEntry {
             vec.extend(part);
         }
 
-        String::from_utf8(vec).unwrap()
+        vec
     }
 
     /// optimize size
@@ -662,29 +667,51 @@ impl<W: 'static + tokio::io::AsyncWrite + Unpin + Send> PfcDictFileBuilder<W> {
             index: Vec::new(),
         }
     }
+
+    pub async fn add_entry(&mut self, e: &PfcDictEntry) -> io::Result<u64> {
+        let bytes = e.to_bytes();
+        self.add_bytes(&bytes).await
+    }
+
     pub async fn add(&mut self, s: &str) -> io::Result<u64> {
-        let bytes = s.as_bytes().to_vec();
+        let bytes = s.as_bytes();
+        self.add_bytes(bytes).await
+    }
+
+    pub async fn add_bytes(&mut self, bytes: &[u8]) -> io::Result<u64> {
         if self.count % BLOCK_SIZE == 0 {
             if self.count != 0 {
                 // this is the start of a block, but not the start of the first block
                 // we need to store an index
                 self.index.push(self.size as u64);
             }
-            let len = write_nul_terminated_bytes(&mut self.pfc_blocks_file, &bytes).await?;
+            let len = write_nul_terminated_bytes(&mut self.pfc_blocks_file, bytes).await?;
             self.size += len;
         } else {
-            let s_bytes = s.as_bytes();
-            let common = find_common_prefix(&self.last.as_ref().unwrap(), s_bytes);
-            let postfix = s_bytes[common..].to_vec();
+            let common = find_common_prefix(&self.last.as_ref().unwrap(), bytes);
+            let postfix = bytes[common..].to_vec();
             let common_len = vbyte::write_async(&mut self.pfc_blocks_file, common as u64).await?;
             let slice_len = write_nul_terminated_bytes(&mut self.pfc_blocks_file, &postfix).await?;
             self.size += common_len + slice_len;
         }
 
         self.count += 1;
-        self.last = Some(bytes);
+        self.last = Some(bytes.to_vec());
 
         Ok(self.count as u64)
+    }
+
+    pub async fn add_all_entries<I: 'static + Iterator<Item = PfcDictEntry> + Send>(
+        &mut self,
+        mut it: I,
+    ) -> io::Result<Vec<u64>> {
+        let mut result = Vec::new();
+        while let Some(next) = it.next() {
+            let r = self.add_entry(&next).await?;
+            result.push(r);
+        }
+
+        Ok(result)
     }
 
     pub async fn add_all<'a, I: 'static + Iterator<Item = &'a str> + Send>(
@@ -813,6 +840,35 @@ pub fn dict_reader_to_indexed_stream<A: 'static + AsyncRead + Unpin + Send>(
         Ok(x) => Ok(((i + 1) as u64 + offset, x)),
         Err(e) => Err(e),
     })
+}
+
+pub async fn merge_dictionaries<
+    'a,
+    F: 'static + FileLoad + FileStore,
+    I: Iterator<Item = &'a PfcDict>,
+>(
+    dictionaries: I,
+    dict_files: DictionaryFiles<F>,
+) -> io::Result<()> {
+    let iterators: Vec<_> = dictionaries.map(|d| d.entries()).collect();
+
+    let pick_fn = |vals: &[Option<&PfcDictEntry>]| {
+        vals.iter()
+            .enumerate()
+            .filter(|(_, v)| v.is_some())
+            .min_by(|(_, x), (_, y)| x.cmp(y))
+            .map(|(ix, _)| ix)
+    };
+
+    let sorted_iterator = sorted_iterator(iterators, pick_fn);
+
+    let mut builder = PfcDictFileBuilder::new(
+        dict_files.blocks_file.open_write(),
+        dict_files.offsets_file.open_write(),
+    );
+
+    builder.add_all_entries(sorted_iterator).await?;
+    builder.finalize().await
 }
 
 #[cfg(test)]

@@ -106,26 +106,39 @@ pub trait InternalLayerImpl {
         self.value_dictionary().get(id)
     }
 
-    fn node_dict_entries_zero_index(&self) -> Box<dyn Iterator<Item=(u64, PfcDictEntry)>+Send> {
+    fn node_dict_entries_zero_index(&self) -> Box<dyn Iterator<Item = (u64, PfcDictEntry)> + Send> {
         let parent_node_value_count = self.parent_node_value_count();
-        Box::new(self.node_dictionary().entries()
-            .enumerate()
-            .map(move |(i,e)| ((i+parent_node_value_count) as u64, e)))
+        Box::new(
+            self.node_dictionary()
+                .entries()
+                .enumerate()
+                .map(move |(i, e)| ((i + parent_node_value_count) as u64, e)),
+        )
     }
 
-    fn value_dict_entries_zero_index(&self) -> Box<dyn Iterator<Item=(u64, PfcDictEntry)>+Send> {
+    fn value_dict_entries_zero_index(
+        &self,
+    ) -> Box<dyn Iterator<Item = (u64, PfcDictEntry)> + Send> {
         let parent_node_value_count = self.parent_node_value_count();
         let node_count = self.node_dict_len();
-        Box::new(self.value_dictionary().entries()
-            .enumerate()
-            .map(move |(i,e)| ((i+parent_node_value_count+node_count) as u64, e)))
+        Box::new(
+            self.value_dictionary()
+                .entries()
+                .enumerate()
+                .map(move |(i, e)| ((i + parent_node_value_count + node_count) as u64, e)),
+        )
     }
 
-    fn predicate_dict_entries_zero_index(&self) -> Box<dyn Iterator<Item=(u64, PfcDictEntry)>+Send> {
+    fn predicate_dict_entries_zero_index(
+        &self,
+    ) -> Box<dyn Iterator<Item = (u64, PfcDictEntry)> + Send> {
         let parent_predicate_count = self.parent_predicate_count();
-        Box::new(self.predicate_dictionary().entries()
-            .enumerate()
-            .map(move |(i,e)| ((i+parent_predicate_count) as u64, e)))
+        Box::new(
+            self.predicate_dictionary()
+                .entries()
+                .enumerate()
+                .map(move |(i, e)| ((i + parent_predicate_count) as u64, e)),
+        )
     }
 
     fn internal_triple_additions(&self) -> OptInternalLayerTripleSubjectIterator {
@@ -1059,6 +1072,33 @@ impl InternalLayer {
             result.push(l);
 
             layer = l.immediate_parent();
+        }
+
+        result.reverse();
+
+        result
+    }
+
+    pub fn immediate_layers_upto(&self, upto_layer_id: [u32; 5]) -> Vec<&InternalLayer> {
+        if InternalLayerImpl::name(self) == upto_layer_id {
+            panic!("tried to retrieve layers up to a boundary, but boundary was the top layer");
+        }
+
+        let mut layer = Some(self);
+        let mut result = Vec::new();
+
+        while let Some(l) = layer {
+            if InternalLayerImpl::name(l) == upto_layer_id {
+                break;
+            }
+            result.push(l);
+
+            layer = l.immediate_parent();
+        }
+
+        if layer.is_none() {
+            // we went through the whole stack and we did not find the boundary.
+            panic!("tried to find all layers up to a boundary, but boundary was not found");
         }
 
         result.reverse();

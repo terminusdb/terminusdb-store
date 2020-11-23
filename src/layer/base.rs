@@ -503,53 +503,8 @@ pub mod tests {
     use tokio::runtime::{Handle, Runtime};
 
     pub fn base_layer_files() -> BaseLayerFiles<MemoryBackedStore> {
-        BaseLayerFiles {
-            node_dictionary_files: DictionaryFiles {
-                blocks_file: MemoryBackedStore::new(),
-                offsets_file: MemoryBackedStore::new(),
-            },
-            predicate_dictionary_files: DictionaryFiles {
-                blocks_file: MemoryBackedStore::new(),
-                offsets_file: MemoryBackedStore::new(),
-            },
-            value_dictionary_files: DictionaryFiles {
-                blocks_file: MemoryBackedStore::new(),
-                offsets_file: MemoryBackedStore::new(),
-            },
-
-            subjects_file: MemoryBackedStore::new(),
-            objects_file: MemoryBackedStore::new(),
-
-            s_p_adjacency_list_files: AdjacencyListFiles {
-                bitindex_files: BitIndexFiles {
-                    bits_file: MemoryBackedStore::new(),
-                    blocks_file: MemoryBackedStore::new(),
-                    sblocks_file: MemoryBackedStore::new(),
-                },
-                nums_file: MemoryBackedStore::new(),
-            },
-            sp_o_adjacency_list_files: AdjacencyListFiles {
-                bitindex_files: BitIndexFiles {
-                    bits_file: MemoryBackedStore::new(),
-                    blocks_file: MemoryBackedStore::new(),
-                    sblocks_file: MemoryBackedStore::new(),
-                },
-                nums_file: MemoryBackedStore::new(),
-            },
-            o_ps_adjacency_list_files: AdjacencyListFiles {
-                bitindex_files: BitIndexFiles {
-                    bits_file: MemoryBackedStore::new(),
-                    blocks_file: MemoryBackedStore::new(),
-                    sblocks_file: MemoryBackedStore::new(),
-                },
-                nums_file: MemoryBackedStore::new(),
-            },
-            predicate_wavelet_tree_files: BitIndexFiles {
-                bits_file: MemoryBackedStore::new(),
-                blocks_file: MemoryBackedStore::new(),
-                sblocks_file: MemoryBackedStore::new(),
-            },
-        }
+        // TODO inline
+        base_layer_memory_files()
     }
 
     pub fn example_base_layer_files(handle: &Handle) -> BaseLayerFiles<MemoryBackedStore> {

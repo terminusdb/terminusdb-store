@@ -66,6 +66,8 @@ pub struct BaseLayerFiles<F: 'static + FileLoad + FileStore> {
     pub predicate_dictionary_files: DictionaryFiles<F>,
     pub value_dictionary_files: DictionaryFiles<F>,
 
+    pub id_map_files: IdMapFiles<F>,
+
     pub subjects_file: F,
     pub objects_file: F,
 
@@ -82,6 +84,8 @@ pub struct BaseLayerMaps {
     pub node_dictionary_maps: DictionaryMaps,
     pub predicate_dictionary_maps: DictionaryMaps,
     pub value_dictionary_maps: DictionaryMaps,
+
+    pub id_map_maps: IdMapMaps,
 
     pub subjects_map: Option<Bytes>,
     pub objects_map: Option<Bytes>,
@@ -100,6 +104,8 @@ impl<F: FileLoad + FileStore> BaseLayerFiles<F> {
         let predicate_dictionary_maps = self.predicate_dictionary_files.map_all().await?;
         let value_dictionary_maps = self.value_dictionary_files.map_all().await?;
 
+        let id_map_maps = self.id_map_files.map_all().await?;
+
         let subjects_map = self.subjects_file.map_if_exists().await?;
         let objects_map = self.objects_file.map_if_exists().await?;
 
@@ -113,6 +119,8 @@ impl<F: FileLoad + FileStore> BaseLayerFiles<F> {
             node_dictionary_maps,
             predicate_dictionary_maps,
             value_dictionary_maps,
+
+            id_map_maps,
 
             subjects_map,
             objects_map,
@@ -131,6 +139,8 @@ pub struct ChildLayerFiles<F: 'static + FileLoad + FileStore + Clone + Send + Sy
     pub node_dictionary_files: DictionaryFiles<F>,
     pub predicate_dictionary_files: DictionaryFiles<F>,
     pub value_dictionary_files: DictionaryFiles<F>,
+
+    pub id_map_files: IdMapFiles<F>,
 
     pub pos_subjects_file: F,
     pub pos_objects_file: F,
@@ -154,6 +164,8 @@ pub struct ChildLayerMaps {
     pub predicate_dictionary_maps: DictionaryMaps,
     pub value_dictionary_maps: DictionaryMaps,
 
+    pub id_map_maps: IdMapMaps,
+
     pub pos_subjects_map: Bytes,
     pub pos_objects_map: Bytes,
     pub neg_subjects_map: Bytes,
@@ -175,6 +187,8 @@ impl<F: FileLoad + FileStore + Clone> ChildLayerFiles<F> {
         let node_dictionary_maps = self.node_dictionary_files.map_all().await?;
         let predicate_dictionary_maps = self.predicate_dictionary_files.map_all().await?;
         let value_dictionary_maps = self.value_dictionary_files.map_all().await?;
+
+        let id_map_maps = self.id_map_files.map_all().await?;
 
         let pos_subjects_map = self.pos_subjects_file.map().await?;
         let neg_subjects_map = self.neg_subjects_file.map().await?;
@@ -198,6 +212,8 @@ impl<F: FileLoad + FileStore + Clone> ChildLayerFiles<F> {
             node_dictionary_maps,
             predicate_dictionary_maps,
             value_dictionary_maps,
+
+            id_map_maps,
 
             pos_subjects_map,
             pos_objects_map,
@@ -243,6 +259,30 @@ impl<F: 'static + FileLoad + FileStore> DictionaryFiles<F> {
 }
 
 #[derive(Clone)]
+pub struct IdMapMaps {
+    pub node_value_idmap_maps: Option<BitIndexMaps>,
+    pub predicate_idmap_maps: Option<BitIndexMaps>,
+}
+
+#[derive(Clone)]
+pub struct IdMapFiles<F: 'static + FileLoad + FileStore> {
+    pub node_value_idmap_files: BitIndexFiles<F>,
+    pub predicate_idmap_files: BitIndexFiles<F>,
+}
+
+impl<F: 'static + FileLoad + FileStore> IdMapFiles<F> {
+    pub async fn map_all(&self) -> io::Result<IdMapMaps> {
+        let node_value_idmap_maps = self.node_value_idmap_files.map_all_if_exists().await?;
+        let predicate_idmap_maps = self.predicate_idmap_files.map_all_if_exists().await?;
+
+        Ok(IdMapMaps {
+            node_value_idmap_maps,
+            predicate_idmap_maps,
+        })
+    }
+}
+
+#[derive(Clone)]
 pub struct BitIndexMaps {
     pub bits_map: Bytes,
     pub blocks_map: Bytes,
@@ -267,6 +307,14 @@ impl<F: 'static + FileLoad + FileStore> BitIndexFiles<F> {
             blocks_map,
             sblocks_map,
         })
+    }
+
+    pub async fn map_all_if_exists(&self) -> io::Result<Option<BitIndexMaps>> {
+        if self.bits_file.exists() {
+            Ok(Some(self.map_all().await?))
+        } else {
+            Ok(None)
+        }
     }
 }
 

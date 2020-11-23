@@ -8,8 +8,13 @@ pub struct Filenames {
     pub value_dictionary_blocks: &'static str,
     pub value_dictionary_offsets: &'static str,
 
-    pub node_value_remap: &'static str,
-    pub predicate_remap: &'static str,
+    pub node_value_idmap_bits: &'static str,
+    pub node_value_idmap_bit_index_blocks: &'static str,
+    pub node_value_idmap_bit_index_sblocks: &'static str,
+
+    pub predicate_idmap_bits: &'static str,
+    pub predicate_idmap_bit_index_blocks: &'static str,
+    pub predicate_idmap_bit_index_sblocks: &'static str,
 
     pub base_subjects: &'static str,
     pub base_objects: &'static str,
@@ -90,8 +95,13 @@ pub const FILENAMES: Filenames = Filenames {
     value_dictionary_blocks: "value_dictionary_blocks.pfc",
     value_dictionary_offsets: "value_dictionary_offsets.logarray",
 
-    node_value_remap: "node_value_remap.logarray",
-    predicate_remap: "predicate_remap.logarray",
+    node_value_idmap_bits: "node_value_idmap_bits.bitarray",
+    node_value_idmap_bit_index_blocks: "node_value_idmap_bit_index_blocks.bitarray",
+    node_value_idmap_bit_index_sblocks: "node_value_idmap_bit_index_sblocks.bitarray",
+
+    predicate_idmap_bits: "predicate_idmap_bits.bitarray",
+    predicate_idmap_bit_index_blocks: "predicate_idmap_bit_index_blocks.bitarray",
+    predicate_idmap_bit_index_sblocks: "predicate_idmap_bit_index_sblocks.bitarray",
 
     base_subjects: "base_subjects.logarray",
     base_objects: "base_objects.logarray",
