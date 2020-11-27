@@ -5,6 +5,7 @@ use futures::stream::{Peekable, Stream, StreamExt};
 use futures::task::{Context, Poll};
 
 use super::builder::*;
+use super::id_map::*;
 use super::internal::*;
 use super::layer::*;
 use crate::storage::*;
@@ -24,6 +25,9 @@ pub struct BaseLayer {
     node_dictionary: PfcDict,
     predicate_dictionary: PfcDict,
     value_dictionary: PfcDict,
+
+    node_value_idmap: IdMap,
+    predicate_idmap: IdMap,
 
     subjects: Option<MonotonicLogArray>,
     objects: Option<MonotonicLogArray>,
@@ -60,6 +64,22 @@ impl BaseLayer {
             maps.value_dictionary_maps.offsets_map,
         )
         .unwrap();
+
+        let node_value_idmap = match maps.id_map_maps.node_value_idmap_maps {
+            None => IdMap::default(),
+            Some(maps) => IdMap::from_maps(
+                maps,
+                util::calculate_width((node_dictionary.len() + value_dictionary.len()) as u64),
+            ),
+        };
+
+        let predicate_idmap = match maps.id_map_maps.predicate_idmap_maps {
+            None => IdMap::default(),
+            Some(map) => IdMap::from_maps(
+                map,
+                util::calculate_width(predicate_dictionary.len() as u64),
+            ),
+        };
 
         let subjects = maps.subjects_map.map(|subjects_map| {
             MonotonicLogArray::from_logarray(LogArray::parse(subjects_map).unwrap())
@@ -102,6 +122,9 @@ impl BaseLayer {
             node_dictionary,
             predicate_dictionary,
             value_dictionary,
+
+            node_value_idmap,
+            predicate_idmap,
 
             subjects,
             objects,

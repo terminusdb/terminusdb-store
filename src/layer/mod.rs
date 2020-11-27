@@ -14,6 +14,7 @@ mod simple_builder;
 
 pub use base::*;
 pub use child::*;
+pub use id_map::*;
 pub use internal::*;
 pub use layer::*;
 pub use simple_builder::*;

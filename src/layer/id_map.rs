@@ -1,15 +1,31 @@
 #![allow(dead_code)]
 use super::*;
-use crate::storage::{FileLoad, FileStore, IdMapFiles};
+use crate::storage::{BitIndexMaps, FileLoad, FileStore, IdMapFiles};
 use crate::structure::util::sorted_iterator;
 use crate::structure::*;
 use std::io;
 
+#[derive(Clone)]
 pub struct IdMap {
     id_wtree: Option<WaveletTree>,
 }
 
+impl Default for IdMap {
+    fn default() -> Self {
+        Self::from_parts(None)
+    }
+}
+
 impl IdMap {
+    pub fn from_maps(maps: BitIndexMaps, width: u8) -> Self {
+        let id_wtree = WaveletTree::from_parts(
+            BitIndex::from_maps(maps.bits_map, maps.blocks_map, maps.sblocks_map),
+            width,
+        );
+
+        Self::from_parts(Some(id_wtree))
+    }
+
     pub fn from_parts(id_wtree: Option<WaveletTree>) -> Self {
         IdMap { id_wtree }
     }

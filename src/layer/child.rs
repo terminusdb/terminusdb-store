@@ -4,6 +4,7 @@
 //! triple additions and removals, and any new dictionary entries that
 //! this layer needs for its additions.
 use super::builder::*;
+use super::id_map::*;
 use super::internal::*;
 use super::layer::*;
 use crate::storage::*;
@@ -28,6 +29,9 @@ pub struct ChildLayer {
     node_dictionary: PfcDict,
     predicate_dictionary: PfcDict,
     value_dictionary: PfcDict,
+
+    node_value_idmap: IdMap,
+    predicate_idmap: IdMap,
 
     parent_node_value_count: usize,
     parent_predicate_count: usize,
@@ -77,6 +81,25 @@ impl ChildLayer {
 
         let parent_node_value_count = parent.node_and_value_count();
         let parent_predicate_count = parent.predicate_count();
+
+        let node_value_idmap = match maps.id_map_maps.node_value_idmap_maps {
+            None => IdMap::default(),
+            Some(maps) => IdMap::from_maps(
+                maps,
+                util::calculate_width(
+                    (parent_node_value_count + node_dictionary.len() + value_dictionary.len())
+                        as u64,
+                ),
+            ),
+        };
+
+        let predicate_idmap = match maps.id_map_maps.predicate_idmap_maps {
+            None => IdMap::default(),
+            Some(map) => IdMap::from_maps(
+                map,
+                util::calculate_width((parent_predicate_count + predicate_dictionary.len()) as u64),
+            ),
+        };
 
         let pos_subjects =
             MonotonicLogArray::from_logarray(LogArray::parse(maps.pos_subjects_map).unwrap());
@@ -151,6 +174,9 @@ impl ChildLayer {
             node_dictionary: node_dictionary,
             predicate_dictionary: predicate_dictionary,
             value_dictionary: value_dictionary,
+
+            node_value_idmap,
+            predicate_idmap,
 
             parent_node_value_count,
             parent_predicate_count,
