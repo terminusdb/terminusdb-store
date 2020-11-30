@@ -252,6 +252,10 @@ impl Iterator for PfcDictBlockIterator {
             } as usize;
             let remainder = self.dict.n_strings as usize - self.block_index * BLOCK_SIZE;
 
+            if remainder == 0 {
+                return None;
+            }
+
             self.block_index += 1;
 
             let mut block = self.dict.blocks.clone();
@@ -312,7 +316,7 @@ impl Iterator for PfcDictEntryIterator {
 ///
 /// This is a low-memory structure, basically just holding a pointer, some metadata and a block entry number.
 /// Its purpose is for use in sorting of dictionary entries without having to copy a lot of strings.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PfcDictEntry {
     parts: Vec<Bytes>,
 }

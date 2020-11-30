@@ -19,10 +19,8 @@ impl Default for IdMap {
 
 impl IdMap {
     pub fn from_maps(maps: BitIndexMaps, width: u8) -> Self {
-        let id_wtree = WaveletTree::from_parts(
-            BitIndex::from_maps(maps.bits_map, maps.blocks_map, maps.sblocks_map),
-            width,
-        );
+        let bitindex = BitIndex::from_maps(maps.bits_map, maps.blocks_map, maps.sblocks_map);
+        let id_wtree = WaveletTree::from_parts(bitindex, width);
 
         Self::from_parts(Some(id_wtree))
     }
@@ -35,7 +33,7 @@ impl IdMap {
         self.id_wtree
             .as_ref()
             .and_then(|wtree| {
-                if id < wtree.len() as u64 {
+                if id >= wtree.len() as u64 {
                     None
                 } else {
                     Some(wtree.lookup_one(id).unwrap())
@@ -48,7 +46,7 @@ impl IdMap {
         self.id_wtree
             .as_ref()
             .and_then(|wtree| {
-                if id < wtree.len() as u64 {
+                if id >= wtree.len() as u64 {
                     None
                 } else {
                     Some(wtree.decode_one(id.try_into().unwrap()))
@@ -83,12 +81,14 @@ async fn construct_idmaps_from_slice<F: 'static + FileLoad + FileStore>(
 ) -> io::Result<()> {
     let node_iters = layers
         .iter()
-        .map(|layer| layer.node_dict_entries_zero_index());
+        .map(|layer| layer.node_dict_entries_zero_index())
+        .collect();
+
     let value_iters = layers
         .iter()
-        .map(|layer| layer.value_dict_entries_zero_index());
+        .map(|layer| layer.value_dict_entries_zero_index())
+        .collect();
 
-    let node_value_iters: Vec<_> = node_iters.chain(value_iters).collect();
     let predicate_iters: Vec<_> = layers
         .iter()
         .map(|layer| layer.predicate_dict_entries_zero_index())
@@ -98,22 +98,27 @@ async fn construct_idmaps_from_slice<F: 'static + FileLoad + FileStore>(
         vals.iter()
             .enumerate()
             .filter(|(_, x)| x.is_some())
-            .min_by(|(_, x), (_, y)| x.cmp(y))
+            .min_by(|(_, x), (_, y)| x.unwrap().1.cmp(&y.unwrap().1))
             .map(|x| x.0)
     };
 
-    let sorted_node_value_iter = sorted_iterator(node_value_iters, entry_comparator);
+    let sorted_node_iter = sorted_iterator(node_iters, entry_comparator);
+    let sorted_value_iter = sorted_iterator(value_iters, entry_comparator);
+    let sorted_node_value_iter = sorted_node_iter.chain(sorted_value_iter);
     let sorted_predicate_iter = sorted_iterator(predicate_iters, entry_comparator);
 
+    let node_value_width =
+        util::calculate_width(layers.last().unwrap().node_and_value_count() as u64);
     let node_value_build_task = tokio::spawn(build_wavelet_tree_from_iter(
-        util::calculate_width(layers.last().unwrap().node_and_value_count() as u64),
+        node_value_width,
         sorted_node_value_iter.map(|(id, _)| id),
         idmap_files.node_value_idmap_files.bits_file,
         idmap_files.node_value_idmap_files.blocks_file,
         idmap_files.node_value_idmap_files.sblocks_file,
     ));
+    let predicate_width = util::calculate_width(layers.last().unwrap().predicate_count() as u64);
     let predicate_build_task = tokio::spawn(build_wavelet_tree_from_iter(
-        util::calculate_width(layers.last().unwrap().node_and_value_count() as u64),
+        predicate_width,
         sorted_predicate_iter.map(|(id, _)| id),
         idmap_files.predicate_idmap_files.bits_file,
         idmap_files.predicate_idmap_files.blocks_file,

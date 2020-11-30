@@ -6,7 +6,7 @@
 mod base;
 mod builder;
 mod child;
-mod delta_rollup;
+mod delta;
 mod id_map;
 mod internal;
 mod layer;

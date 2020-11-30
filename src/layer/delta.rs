@@ -9,35 +9,6 @@ use crate::layer::Layer;
 use crate::storage::*;
 use crate::structure::*;
 
-/*
-pub async fn node_value_dictionary_rollup<
-    F:'static+FileLoad+FileStore,
-    I1:Iterator<Item=&PfcDict>,
-    I2:Iterator<Item=&PfcDict>>(
-    node_dictionaries: I1,
-    value_dictionaries: I2,
-    node_dict_files: DictionaryFiles<F>,
-    value_dict_files: DictionaryFiles<F>,
-    node_value_idmap_files: BitIndexFiles<F>
-) -> io::Result<()> {
-    merge_dictionaries(node_dictionaries, node_dict_files).await?;
-    merge_dictionaries(value_dictionaries, value_dict_files).await?;
-
-
-    unimplemented!();
-}
-
-pub async fn predicate_dictionary_rollup<
-    I:Iterator<Item=&PfcDict>,
-    F:'static+FileLoad+FileStore>(
-    predicate_dictionaries: I,
-    predicate_dict_files: DictionaryFiles<F>,
-    predicate_idmap_files: BitIndexFiles<F>
-) -> io::Result<()> {
-    unimplemented!();
-}
-*/
-
 pub async fn dictionary_rollup<F: 'static + FileLoad + FileStore>(
     layer: &InternalLayer,
     files: &BaseLayerFiles<F>,
@@ -177,4 +148,92 @@ pub async fn delta_rollup_upto<F: 'static + FileLoad + FileStore>(
         files.neg_predicate_wavelet_tree_files.clone(),
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::layer::*;
+    use crate::storage::memory::*;
+    use std::sync::Arc;
+    #[tokio::test]
+    async fn rollup_three_layers() {
+        let base_files = base_layer_memory_files();
+        let mut builder = SimpleLayerBuilder::new([0, 0, 0, 0, 1], base_files.clone());
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
+        builder.add_string_triple(StringTriple::new_node("cow", "likes", "duck"));
+        builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
+
+        builder.commit().await.unwrap();
+        let base_layer: Arc<InternalLayer> = Arc::new(
+            BaseLayer::load_from_files([0, 0, 0, 0, 1], &base_files)
+                .await
+                .unwrap()
+                .into(),
+        );
+
+        let child1_files = child_layer_memory_files();
+        builder = SimpleLayerBuilder::from_parent(
+            [0, 0, 0, 0, 2],
+            base_layer.clone(),
+            child1_files.clone(),
+        );
+        builder.remove_string_triple(StringTriple::new_node("duck", "hates", "cow"));
+        builder.add_string_triple(StringTriple::new_node("duck", "likes", "cow"));
+        builder.add_string_triple(StringTriple::new_value("horse", "says", "neigh"));
+        builder.add_string_triple(StringTriple::new_node("pig", "likes", "pig"));
+
+        builder.commit().await.unwrap();
+        let child1_layer: Arc<InternalLayer> = Arc::new(
+            ChildLayer::load_from_files([0, 0, 0, 0, 2], base_layer, &child1_files)
+                .await
+                .unwrap()
+                .into(),
+        );
+
+        let child2_files = child_layer_memory_files();
+        builder = SimpleLayerBuilder::from_parent(
+            [0, 0, 0, 0, 3],
+            child1_layer.clone(),
+            child2_files.clone(),
+        );
+        builder.remove_string_triple(StringTriple::new_node("pig", "likes", "pig"));
+        builder.commit().await.unwrap();
+        let child2_layer: Arc<InternalLayer> = Arc::new(
+            ChildLayer::load_from_files([0, 0, 0, 0, 3], child1_layer, &child2_files)
+                .await
+                .unwrap()
+                .into(),
+        );
+
+        let delta_files = base_layer_memory_files();
+        delta_rollup(&child2_layer, delta_files.clone())
+            .await
+            .unwrap();
+
+        let delta_layer: Arc<InternalLayer> = Arc::new(
+            BaseLayer::load_from_files([0, 0, 0, 0, 4], &delta_files)
+                .await
+                .unwrap()
+                .into(),
+        );
+
+        let expected: Vec<_> = child2_layer
+            .triples()
+            .map(|t| child2_layer.id_triple_to_string(&t).unwrap())
+            .collect();
+
+        assert_eq!(
+            expected,
+            delta_layer
+                .triples()
+                .map(|t| delta_layer.id_triple_to_string(&t).unwrap())
+                .collect::<Vec<_>>()
+        );
+
+        for t in expected {
+            assert!(delta_layer.string_triple_exists(&t));
+        }
+    }
 }
