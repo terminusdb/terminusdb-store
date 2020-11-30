@@ -86,10 +86,7 @@ impl ChildLayer {
             None => IdMap::default(),
             Some(maps) => IdMap::from_maps(
                 maps,
-                util::calculate_width(
-                    (parent_node_value_count + node_dictionary.len() + value_dictionary.len())
-                        as u64,
-                ),
+                util::calculate_width((node_dictionary.len() + value_dictionary.len()) as u64),
             ),
         };
 
@@ -97,7 +94,7 @@ impl ChildLayer {
             None => IdMap::default(),
             Some(map) => IdMap::from_maps(
                 map,
-                util::calculate_width((parent_predicate_count + predicate_dictionary.len()) as u64),
+                util::calculate_width(predicate_dictionary.len() as u64),
             ),
         };
 

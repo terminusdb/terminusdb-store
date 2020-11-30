@@ -156,8 +156,8 @@ mod tests {
     use crate::layer::*;
     use crate::storage::memory::*;
     use std::sync::Arc;
-    #[tokio::test]
-    async fn rollup_three_layers() {
+    async fn build_three_layers(
+    ) -> io::Result<(Arc<InternalLayer>, Arc<InternalLayer>, Arc<InternalLayer>)> {
         let base_files = base_layer_memory_files();
         let mut builder = SimpleLayerBuilder::new([0, 0, 0, 0, 1], base_files.clone());
         builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
@@ -165,11 +165,10 @@ mod tests {
         builder.add_string_triple(StringTriple::new_node("cow", "likes", "duck"));
         builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
 
-        builder.commit().await.unwrap();
+        builder.commit().await?;
         let base_layer: Arc<InternalLayer> = Arc::new(
             BaseLayer::load_from_files([0, 0, 0, 0, 1], &base_files)
-                .await
-                .unwrap()
+                .await?
                 .into(),
         );
 
@@ -184,11 +183,10 @@ mod tests {
         builder.add_string_triple(StringTriple::new_value("horse", "says", "neigh"));
         builder.add_string_triple(StringTriple::new_node("pig", "likes", "pig"));
 
-        builder.commit().await.unwrap();
+        builder.commit().await?;
         let child1_layer: Arc<InternalLayer> = Arc::new(
-            ChildLayer::load_from_files([0, 0, 0, 0, 2], base_layer, &child1_files)
-                .await
-                .unwrap()
+            ChildLayer::load_from_files([0, 0, 0, 0, 2], base_layer.clone(), &child1_files)
+                .await?
                 .into(),
         );
 
@@ -199,18 +197,25 @@ mod tests {
             child2_files.clone(),
         );
         builder.remove_string_triple(StringTriple::new_node("pig", "likes", "pig"));
-        builder.commit().await.unwrap();
+        builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
+        builder.add_string_triple(StringTriple::new_value("sheep", "says", "baah"));
+        builder.add_string_triple(StringTriple::new_value("pig", "likes", "sheep"));
+        builder.commit().await?;
         let child2_layer: Arc<InternalLayer> = Arc::new(
-            ChildLayer::load_from_files([0, 0, 0, 0, 3], child1_layer, &child2_files)
-                .await
-                .unwrap()
+            ChildLayer::load_from_files([0, 0, 0, 0, 3], child1_layer.clone(), &child2_files)
+                .await?
                 .into(),
         );
 
+        Ok((base_layer, child1_layer, child2_layer))
+    }
+
+    #[tokio::test]
+    async fn rollup_three_layers() {
+        let (_, _, layer) = build_three_layers().await.unwrap();
+
         let delta_files = base_layer_memory_files();
-        delta_rollup(&child2_layer, delta_files.clone())
-            .await
-            .unwrap();
+        delta_rollup(&layer, delta_files.clone()).await.unwrap();
 
         let delta_layer: Arc<InternalLayer> = Arc::new(
             BaseLayer::load_from_files([0, 0, 0, 0, 4], &delta_files)
@@ -219,9 +224,9 @@ mod tests {
                 .into(),
         );
 
-        let expected: Vec<_> = child2_layer
+        let expected: Vec<_> = layer
             .triples()
-            .map(|t| child2_layer.id_triple_to_string(&t).unwrap())
+            .map(|t| layer.id_triple_to_string(&t).unwrap())
             .collect();
 
         assert_eq!(
@@ -235,5 +240,58 @@ mod tests {
         for t in expected {
             assert!(delta_layer.string_triple_exists(&t));
         }
+    }
+
+    #[tokio::test]
+    async fn rollup_two_of_three_layers() {
+        let (base_layer, _, child_layer) = build_three_layers().await.unwrap();
+
+        let delta_files = child_layer_memory_files();
+        delta_rollup_upto(&child_layer, [0, 0, 0, 0, 1], delta_files.clone())
+            .await
+            .unwrap();
+
+        let delta_layer: Arc<InternalLayer> = Arc::new(
+            ChildLayer::load_from_files([0, 0, 0, 0, 4], base_layer, &delta_files)
+                .await
+                .unwrap()
+                .into(),
+        );
+
+        let expected: Vec<_> = child_layer
+            .triples()
+            .map(|t| child_layer.id_triple_to_string(&t).unwrap())
+            .collect();
+
+        let aa: Vec<_> = delta_layer
+            .node_value_id_map()
+            .id_wtree
+            .as_ref()
+            .unwrap()
+            .decode()
+            .collect();
+
+        assert_eq!(
+            expected,
+            delta_layer
+                .triples()
+                .map(|t| delta_layer.id_triple_to_string(&t).unwrap())
+                .collect::<Vec<_>>()
+        );
+
+        for t in expected {
+            assert!(delta_layer.string_triple_exists(&t));
+        }
+
+        let change_expected: Vec<_> =
+            InternalTripleStackIterator::from_layer_stack(&*child_layer, [0, 0, 0, 0, 1])
+                .unwrap()
+                .collect();
+        let change_actual: Vec<_> =
+            InternalTripleStackIterator::from_layer_stack(&*delta_layer, [0, 0, 0, 0, 1])
+                .unwrap()
+                .collect();
+
+        assert_eq!(change_expected, change_actual);
     }
 }

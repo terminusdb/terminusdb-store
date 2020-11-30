@@ -8,7 +8,7 @@ use std::io;
 
 #[derive(Clone)]
 pub struct IdMap {
-    id_wtree: Option<WaveletTree>,
+    pub id_wtree: Option<WaveletTree>,
 }
 
 impl Default for IdMap {
@@ -62,7 +62,7 @@ pub async fn construct_idmaps<F: 'static + FileLoad + FileStore>(
 ) -> io::Result<()> {
     let layers = input.immediate_layers();
 
-    construct_idmaps_from_slice(&layers, idmap_files).await
+    construct_idmaps_from_slice(&layers, 0, 0, idmap_files).await
 }
 
 pub async fn construct_idmaps_upto<F: 'static + FileLoad + FileStore>(
@@ -71,12 +71,22 @@ pub async fn construct_idmaps_upto<F: 'static + FileLoad + FileStore>(
     idmap_files: IdMapFiles<F>,
 ) -> io::Result<()> {
     let layers = input.immediate_layers_upto(upto_layer_id);
+    let node_value_offset = layers
+        .first()
+        .map(|l| l.parent_node_value_count())
+        .unwrap_or(0);
+    let predicate_offset = layers
+        .first()
+        .map(|l| l.parent_predicate_count())
+        .unwrap_or(0);
 
-    construct_idmaps_from_slice(&layers, idmap_files).await
+    construct_idmaps_from_slice(&layers, node_value_offset, predicate_offset, idmap_files).await
 }
 
 async fn construct_idmaps_from_slice<F: 'static + FileLoad + FileStore>(
     layers: &[&InternalLayer],
+    node_value_offset: usize,
+    predicate_offset: usize,
     idmap_files: IdMapFiles<F>,
 ) -> io::Result<()> {
     let node_iters = layers
@@ -107,19 +117,21 @@ async fn construct_idmaps_from_slice<F: 'static + FileLoad + FileStore>(
     let sorted_node_value_iter = sorted_node_iter.chain(sorted_value_iter);
     let sorted_predicate_iter = sorted_iterator(predicate_iters, entry_comparator);
 
-    let node_value_width =
-        util::calculate_width(layers.last().unwrap().node_and_value_count() as u64);
+    let node_value_width = util::calculate_width(
+        (layers.last().unwrap().node_and_value_count() - node_value_offset) as u64,
+    );
     let node_value_build_task = tokio::spawn(build_wavelet_tree_from_iter(
         node_value_width,
-        sorted_node_value_iter.map(|(id, _)| id),
+        sorted_node_value_iter.map(move |(id, _)| id - node_value_offset as u64),
         idmap_files.node_value_idmap_files.bits_file,
         idmap_files.node_value_idmap_files.blocks_file,
         idmap_files.node_value_idmap_files.sblocks_file,
     ));
-    let predicate_width = util::calculate_width(layers.last().unwrap().predicate_count() as u64);
+    let predicate_width =
+        util::calculate_width((layers.last().unwrap().predicate_count() - predicate_offset) as u64);
     let predicate_build_task = tokio::spawn(build_wavelet_tree_from_iter(
         predicate_width,
-        sorted_predicate_iter.map(|(id, _)| id),
+        sorted_predicate_iter.map(move |(id, _)| id - predicate_offset as u64),
         idmap_files.predicate_idmap_files.bits_file,
         idmap_files.predicate_idmap_files.blocks_file,
         idmap_files.predicate_idmap_files.sblocks_file,
