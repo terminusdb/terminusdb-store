@@ -168,6 +168,14 @@ impl InternalLayerImpl for BaseLayer {
         &self.value_dictionary
     }
 
+    fn node_value_id_map(&self) -> &IdMap {
+        &self.node_value_idmap
+    }
+
+    fn predicate_id_map(&self) -> &IdMap {
+        &self.predicate_idmap
+    }
+
     fn parent_node_value_count(&self) -> usize {
         0
     }

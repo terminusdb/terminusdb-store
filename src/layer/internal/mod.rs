@@ -4,8 +4,10 @@ mod subject_iterator;
 
 use super::base::*;
 use super::child::*;
+use super::id_map::*;
 use super::layer::*;
 use crate::structure::*;
+use std::convert::TryInto;
 use std::ops::Deref;
 
 pub use object_iterator::*;
@@ -25,7 +27,7 @@ fn external_id_to_internal(array_option: Option<&MonotonicLogArray>, id: u64) ->
 
 fn internal_id_to_external(array_option: Option<&MonotonicLogArray>, id: u64) -> u64 {
     match array_option {
-        Some(array) => array.entry((id - 1) as usize),
+        Some(array) => array.entry((id - 1).try_into().unwrap()),
         None => id,
     }
 }
@@ -50,6 +52,9 @@ pub trait InternalLayerImpl {
     fn node_dictionary(&self) -> &PfcDict;
     fn predicate_dictionary(&self) -> &PfcDict;
     fn value_dictionary(&self) -> &PfcDict;
+
+    fn node_value_id_map(&self) -> &IdMap;
+    fn predicate_id_map(&self) -> &IdMap;
 
     fn parent_node_value_count(&self) -> usize;
     fn parent_predicate_count(&self) -> usize;
@@ -108,11 +113,17 @@ pub trait InternalLayerImpl {
 
     fn node_dict_entries_zero_index(&self) -> Box<dyn Iterator<Item = (u64, PfcDictEntry)> + Send> {
         let parent_node_value_count = self.parent_node_value_count();
+        let node_value_id_map = self.node_value_id_map().clone();
         Box::new(
             self.node_dictionary()
                 .entries()
                 .enumerate()
-                .map(move |(i, e)| ((i + parent_node_value_count) as u64, e)),
+                .map(move |(i, e)| {
+                    (
+                        node_value_id_map.inner_to_outer(i as u64) + parent_node_value_count as u64,
+                        e,
+                    )
+                }),
         )
     }
 
@@ -121,11 +132,18 @@ pub trait InternalLayerImpl {
     ) -> Box<dyn Iterator<Item = (u64, PfcDictEntry)> + Send> {
         let parent_node_value_count = self.parent_node_value_count();
         let node_count = self.node_dict_len();
+        let node_value_id_map = self.node_value_id_map().clone();
         Box::new(
             self.value_dictionary()
                 .entries()
                 .enumerate()
-                .map(move |(i, e)| ((i + parent_node_value_count + node_count) as u64, e)),
+                .map(move |(i, e)| {
+                    (
+                        node_value_id_map.inner_to_outer((i + node_count) as u64)
+                            + parent_node_value_count as u64,
+                        e,
+                    )
+                }),
         )
     }
 
@@ -133,11 +151,17 @@ pub trait InternalLayerImpl {
         &self,
     ) -> Box<dyn Iterator<Item = (u64, PfcDictEntry)> + Send> {
         let parent_predicate_count = self.parent_predicate_count();
+        let predicate_id_map = self.predicate_id_map().clone();
         Box::new(
             self.predicate_dictionary()
                 .entries()
                 .enumerate()
-                .map(move |(i, e)| ((i + parent_predicate_count) as u64, e)),
+                .map(move |(i, e)| {
+                    (
+                        predicate_id_map.inner_to_outer(i as u64) + parent_predicate_count as u64,
+                        e,
+                    )
+                }),
         )
     }
 
@@ -264,7 +288,12 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
 
     fn subject_id<'a>(&'a self, subject: &str) -> Option<u64> {
         let to_result = |layer: &'a dyn InternalLayerImpl| {
-            (layer.node_dict_id(subject), layer.immediate_parent())
+            (
+                layer
+                    .node_dict_id(subject)
+                    .map(|id| layer.node_value_id_map().inner_to_outer(id)),
+                layer.immediate_parent(),
+            )
         };
         let mut result = to_result(self);
         while let (None, Some(layer)) = result {
@@ -276,7 +305,12 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
 
     fn predicate_id<'a>(&'a self, predicate: &str) -> Option<u64> {
         let to_result = |layer: &'a dyn InternalLayerImpl| {
-            (layer.predicate_dict_id(predicate), layer.immediate_parent())
+            (
+                layer
+                    .predicate_dict_id(predicate)
+                    .map(|id| layer.predicate_id_map().inner_to_outer(id)),
+                layer.immediate_parent(),
+            )
         };
         let mut result = to_result(self);
         while let (None, Some(layer)) = result {
@@ -288,7 +322,12 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
 
     fn object_node_id<'a>(&'a self, object: &str) -> Option<u64> {
         let to_result = |layer: &'a dyn InternalLayerImpl| {
-            (layer.node_dict_id(object), layer.immediate_parent())
+            (
+                layer
+                    .node_dict_id(object)
+                    .map(|id| layer.node_value_id_map().inner_to_outer(id)),
+                layer.immediate_parent(),
+            )
         };
         let mut result = to_result(self);
         while let (None, Some(layer)) = result {
@@ -301,9 +340,11 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
     fn object_value_id<'a>(&'a self, object: &str) -> Option<u64> {
         let to_result = |layer: &'a dyn InternalLayerImpl| {
             (
-                layer
-                    .value_dict_id(object)
-                    .map(|i| i + layer.node_dict_len() as u64),
+                layer.value_dict_id(object).map(|i| {
+                    layer
+                        .node_value_id_map()
+                        .inner_to_outer(i + layer.node_dict_len() as u64)
+                }),
                 layer.immediate_parent(),
             )
         };
@@ -336,7 +377,13 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
                 }
             }
 
-            return current_layer.node_dict_get(corrected_id as usize);
+            return current_layer.node_dict_get(
+                current_layer
+                    .node_value_id_map()
+                    .outer_to_inner(corrected_id)
+                    .try_into()
+                    .unwrap(),
+            );
         }
 
         None
@@ -361,7 +408,13 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
                 }
             }
 
-            return current_layer.predicate_dict_get(corrected_id as usize);
+            return current_layer.predicate_dict_get(
+                current_layer
+                    .predicate_id_map()
+                    .outer_to_inner(corrected_id)
+                    .try_into()
+                    .unwrap(),
+            );
         }
 
         None
@@ -389,15 +442,19 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
                 }
             }
 
+            corrected_id = current_layer
+                .node_value_id_map()
+                .outer_to_inner(corrected_id);
+
             if corrected_id >= current_layer.node_dict_len() as u64 {
                 // object, if it exists, must be a value
                 corrected_id -= current_layer.node_dict_len() as u64;
                 return current_layer
-                    .value_dict_get(corrected_id as usize)
+                    .value_dict_get(corrected_id.try_into().unwrap())
                     .map(ObjectType::Value);
             } else {
                 return current_layer
-                    .node_dict_get(corrected_id as usize)
+                    .node_dict_get(corrected_id.try_into().unwrap())
                     .map(ObjectType::Node);
             }
         }
@@ -1151,6 +1208,14 @@ impl InternalLayerImpl for InternalLayer {
     }
     fn value_dictionary(&self) -> &PfcDict {
         (&**self).value_dictionary()
+    }
+
+    fn node_value_id_map(&self) -> &IdMap {
+        (&**self).node_value_id_map()
+    }
+
+    fn predicate_id_map(&self) -> &IdMap {
+        (&**self).predicate_id_map()
     }
 
     fn parent_node_value_count(&self) -> usize {
