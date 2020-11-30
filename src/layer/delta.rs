@@ -263,14 +263,6 @@ mod tests {
             .map(|t| child_layer.id_triple_to_string(&t).unwrap())
             .collect();
 
-        let aa: Vec<_> = delta_layer
-            .node_value_id_map()
-            .id_wtree
-            .as_ref()
-            .unwrap()
-            .decode()
-            .collect();
-
         assert_eq!(
             expected,
             delta_layer
@@ -293,5 +285,51 @@ mod tests {
                 .collect();
 
         assert_eq!(change_expected, change_actual);
+    }
+
+    #[tokio::test]
+    async fn rollup_twice() {
+        let (base_layer, _, child_layer) = build_three_layers().await.unwrap();
+
+        let delta1_files = child_layer_memory_files();
+        delta_rollup_upto(&child_layer, [0, 0, 0, 0, 1], delta1_files.clone())
+            .await
+            .unwrap();
+
+        let delta_layer1: Arc<InternalLayer> = Arc::new(
+            ChildLayer::load_from_files([0, 0, 0, 0, 4], base_layer, &delta1_files)
+                .await
+                .unwrap()
+                .into(),
+        );
+
+        let delta2_files = base_layer_memory_files();
+        delta_rollup(&delta_layer1, delta2_files.clone())
+            .await
+            .unwrap();
+
+        let delta_layer2: Arc<InternalLayer> = Arc::new(
+            BaseLayer::load_from_files([0, 0, 0, 0, 5], &delta2_files)
+                .await
+                .unwrap()
+                .into(),
+        );
+
+        let expected: Vec<_> = child_layer
+            .triples()
+            .map(|t| child_layer.id_triple_to_string(&t).unwrap())
+            .collect();
+
+        assert_eq!(
+            expected,
+            delta_layer2
+                .triples()
+                .map(|t| delta_layer2.id_triple_to_string(&t).unwrap())
+                .collect::<Vec<_>>()
+        );
+
+        for t in expected {
+            assert!(delta_layer2.string_triple_exists(&t));
+        }
     }
 }
