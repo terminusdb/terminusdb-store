@@ -1,7 +1,7 @@
 use super::consts::FILENAMES;
 use super::file::*;
 use crate::layer::{
-    BaseLayer, ChildLayer, InternalLayer, Layer, LayerBuilder, LayerType, SimpleLayerBuilder,
+    BaseLayer, ChildLayer, InternalLayer, Layer, LayerBuilder, LayerType, SimpleLayerBuilder, delta_rollup, delta_rollup_upto
 };
 use std::io;
 use std::sync::{Arc, Weak};
@@ -60,6 +60,10 @@ pub trait LayerStore: 'static + Send + Sync {
     ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn LayerBuilder>>> + Send>> {
         self.create_child_layer_with_cache(parent, NOCACHE.clone())
     }
+
+    fn perform_rollup(&self, layer: Arc<InternalLayer>) -> Pin<Box<dyn Future<Output=io::Result<[u32;5]>>+Send>>;
+    fn perform_rollup_upto(&self, layer: Arc<InternalLayer>, upto: [u32;5], cache: Arc<dyn LayerCache>) -> Pin<Box<dyn Future<Output=io::Result<[u32;5]>>+Send>>;
+    fn register_rollup(&self, layer: [u32;5], rollup: [u32;5]) -> Pin<Box<dyn Future<Output = io::Result<()>>+Send>>;
 
     fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8>;
     fn import_layers(
@@ -411,6 +415,41 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
         })
     }
 
+    // TODO this should check if the rollup is better than what is there
+    fn write_rollup_file(
+        &self,
+        dir_name: [u32;5],
+        rollup_name: [u32;5]
+    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> {
+        let rollup_string = name_to_string(rollup_name);
+
+        let get_file = self.get_file(dir_name, FILENAMES.rollup);
+        Box::pin(async move {
+            let file = get_file.await?;
+            let mut writer = file.open_write();
+
+            writer.write_all(rollup_string.as_bytes()).await?;
+
+            Ok(())
+        })
+    }
+
+    fn read_rollup_file(
+        &self,
+        dir_name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+        let get_file = self.get_file(dir_name, FILENAMES.rollup);
+        Box::pin(async move {
+            let file = get_file.await?;
+            let mut reader = file.open_read();
+
+            let mut buf = [0; 40];
+            reader.read_exact(&mut buf).await?;
+
+            bytes_to_name(&buf)
+        })
+    }
+
     fn retrieve_layer_stack_names(
         &self,
         name: [u32; 5],
@@ -433,6 +472,31 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
                     }
                 }
             }
+        })
+    }
+
+    fn create_child_layer_files_with_cache(
+        &self,
+        parent: [u32; 5],
+        cache: Arc<dyn LayerCache>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<([u32;5], Arc<InternalLayer>, ChildLayerFiles<Self::File>)>>+Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            let parent_layer = match self_.get_layer_with_cache(parent, cache).await? {
+                None => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "parent layer not found",
+                    ))
+                }
+                Some(parent_layer) => Ok::<_, io::Error>(parent_layer),
+            }?;
+
+            let layer_dir = self_.create_directory().await?;
+            self_.write_parent_file(layer_dir, parent).await?;
+            let child_layer_files = self_.child_layer_files(layer_dir).await?;
+
+            Ok((layer_dir, parent_layer, child_layer_files))
         })
     }
 }
@@ -566,21 +630,11 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         parent: [u32; 5],
         cache: Arc<dyn LayerCache>,
     ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn LayerBuilder>>> + Send>> {
-        let self_ = self.clone();
+        let create_files = self.create_child_layer_files_with_cache(parent, cache);
         Box::pin(async move {
-            let parent_layer = match self_.get_layer_with_cache(parent, cache).await? {
-                None => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::NotFound,
-                        "parent layer not found",
-                    ))
-                }
-                Some(parent_layer) => Ok::<_, io::Error>(parent_layer),
-            }?;
+            let (layer_dir, parent_layer, child_layer_files) = create_files.await?;
 
-            let layer_dir = self_.create_directory().await?;
-            self_.write_parent_file(layer_dir, parent).await?;
-            let child_layer_files = self_.child_layer_files(layer_dir).await?;
+            
             Ok(Box::new(SimpleLayerBuilder::from_parent(
                 layer_dir,
                 parent_layer,
@@ -589,6 +643,30 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         })
     }
 
+    fn perform_rollup(&self, layer: Arc<InternalLayer>) -> Pin<Box<dyn Future<Output=io::Result<[u32;5]>>+Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            let dir_name = self_.create_directory().await?;
+            let files = self_.base_layer_files(dir_name).await?;
+            delta_rollup(&layer, files).await?;
+
+            Ok(dir_name)
+        })
+    }
+
+    fn perform_rollup_upto(&self, layer: Arc<InternalLayer>, upto: [u32;5], cache: Arc<dyn LayerCache>) -> Pin<Box<dyn Future<Output=io::Result<[u32;5]>>+Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            let (layer_dir, _parent_layer, child_layer_files) = self_.create_child_layer_files_with_cache(upto, cache).await?;
+            delta_rollup_upto(&layer, upto, child_layer_files).await?;
+            Ok(layer_dir)
+        })
+    }
+    
+    fn register_rollup(&self, layer: [u32;5], rollup: [u32;5]) -> Pin<Box<dyn Future<Output = io::Result<()>>+Send>> {
+        self.write_rollup_file(layer, rollup)
+    }
+    
     fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
         Self::export_layers(self, layer_ids)
     }
@@ -732,6 +810,18 @@ impl LayerStore for CachedLayerStore {
         cache: Arc<dyn LayerCache>,
     ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn LayerBuilder>>> + Send>> {
         self.inner.create_child_layer_with_cache(parent, cache)
+    }
+
+    fn perform_rollup(&self, layer: Arc<InternalLayer>) -> Pin<Box<dyn Future<Output=io::Result<[u32;5]>>+Send>> {
+        self.inner.perform_rollup(layer)
+    }
+
+    fn perform_rollup_upto(&self, layer: Arc<InternalLayer>, upto: [u32;5], cache: Arc<dyn LayerCache>) -> Pin<Box<dyn Future<Output=io::Result<[u32;5]>>+Send>> {
+        self.inner.perform_rollup_upto(layer, upto, cache)
+    }
+
+    fn register_rollup(&self, layer: [u32;5], rollup: [u32;5]) -> Pin<Box<dyn Future<Output = io::Result<()>>+Send>> {
+        self.inner.register_rollup(layer, rollup)
     }
 
     fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {

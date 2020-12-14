@@ -11,7 +11,7 @@ use std::sync::{self, Arc, RwLock};
 use tokio::prelude::*;
 
 use super::*;
-use crate::layer::{BaseLayer, ChildLayer, InternalLayer, LayerBuilder, SimpleLayerBuilder};
+use crate::layer::{BaseLayer, ChildLayer, InternalLayer, LayerBuilder, SimpleLayerBuilder, delta_rollup, delta_rollup_upto};
 
 pub struct MemoryBackedStoreWriter {
     vec: Arc<sync::RwLock<Vec<u8>>>,
@@ -149,7 +149,7 @@ impl FileLoad for MemoryBackedStore {
 #[derive(Clone)]
 pub struct MemoryLayerStore {
     layers:
-        futures_locks::RwLock<HashMap<[u32; 5], (Option<[u32; 5]>, LayerFiles<MemoryBackedStore>)>>,
+        futures_locks::RwLock<HashMap<[u32; 5], (Option<[u32; 5]>, Option<[u32; 5]>, LayerFiles<MemoryBackedStore>)>>,
 }
 
 impl MemoryLayerStore {
@@ -348,7 +348,7 @@ impl LayerStore for MemoryLayerStore {
                 match cache.get_layer_from_cache(id) {
                     None => {
                         ids.push(id);
-                        if let Some((parent, _)) = layers.get(&id) {
+                        if let Some((parent, _, _)) = layers.get(&id) {
                             first = false;
                             match parent {
                                 None => break, // we traversed all the way to the base layer without finding a cached layer
@@ -380,7 +380,7 @@ impl LayerStore for MemoryLayerStore {
                 None => {
                     // construct base layer out of last id, then pop it
                     let base_id = ids.pop().unwrap();
-                    let (_, files) = layers.get(&base_id).unwrap();
+                    let (_, _, files) = layers.get(&base_id).unwrap();
                     let base_layer =
                         BaseLayer::load_from_files(base_id, &files.clone().into_base()).await?;
 
@@ -395,7 +395,7 @@ impl LayerStore for MemoryLayerStore {
             ids.reverse();
 
             for id in ids {
-                let (_, files) = layers.get(&id).unwrap();
+                let (_, _, files) = layers.get(&id).unwrap();
                 let child =
                     ChildLayer::load_from_files(id, layer, &files.clone().into_child()).await?;
 
@@ -416,7 +416,7 @@ impl LayerStore for MemoryLayerStore {
         let guard = self.layers.write();
         Box::pin(async move {
             let mut layers = guard.await;
-            layers.insert(name, (None, LayerFiles::Base(blf.clone())));
+            layers.insert(name, (None, None, LayerFiles::Base(blf.clone())));
             Ok(Box::new(SimpleLayerBuilder::new(name, blf)) as Box<dyn LayerBuilder>)
         })
     }
@@ -444,13 +444,74 @@ impl LayerStore for MemoryLayerStore {
             layers
                 .write()
                 .await
-                .insert(name, (Some(parent), LayerFiles::Child(clf.clone())));
+                .insert(name, (Some(parent), None, LayerFiles::Child(clf.clone())));
             Ok(
                 Box::new(SimpleLayerBuilder::from_parent(name, parent_layer, clf))
                     as Box<dyn LayerBuilder>,
             )
         })
     }
+
+    fn perform_rollup(&self, layer: Arc<InternalLayer>) -> Pin<Box<dyn Future<Output=io::Result<[u32;5]>>+Send>> {
+        let name = rand::random();
+        let blf = base_layer_memory_files();
+
+        let layers = self.layers.clone();
+        Box::pin(async move {
+            delta_rollup(&layer, blf.clone()).await?;
+            layers.write()
+                .await
+                .insert(name, (None, None, LayerFiles::Base(blf)));
+
+            Ok(name)
+        })
+    }
+
+    fn perform_rollup_upto(&self, layer: Arc<InternalLayer>, upto: [u32;5], _cache: Arc<dyn LayerCache>) -> Pin<Box<dyn Future<Output=io::Result<[u32;5]>>+Send>> {
+        let name = rand::random();
+        let clf = child_layer_memory_files();
+
+        let layers = self.layers.clone();
+        Box::pin(async move {
+            delta_rollup_upto(&layer, upto, clf.clone()).await?;
+            layers.write()
+                .await
+                .insert(name, (Some(upto), None, LayerFiles::Child(clf)));
+
+            Ok(name)
+        })
+    }
+
+    fn register_rollup(&self, layer: [u32;5], rollup: [u32;5]) -> Pin<Box<dyn Future<Output = io::Result<()>>+Send>> {
+        // make sure that layer and rollup are already in the big table
+        let layers = self.layers.clone();
+        Box::pin(async move {
+            let mut map = layers.write()
+                .await;
+            
+            // todo check if this rollup is valid
+
+            if !map.contains_key(&layer) {
+                // i dunno some kind of error
+                Err(io::Error::new(io::ErrorKind::Other, "layer does not exist"))
+            }
+            else if !map.contains_key(&rollup) {
+                // i dunno some kind of error
+                Err(io::Error::new(io::ErrorKind::Other, "rollup does not exist"))
+            }
+            else {
+                let (parent, files) = {
+                    let (p, _, f) = &map[&layer];
+
+                    (*p, f.clone())
+                };
+                map.insert(layer, (parent, Some(rollup), files));
+
+                Ok(())
+            }
+        })
+    }
+
 
     fn export_layers(&self, _layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
         unimplemented!();
@@ -479,7 +540,7 @@ impl LayerStore for MemoryLayerStore {
                 }
 
                 match layers.get(&d) {
-                    Some((Some(parent), _)) => d = *parent,
+                    Some((Some(parent), _, _)) => d = *parent,
                     _ => return Ok(false),
                 }
             }
