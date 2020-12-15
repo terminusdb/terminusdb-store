@@ -6,10 +6,7 @@ pub mod sync;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
-use crate::layer::{
-    IdTriple, Layer, LayerBuilder, LayerCounts, LayerObjectLookup, LayerPredicateLookup,
-    LayerSubjectLookup, ObjectLookup, ObjectType, PredicateLookup, StringTriple, SubjectLookup,
-};
+use crate::layer::{IdTriple, Layer, LayerBuilder, LayerCounts, ObjectType, StringTriple};
 use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore};
 use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
 use crate::storage::{CachedLayerStore, LabelStore, LayerStore, LockingHashMapLayerCache};
@@ -301,78 +298,6 @@ impl Layer for StoreLayer {
 
     fn id_object(&self, id: u64) -> Option<ObjectType> {
         self.layer.id_object(id)
-    }
-
-    fn subjects(&self) -> Box<dyn Iterator<Item = Box<dyn SubjectLookup>>> {
-        self.layer.subjects()
-    }
-
-    fn subject_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>> {
-        self.layer.subject_additions()
-    }
-
-    fn subject_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerSubjectLookup>>> {
-        self.layer.subject_removals()
-    }
-
-    fn lookup_subject(&self, subject: u64) -> Option<Box<dyn SubjectLookup>> {
-        self.layer.lookup_subject(subject)
-    }
-
-    fn lookup_subject_addition(&self, subject: u64) -> Option<Box<dyn LayerSubjectLookup>> {
-        self.layer.lookup_subject_addition(subject)
-    }
-
-    fn lookup_subject_removal(&self, subject: u64) -> Option<Box<dyn LayerSubjectLookup>> {
-        self.layer.lookup_subject_removal(subject)
-    }
-
-    fn objects(&self) -> Box<dyn Iterator<Item = Box<dyn ObjectLookup>>> {
-        self.layer.objects()
-    }
-
-    fn object_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>> {
-        self.layer.object_additions()
-    }
-
-    fn object_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerObjectLookup>>> {
-        self.layer.object_removals()
-    }
-
-    fn lookup_object(&self, object: u64) -> Option<Box<dyn ObjectLookup>> {
-        self.layer.lookup_object(object)
-    }
-
-    fn lookup_object_addition(&self, object: u64) -> Option<Box<dyn LayerObjectLookup>> {
-        self.layer.lookup_object_addition(object)
-    }
-
-    fn lookup_object_removal(&self, object: u64) -> Option<Box<dyn LayerObjectLookup>> {
-        self.layer.lookup_object_removal(object)
-    }
-
-    fn predicates(&self) -> Box<dyn Iterator<Item = Box<dyn PredicateLookup>>> {
-        self.layer.predicates()
-    }
-
-    fn predicate_additions(&self) -> Box<dyn Iterator<Item = Box<dyn LayerPredicateLookup>>> {
-        self.layer.predicate_additions()
-    }
-
-    fn predicate_removals(&self) -> Box<dyn Iterator<Item = Box<dyn LayerPredicateLookup>>> {
-        self.layer.predicate_removals()
-    }
-
-    fn lookup_predicate(&self, predicate: u64) -> Option<Box<dyn PredicateLookup>> {
-        self.layer.lookup_predicate(predicate)
-    }
-
-    fn lookup_predicate_addition(&self, predicate: u64) -> Option<Box<dyn LayerPredicateLookup>> {
-        self.layer.lookup_predicate_addition(predicate)
-    }
-
-    fn lookup_predicate_removal(&self, predicate: u64) -> Option<Box<dyn LayerPredicateLookup>> {
-        self.layer.lookup_predicate_removal(predicate)
     }
 
     fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {

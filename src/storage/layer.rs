@@ -1,7 +1,8 @@
 use super::consts::FILENAMES;
 use super::file::*;
 use crate::layer::{
-    BaseLayer, ChildLayer, InternalLayer, Layer, LayerBuilder, LayerType, SimpleLayerBuilder, delta_rollup, delta_rollup_upto
+    delta_rollup, delta_rollup_upto, BaseLayer, ChildLayer, InternalLayer, Layer, LayerBuilder,
+    LayerType, SimpleLayerBuilder,
 };
 use std::io;
 use std::sync::{Arc, Weak};
@@ -61,9 +62,21 @@ pub trait LayerStore: 'static + Send + Sync {
         self.create_child_layer_with_cache(parent, NOCACHE.clone())
     }
 
-    fn perform_rollup(&self, layer: Arc<InternalLayer>) -> Pin<Box<dyn Future<Output=io::Result<[u32;5]>>+Send>>;
-    fn perform_rollup_upto(&self, layer: Arc<InternalLayer>, upto: [u32;5], cache: Arc<dyn LayerCache>) -> Pin<Box<dyn Future<Output=io::Result<[u32;5]>>+Send>>;
-    fn register_rollup(&self, layer: [u32;5], rollup: [u32;5]) -> Pin<Box<dyn Future<Output = io::Result<()>>+Send>>;
+    fn perform_rollup(
+        &self,
+        layer: Arc<InternalLayer>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>>;
+    fn perform_rollup_upto(
+        &self,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+        cache: Arc<dyn LayerCache>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>>;
+    fn register_rollup(
+        &self,
+        layer: [u32; 5],
+        rollup: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>>;
 
     fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8>;
     fn import_layers(
@@ -418,8 +431,8 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
     // TODO this should check if the rollup is better than what is there
     fn write_rollup_file(
         &self,
-        dir_name: [u32;5],
-        rollup_name: [u32;5]
+        dir_name: [u32; 5],
+        rollup_name: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> {
         let rollup_string = name_to_string(rollup_name);
 
@@ -479,7 +492,17 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
         &self,
         parent: [u32; 5],
         cache: Arc<dyn LayerCache>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<([u32;5], Arc<InternalLayer>, ChildLayerFiles<Self::File>)>>+Send>> {
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = io::Result<(
+                        [u32; 5],
+                        Arc<InternalLayer>,
+                        ChildLayerFiles<Self::File>,
+                    )>,
+                > + Send,
+        >,
+    > {
         let self_ = self.clone();
         Box::pin(async move {
             let parent_layer = match self_.get_layer_with_cache(parent, cache).await? {
@@ -634,7 +657,6 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         Box::pin(async move {
             let (layer_dir, parent_layer, child_layer_files) = create_files.await?;
 
-            
             Ok(Box::new(SimpleLayerBuilder::from_parent(
                 layer_dir,
                 parent_layer,
@@ -643,7 +665,10 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         })
     }
 
-    fn perform_rollup(&self, layer: Arc<InternalLayer>) -> Pin<Box<dyn Future<Output=io::Result<[u32;5]>>+Send>> {
+    fn perform_rollup(
+        &self,
+        layer: Arc<InternalLayer>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
         let self_ = self.clone();
         Box::pin(async move {
             let dir_name = self_.create_directory().await?;
@@ -654,19 +679,30 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         })
     }
 
-    fn perform_rollup_upto(&self, layer: Arc<InternalLayer>, upto: [u32;5], cache: Arc<dyn LayerCache>) -> Pin<Box<dyn Future<Output=io::Result<[u32;5]>>+Send>> {
+    fn perform_rollup_upto(
+        &self,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+        cache: Arc<dyn LayerCache>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
         let self_ = self.clone();
         Box::pin(async move {
-            let (layer_dir, _parent_layer, child_layer_files) = self_.create_child_layer_files_with_cache(upto, cache).await?;
+            let (layer_dir, _parent_layer, child_layer_files) = self_
+                .create_child_layer_files_with_cache(upto, cache)
+                .await?;
             delta_rollup_upto(&layer, upto, child_layer_files).await?;
             Ok(layer_dir)
         })
     }
-    
-    fn register_rollup(&self, layer: [u32;5], rollup: [u32;5]) -> Pin<Box<dyn Future<Output = io::Result<()>>+Send>> {
+
+    fn register_rollup(
+        &self,
+        layer: [u32; 5],
+        rollup: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> {
         self.write_rollup_file(layer, rollup)
     }
-    
+
     fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
         Self::export_layers(self, layer_ids)
     }
@@ -812,15 +848,27 @@ impl LayerStore for CachedLayerStore {
         self.inner.create_child_layer_with_cache(parent, cache)
     }
 
-    fn perform_rollup(&self, layer: Arc<InternalLayer>) -> Pin<Box<dyn Future<Output=io::Result<[u32;5]>>+Send>> {
+    fn perform_rollup(
+        &self,
+        layer: Arc<InternalLayer>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
         self.inner.perform_rollup(layer)
     }
 
-    fn perform_rollup_upto(&self, layer: Arc<InternalLayer>, upto: [u32;5], cache: Arc<dyn LayerCache>) -> Pin<Box<dyn Future<Output=io::Result<[u32;5]>>+Send>> {
+    fn perform_rollup_upto(
+        &self,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+        cache: Arc<dyn LayerCache>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
         self.inner.perform_rollup_upto(layer, upto, cache)
     }
 
-    fn register_rollup(&self, layer: [u32;5], rollup: [u32;5]) -> Pin<Box<dyn Future<Output = io::Result<()>>+Send>> {
+    fn register_rollup(
+        &self,
+        layer: [u32; 5],
+        rollup: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> {
         self.inner.register_rollup(layer, rollup)
     }
 

@@ -11,7 +11,10 @@ use std::sync::{self, Arc, RwLock};
 use tokio::prelude::*;
 
 use super::*;
-use crate::layer::{BaseLayer, ChildLayer, InternalLayer, LayerBuilder, SimpleLayerBuilder, delta_rollup, delta_rollup_upto};
+use crate::layer::{
+    delta_rollup, delta_rollup_upto, BaseLayer, ChildLayer, InternalLayer, LayerBuilder,
+    SimpleLayerBuilder,
+};
 
 pub struct MemoryBackedStoreWriter {
     vec: Arc<sync::RwLock<Vec<u8>>>,
@@ -148,8 +151,16 @@ impl FileLoad for MemoryBackedStore {
 
 #[derive(Clone)]
 pub struct MemoryLayerStore {
-    layers:
-        futures_locks::RwLock<HashMap<[u32; 5], (Option<[u32; 5]>, Option<[u32; 5]>, LayerFiles<MemoryBackedStore>)>>,
+    layers: futures_locks::RwLock<
+        HashMap<
+            [u32; 5],
+            (
+                Option<[u32; 5]>,
+                Option<[u32; 5]>,
+                LayerFiles<MemoryBackedStore>,
+            ),
+        >,
+    >,
 }
 
 impl MemoryLayerStore {
@@ -452,14 +463,18 @@ impl LayerStore for MemoryLayerStore {
         })
     }
 
-    fn perform_rollup(&self, layer: Arc<InternalLayer>) -> Pin<Box<dyn Future<Output=io::Result<[u32;5]>>+Send>> {
+    fn perform_rollup(
+        &self,
+        layer: Arc<InternalLayer>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
         let name = rand::random();
         let blf = base_layer_memory_files();
 
         let layers = self.layers.clone();
         Box::pin(async move {
             delta_rollup(&layer, blf.clone()).await?;
-            layers.write()
+            layers
+                .write()
                 .await
                 .insert(name, (None, None, LayerFiles::Base(blf)));
 
@@ -467,14 +482,20 @@ impl LayerStore for MemoryLayerStore {
         })
     }
 
-    fn perform_rollup_upto(&self, layer: Arc<InternalLayer>, upto: [u32;5], _cache: Arc<dyn LayerCache>) -> Pin<Box<dyn Future<Output=io::Result<[u32;5]>>+Send>> {
+    fn perform_rollup_upto(
+        &self,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+        _cache: Arc<dyn LayerCache>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
         let name = rand::random();
         let clf = child_layer_memory_files();
 
         let layers = self.layers.clone();
         Box::pin(async move {
             delta_rollup_upto(&layer, upto, clf.clone()).await?;
-            layers.write()
+            layers
+                .write()
                 .await
                 .insert(name, (Some(upto), None, LayerFiles::Child(clf)));
 
@@ -482,24 +503,28 @@ impl LayerStore for MemoryLayerStore {
         })
     }
 
-    fn register_rollup(&self, layer: [u32;5], rollup: [u32;5]) -> Pin<Box<dyn Future<Output = io::Result<()>>+Send>> {
+    fn register_rollup(
+        &self,
+        layer: [u32; 5],
+        rollup: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> {
         // make sure that layer and rollup are already in the big table
         let layers = self.layers.clone();
         Box::pin(async move {
-            let mut map = layers.write()
-                .await;
-            
+            let mut map = layers.write().await;
+
             // todo check if this rollup is valid
 
             if !map.contains_key(&layer) {
                 // i dunno some kind of error
                 Err(io::Error::new(io::ErrorKind::Other, "layer does not exist"))
-            }
-            else if !map.contains_key(&rollup) {
+            } else if !map.contains_key(&rollup) {
                 // i dunno some kind of error
-                Err(io::Error::new(io::ErrorKind::Other, "rollup does not exist"))
-            }
-            else {
+                Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    "rollup does not exist",
+                ))
+            } else {
                 let (parent, files) = {
                     let (p, _, f) = &map[&layer];
 
@@ -511,7 +536,6 @@ impl LayerStore for MemoryLayerStore {
             }
         })
     }
-
 
     fn export_layers(&self, _layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
         unimplemented!();

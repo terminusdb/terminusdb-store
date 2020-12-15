@@ -587,18 +587,6 @@ pub mod tests {
             .unwrap()
     }
 
-    pub fn empty_base_layer(handle: &Handle) -> BaseLayer {
-        let files = base_layer_files();
-        let base_builder = BaseLayerFileBuilder::from_files(&files);
-        handle
-            .block_on(async {
-                base_builder.into_phase2().await?.finalize().await?;
-
-                BaseLayer::load_from_files([1, 2, 3, 4, 5], &files).await
-            })
-            .unwrap()
-    }
-
     #[test]
     fn build_and_query_base_layer() {
         let runtime = Runtime::new().unwrap();
@@ -638,65 +626,6 @@ pub mod tests {
     }
 
     #[test]
-    fn subject_iteration() {
-        let runtime = Runtime::new().unwrap();
-        let layer = example_base_layer(&runtime.handle());
-        let subjects: Vec<_> = layer.subjects().map(|s| s.subject()).collect();
-
-        assert_eq!(vec![1, 2, 3, 4], subjects);
-    }
-
-    #[test]
-    fn predicates_iterator() {
-        let runtime = Runtime::new().unwrap();
-        let layer = example_base_layer(&runtime.handle());
-        let p1: Vec<_> = layer
-            .lookup_subject(1)
-            .unwrap()
-            .predicates()
-            .map(|p| p.predicate())
-            .collect();
-        assert_eq!(vec![1], p1);
-        let p2: Vec<_> = layer
-            .lookup_subject(2)
-            .unwrap()
-            .predicates()
-            .map(|p| p.predicate())
-            .collect();
-        assert_eq!(vec![1, 3], p2);
-        let p3: Vec<_> = layer
-            .lookup_subject(3)
-            .unwrap()
-            .predicates()
-            .map(|p| p.predicate())
-            .collect();
-        assert_eq!(vec![2, 3], p3);
-        let p4: Vec<_> = layer
-            .lookup_subject(4)
-            .unwrap()
-            .predicates()
-            .map(|p| p.predicate())
-            .collect();
-        assert_eq!(vec![3], p4);
-    }
-
-    #[test]
-    fn objects_iterator() {
-        let runtime = Runtime::new().unwrap();
-        let layer = example_base_layer(&runtime.handle());
-        let objects: Vec<_> = layer
-            .lookup_subject(2)
-            .unwrap()
-            .lookup_predicate(1)
-            .unwrap()
-            .triples()
-            .map(|o| o.object)
-            .collect();
-
-        assert_eq!(vec![1, 3], objects);
-    }
-
-    #[test]
     fn everything_iterator() {
         let runtime = Runtime::new().unwrap();
         let layer = example_base_layer(&runtime.handle());
@@ -724,21 +653,29 @@ pub mod tests {
         let runtime = Runtime::new().unwrap();
         let layer = example_base_layer(&runtime.handle());
 
-        let lookup = layer.lookup_object(1).unwrap();
-        let pairs: Vec<_> = lookup.subject_predicate_pairs().collect();
-        assert_eq!(vec![(1, 1), (2, 1)], pairs);
+        let triples: Vec<_> = layer
+            .triples_o(1)
+            .map(|t| (t.subject, t.predicate, t.object))
+            .collect();
+        assert_eq!(vec![(1, 1, 1), (2, 1, 1)], triples);
 
-        let lookup = layer.lookup_object(3).unwrap();
-        let pairs: Vec<_> = lookup.subject_predicate_pairs().collect();
-        assert_eq!(vec![(2, 1)], pairs);
+        let triples: Vec<_> = layer
+            .triples_o(3)
+            .map(|t| (t.subject, t.predicate, t.object))
+            .collect();
+        assert_eq!(vec![(2, 1, 3)], triples);
 
-        let lookup = layer.lookup_object(5).unwrap();
-        let pairs: Vec<_> = lookup.subject_predicate_pairs().collect();
-        assert_eq!(vec![(3, 2)], pairs);
+        let triples: Vec<_> = layer
+            .triples_o(5)
+            .map(|t| (t.subject, t.predicate, t.object))
+            .collect();
+        assert_eq!(vec![(3, 2, 5)], triples);
 
-        let lookup = layer.lookup_object(6).unwrap();
-        let pairs: Vec<_> = lookup.subject_predicate_pairs().collect();
-        assert_eq!(vec![(2, 3), (3, 3), (4, 3)], pairs);
+        let triples: Vec<_> = layer
+            .triples_o(6)
+            .map(|t| (t.subject, t.predicate, t.object))
+            .collect();
+        assert_eq!(vec![(2, 3, 6), (3, 3, 6), (4, 3, 6)], triples);
     }
 
     #[test]
@@ -746,67 +683,28 @@ pub mod tests {
         let runtime = Runtime::new().unwrap();
         let layer = example_base_layer(&runtime.handle());
 
-        let lookup = layer.lookup_predicate(1).unwrap();
-        let pairs: Vec<_> = lookup
-            .subject_predicate_pairs()
-            .map(|sp| sp.triples())
-            .flatten()
+        let pairs: Vec<_> = layer
+            .triples_p(1)
             .map(|t| (t.subject, t.predicate, t.object))
             .collect();
 
         assert_eq!(vec![(1, 1, 1), (2, 1, 1), (2, 1, 3)], pairs);
 
-        let lookup = layer.lookup_predicate(2).unwrap();
-        let pairs: Vec<_> = lookup
-            .subject_predicate_pairs()
-            .map(|sp| sp.triples())
-            .flatten()
+        let pairs: Vec<_> = layer
+            .triples_p(2)
             .map(|t| (t.subject, t.predicate, t.object))
             .collect();
 
         assert_eq!(vec![(3, 2, 5)], pairs);
 
-        let lookup = layer.lookup_predicate(3).unwrap();
-        let pairs: Vec<_> = lookup
-            .subject_predicate_pairs()
-            .map(|sp| sp.triples())
-            .flatten()
+        let pairs: Vec<_> = layer
+            .triples_p(3)
             .map(|t| (t.subject, t.predicate, t.object))
             .collect();
 
         assert_eq!(vec![(2, 3, 6), (3, 3, 6), (4, 3, 6)], pairs);
 
-        let lookup = layer.lookup_predicate(4);
-
-        assert!(lookup.is_none());
-    }
-
-    #[test]
-    fn lookup_objects() {
-        let runtime = Runtime::new().unwrap();
-        let layer = example_base_layer(&runtime.handle());
-
-        let triples_by_object: Vec<_> = layer
-            .objects()
-            .map(|o| {
-                o.subject_predicate_pairs()
-                    .map(move |(s, p)| (s, p, o.object()))
-            })
-            .flatten()
-            .collect();
-
-        assert_eq!(
-            vec![
-                (1, 1, 1),
-                (2, 1, 1),
-                (2, 1, 3),
-                (3, 2, 5),
-                (2, 3, 6),
-                (3, 3, 6),
-                (4, 3, 6)
-            ],
-            triples_by_object
-        );
+        assert!(layer.triples_p(4).next().is_none());
     }
 
     #[test]
@@ -826,50 +724,6 @@ pub mod tests {
 
         assert_eq!(0, layer.node_and_value_count());
         assert_eq!(0, layer.predicate_count());
-    }
-
-    #[test]
-    fn base_layer_with_multiple_pairs_pointing_at_same_object() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer_files = base_layer_files();
-        let mut builder = BaseLayerFileBuilder::from_files(&base_layer_files);
-
-        let future = async {
-            builder
-                .add_nodes(vec!["a", "b"].into_iter().map(|x| x.to_string()))
-                .await?;
-            builder
-                .add_predicates(vec!["c", "d"].into_iter().map(|x| x.to_string()))
-                .await?;
-            builder
-                .add_values(vec!["e"].into_iter().map(|x| x.to_string()))
-                .await?;
-
-            let mut builder = builder.into_phase2().await?;
-            builder.add_triple(1, 1, 1).await?;
-            builder.add_triple(1, 2, 1).await?;
-            builder.add_triple(2, 1, 1).await?;
-            builder.add_triple(2, 2, 1).await?;
-
-            builder.finalize().await?;
-            BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files).await
-        };
-
-        let layer = runtime.handle().block_on(future).unwrap();
-
-        let triples_by_object: Vec<_> = layer
-            .objects()
-            .map(|o| {
-                o.subject_predicate_pairs()
-                    .map(move |(s, p)| (s, p, o.object()))
-            })
-            .flatten()
-            .collect();
-
-        assert_eq!(
-            vec![(1, 1, 1), (1, 2, 1), (2, 1, 1), (2, 2, 1)],
-            triples_by_object
-        );
     }
 
     #[test]

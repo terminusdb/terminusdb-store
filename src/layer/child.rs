@@ -962,89 +962,6 @@ pub mod tests {
     }
 
     #[test]
-    fn iterate_child_layer_triples_by_object() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
-        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
-
-        let child_files = child_layer_files();
-
-        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = async {
-            let mut b = child_builder.into_phase2().await?;
-            b.add_triple(1, 2, 3).await?;
-            b.add_triple(2, 3, 4).await?;
-            b.remove_triple(3, 2, 5).await?;
-            b.finalize().await?;
-
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
-        };
-
-        let child_layer = runtime.block_on(fut).unwrap();
-
-        let triples: Vec<_> = child_layer
-            .objects()
-            .map(|o| o.triples())
-            .flatten()
-            .map(|t| (t.subject, t.predicate, t.object))
-            .collect();
-
-        assert_eq!(
-            vec![
-                (1, 1, 1),
-                (2, 1, 1),
-                (1, 2, 3),
-                (2, 1, 3),
-                (2, 3, 4),
-                (2, 3, 6),
-                (3, 3, 6),
-                (4, 3, 6)
-            ],
-            triples
-        );
-    }
-
-    #[test]
-    fn iterate_child_layer_triples_by_objects_with_equal_predicates() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = empty_base_layer(&runtime.handle());
-        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
-
-        let child_files = child_layer_files();
-
-        let mut b = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = async {
-            b.add_node("a").await?;
-            b.add_predicate("b").await?;
-            b.add_predicate("c").await?;
-            b.add_value("d").await?;
-            let mut b = b.into_phase2().await?;
-            b.add_triple(1, 1, 1).await?;
-            b.add_triple(1, 1, 2).await?;
-            b.add_triple(1, 2, 1).await?;
-            b.add_triple(2, 1, 1).await?;
-            b.add_triple(2, 2, 1).await?;
-            b.finalize().await?;
-
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
-        };
-
-        let child_layer = runtime.block_on(fut).unwrap();
-
-        let triples: Vec<_> = child_layer
-            .objects()
-            .map(|o| o.triples())
-            .flatten()
-            .map(|t| (t.subject, t.predicate, t.object))
-            .collect();
-
-        assert_eq!(
-            vec![(1, 1, 1), (1, 2, 1), (2, 1, 1), (2, 2, 1), (1, 1, 2)],
-            triples
-        );
-    }
-
-    #[test]
     fn lookup_child_layer_triples_by_predicate() {
         let mut runtime = Runtime::new().unwrap();
         let base_layer = example_base_layer(&runtime.handle());
@@ -1065,39 +982,28 @@ pub mod tests {
 
         let child_layer = runtime.block_on(fut).unwrap();
 
-        let lookup = child_layer.lookup_predicate(1).unwrap();
-        let pairs: Vec<_> = lookup
-            .subject_predicate_pairs()
-            .map(|sp| sp.triples())
-            .flatten()
+        let pairs: Vec<_> = child_layer
+            .triples_p(1)
             .map(|t| (t.subject, t.predicate, t.object))
             .collect();
 
         assert_eq!(vec![(1, 1, 1), (2, 1, 1), (2, 1, 3)], pairs);
 
-        let lookup = child_layer.lookup_predicate(2).unwrap();
-        let pairs: Vec<_> = lookup
-            .subject_predicate_pairs()
-            .map(|sp| sp.triples())
-            .flatten()
+        let pairs: Vec<_> = child_layer
+            .triples_p(2)
             .map(|t| (t.subject, t.predicate, t.object))
             .collect();
 
         assert_eq!(vec![(1, 2, 3)], pairs);
 
-        let lookup = child_layer.lookup_predicate(3).unwrap();
-        let pairs: Vec<_> = lookup
-            .subject_predicate_pairs()
-            .map(|sp| sp.triples())
-            .flatten()
+        let pairs: Vec<_> = child_layer
+            .triples_p(3)
             .map(|t| (t.subject, t.predicate, t.object))
             .collect();
 
         assert_eq!(vec![(2, 3, 4), (2, 3, 6), (3, 3, 6), (4, 3, 6)], pairs);
 
-        let lookup = child_layer.lookup_predicate(4);
-
-        assert!(lookup.is_none());
+        assert!(child_layer.triples_p(4).next().is_none());
     }
 
     #[test]
@@ -1225,77 +1131,11 @@ pub mod tests {
         let child_layer = runtime.block_on(fut).unwrap();
 
         let result: Vec<_> = child_layer
-            .subject_additions()
-            .map(|s| s.triples())
-            .flatten()
+            .triple_additions()
             .map(|t| (t.subject, t.predicate, t.object))
             .collect();
 
         assert_eq!(vec![(1, 3, 4), (2, 2, 2), (3, 4, 5)], result);
-    }
-
-    #[test]
-    fn lookup_additions_by_predicate() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
-        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
-
-        let child_files = child_layer_files();
-
-        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = async {
-            let mut b = child_builder.into_phase2().await?;
-            b.add_triple(1, 3, 4).await?;
-            b.add_triple(2, 2, 2).await?;
-            b.add_triple(3, 4, 5).await?;
-            b.remove_triple(3, 2, 5).await?;
-            b.finalize().await?;
-
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
-        };
-
-        let child_layer = runtime.block_on(fut).unwrap();
-
-        let result: Vec<_> = child_layer
-            .predicate_additions()
-            .map(|s| s.triples())
-            .flatten()
-            .map(|t| (t.subject, t.predicate, t.object))
-            .collect();
-
-        assert_eq!(vec![(2, 2, 2), (1, 3, 4), (3, 4, 5)], result);
-    }
-
-    #[test]
-    fn lookup_additions_by_object() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
-        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
-
-        let child_files = child_layer_files();
-
-        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = async {
-            let mut b = child_builder.into_phase2().await?;
-            b.add_triple(1, 3, 4).await?;
-            b.add_triple(2, 2, 2).await?;
-            b.add_triple(3, 4, 5).await?;
-            b.remove_triple(3, 2, 5).await?;
-            b.finalize().await?;
-
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
-        };
-
-        let child_layer = runtime.block_on(fut).unwrap();
-
-        let result: Vec<_> = child_layer
-            .object_additions()
-            .map(|s| s.triples())
-            .flatten()
-            .map(|t| (t.subject, t.predicate, t.object))
-            .collect();
-
-        assert_eq!(vec![(2, 2, 2), (1, 3, 4), (3, 4, 5)], result);
     }
 
     #[test]
@@ -1321,77 +1161,11 @@ pub mod tests {
         let child_layer = runtime.block_on(fut).unwrap();
 
         let result: Vec<_> = child_layer
-            .subject_removals()
-            .map(|s| s.triples())
-            .flatten()
+            .triple_removals()
             .map(|t| (t.subject, t.predicate, t.object))
             .collect();
 
         assert_eq!(vec![(2, 1, 1), (3, 2, 5), (4, 3, 6)], result);
-    }
-
-    #[test]
-    fn lookup_removals_by_predicate() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
-        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
-
-        let child_files = child_layer_files();
-
-        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = async {
-            let mut b = child_builder.into_phase2().await?;
-            b.add_triple(1, 3, 4).await?;
-            b.remove_triple(2, 1, 1).await?;
-            b.remove_triple(2, 3, 6).await?;
-            b.remove_triple(3, 2, 5).await?;
-            b.finalize().await?;
-
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
-        };
-
-        let child_layer = runtime.block_on(fut).unwrap();
-
-        let result: Vec<_> = child_layer
-            .predicate_removals()
-            .map(|s| s.triples())
-            .flatten()
-            .map(|t| (t.subject, t.predicate, t.object))
-            .collect();
-
-        assert_eq!(vec![(2, 1, 1), (3, 2, 5), (2, 3, 6)], result);
-    }
-
-    #[test]
-    fn lookup_removals_by_object() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
-        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
-
-        let child_files = child_layer_files();
-
-        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = async {
-            let mut b = child_builder.into_phase2().await?;
-            b.add_triple(1, 3, 4).await?;
-            b.remove_triple(2, 1, 1).await?;
-            b.remove_triple(2, 3, 6).await?;
-            b.remove_triple(3, 2, 5).await?;
-            b.finalize().await?;
-
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
-        };
-
-        let child_layer = runtime.block_on(fut).unwrap();
-
-        let result: Vec<_> = child_layer
-            .object_removals()
-            .map(|s| s.triples())
-            .flatten()
-            .map(|t| (t.subject, t.predicate, t.object))
-            .collect();
-
-        assert_eq!(vec![(2, 1, 1), (3, 2, 5), (2, 3, 6)], result);
     }
 
     #[test]
@@ -1421,50 +1195,6 @@ pub mod tests {
             child_layer.node_and_value_count()
         );
         assert_eq!(parent.predicate_count(), child_layer.predicate_count());
-    }
-
-    #[test]
-    fn child_layer_with_multiple_pairs_pointing_at_same_object_lookup_by_objects() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = empty_base_layer(&runtime.handle());
-        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
-
-        let child_files = child_layer_files();
-        let mut b = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-
-        let fut = async {
-            b.add_nodes(vec!["a", "b"].into_iter().map(|x| x.to_string()))
-                .await?;
-            b.add_predicates(vec!["c", "d"].into_iter().map(|x| x.to_string()))
-                .await?;
-            b.add_values(vec!["e"].into_iter().map(|x| x.to_string()))
-                .await?;
-
-            let mut b = b.into_phase2().await?;
-            b.add_triple(1, 1, 1).await?;
-            b.add_triple(1, 2, 1).await?;
-            b.add_triple(2, 1, 1).await?;
-            b.add_triple(2, 2, 1).await?;
-            b.finalize().await?;
-
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent.clone(), &child_files).await
-        };
-
-        let child_layer = runtime.block_on(fut).unwrap();
-
-        let triples_by_object: Vec<_> = child_layer
-            .objects()
-            .map(|o| {
-                o.subject_predicate_pairs()
-                    .map(move |(s, p)| (s, p, o.object()))
-            })
-            .flatten()
-            .collect();
-
-        assert_eq!(
-            vec![(1, 1, 1), (1, 2, 1), (2, 1, 1), (2, 2, 1)],
-            triples_by_object
-        );
     }
 
     #[test]
