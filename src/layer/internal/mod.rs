@@ -779,6 +779,12 @@ impl From<ChildLayer> for InternalLayer {
     }
 }
 
+impl From<RollupLayer> for InternalLayer {
+    fn from(layer: RollupLayer) -> InternalLayer {
+        InternalLayer::Rollup(layer)
+    }
+}
+
 impl InternalLayerImpl for InternalLayer {
     fn name(&self) -> [u32; 5] {
         InternalLayerImpl::name(&**self)

@@ -2,7 +2,7 @@ use super::consts::FILENAMES;
 use super::file::*;
 use crate::layer::{
     delta_rollup, delta_rollup_upto, BaseLayer, ChildLayer, InternalLayer, Layer, LayerBuilder,
-    SimpleLayerBuilder,
+    RollupLayer, SimpleLayerBuilder,
 };
 use std::io;
 use std::sync::{Arc, Weak};
@@ -124,6 +124,14 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
         directory: [u32; 5],
         file: &str,
     ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>>;
+
+    fn layer_has_rollup(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> {
+        let file_exists = self.file_exists(name, FILENAMES.rollup);
+        Box::pin(async { file_exists.await })
+    }
 
     fn layer_has_parent(
         &self,
@@ -574,7 +582,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         }
 
         let mut layers_to_load = Vec::new();
-        layers_to_load.push(name);
+        layers_to_load.push((name, None));
         let self_ = self.clone();
         Box::pin(async move {
             if !self_.directory_exists(name).await? {
@@ -584,7 +592,8 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             // find an ancestor in cache
             let mut ancestor = None;
             loop {
-                match cache.get_layer_from_cache(*layers_to_load.last().unwrap()) {
+                let (last, _) = *layers_to_load.last().unwrap();
+                match cache.get_layer_from_cache(last) {
                     Some(layer) => {
                         // remove found cached layer from ids to retrieve
                         layers_to_load.pop().unwrap();
@@ -592,14 +601,24 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                         break;
                     }
                     None => {
-                        if self_
-                            .layer_has_parent(*layers_to_load.last().unwrap())
-                            .await?
-                        {
-                            let parent = self_
-                                .read_parent_file(*layers_to_load.last().unwrap())
-                                .await?;
-                            layers_to_load.push(parent);
+                        if self_.layer_has_rollup(last).await? {
+                            let rollup = self_.read_rollup_file(last).await?;
+                            if rollup == last {
+                                panic!("infinite rollup loop for layer {:?}", rollup);
+                            }
+
+                            let original_parent;
+                            if self_.layer_has_parent(last).await? {
+                                original_parent = Some(self_.read_parent_file(last).await?);
+                            } else {
+                                original_parent = None;
+                            }
+
+                            layers_to_load.pop().unwrap(); // we don't want to load this, we want to load the rollup instead!
+                            layers_to_load.push((last, Some((rollup, original_parent))));
+                        } else if self_.layer_has_parent(last).await? {
+                            let parent = self_.read_parent_file(last).await?;
+                            layers_to_load.push((parent, None));
                         } else {
                             break;
                         }
@@ -609,28 +628,73 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
 
             if ancestor.is_none() {
                 // load the base layer
-                let base_id = layers_to_load.pop().unwrap();
-                let files = self_.base_layer_files(base_id).await?;
-                let base_layer: Arc<InternalLayer> =
-                    Arc::new(BaseLayer::load_from_files(base_id, &files).await?.into());
+                let (base_id, rollup) = layers_to_load.pop().unwrap();
+                let layer: Arc<InternalLayer>;
+                match rollup {
+                    None => {
+                        let files = self_.base_layer_files(base_id).await?;
+                        let base_layer = BaseLayer::load_from_files(base_id, &files).await?;
 
-                cache.cache_layer(base_layer.clone());
-                ancestor = Some(base_layer);
+                        layer = Arc::new(base_layer.into());
+                    }
+                    Some((rollup_id, original_parent_id_option)) => {
+                        let files = self_.base_layer_files(rollup_id).await?;
+                        let base_layer: Arc<InternalLayer> =
+                            Arc::new(BaseLayer::load_from_files(rollup_id, &files).await?.into());
+                        cache.cache_layer(base_layer.clone());
+
+                        layer = Arc::new(
+                            RollupLayer::from_base_layer(
+                                base_layer,
+                                base_id,
+                                original_parent_id_option,
+                            )
+                            .into(),
+                        );
+                    }
+                }
+
+                cache.cache_layer(layer.clone());
+                ancestor = Some(layer);
             }
 
             let mut ancestor = ancestor.unwrap();
             layers_to_load.reverse();
 
-            for layer_id in layers_to_load {
-                let files = self_.child_layer_files(layer_id).await?;
-                let child_layer: Arc<InternalLayer> = Arc::new(
-                    ChildLayer::load_from_files(layer_id, ancestor, &files)
-                        .await?
-                        .into(),
-                );
+            for (layer_id, rollup) in layers_to_load {
+                let layer: Arc<InternalLayer>;
+                match rollup {
+                    None => {
+                        let files = self_.child_layer_files(layer_id).await?;
+                        let child_layer =
+                            ChildLayer::load_from_files(layer_id, ancestor, &files).await?;
+                        layer = Arc::new(child_layer.into());
+                    }
+                    Some((rollup_id, original_parent_id_option)) => {
+                        let original_parent_id = original_parent_id_option
+                            .expect("child rollup layer should always have original parent id");
 
-                cache.cache_layer(child_layer.clone());
-                ancestor = child_layer;
+                        let files = self_.child_layer_files(rollup_id).await?;
+                        let child_layer: Arc<InternalLayer> = Arc::new(
+                            ChildLayer::load_from_files(rollup_id, ancestor, &files)
+                                .await?
+                                .into(),
+                        );
+                        cache.cache_layer(child_layer.clone());
+
+                        layer = Arc::new(
+                            RollupLayer::from_child_layer(
+                                child_layer,
+                                layer_id,
+                                original_parent_id,
+                            )
+                            .into(),
+                        );
+                    }
+                }
+
+                cache.cache_layer(layer.clone());
+                ancestor = layer;
             }
 
             Ok(Some(ancestor))

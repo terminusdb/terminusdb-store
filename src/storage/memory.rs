@@ -13,7 +13,7 @@ use tokio::prelude::*;
 use super::*;
 use crate::layer::{
     delta_rollup, delta_rollup_upto, BaseLayer, ChildLayer, InternalLayer, LayerBuilder,
-    SimpleLayerBuilder,
+    RollupLayer, SimpleLayerBuilder,
 };
 
 pub struct MemoryBackedStoreWriter {
@@ -346,6 +346,141 @@ impl LayerStore for MemoryLayerStore {
             return Box::pin(future::ok(Some(layer)));
         }
 
+        let mut layers_to_load: Vec<([u32; 5], Option<([u32; 5], Option<[u32; 5]>)>)> = Vec::new();
+        layers_to_load.push((name, None));
+
+        let guard = self.layers.read();
+        Box::pin(async move {
+            let layers = guard.await;
+
+            if layers.get(&name).is_none() {
+                return Ok(None);
+            }
+
+            // find an ancestor in cache
+            let mut ancestor = None;
+            loop {
+                let (last, _) = *layers_to_load.last().unwrap();
+                match cache.get_layer_from_cache(last) {
+                    Some(layer) => {
+                        // remove found cached layer from ids to retrieve
+                        layers_to_load.pop().unwrap();
+                        ancestor = Some(layer);
+                        break;
+                    }
+                    None => {
+                        let (parent, rollup, _files) = layers.get(&last).unwrap();
+                        if rollup.is_some() {
+                            let rollup = rollup.unwrap();
+
+                            if rollup == last {
+                                panic!("infinite rollup loop for layer {:?}", rollup);
+                            }
+
+                            layers_to_load.pop().unwrap(); // we don't want to load this, we want to load the rollup instead!
+                            layers_to_load.push((last, Some((rollup, parent.clone()))));
+                        } else if parent.is_some() {
+                            let parent = parent.unwrap();
+                            layers_to_load.push((parent, None));
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if ancestor.is_none() {
+                // load the base layer
+                let (base_id, rollup) = layers_to_load.pop().unwrap();
+                let layer: Arc<InternalLayer>;
+                match rollup {
+                    None => {
+                        let (_, _, files) = layers.get(&base_id).unwrap();
+                        let base_layer =
+                            BaseLayer::load_from_files(base_id, &files.clone().into_base()).await?;
+
+                        layer = Arc::new(base_layer.into());
+                    }
+                    Some((rollup_id, original_parent_id_option)) => {
+                        let (_, _, files) = layers.get(&rollup_id).unwrap();
+                        let base_layer: Arc<InternalLayer> = Arc::new(
+                            BaseLayer::load_from_files(rollup_id, &files.clone().into_base())
+                                .await?
+                                .into(),
+                        );
+                        cache.cache_layer(base_layer.clone());
+
+                        layer = Arc::new(
+                            RollupLayer::from_base_layer(
+                                base_layer,
+                                base_id,
+                                original_parent_id_option.clone(),
+                            )
+                            .into(),
+                        );
+                    }
+                }
+
+                cache.cache_layer(layer.clone());
+                ancestor = Some(layer);
+            }
+
+            let mut ancestor = ancestor.unwrap();
+            layers_to_load.reverse();
+
+            for (layer_id, rollup) in layers_to_load {
+                let layer: Arc<InternalLayer>;
+                match rollup {
+                    None => {
+                        let (_, _, files) = layers.get(&layer_id).unwrap();
+                        let child_layer = ChildLayer::load_from_files(
+                            layer_id,
+                            ancestor,
+                            &files.clone().into_child(),
+                        )
+                        .await?;
+                        layer = Arc::new(child_layer.into());
+                    }
+                    Some((rollup_id, original_parent_id_option)) => {
+                        let original_parent_id = original_parent_id_option
+                            .expect("child rollup layer should always have original parent id");
+
+                        let (_, _, files) = layers.get(&rollup_id).unwrap();
+                        let child_layer: Arc<InternalLayer> = Arc::new(
+                            ChildLayer::load_from_files(
+                                rollup_id,
+                                ancestor,
+                                &files.clone().into_child(),
+                            )
+                            .await?
+                            .into(),
+                        );
+                        cache.cache_layer(child_layer.clone());
+
+                        layer = Arc::new(
+                            RollupLayer::from_child_layer(
+                                child_layer,
+                                layer_id,
+                                original_parent_id,
+                            )
+                            .into(),
+                        );
+                    }
+                }
+
+                cache.cache_layer(layer.clone());
+                ancestor = layer;
+            }
+
+            Ok(Some(ancestor))
+        })
+    }
+    /*
+        {
+        if let Some(layer) = cache.get_layer_from_cache(name) {
+            return Box::pin(future::ok(Some(layer)));
+        }
+
         let guard = self.layers.read();
         Box::pin(async move {
             let layers = guard.await;
@@ -358,13 +493,20 @@ impl LayerStore for MemoryLayerStore {
             loop {
                 match cache.get_layer_from_cache(id) {
                     None => {
-                        ids.push(id);
-                        if let Some((parent, _, _)) = layers.get(&id) {
+                        if let Some((parent, rollup, _)) = layers.get(&id) {
                             first = false;
-                            match parent {
-                                None => break, // we traversed all the way to the base layer without finding a cached layer
-                                Some(parent) => {
-                                    id = *parent;
+                            match rollup {
+                                None => {
+                                    match parent {
+                                        None => break, // we traversed all the way to the base layer without finding a cached layer
+                                        Some(parent) => {
+                                            id = *parent;
+                                        }
+                                    }
+                                    ids.push(id);
+                                }
+                                Some(rollup) => {
+                                    id = rollup;
                                 }
                             }
                         } else if first {
@@ -417,6 +559,7 @@ impl LayerStore for MemoryLayerStore {
             Ok(Some(layer))
         })
     }
+    */
 
     fn create_base_layer(
         &self,
