@@ -2,7 +2,7 @@ use super::consts::FILENAMES;
 use super::file::*;
 use crate::layer::{
     delta_rollup, delta_rollup_upto, BaseLayer, ChildLayer, InternalLayer, Layer, LayerBuilder,
-    LayerType, SimpleLayerBuilder,
+    SimpleLayerBuilder,
 };
 use std::io;
 use std::sync::{Arc, Weak};
@@ -118,18 +118,12 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
         file: &str,
     ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>>;
 
-    fn layer_type(
+    fn layer_has_parent(
         &self,
         name: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<LayerType>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> {
         let file_exists = self.file_exists(name, FILENAMES.parent);
-        Box::pin(async {
-            if file_exists.await? {
-                Ok(LayerType::Child)
-            } else {
-                Ok(LayerType::Base)
-            }
-        })
+        Box::pin(async { file_exists.await })
     }
 
     fn base_layer_files(
@@ -473,16 +467,13 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
 
         Box::pin(async move {
             loop {
-                match self_.layer_type(*result.last().unwrap()).await? {
-                    LayerType::Base => {
-                        result.reverse();
+                if self_.layer_has_parent(*result.last().unwrap()).await? {
+                    let parent = self_.read_parent_file(*result.last().unwrap()).await?;
+                    result.push(parent);
+                } else {
+                    result.reverse();
 
-                        return Ok(result);
-                    }
-                    LayerType::Child => {
-                        let parent = self_.read_parent_file(*result.last().unwrap()).await?;
-                        result.push(parent);
-                    }
+                    return Ok(result);
                 }
             }
         })
@@ -594,14 +585,16 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                         break;
                     }
                     None => {
-                        match self_.layer_type(*layers_to_load.last().unwrap()).await? {
-                            LayerType::Base => break, // we got all the way to the base layer without finding a cached version
-                            LayerType::Child => {
-                                let parent = self_
-                                    .read_parent_file(*layers_to_load.last().unwrap())
-                                    .await?;
-                                layers_to_load.push(parent);
-                            }
+                        if self_
+                            .layer_has_parent(*layers_to_load.last().unwrap())
+                            .await?
+                        {
+                            let parent = self_
+                                .read_parent_file(*layers_to_load.last().unwrap())
+                                .await?;
+                            layers_to_load.push(parent);
+                        } else {
+                            break;
                         }
                     }
                 }

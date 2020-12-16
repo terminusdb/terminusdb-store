@@ -167,13 +167,6 @@ pub struct LayerCounts {
     pub value_count: usize,
 }
 
-/// The type of a layer - either base or child.
-#[derive(Clone, Copy, Debug)]
-pub enum LayerType {
-    Base,
-    Child,
-}
-
 pub struct ObjectSubjectPredicatePairIterator {
     layers: Vec<(
         Peekable<Box<dyn Iterator<Item = (u64, u64)>>>,

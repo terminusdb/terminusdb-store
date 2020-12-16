@@ -144,10 +144,6 @@ impl InternalLayerImpl for BaseLayer {
         self.name
     }
 
-    fn layer_type(&self) -> LayerType {
-        LayerType::Base
-    }
-
     fn parent_name(&self) -> Option<[u32; 5]> {
         None
     }

@@ -6,6 +6,7 @@ use super::base::*;
 use super::child::*;
 use super::id_map::*;
 use super::layer::*;
+use super::rollup::*;
 use crate::structure::*;
 use std::convert::TryInto;
 use std::ops::Deref;
@@ -48,7 +49,6 @@ fn id_iter(
 pub trait InternalLayerImpl {
     fn name(&self) -> [u32; 5];
     fn parent_name(&self) -> Option<[u32; 5]>;
-    fn layer_type(&self) -> LayerType;
     fn immediate_parent(&self) -> Option<&InternalLayer>;
 
     fn node_dictionary(&self) -> &PfcDict;
@@ -701,6 +701,7 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
 pub enum InternalLayer {
     Base(BaseLayer),
     Child(ChildLayer),
+    Rollup(RollupLayer),
 }
 
 impl InternalLayer {
@@ -708,6 +709,7 @@ impl InternalLayer {
         match self {
             Self::Base(base) => base as &dyn Layer,
             Self::Child(child) => child as &dyn Layer,
+            Self::Rollup(rollup) => rollup as &dyn Layer,
         }
     }
 
@@ -760,6 +762,7 @@ impl Deref for InternalLayer {
         match self {
             Self::Base(base) => base as &Self::Target,
             Self::Child(child) => child as &Self::Target,
+            Self::Rollup(rollup) => rollup as &Self::Target,
         }
     }
 }
@@ -779,9 +782,6 @@ impl From<ChildLayer> for InternalLayer {
 impl InternalLayerImpl for InternalLayer {
     fn name(&self) -> [u32; 5] {
         InternalLayerImpl::name(&**self)
-    }
-    fn layer_type(&self) -> LayerType {
-        (&**self).layer_type()
     }
     fn parent_name(&self) -> Option<[u32; 5]> {
         (&**self).parent_name()

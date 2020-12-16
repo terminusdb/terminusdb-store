@@ -202,10 +202,6 @@ impl InternalLayerImpl for ChildLayer {
         self.name
     }
 
-    fn layer_type(&self) -> LayerType {
-        LayerType::Child
-    }
-
     fn parent_name(&self) -> Option<[u32; 5]> {
         Some(InternalLayerImpl::name(&*self.parent))
     }

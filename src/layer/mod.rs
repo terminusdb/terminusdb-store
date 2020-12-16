@@ -10,6 +10,7 @@ mod delta;
 mod id_map;
 mod internal;
 mod layer;
+mod rollup;
 mod simple_builder;
 
 pub use base::*;
@@ -18,4 +19,5 @@ pub use delta::*;
 pub use id_map::*;
 pub use internal::*;
 pub use layer::*;
+pub use rollup::*;
 pub use simple_builder::*;
