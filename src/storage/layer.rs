@@ -66,12 +66,19 @@ pub trait LayerStore: 'static + Send + Sync {
         &self,
         layer: Arc<InternalLayer>,
     ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>>;
-    fn perform_rollup_upto(
+    fn perform_rollup_upto_with_cache(
         &self,
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
         cache: Arc<dyn LayerCache>,
     ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>>;
+    fn perform_rollup_upto(
+        &self,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+        self.perform_rollup_upto_with_cache(layer, upto, NOCACHE.clone())
+    }
     fn register_rollup(
         &self,
         layer: [u32; 5],
@@ -672,7 +679,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         })
     }
 
-    fn perform_rollup_upto(
+    fn perform_rollup_upto_with_cache(
         &self,
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
@@ -848,13 +855,23 @@ impl LayerStore for CachedLayerStore {
         self.inner.perform_rollup(layer)
     }
 
-    fn perform_rollup_upto(
+    fn perform_rollup_upto_with_cache(
         &self,
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
         cache: Arc<dyn LayerCache>,
     ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
-        self.inner.perform_rollup_upto(layer, upto, cache)
+        self.inner
+            .perform_rollup_upto_with_cache(layer, upto, cache)
+    }
+
+    fn perform_rollup_upto(
+        &self,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+        self.inner
+            .perform_rollup_upto_with_cache(layer, upto, self.cache.clone())
     }
 
     fn register_rollup(

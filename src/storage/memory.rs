@@ -482,7 +482,7 @@ impl LayerStore for MemoryLayerStore {
         })
     }
 
-    fn perform_rollup_upto(
+    fn perform_rollup_upto_with_cache(
         &self,
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
