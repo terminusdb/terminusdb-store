@@ -189,6 +189,14 @@ impl LayerStore for CachedLayerStore {
         })
     }
 
+    fn rollup_upto(
+        self: Arc<Self>,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+        self.perform_rollup_upto_with_cache(layer, upto, self.cache.clone())
+    }
+
     fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
         self.inner.export_layers(layer_ids)
     }

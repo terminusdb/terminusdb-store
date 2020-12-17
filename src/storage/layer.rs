@@ -65,6 +65,44 @@ pub trait LayerStore: 'static + Send + Sync {
         rollup: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>>;
 
+    fn rollup(
+        self: Arc<Self>,
+        layer: Arc<InternalLayer>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+        Box::pin(async move {
+            let name = layer.name();
+            let rollup = self.perform_rollup(layer).await?;
+            self.register_rollup(name, rollup).await?;
+
+            Ok(rollup)
+        })
+    }
+
+    fn rollup_upto_with_cache(
+        self: Arc<Self>,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+        cache: Arc<dyn LayerCache>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+        Box::pin(async move {
+            let name = layer.name();
+            let rollup = self
+                .perform_rollup_upto_with_cache(layer, upto, cache)
+                .await?;
+            self.register_rollup(name, rollup).await?;
+
+            Ok(rollup)
+        })
+    }
+
+    fn rollup_upto(
+        self: Arc<Self>,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+        self.perform_rollup_upto_with_cache(layer, upto, NOCACHE.clone())
+    }
+
     fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8>;
     fn import_layers(
         &self,
