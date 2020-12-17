@@ -9,6 +9,8 @@ use std::sync::{Arc, RwLock, Weak};
 pub trait LayerCache: 'static + Send + Sync {
     fn get_layer_from_cache(&self, name: [u32; 5]) -> Option<Arc<InternalLayer>>;
     fn cache_layer(&self, layer: Arc<InternalLayer>);
+
+    fn invalidate(&self, name: [u32; 5]);
 }
 
 pub struct NoCache;
@@ -19,6 +21,8 @@ impl LayerCache for NoCache {
     }
 
     fn cache_layer(&self, _layer: Arc<InternalLayer>) {}
+
+    fn invalidate(&self, _name: [u32; 5]) {}
 }
 
 lazy_static! {
@@ -71,6 +75,16 @@ impl LayerCache for LockingHashMapLayerCache {
             .write()
             .expect("rwlock write should always succeed");
         cache.insert(InternalLayerImpl::name(&*layer), Arc::downgrade(&layer));
+    }
+
+    fn invalidate(&self, name: [u32; 5]) {
+        // the dumb way - we just delete the thing from cache forcing a refresh
+        let mut cache = self
+            .cache
+            .write()
+            .expect("rwlock read should always succeed");
+
+        cache.remove(&name);
     }
 }
 
@@ -162,7 +176,17 @@ impl LayerStore for CachedLayerStore {
         layer: [u32; 5],
         rollup: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> {
-        self.inner.register_rollup(layer, rollup)
+        // when registering a rollup layer, we need to make sure that
+        // the cached version is updated as well.
+        let cache = self.cache.clone();
+        let register_rollup = self.inner.register_rollup(layer, rollup);
+
+        Box::pin(async move {
+            register_rollup.await?;
+            cache.invalidate(layer);
+
+            Ok(())
+        })
     }
 
     fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
