@@ -22,6 +22,7 @@
 //! A label store is a set of files. The file name is of the format
 //! `foo.label`, for database `foo`. This file contains the name of
 //! the layer this label is pointing at.
+mod cache;
 mod consts;
 pub mod directory;
 mod file;
@@ -30,6 +31,7 @@ mod layer;
 mod locking;
 pub mod memory;
 
+pub use cache::*;
 pub use file::*;
 pub use label::*;
 pub use layer::*;

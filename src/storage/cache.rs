@@ -1,0 +1,337 @@
+use super::layer::*;
+use crate::layer::*;
+use futures::future::Future;
+use std::collections::HashMap;
+use std::io;
+use std::pin::Pin;
+use std::sync::{Arc, RwLock, Weak};
+
+pub trait LayerCache: 'static + Send + Sync {
+    fn get_layer_from_cache(&self, name: [u32; 5]) -> Option<Arc<InternalLayer>>;
+    fn cache_layer(&self, layer: Arc<InternalLayer>);
+}
+
+pub struct NoCache;
+
+impl LayerCache for NoCache {
+    fn get_layer_from_cache(&self, _name: [u32; 5]) -> Option<Arc<InternalLayer>> {
+        None
+    }
+
+    fn cache_layer(&self, _layer: Arc<InternalLayer>) {}
+}
+
+lazy_static! {
+    pub static ref NOCACHE: Arc<dyn LayerCache> = Arc::new(NoCache);
+}
+
+// locking isn't really ideal but the lock window will be relatively small so it shouldn't hurt performance too much except on heavy updates.
+// ideally we should be using some concurrent hashmap implementation instead.
+// furthermore, there should be some logic to remove stale entries, like a periodic pass. right now, there isn't.
+pub struct LockingHashMapLayerCache {
+    cache: RwLock<HashMap<[u32; 5], Weak<InternalLayer>>>,
+}
+
+impl LockingHashMapLayerCache {
+    pub fn new() -> Self {
+        Self {
+            cache: RwLock::new(HashMap::new()),
+        }
+    }
+}
+
+impl LayerCache for LockingHashMapLayerCache {
+    fn get_layer_from_cache(&self, name: [u32; 5]) -> Option<Arc<InternalLayer>> {
+        let cache = self
+            .cache
+            .read()
+            .expect("rwlock read should always succeed");
+
+        let result = cache.get(&name).map(|c| c.to_owned());
+        std::mem::drop(cache);
+
+        match result {
+            None => None,
+            Some(weak) => match weak.upgrade() {
+                None => {
+                    self.cache
+                        .write()
+                        .expect("rwlock write should always succeed")
+                        .remove(&name);
+                    None
+                }
+                Some(result) => Some(result),
+            },
+        }
+    }
+
+    fn cache_layer(&self, layer: Arc<InternalLayer>) {
+        let mut cache = self
+            .cache
+            .write()
+            .expect("rwlock write should always succeed");
+        cache.insert(InternalLayerImpl::name(&*layer), Arc::downgrade(&layer));
+    }
+}
+
+#[derive(Clone)]
+pub struct CachedLayerStore {
+    inner: Arc<dyn LayerStore>,
+    cache: Arc<dyn LayerCache>,
+}
+
+impl CachedLayerStore {
+    pub fn new<S: LayerStore, C: LayerCache>(inner: S, cache: C) -> CachedLayerStore {
+        CachedLayerStore {
+            inner: Arc::new(inner),
+            cache: Arc::new(cache),
+        }
+    }
+}
+
+impl LayerStore for CachedLayerStore {
+    fn layers(&self) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
+        self.inner.layers()
+    }
+
+    fn get_layer(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<Arc<InternalLayer>>>> + Send>> {
+        self.inner.get_layer_with_cache(name, self.cache.clone())
+    }
+
+    fn get_layer_with_cache(
+        &self,
+        name: [u32; 5],
+        cache: Arc<dyn LayerCache>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<Arc<InternalLayer>>>> + Send>> {
+        self.inner.get_layer_with_cache(name, cache)
+    }
+
+    fn create_base_layer(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn LayerBuilder>>> + Send>> {
+        self.inner.create_base_layer()
+    }
+
+    fn create_child_layer(
+        &self,
+        parent: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn LayerBuilder>>> + Send>> {
+        self.inner
+            .create_child_layer_with_cache(parent, self.cache.clone())
+    }
+
+    fn create_child_layer_with_cache(
+        &self,
+        parent: [u32; 5],
+        cache: Arc<dyn LayerCache>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn LayerBuilder>>> + Send>> {
+        self.inner.create_child_layer_with_cache(parent, cache)
+    }
+
+    fn perform_rollup(
+        &self,
+        layer: Arc<InternalLayer>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+        self.inner.perform_rollup(layer)
+    }
+
+    fn perform_rollup_upto_with_cache(
+        &self,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+        cache: Arc<dyn LayerCache>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+        self.inner
+            .perform_rollup_upto_with_cache(layer, upto, cache)
+    }
+
+    fn perform_rollup_upto(
+        &self,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+        self.inner
+            .perform_rollup_upto_with_cache(layer, upto, self.cache.clone())
+    }
+
+    fn register_rollup(
+        &self,
+        layer: [u32; 5],
+        rollup: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> {
+        self.inner.register_rollup(layer, rollup)
+    }
+
+    fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
+        self.inner.export_layers(layer_ids)
+    }
+    fn import_layers(
+        &self,
+        pack: &[u8],
+        layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
+    ) -> Result<(), io::Error> {
+        self.inner.import_layers(pack, layer_ids)
+    }
+
+    fn layer_is_ancestor_of(
+        &self,
+        descendant: [u32; 5],
+        ancestor: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> {
+        self.inner.layer_is_ancestor_of(descendant, ancestor)
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    use crate::storage::directory::*;
+    use crate::storage::memory::*;
+    use tempfile::tempdir;
+    use tokio::runtime::Runtime;
+
+    fn cached_layer_eq(layer1: &dyn Layer, layer2: &dyn Layer) -> bool {
+        // a trait object consists of two parts, a pointer to the concrete data, followed by a vtable.
+        // we consider two layers equal if that first part, the pointer to the concrete data, is equal.
+        unsafe {
+            let ptr1 = *(layer1 as *const dyn Layer as *const usize);
+            let ptr2 = *(layer2 as *const dyn Layer as *const usize);
+            ptr1 == ptr2
+        }
+    }
+
+    #[test]
+    fn cached_memory_layer_store_returns_same_layer_multiple_times() {
+        let mut runtime = Runtime::new().unwrap();
+        let store = CachedLayerStore::new(MemoryLayerStore::new(), LockingHashMapLayerCache::new());
+        let mut builder = runtime.block_on(store.create_base_layer()).unwrap();
+        let base_name = builder.name();
+
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
+        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
+
+        runtime.block_on(builder.commit_boxed()).unwrap();
+
+        builder = runtime
+            .block_on(store.create_child_layer(base_name))
+            .unwrap();
+        let child_name = builder.name();
+
+        builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
+        builder.add_string_triple(StringTriple::new_node("cow", "likes", "pig"));
+
+        runtime.block_on(builder.commit_boxed()).unwrap();
+
+        let layer1 = runtime
+            .block_on(store.get_layer(child_name))
+            .unwrap()
+            .unwrap();
+        let layer2 = runtime
+            .block_on(store.get_layer(child_name))
+            .unwrap()
+            .unwrap();
+
+        let base_layer = store.cache.get_layer_from_cache(base_name).unwrap();
+        let base_layer_2 = runtime
+            .block_on(store.get_layer(base_name))
+            .unwrap()
+            .unwrap();
+
+        assert!(cached_layer_eq(&*layer1, &*layer2));
+        assert!(cached_layer_eq(&*base_layer, &*base_layer_2));
+    }
+
+    #[test]
+    fn cached_directory_layer_store_returns_same_layer_multiple_times() {
+        let dir = tempdir().unwrap();
+        let mut runtime = Runtime::new().unwrap();
+        let store = CachedLayerStore::new(
+            DirectoryLayerStore::new(dir.path()),
+            LockingHashMapLayerCache::new(),
+        );
+        let mut builder = runtime.block_on(store.create_base_layer()).unwrap();
+        let base_name = builder.name();
+
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
+        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
+
+        runtime.block_on(builder.commit_boxed()).unwrap();
+
+        builder = runtime
+            .block_on(store.create_child_layer(base_name))
+            .unwrap();
+        let child_name = builder.name();
+
+        builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
+        builder.add_string_triple(StringTriple::new_node("cow", "likes", "pig"));
+
+        runtime.block_on(builder.commit_boxed()).unwrap();
+
+        let layer1 = runtime
+            .block_on(store.get_layer(child_name))
+            .unwrap()
+            .unwrap();
+        let layer2 = runtime
+            .block_on(store.get_layer(child_name))
+            .unwrap()
+            .unwrap();
+
+        let base_layer = store.cache.get_layer_from_cache(base_name).unwrap();
+        let base_layer_2 = runtime
+            .block_on(store.get_layer(base_name))
+            .unwrap()
+            .unwrap();
+
+        assert!(cached_layer_eq(&*layer1, &*layer2));
+        assert!(cached_layer_eq(&*base_layer, &*base_layer_2));
+    }
+
+    #[test]
+    fn cached_layer_store_forgets_entries_when_they_are_dropped() {
+        let mut runtime = Runtime::new().unwrap();
+        let store = CachedLayerStore::new(MemoryLayerStore::new(), LockingHashMapLayerCache::new());
+        let mut builder = runtime.block_on(store.create_base_layer()).unwrap();
+        let base_name = builder.name();
+
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
+        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
+
+        runtime.block_on(builder.commit_boxed()).unwrap();
+
+        let layer = runtime
+            .block_on(store.get_layer(base_name))
+            .unwrap()
+            .unwrap();
+        let weak = Arc::downgrade(&layer);
+
+        // we expect 2 weak pointers, the one we made above and the one stored in cache
+        assert_eq!(2, Arc::weak_count(&layer));
+
+        // forget the layers
+        std::mem::drop(layer);
+
+        // according to our weak reference, there's no longer any strong reference around
+        assert!(weak.upgrade().is_none());
+
+        // retrieving the same layer again works just fine
+        let layer = runtime
+            .block_on(store.get_layer(base_name))
+            .unwrap()
+            .unwrap();
+
+        // and only has one weak pointer pointing to it, the newly cached one
+        assert_eq!(1, Arc::weak_count(&layer));
+    }
+
+    #[test]
+    fn retrieve_layer_stack_names_retrieves_correctly() {
+        //let store = CachedLayerStore::new(MemoryLayerStore::new());
+        //let builder = store.create_base_layer().wait().unwrap();
+    }
+}
