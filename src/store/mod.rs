@@ -255,16 +255,18 @@ impl StoreLayer {
     }
 
     pub async fn rollup(&self) -> io::Result<()> {
-        let _store = self.store.layer_store.clone();
-        let layer_opt = _store.get_layer(self.name()).await?;
+        let store1 = self.store.layer_store.clone();
+        // TODO: This is awkward, we should have a way to get the internal layer
+        let layer_opt = store1.get_layer(self.name()).await?;
         let layer = layer_opt.ok_or(io::Error::new(io::ErrorKind::NotFound, "label not found"))?;
-        let _store2 = self.store.layer_store.clone();
-        _store2.rollup(layer).await?;
+        let store2 = self.store.layer_store.clone();
+        store2.rollup(layer).await?;
         Ok(())
     }
 }
 
 impl Layer for StoreLayer {
+
     fn name(&self) -> [u32; 5] {
         self.layer.name()
     }
