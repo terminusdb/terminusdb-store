@@ -186,12 +186,16 @@ impl PfcBlock {
                 } else {
                     take_prefix_lengths[ix - 1] = last;
                 }
+
+                if last == 0 {
+                    break;
+                }
             }
 
             // Having written down the prefixes, we now turn it into a list
             // of how much prefix we're interested in for every individual string.
             // This is a simple matter of subtracting two adjacent entries.
-            for ix in 1..take_prefix_lengths.len() {
+            for ix in (1..take_prefix_lengths.len()).rev() {
                 take_prefix_lengths[ix] -= take_prefix_lengths[ix - 1];
             }
 
