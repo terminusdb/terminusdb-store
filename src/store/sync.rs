@@ -124,6 +124,10 @@ impl SyncStoreLayer {
 
         inner.map(|i| SyncStoreLayer::wrap(i))
     }
+
+    pub fn rollup(&self) -> Result<(), io::Error> {
+        task_sync(self.inner.clone().rollup())
+    }
 }
 
 impl Layer for SyncStoreLayer {
