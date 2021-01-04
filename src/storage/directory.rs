@@ -473,6 +473,7 @@ pub fn pack_layer_parents<'a, R: io::Read>(
 mod tests {
     use super::*;
     use crate::layer::*;
+    use std::sync::Arc;
     use tempfile::tempdir;
     use tokio::runtime::Runtime;
 
@@ -657,5 +658,98 @@ mod tests {
     fn nonexistent_file_is_nonexistent() {
         let file = FileBackedStore::new("asdfasfopivbuzxcvopiuvpoawehkafpouzvxv");
         assert!(!file.exists());
+    }
+
+    #[tokio::test]
+    async fn rollup_and_retrieve_base() {
+        let dir = tempdir().unwrap();
+        let store = Arc::new(DirectoryLayerStore::new(dir.path()));
+
+        let mut builder = store.create_base_layer().await.unwrap();
+        let base_name = builder.name();
+
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
+        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
+
+        builder.commit_boxed().await.unwrap();
+
+        let mut builder = store.create_child_layer(base_name).await.unwrap();
+        let child_name = builder.name();
+
+        builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
+        builder.add_string_triple(StringTriple::new_node("cow", "likes", "pig"));
+
+        builder.commit_boxed().await.unwrap();
+
+        let unrolled_layer = store.get_layer(child_name).await.unwrap().unwrap();
+
+        let _rolled_id = store.clone().rollup(unrolled_layer).await.unwrap();
+        let rolled_layer = store.get_layer(child_name).await.unwrap().unwrap();
+
+        match *rolled_layer {
+            InternalLayer::Rollup(_) => {}
+            _ => panic!("not a rollup"),
+        }
+
+        assert!(rolled_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+        assert!(rolled_layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
+        assert!(rolled_layer.string_triple_exists(&StringTriple::new_node("cow", "likes", "pig")));
+        assert!(
+            !rolled_layer.string_triple_exists(&StringTriple::new_value("duck", "says", "quack"))
+        );
+    }
+
+    #[tokio::test]
+    async fn rollup_and_retrieve_child() {
+        let dir = tempdir().unwrap();
+        let store = Arc::new(DirectoryLayerStore::new(dir.path()));
+
+        let mut builder = store.create_base_layer().await.unwrap();
+        let base_name = builder.name();
+
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
+        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
+
+        builder.commit_boxed().await.unwrap();
+
+        let mut builder = store.create_child_layer(base_name).await.unwrap();
+        let child_name = builder.name();
+
+        builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
+        builder.add_string_triple(StringTriple::new_node("cow", "likes", "pig"));
+
+        builder.commit_boxed().await.unwrap();
+
+        let mut builder = store.create_child_layer(child_name).await.unwrap();
+        let child_name = builder.name();
+
+        builder.remove_string_triple(StringTriple::new_value("cow", "likes", "pig"));
+        builder.add_string_triple(StringTriple::new_node("cow", "hates", "pig"));
+
+        builder.commit_boxed().await.unwrap();
+
+        let unrolled_layer = store.get_layer(child_name).await.unwrap().unwrap();
+
+        let _rolled_id = store
+            .clone()
+            .rollup_upto(unrolled_layer, base_name)
+            .await
+            .unwrap();
+        let rolled_layer = store.get_layer(child_name).await.unwrap().unwrap();
+
+        match *rolled_layer {
+            InternalLayer::Rollup(_) => {}
+            _ => panic!("not a rollup"),
+        }
+
+        assert!(rolled_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+        assert!(rolled_layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
+        assert!(rolled_layer.string_triple_exists(&StringTriple::new_node("cow", "hates", "pig")));
+        assert!(!rolled_layer.string_triple_exists(&StringTriple::new_value("cow", "likes", "pig")));
+        assert!(
+            !rolled_layer.string_triple_exists(&StringTriple::new_value("duck", "says", "quack"))
+        );
     }
 }

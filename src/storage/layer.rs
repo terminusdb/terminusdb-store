@@ -100,7 +100,7 @@ pub trait LayerStore: 'static + Send + Sync {
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
-        self.perform_rollup_upto_with_cache(layer, upto, NOCACHE.clone())
+        self.rollup_upto_with_cache(layer, upto, NOCACHE.clone())
     }
 
     fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8>;
@@ -610,8 +610,12 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             // find an ancestor in cache
             let mut ancestor = None;
             loop {
-                let (last, _) = *layers_to_load.last().unwrap();
-                match cache.get_layer_from_cache(last) {
+                let (mut current_layer, rollup_option) = *layers_to_load.last().unwrap();
+                if let Some((rollup, _original_parent)) = rollup_option {
+                    current_layer = rollup;
+                }
+
+                match cache.get_layer_from_cache(current_layer) {
                     Some(layer) => {
                         // remove found cached layer from ids to retrieve
                         layers_to_load.pop().unwrap();
@@ -619,23 +623,24 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                         break;
                     }
                     None => {
-                        if self_.layer_has_rollup(last).await? {
-                            let rollup = self_.read_rollup_file(last).await?;
-                            if rollup == last {
+                        if self_.layer_has_rollup(current_layer).await? {
+                            let rollup = self_.read_rollup_file(current_layer).await?;
+                            if rollup == current_layer {
                                 panic!("infinite rollup loop for layer {:?}", rollup);
                             }
 
                             let original_parent;
-                            if self_.layer_has_parent(last).await? {
-                                original_parent = Some(self_.read_parent_file(last).await?);
+                            if self_.layer_has_parent(current_layer).await? {
+                                original_parent =
+                                    Some(self_.read_parent_file(current_layer).await?);
                             } else {
                                 original_parent = None;
                             }
 
                             layers_to_load.pop().unwrap(); // we don't want to load this, we want to load the rollup instead!
-                            layers_to_load.push((last, Some((rollup, original_parent))));
-                        } else if self_.layer_has_parent(last).await? {
-                            let parent = self_.read_parent_file(last).await?;
+                            layers_to_load.push((current_layer, Some((rollup, original_parent))));
+                        } else if self_.layer_has_parent(current_layer).await? {
+                            let parent = self_.read_parent_file(current_layer).await?;
                             layers_to_load.push((parent, None));
                         } else {
                             break;
