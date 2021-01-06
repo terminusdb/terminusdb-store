@@ -266,7 +266,6 @@ impl StoreLayer {
 }
 
 impl Layer for StoreLayer {
-
     fn name(&self) -> [u32; 5] {
         self.layer.name()
     }

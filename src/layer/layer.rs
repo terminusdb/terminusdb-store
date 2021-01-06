@@ -359,10 +359,10 @@ pub enum ObjectType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layer::base::tests::base_layer_files;
-    use crate::layer::base::BaseLayer;
-    use crate::layer::child::tests::child_layer_files;
-    use crate::layer::child::ChildLayer;
+    use crate::layer::internal::base::tests::base_layer_files;
+    use crate::layer::internal::base::BaseLayer;
+    use crate::layer::internal::child::tests::child_layer_files;
+    use crate::layer::internal::child::ChildLayer;
     use crate::layer::internal::InternalLayer;
     use crate::layer::simple_builder::{LayerBuilder, SimpleLayerBuilder};
     use std::sync::Arc;

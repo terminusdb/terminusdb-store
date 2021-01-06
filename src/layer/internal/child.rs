@@ -3,10 +3,10 @@
 //! A child layer stores a reference to a base layer, as well as
 //! triple additions and removals, and any new dictionary entries that
 //! this layer needs for its additions.
-use super::builder::*;
-use super::id_map::*;
-use super::internal::*;
-use super::layer::*;
+use super::super::builder::*;
+use super::super::id_map::*;
+use super::super::layer::*;
+use super::*;
 use crate::storage::*;
 use crate::structure::*;
 use rayon::prelude::*;

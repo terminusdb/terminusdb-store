@@ -1,18 +1,21 @@
+pub mod base;
+pub mod child;
 mod object_iterator;
 mod predicate_iterator;
+pub mod rollup;
 mod subject_iterator;
 
-use super::base::*;
-use super::child::*;
 use super::id_map::*;
 use super::layer::*;
-use super::rollup::*;
 use crate::structure::*;
 use std::convert::TryInto;
 use std::ops::Deref;
 
+pub use base::*;
+pub use child::*;
 pub use object_iterator::*;
 pub use predicate_iterator::*;
+pub use rollup::*;
 pub use subject_iterator::*;
 
 /*

@@ -9,8 +9,7 @@
 //! any format (numerical, string, or a mixture), store them in
 //! memory, then does the required sorting and id conversion on
 //! commit.
-use super::base::*;
-use super::child::*;
+use super::internal::*;
 use super::layer::*;
 use crate::storage::*;
 use std::collections::{HashMap, HashSet};
