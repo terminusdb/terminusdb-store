@@ -397,23 +397,16 @@ impl PfcDictEntry {
                             return false;
                         }
 
-                        if let Some(next) = it.next() {
-                            part = next;
-                        } else {
-                            // done!
-                            return true;
-                        }
+                        assert!(it.next().is_none());
+                        return true;
                     }
                     Ordering::Greater => {
-                        if part.slice(..slice.len()) != slice {
-                            return false;
-                        }
-
-                        part = it.next().unwrap();
+                        panic!("This should never happen because it'd mean our entry is larger than the buffer passed in, but we already checked to make sure that is not the case");
                     }
                 }
 
                 b.advance(part.len());
+                part = it.next().unwrap();
             }
         }
     }
@@ -484,11 +477,12 @@ impl Ord for PfcDictEntry {
                     Ordering::Equal => {}
                 }
 
-                part1 = it1
-                    .next()
-                    .expect("expected next element due to equal sizes")
-                    .clone();
                 part2 = part2.slice(part1.len()..);
+                let part1_option = it1.next();
+                if part1_option.is_none() {
+                    return Ordering::Less;
+                }
+                part1 = part1_option.unwrap().clone();
             } else {
                 let part1_slice = part1.slice(0..part2.len());
                 match part1_slice.cmp(&part2) {
@@ -498,10 +492,11 @@ impl Ord for PfcDictEntry {
                 }
 
                 part1 = part1.slice(part2.len()..);
-                part2 = it2
-                    .next()
-                    .expect("expected next element due to equal sizes")
-                    .clone();
+                let part2_option = it2.next();
+                if part2_option.is_none() {
+                    return Ordering::Greater;
+                }
+                part2 = part2_option.unwrap().clone();
             }
         }
     }
@@ -1219,5 +1214,123 @@ mod tests {
         let count = block_on(dict_file_get_count(blocks)).unwrap();
 
         assert_eq!(18, count);
+    }
+
+    #[test]
+    fn bufeq_empty_entry() {
+        let entry = PfcDictEntry::new(Vec::new());
+
+        assert!(entry.buf_eq(Bytes::from(b"".as_ref())));
+        assert!(!entry.buf_eq(Bytes::from(b"a".as_ref())));
+    }
+
+    #[test]
+    fn bufeq_single_part_entry() {
+        let entry = PfcDictEntry::new(vec![Bytes::from(b"aaaaa".as_ref())]);
+
+        assert!(entry.buf_eq(Bytes::from(b"aaaaa".as_ref())));
+        assert!(!entry.buf_eq(Bytes::from(b"a".as_ref())));
+        assert!(!entry.buf_eq(Bytes::from(b"".as_ref())));
+    }
+
+    #[test]
+    fn bufeq_multi_part_entry() {
+        let contents: Vec<&[u8]> = vec![b"abcde", b"fghijkl", b"mnop"];
+
+        let entry = PfcDictEntry::new(contents.into_iter().map(|b| Bytes::from(b)).collect());
+
+        assert!(entry.buf_eq(Bytes::from(b"abcdefghijklmnop".as_ref())));
+        assert!(!entry.buf_eq(Bytes::from(b"abcde".as_ref())));
+        assert!(!entry.buf_eq(Bytes::from(b"abcdefghijkl".as_ref())));
+        assert!(!entry.buf_eq(Bytes::from(b"abcdefghijklxxxx".as_ref())));
+        assert!(!entry.buf_eq(Bytes::from(b"".as_ref())));
+    }
+
+    #[test]
+    fn compare_empty_entries() {
+        let contents1: Vec<&[u8]> = Vec::new();
+        let contents2: Vec<&[u8]> = Vec::new();
+
+        let entry1 = PfcDictEntry::new(contents1.into_iter().map(|b| Bytes::from(b)).collect());
+        let entry2 = PfcDictEntry::new(contents2.into_iter().map(|b| Bytes::from(b)).collect());
+
+        assert_eq!(entry1, entry2);
+    }
+
+    #[test]
+    fn compare_entries_unequal_length_less() {
+        let contents1: Vec<&[u8]> = vec![b"a"];
+        let contents2: Vec<&[u8]> = vec![b"aaaaa"];
+
+        let entry1 = PfcDictEntry::new(contents1.into_iter().map(|b| Bytes::from(b)).collect());
+        let entry2 = PfcDictEntry::new(contents2.into_iter().map(|b| Bytes::from(b)).collect());
+
+        assert!(entry1 < entry2);
+    }
+
+    #[test]
+    fn compare_entries_unequal_length_greater() {
+        let contents1: Vec<&[u8]> = vec![b"aaaaa"];
+        let contents2: Vec<&[u8]> = vec![b"a"];
+
+        let entry1 = PfcDictEntry::new(contents1.into_iter().map(|b| Bytes::from(b)).collect());
+        let entry2 = PfcDictEntry::new(contents2.into_iter().map(|b| Bytes::from(b)).collect());
+
+        assert!(entry1 > entry2);
+    }
+
+    #[test]
+    fn compare_entries_equal_single_part() {
+        let contents1: Vec<&[u8]> = vec![b"aaaaa"];
+        let contents2: Vec<&[u8]> = vec![b"aaaaa"];
+
+        let entry1 = PfcDictEntry::new(contents1.into_iter().map(|b| Bytes::from(b)).collect());
+        let entry2 = PfcDictEntry::new(contents2.into_iter().map(|b| Bytes::from(b)).collect());
+
+        assert_eq!(entry1, entry2);
+    }
+
+    #[test]
+    fn compare_entries_equal_multi_part() {
+        let contents1: Vec<&[u8]> = vec![b"aaaaa", b"bcde", b"xyz"];
+        let contents2: Vec<&[u8]> = vec![b"aaaaa", b"bcde", b"xyz"];
+
+        let entry1 = PfcDictEntry::new(contents1.into_iter().map(|b| Bytes::from(b)).collect());
+        let entry2 = PfcDictEntry::new(contents2.into_iter().map(|b| Bytes::from(b)).collect());
+
+        assert_eq!(entry1, entry2);
+    }
+
+    #[test]
+    fn compare_entries_equal_but_different_parts() {
+        let contents1: Vec<&[u8]> = vec![b"aaaaa", b"bcde", b"xyz"];
+        let contents2: Vec<&[u8]> = vec![b"aaa", b"aabcd", b"ex", b"yz"];
+
+        let entry1 = PfcDictEntry::new(contents1.into_iter().map(|b| Bytes::from(b)).collect());
+        let entry2 = PfcDictEntry::new(contents2.into_iter().map(|b| Bytes::from(b)).collect());
+
+        assert_eq!(entry1, entry2);
+    }
+
+    #[test]
+    fn compare_entries_equal_part_lengths_but_less() {
+        let contents1: Vec<&[u8]> = vec![b"aaaaa", b"bcde", b"xyz"];
+        let contents2: Vec<&[u8]> = vec![b"aaaaa", b"bdde", b"xyz"];
+
+        let entry1 = PfcDictEntry::new(contents1.into_iter().map(|b| Bytes::from(b)).collect());
+        let entry2 = PfcDictEntry::new(contents2.into_iter().map(|b| Bytes::from(b)).collect());
+
+        assert!(entry1 < entry2);
+    }
+
+    #[test]
+    fn compare_entries_equal_part_lengths_but_greater() {
+        let contents1: Vec<&[u8]> = vec![b"aaaaa", b"bdde", b"xyz"];
+        let contents2: Vec<&[u8]> = vec![b"aaaaa", b"bcde", b"xyz"];
+
+        let entry1 = PfcDictEntry::new(contents1.into_iter().map(|b| Bytes::from(b)).collect());
+        let entry2 = PfcDictEntry::new(contents2.into_iter().map(|b| Bytes::from(b)).collect());
+
+        assert!(entry1 > entry2);
     }
 }
