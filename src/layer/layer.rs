@@ -1,7 +1,6 @@
 //! Common data structures and traits for all layer types.
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::iter::Peekable;
 
 /// A layer containing dictionary entries and triples.
 ///
@@ -165,62 +164,6 @@ pub struct LayerCounts {
     pub node_count: usize,
     pub predicate_count: usize,
     pub value_count: usize,
-}
-
-pub struct ObjectSubjectPredicatePairIterator {
-    layers: Vec<(
-        Peekable<Box<dyn Iterator<Item = (u64, u64)>>>,
-        Peekable<Box<dyn Iterator<Item = (u64, u64)>>>,
-    )>,
-}
-
-impl Iterator for ObjectSubjectPredicatePairIterator {
-    type Item = (u64, u64);
-
-    fn next(&mut self) -> Option<(u64, u64)> {
-        let mut min;
-        loop {
-            min = None;
-            let mut deleted = false;
-            for (pos, neg) in self.layers.iter_mut().rev() {
-                let pos_sp = pos.peek().map(|s| *s);
-                let neg_sp = neg.peek().map(|s| *s);
-                if pos_sp.is_some() && (min.is_none() || pos_sp < min) {
-                    deleted = false;
-                    min = pos_sp;
-                } else if deleted && pos_sp.is_some() && pos_sp == min {
-                    deleted = false;
-                } else if neg_sp == min {
-                    deleted = true;
-                }
-            }
-
-            // advance all iterators until they're either exhausted or beyond the min we found
-            // if min is None, we need to exhaust everything
-            for (pos, neg) in self.layers.iter_mut() {
-                while pos.peek().is_some()
-                    && (min.is_none() || pos.peek().map(|s| *s).unwrap() <= min.unwrap())
-                {
-                    pos.next().unwrap();
-                }
-                while neg.peek().is_some()
-                    && (min.is_none() || neg.peek().map(|s| *s).unwrap() <= min.unwrap())
-                {
-                    neg.next().unwrap();
-                }
-            }
-
-            // we advanced all the iterators, but we aren't necessarily done.
-            // It could be that the item we intended to return was deleted.
-            // In that case we need another retrieval round.
-            // If not, or if we ran out of data, we need to return.
-            if min.is_none() || !deleted {
-                break;
-            }
-        }
-
-        min
-    }
 }
 
 /// A triple, stored as numerical ids.
