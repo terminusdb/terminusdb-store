@@ -468,7 +468,8 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
             let file = get_file.await?;
             let mut writer = file.open_write();
 
-            writer.write_all(rollup_string.as_bytes()).await?;
+            let contents = format!("{}\n{}\n", 1, rollup_string);
+            writer.write_all(contents.as_bytes()).await?;
 
             Ok(())
         })
@@ -483,10 +484,25 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
             let file = get_file.await?;
             let mut reader = file.open_read();
 
-            let mut buf = [0; 40];
-            reader.read_exact(&mut buf).await?;
+            let mut data = Vec::new();
+            reader.read_to_end(&mut data).await?;
 
-            bytes_to_name(&buf)
+            let s = String::from_utf8_lossy(&data);
+            let lines: Vec<&str> = s.lines().collect();
+            if lines.len() != 2 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "expected rollup file to have two lines. contents were ({:?})",
+                        lines
+                    ),
+                ));
+            }
+
+            let _version_str = &lines[0];
+            let layer_str = &lines[1];
+
+            string_to_name(layer_str)
         })
     }
 
