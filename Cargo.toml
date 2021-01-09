@@ -10,7 +10,7 @@ repository = "https://github.com/terminusdb/terminus-store/"
 documentation = "https://docs.rs/terminus-store/"
 
 [dependencies]
-byteorder = "=1.3.4"
+byteorder = "1.4"
 futures = "0.3"
 futures-locks = "0.6"
 tokio = {version = "0.2", features = ["full"]}
