@@ -5,9 +5,9 @@ use super::bitindex::*;
 use super::logarray::*;
 use super::util;
 use crate::storage::*;
-use tokio::prelude::*;
 
 use std::convert::TryInto;
+use std::io;
 
 /// A wavelet tree, encoding a u64 array for fast lookup of number positions.
 ///

@@ -8,7 +8,7 @@ use std::io::{self, SeekFrom};
 use std::path::*;
 use std::pin::Pin;
 use tokio::fs;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::task::{spawn_blocking, JoinHandle};
 
 pub struct LockedFileLockFuture {
@@ -131,8 +131,8 @@ impl AsyncRead for LockedFile {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context,
-        buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
+        buf: &mut ReadBuf,
+    ) -> Poll<io::Result<()>> {
         Pin::new(
             self.file
                 .as_mut()
@@ -213,8 +213,8 @@ impl AsyncRead for ExclusiveLockedFile {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context,
-        buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
+        buf: &mut ReadBuf,
+    ) -> Poll<io::Result<()>> {
         Pin::new(
             self.file
                 .as_mut()

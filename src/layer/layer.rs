@@ -366,22 +366,20 @@ mod tests {
     use crate::layer::internal::InternalLayer;
     use crate::layer::simple_builder::{LayerBuilder, SimpleLayerBuilder};
     use std::sync::Arc;
-    use tokio::runtime::Runtime;
 
-    #[test]
-    fn find_triple_after_adjacent_removal() {
-        let mut runtime = Runtime::new().unwrap();
+    #[tokio::test]
+    async fn find_triple_after_adjacent_removal() {
         let files = base_layer_files();
         let mut builder = SimpleLayerBuilder::new([1, 2, 3, 4, 5], files.clone());
 
         builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
         builder.add_string_triple(StringTriple::new_value("cow", "says", "sniff"));
 
-        runtime.block_on(builder.commit()).unwrap();
+        builder.commit().await.unwrap();
 
         let base: Arc<InternalLayer> = Arc::new(
-            runtime
-                .block_on(BaseLayer::load_from_files([1, 2, 3, 4, 5], &files))
+            BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
+                .await
                 .unwrap()
                 .into(),
         );
@@ -390,15 +388,11 @@ mod tests {
         let mut builder =
             SimpleLayerBuilder::from_parent([5, 4, 3, 2, 1], base.clone(), files.clone());
         builder.remove_string_triple(StringTriple::new_value("cow", "says", "moo"));
-        runtime.block_on(builder.commit()).unwrap();
+        builder.commit().await.unwrap();
 
         let child: Arc<InternalLayer> = Arc::new(
-            runtime
-                .block_on(ChildLayer::load_from_files(
-                    [5, 4, 3, 2, 1],
-                    base.clone(),
-                    &files,
-                ))
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], base.clone(), &files)
+                .await
                 .unwrap()
                 .into(),
         );
@@ -430,19 +424,18 @@ mod tests {
         );
     }
 
-    #[test]
-    fn find_triple_after_removal_and_readdition() {
-        let mut runtime = Runtime::new().unwrap();
+    #[tokio::test]
+    async fn find_triple_after_removal_and_readdition() {
         let files = base_layer_files();
         let mut builder = SimpleLayerBuilder::new([1, 2, 3, 4, 5], files.clone());
 
         builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
 
-        runtime.block_on(builder.commit()).unwrap();
+        builder.commit().await.unwrap();
 
         let base: Arc<InternalLayer> = Arc::new(
-            runtime
-                .block_on(BaseLayer::load_from_files([1, 2, 3, 4, 5], &files))
+            BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
+                .await
                 .unwrap()
                 .into(),
         );
@@ -451,11 +444,11 @@ mod tests {
         let mut builder =
             SimpleLayerBuilder::from_parent([5, 4, 3, 2, 1], base.clone(), files.clone());
         builder.remove_string_triple(StringTriple::new_value("cow", "says", "moo"));
-        runtime.block_on(builder.commit()).unwrap();
+        builder.commit().await.unwrap();
 
         let child: Arc<InternalLayer> = Arc::new(
-            runtime
-                .block_on(ChildLayer::load_from_files([5, 4, 3, 2, 1], base, &files))
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], base, &files)
+                .await
                 .unwrap()
                 .into(),
         );
@@ -464,11 +457,11 @@ mod tests {
         let mut builder =
             SimpleLayerBuilder::from_parent([5, 4, 3, 2, 2], child.clone(), files.clone());
         builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
-        runtime.block_on(builder.commit()).unwrap();
+        builder.commit().await.unwrap();
 
         let child: Arc<InternalLayer> = Arc::new(
-            runtime
-                .block_on(ChildLayer::load_from_files([5, 4, 3, 2, 2], child, &files))
+            ChildLayer::load_from_files([5, 4, 3, 2, 2], child, &files)
+                .await
                 .unwrap()
                 .into(),
         );

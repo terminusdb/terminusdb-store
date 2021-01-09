@@ -384,7 +384,7 @@ impl PfcDictEntry {
             let mut it = self.parts.iter();
             let mut part = it.next().unwrap();
             loop {
-                let slice = b.bytes();
+                let slice = b.chunk();
 
                 match part.len().cmp(&slice.len()) {
                     Ordering::Less => {

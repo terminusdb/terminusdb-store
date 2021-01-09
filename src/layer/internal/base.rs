@@ -527,14 +527,13 @@ pub mod tests {
     use super::*;
     use crate::storage::memory::*;
     use futures::stream::TryStreamExt;
-    use tokio::runtime::{Handle, Runtime};
 
     pub fn base_layer_files() -> BaseLayerFiles<MemoryBackedStore> {
         // TODO inline
         base_layer_memory_files()
     }
 
-    pub fn example_base_layer_files(handle: &Handle) -> BaseLayerFiles<MemoryBackedStore> {
+    pub async fn example_base_layer_files() -> BaseLayerFiles<MemoryBackedStore> {
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
@@ -543,50 +542,46 @@ pub mod tests {
 
         let mut builder = BaseLayerFileBuilder::from_files(&base_layer_files);
 
-        handle
-            .block_on(async {
-                builder
-                    .add_nodes(nodes.into_iter().map(|s| s.to_string()))
-                    .await?;
-                builder
-                    .add_predicates(predicates.into_iter().map(|s| s.to_string()))
-                    .await?;
-                builder
-                    .add_values(values.into_iter().map(|s| s.to_string()))
-                    .await?;
+        async {
+            builder
+                .add_nodes(nodes.into_iter().map(|s| s.to_string()))
+                .await?;
+            builder
+                .add_predicates(predicates.into_iter().map(|s| s.to_string()))
+                .await?;
+            builder
+                .add_values(values.into_iter().map(|s| s.to_string()))
+                .await?;
 
-                let mut builder = builder.into_phase2().await?;
+            let mut builder = builder.into_phase2().await?;
 
-                builder.add_triple(1, 1, 1).await?;
-                builder.add_triple(2, 1, 1).await?;
-                builder.add_triple(2, 1, 3).await?;
-                builder.add_triple(2, 3, 6).await?;
-                builder.add_triple(3, 2, 5).await?;
-                builder.add_triple(3, 3, 6).await?;
-                builder.add_triple(4, 3, 6).await?;
+            builder.add_triple(1, 1, 1).await?;
+            builder.add_triple(2, 1, 1).await?;
+            builder.add_triple(2, 1, 3).await?;
+            builder.add_triple(2, 3, 6).await?;
+            builder.add_triple(3, 2, 5).await?;
+            builder.add_triple(3, 3, 6).await?;
+            builder.add_triple(4, 3, 6).await?;
 
-                builder.finalize().await
-            })
-            .unwrap();
+            builder.finalize().await
+        }
+        .await
+        .unwrap();
 
         base_layer_files
     }
 
-    pub fn example_base_layer(handle: &Handle) -> BaseLayer {
-        let base_layer_files = example_base_layer_files(handle);
+    pub async fn example_base_layer() -> BaseLayer {
+        let base_layer_files = example_base_layer_files().await;
 
-        handle
-            .block_on(BaseLayer::load_from_files(
-                [1, 2, 3, 4, 5],
-                &base_layer_files,
-            ))
+        BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files)
+            .await
             .unwrap()
     }
 
-    #[test]
-    fn build_and_query_base_layer() {
-        let runtime = Runtime::new().unwrap();
-        let layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn build_and_query_base_layer() {
+        let layer = example_base_layer().await;
 
         assert!(layer.triple_exists(1, 1, 1));
         assert!(layer.triple_exists(2, 1, 1));
@@ -599,10 +594,9 @@ pub mod tests {
         assert!(!layer.triple_exists(2, 2, 0));
     }
 
-    #[test]
-    fn dictionary_entries_in_base() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn dictionary_entries_in_base() {
+        let base_layer = example_base_layer().await;
 
         assert_eq!(3, base_layer.subject_id("bbbbb").unwrap());
         assert_eq!(2, base_layer.predicate_id("fghij").unwrap());
@@ -621,10 +615,9 @@ pub mod tests {
         );
     }
 
-    #[test]
-    fn everything_iterator() {
-        let runtime = Runtime::new().unwrap();
-        let layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn everything_iterator() {
+        let layer = example_base_layer().await;
         let triples: Vec<_> = layer
             .triples()
             .map(|t| (t.subject, t.predicate, t.object))
@@ -644,10 +637,9 @@ pub mod tests {
         );
     }
 
-    #[test]
-    fn lookup_by_object() {
-        let runtime = Runtime::new().unwrap();
-        let layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn lookup_by_object() {
+        let layer = example_base_layer().await;
 
         let triples: Vec<_> = layer
             .triples_o(1)
@@ -674,10 +666,9 @@ pub mod tests {
         assert_eq!(vec![(2, 3, 6), (3, 3, 6), (4, 3, 6)], triples);
     }
 
-    #[test]
-    fn lookup_by_predicate() {
-        let runtime = Runtime::new().unwrap();
-        let layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn lookup_by_predicate() {
+        let layer = example_base_layer().await;
 
         let pairs: Vec<_> = layer
             .triples_p(1)
@@ -703,9 +694,8 @@ pub mod tests {
         assert!(layer.triples_p(4).next().is_none());
     }
 
-    #[test]
-    fn create_empty_base_layer() {
-        let runtime = Runtime::new().unwrap();
+    #[tokio::test]
+    async fn create_empty_base_layer() {
         let base_layer_files = base_layer_files();
         let builder = BaseLayerFileBuilder::from_files(&base_layer_files);
 
@@ -716,23 +706,22 @@ pub mod tests {
             BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files).await
         };
 
-        let layer = runtime.handle().block_on(future).unwrap();
+        let layer = future.await.unwrap();
 
         assert_eq!(0, layer.node_and_value_count());
         assert_eq!(0, layer.predicate_count());
     }
 
-    #[test]
-    fn stream_base_triples() {
-        let mut runtime = Runtime::new().unwrap();
-        let layer_files = example_base_layer_files(&runtime.handle());
+    #[tokio::test]
+    async fn stream_base_triples() {
+        let layer_files = example_base_layer_files().await;
 
         let stream = open_base_triple_stream(
             layer_files.s_p_adjacency_list_files,
             layer_files.sp_o_adjacency_list_files,
         );
 
-        let triples: Vec<_> = runtime.block_on(stream.try_collect()).unwrap();
+        let triples: Vec<_> = stream.try_collect().await.unwrap();
 
         assert_eq!(
             vec![
@@ -748,12 +737,11 @@ pub mod tests {
         );
     }
 
-    #[test]
-    fn count_triples() {
-        let mut runtime = Runtime::new().unwrap();
-        let layer_files = example_base_layer_files(&runtime.handle());
-        let layer = runtime
-            .block_on(BaseLayer::load_from_files([1, 2, 3, 4, 5], &layer_files))
+    #[tokio::test]
+    async fn count_triples() {
+        let layer_files = example_base_layer_files().await;
+        let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &layer_files)
+            .await
             .unwrap();
 
         assert_eq!(7, layer.triple_layer_addition_count());

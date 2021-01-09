@@ -779,17 +779,15 @@ pub mod tests {
     use crate::layer::base::tests::*;
     use crate::storage::memory::*;
     use futures::stream::TryStreamExt;
-    use tokio::runtime::Runtime;
 
     pub fn child_layer_files() -> ChildLayerFiles<MemoryBackedStore> {
         // TODO inline
         child_layer_memory_files()
     }
 
-    #[test]
-    fn empty_child_layer_equivalent_to_parent() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn empty_child_layer_equivalent_to_parent() {
+        let base_layer = example_base_layer().await;
 
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
@@ -803,7 +801,7 @@ pub mod tests {
             ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
         };
 
-        let child_layer = runtime.block_on(fut).unwrap();
+        let child_layer = fut.await.unwrap();
 
         assert!(child_layer.triple_exists(1, 1, 1));
         assert!(child_layer.triple_exists(2, 1, 1));
@@ -816,10 +814,9 @@ pub mod tests {
         assert!(!child_layer.triple_exists(2, 2, 0));
     }
 
-    #[test]
-    fn child_layer_can_have_inserts() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn child_layer_can_have_inserts() {
+        let base_layer = example_base_layer().await;
 
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
@@ -835,7 +832,7 @@ pub mod tests {
             ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
         };
 
-        let child_layer = runtime.block_on(fut).unwrap();
+        let child_layer = fut.await.unwrap();
 
         assert!(child_layer.triple_exists(1, 1, 1));
         assert!(child_layer.triple_exists(2, 1, 1));
@@ -850,10 +847,9 @@ pub mod tests {
         assert!(!child_layer.triple_exists(2, 2, 0));
     }
 
-    #[test]
-    fn child_layer_can_have_deletes() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn child_layer_can_have_deletes() {
+        let base_layer = example_base_layer().await;
 
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
@@ -869,7 +865,7 @@ pub mod tests {
             ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
         };
 
-        let child_layer = runtime.block_on(fut).unwrap();
+        let child_layer = fut.await.unwrap();
 
         assert!(child_layer.triple_exists(1, 1, 1));
         assert!(!child_layer.triple_exists(2, 1, 1));
@@ -882,10 +878,9 @@ pub mod tests {
         assert!(!child_layer.triple_exists(2, 2, 0));
     }
 
-    #[test]
-    fn child_layer_can_have_inserts_and_deletes() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn child_layer_can_have_inserts_and_deletes() {
+        let base_layer = example_base_layer().await;
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
@@ -901,7 +896,7 @@ pub mod tests {
             ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
         };
 
-        let child_layer = runtime.block_on(fut).unwrap();
+        let child_layer = fut.await.unwrap();
 
         assert!(child_layer.triple_exists(1, 1, 1));
         assert!(child_layer.triple_exists(1, 2, 3));
@@ -916,10 +911,9 @@ pub mod tests {
         assert!(!child_layer.triple_exists(2, 2, 0));
     }
 
-    #[test]
-    fn iterate_child_layer_triples() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn iterate_child_layer_triples() {
+        let base_layer = example_base_layer().await;
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
@@ -935,7 +929,7 @@ pub mod tests {
             ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
         };
 
-        let child_layer = runtime.block_on(fut).unwrap();
+        let child_layer = fut.await.unwrap();
 
         let subjects: Vec<_> = child_layer
             .triples()
@@ -957,10 +951,9 @@ pub mod tests {
         );
     }
 
-    #[test]
-    fn lookup_child_layer_triples_by_predicate() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn lookup_child_layer_triples_by_predicate() {
+        let base_layer = example_base_layer().await;
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
@@ -976,7 +969,7 @@ pub mod tests {
             ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
         };
 
-        let child_layer = runtime.block_on(fut).unwrap();
+        let child_layer = fut.await.unwrap();
 
         let pairs: Vec<_> = child_layer
             .triples_p(1)
@@ -1002,10 +995,9 @@ pub mod tests {
         assert!(child_layer.triples_p(4).next().is_none());
     }
 
-    #[test]
-    fn adding_new_nodes_predicates_and_values_in_child() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn adding_new_nodes_predicates_and_values_in_child() {
+        let base_layer = example_base_layer().await;
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
@@ -1020,16 +1012,15 @@ pub mod tests {
             ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
         };
 
-        let child_layer = runtime.block_on(fut).unwrap();
+        let child_layer = fut.await.unwrap();
 
         assert!(child_layer.triple_exists(11, 2, 3));
         assert!(child_layer.triple_exists(12, 3, 4));
     }
 
-    #[test]
-    fn old_dictionary_entries_in_child() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn old_dictionary_entries_in_child() {
+        let base_layer = example_base_layer().await;
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
@@ -1046,7 +1037,7 @@ pub mod tests {
             ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
         };
 
-        let child_layer = runtime.block_on(fut).unwrap();
+        let child_layer = fut.await.unwrap();
 
         assert_eq!(3, child_layer.subject_id("bbbbb").unwrap());
         assert_eq!(2, child_layer.predicate_id("fghij").unwrap());
@@ -1065,10 +1056,9 @@ pub mod tests {
         );
     }
 
-    #[test]
-    fn new_dictionary_entries_in_child() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn new_dictionary_entries_in_child() {
+        let base_layer = example_base_layer().await;
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
@@ -1085,7 +1075,7 @@ pub mod tests {
             ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
         };
 
-        let child_layer = runtime.block_on(fut).unwrap();
+        let child_layer = fut.await.unwrap();
 
         assert_eq!(11, child_layer.subject_id("foo").unwrap());
         assert_eq!(5, child_layer.predicate_id("bar").unwrap());
@@ -1104,10 +1094,9 @@ pub mod tests {
         );
     }
 
-    #[test]
-    fn lookup_additions_by_subject() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn lookup_additions_by_subject() {
+        let base_layer = example_base_layer().await;
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
@@ -1124,7 +1113,7 @@ pub mod tests {
             ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
         };
 
-        let child_layer = runtime.block_on(fut).unwrap();
+        let child_layer = fut.await.unwrap();
 
         let result: Vec<_> = child_layer
             .triple_additions()
@@ -1134,10 +1123,9 @@ pub mod tests {
         assert_eq!(vec![(1, 3, 4), (2, 2, 2), (3, 4, 5)], result);
     }
 
-    #[test]
-    fn lookup_removals_by_subject() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn lookup_removals_by_subject() {
+        let base_layer = example_base_layer().await;
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
@@ -1154,7 +1142,7 @@ pub mod tests {
             ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
         };
 
-        let child_layer = runtime.block_on(fut).unwrap();
+        let child_layer = fut.await.unwrap();
 
         let result: Vec<_> = child_layer
             .triple_removals()
@@ -1164,10 +1152,9 @@ pub mod tests {
         assert_eq!(vec![(2, 1, 1), (3, 2, 5), (4, 3, 6)], result);
     }
 
-    #[test]
-    fn create_empty_child_layer() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn create_empty_child_layer() {
+        let base_layer = example_base_layer().await;
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
@@ -1184,7 +1171,7 @@ pub mod tests {
             ChildLayer::load_from_files([5, 4, 3, 2, 1], parent.clone(), &child_files).await
         };
 
-        let child_layer = runtime.block_on(fut).unwrap();
+        let child_layer = fut.await.unwrap();
 
         assert_eq!(
             parent.node_and_value_count(),
@@ -1193,10 +1180,9 @@ pub mod tests {
         assert_eq!(parent.predicate_count(), child_layer.predicate_count());
     }
 
-    #[test]
-    fn stream_child_triples() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn stream_child_triples() {
+        let base_layer = example_base_layer().await;
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
@@ -1216,7 +1202,7 @@ pub mod tests {
             b.finalize().await
         };
 
-        runtime.block_on(fut).unwrap();
+        fut.await.unwrap();
 
         let addition_stream = open_child_triple_stream(
             child_files.pos_subjects_file,
@@ -1229,8 +1215,8 @@ pub mod tests {
             child_files.neg_sp_o_adjacency_list_files,
         );
 
-        let addition_triples: Vec<_> = runtime.block_on(addition_stream.try_collect()).unwrap();
-        let removal_triples: Vec<_> = runtime.block_on(removal_stream.try_collect()).unwrap();
+        let addition_triples: Vec<_> = addition_stream.try_collect().await.unwrap();
+        let removal_triples: Vec<_> = removal_stream.try_collect().await.unwrap();
 
         assert_eq!(
             vec![
@@ -1247,10 +1233,9 @@ pub mod tests {
         assert_eq!(vec![(2, 1, 1), (2, 3, 6), (4, 3, 6)], removal_triples);
     }
 
-    #[test]
-    fn count_triples() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn count_triples() {
+        let base_layer = example_base_layer().await;
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
@@ -1272,7 +1257,7 @@ pub mod tests {
             ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
         };
 
-        let child_layer = runtime.block_on(fut).unwrap();
+        let child_layer = fut.await.unwrap();
 
         assert_eq!(6, child_layer.triple_layer_addition_count());
         assert_eq!(3, child_layer.triple_layer_removal_count());

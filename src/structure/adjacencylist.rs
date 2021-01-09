@@ -10,11 +10,13 @@
 //! left-hand-side has more pairs to follow, or 1 if this was the last
 //! pair).
 
+use tokio::io::AsyncWrite;
+
 use std::convert::TryInto;
+use std::io;
 use std::pin::Pin;
 
 use bytes::Bytes;
-use tokio::prelude::*;
 
 use super::bitarray::*;
 use super::bitindex::*;

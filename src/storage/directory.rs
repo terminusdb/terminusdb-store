@@ -4,7 +4,6 @@ use bytes::Bytes;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use futures::stream::TryStreamExt;
 use futures::{future, Future};
 use locking::*;
 use std::collections::{HashMap, HashSet};
@@ -108,7 +107,7 @@ impl PersistentLayerStore for DirectoryLayerStore {
         Box::pin(async move {
             let mut stream = fs::read_dir(path).await?;
             let mut result = Vec::new();
-            while let Some(direntry) = stream.try_next().await? {
+            while let Some(direntry) = stream.next_entry().await? {
                 if direntry.file_type().await?.is_dir() {
                     let os_name = direntry.file_name();
                     let name = os_name.to_str().ok_or(io::Error::new(
@@ -309,7 +308,7 @@ impl LabelStore for DirectoryLabelStore {
         Box::pin(async move {
             let mut stream = fs::read_dir(path).await?;
             let mut result = Vec::new();
-            while let Some(direntry) = stream.try_next().await? {
+            while let Some(direntry) = stream.next_entry().await? {
                 if direntry.file_type().await?.is_file() {
                     let os_name = direntry.file_name();
                     let name = os_name.to_str().ok_or(io::Error::new(
@@ -475,103 +474,98 @@ mod tests {
     use crate::layer::*;
     use std::sync::Arc;
     use tempfile::tempdir;
-    use tokio::runtime::Runtime;
 
-    #[test]
-    fn write_and_read_file_backed() {
+    #[tokio::test]
+    async fn write_and_read_file_backed() {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("foo");
         let file = FileBackedStore::new(file_path);
-        let mut runtime = Runtime::new().unwrap();
 
         let mut w = file.open_write();
-        let buf = runtime
-            .block_on(async {
-                w.write_all(&[1, 2, 3]).await?;
-                w.flush().await?;
-                let mut result = Vec::new();
-                file.open_read().read_to_end(&mut result).await?;
+        let buf = async {
+            w.write_all(&[1, 2, 3]).await?;
+            w.flush().await?;
+            let mut result = Vec::new();
+            file.open_read().read_to_end(&mut result).await?;
 
-                Ok::<_, io::Error>(result)
-            })
-            .unwrap();
+            Ok::<_, io::Error>(result)
+        }
+        .await
+        .unwrap();
 
         assert_eq!(vec![1, 2, 3], buf);
     }
 
-    #[test]
-    fn write_and_map_file_backed() {
+    #[tokio::test]
+    async fn write_and_map_file_backed() {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("foo");
         let file = FileBackedStore::new(file_path);
-        let mut runtime = Runtime::new().unwrap();
 
         let mut w = file.open_write();
-        let map = runtime
-            .block_on(async {
-                w.write_all(&[1, 2, 3]).await?;
-                w.flush().await?;
+        let map = async {
+            w.write_all(&[1, 2, 3]).await?;
+            w.flush().await?;
 
-                file.map().await
-            })
-            .unwrap();
+            file.map().await
+        }
+        .await
+        .unwrap();
 
         assert_eq!(&vec![1, 2, 3][..], &map.as_ref()[..]);
     }
 
-    #[test]
-    fn write_and_map_large_file_backed() {
+    #[tokio::test]
+    async fn write_and_map_large_file_backed() {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("foo");
         let file = FileBackedStore::new(file_path);
-        let mut runtime = Runtime::new().unwrap();
 
         let mut w = file.open_write();
         let mut contents = vec![0u8; 4096 << 4];
         for i in 0..contents.capacity() {
             contents[i] = (i as usize % 256) as u8;
         }
-        let map = runtime
-            .block_on(async {
-                w.write_all(&contents).await?;
-                w.flush().await?;
+        let map = async {
+            w.write_all(&contents).await?;
+            w.flush().await?;
 
-                file.map().await
-            })
-            .unwrap();
+            file.map().await
+        }
+        .await
+        .unwrap();
 
         assert_eq!(contents, map.as_ref());
     }
 
-    #[test]
-    fn create_layers_from_directory_store() {
-        let mut runtime = Runtime::new().unwrap();
+    #[tokio::test]
+    async fn create_layers_from_directory_store() {
         let dir = tempdir().unwrap();
         let store = DirectoryLayerStore::new(dir.path());
 
-        let layer = runtime
-            .block_on(async {
-                let mut builder = store.create_base_layer().await?;
-                let base_name = builder.name();
+        let layer = async {
+            let mut builder = store.create_base_layer().await?;
+            let base_name = builder.name();
 
-                builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
-                builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
-                builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
+            builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+            builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
+            builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
 
-                builder.commit_boxed().await?;
+            builder.commit_boxed().await?;
 
-                let mut builder = store.create_child_layer(base_name).await?;
-                let child_name = builder.name();
+            let mut builder = store.create_child_layer(base_name).await?;
+            let child_name = builder.name();
 
-                builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
-                builder.add_string_triple(StringTriple::new_node("cow", "likes", "pig"));
+            builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
+            builder.add_string_triple(StringTriple::new_node("cow", "likes", "pig"));
 
-                builder.commit_boxed().await?;
+            builder.commit_boxed().await?;
 
-                store.get_layer(child_name).await
-            })
-            .unwrap()
-            .unwrap();
+            store.get_layer(child_name).await
+        }
+        .await
+        .unwrap()
+        .unwrap();
 
         assert!(layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
@@ -579,74 +573,69 @@ mod tests {
         assert!(!layer.string_triple_exists(&StringTriple::new_value("duck", "says", "quack")));
     }
 
-    #[test]
-    fn directory_create_and_retrieve_equal_label() {
+    #[tokio::test]
+    async fn directory_create_and_retrieve_equal_label() {
         let dir = tempdir().unwrap();
         let store = DirectoryLabelStore::new(dir.path());
-        let mut runtime = Runtime::new().unwrap();
 
-        let (stored, retrieved) = runtime
-            .block_on(async {
-                let stored = store.create_label("foo").await?;
-                let retrieved = store.get_label("foo").await?;
+        let (stored, retrieved) = async {
+            let stored = store.create_label("foo").await?;
+            let retrieved = store.get_label("foo").await?;
 
-                Ok::<_, io::Error>((stored, retrieved))
-            })
-            .unwrap();
+            Ok::<_, io::Error>((stored, retrieved))
+        }
+        .await
+        .unwrap();
 
         assert_eq!(None, stored.layer);
         assert_eq!(stored, retrieved.unwrap());
     }
 
-    #[test]
-    fn directory_update_label_succeeds() {
+    #[tokio::test]
+    async fn directory_update_label_succeeds() {
         let dir = tempdir().unwrap();
         let store = DirectoryLabelStore::new(dir.path());
-        let mut runtime = Runtime::new().unwrap();
 
-        let retrieved = runtime
-            .block_on(async {
-                let stored = store.create_label("foo").await?;
-                store.set_label(&stored, [6, 7, 8, 9, 10]).await?;
+        let retrieved = async {
+            let stored = store.create_label("foo").await?;
+            store.set_label(&stored, [6, 7, 8, 9, 10]).await?;
 
-                store.get_label("foo").await
-            })
-            .unwrap()
-            .unwrap();
+            store.get_label("foo").await
+        }
+        .await
+        .unwrap()
+        .unwrap();
 
         assert_eq!(Some([6, 7, 8, 9, 10]), retrieved.layer);
     }
 
-    #[test]
-    fn directory_update_label_twice_from_same_label_object_fails() {
+    #[tokio::test]
+    async fn directory_update_label_twice_from_same_label_object_fails() {
         let dir = tempdir().unwrap();
         let store = DirectoryLabelStore::new(dir.path());
-        let mut runtime = Runtime::new().unwrap();
 
-        let (stored2, stored3) = runtime
-            .block_on(async {
-                let stored1 = store.create_label("foo").await?;
+        let (stored2, stored3) = async {
+            let stored1 = store.create_label("foo").await?;
 
-                let stored2 = store.set_label(&stored1, [6, 7, 8, 9, 10]).await?;
-                let stored3 = store.set_label(&stored1, [10, 9, 8, 7, 6]).await?;
+            let stored2 = store.set_label(&stored1, [6, 7, 8, 9, 10]).await?;
+            let stored3 = store.set_label(&stored1, [10, 9, 8, 7, 6]).await?;
 
-                Ok::<_, io::Error>((stored2, stored3))
-            })
-            .unwrap();
+            Ok::<_, io::Error>((stored2, stored3))
+        }
+        .await
+        .unwrap();
 
         assert!(stored2.is_some());
         assert!(stored3.is_none());
     }
 
-    #[test]
-    fn directory_create_label_twice_errors() {
-        let mut runtime = Runtime::new().unwrap();
-
+    #[tokio::test]
+    async fn directory_create_label_twice_errors() {
         let dir = tempdir().unwrap();
         let store = DirectoryLabelStore::new(dir.path());
 
-        runtime.block_on(store.create_label("foo")).unwrap();
-        let result = runtime.block_on(store.create_label("foo"));
+        store.create_label("foo").await.unwrap();
+        let result = store.create_label("foo").await;
 
         assert!(result.is_err());
 

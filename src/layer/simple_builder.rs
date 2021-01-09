@@ -400,7 +400,6 @@ mod tests {
     use super::*;
     use crate::layer::internal::InternalLayer;
     use crate::storage::memory::*;
-    use tokio::runtime::{Handle, Runtime};
 
     fn new_base_files() -> BaseLayerFiles<MemoryBackedStore> {
         // TODO inline
@@ -412,7 +411,7 @@ mod tests {
         child_layer_memory_files()
     }
 
-    fn example_base_layer(handle: &Handle) -> Arc<InternalLayer> {
+    async fn example_base_layer() -> Arc<InternalLayer> {
         let name = [1, 2, 3, 4, 5];
         let files = new_base_files();
         let mut builder = SimpleLayerBuilder::new(name, files.clone());
@@ -421,28 +420,24 @@ mod tests {
         builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
         builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
 
-        handle.block_on(builder.commit()).unwrap();
+        builder.commit().await.unwrap();
 
-        let layer = handle
-            .block_on(BaseLayer::load_from_files(name, &files))
-            .unwrap();
+        let layer = BaseLayer::load_from_files(name, &files).await.unwrap();
         Arc::new(layer.into())
     }
 
-    #[test]
-    fn simple_base_layer_construction() {
-        let runtime = Runtime::new().unwrap();
-        let layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn simple_base_layer_construction() {
+        let layer = example_base_layer().await;
 
         assert!(layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
         assert!(layer.string_triple_exists(&StringTriple::new_value("duck", "says", "quack")));
     }
 
-    #[test]
-    fn simple_child_layer_construction() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn simple_child_layer_construction() {
+        let base_layer = example_base_layer().await;
         let files = new_child_files();
         let name = [0, 0, 0, 0, 0];
         let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
@@ -452,13 +447,13 @@ mod tests {
         builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
 
         let child_layer = Arc::new(
-            runtime
-                .block_on(async {
-                    builder.commit().await?;
+            async {
+                builder.commit().await?;
 
-                    ChildLayer::load_from_files(name, base_layer, &files).await
-                })
-                .unwrap(),
+                ChildLayer::load_from_files(name, base_layer, &files).await
+            }
+            .await
+            .unwrap(),
         );
 
         assert!(
@@ -472,10 +467,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn multi_level_layers() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn multi_level_layers() {
+        let base_layer = example_base_layer().await;
         let name2 = [0, 0, 0, 0, 0];
         let files2 = new_child_files();
         let mut builder =
@@ -485,10 +479,10 @@ mod tests {
         builder.add_string_triple(StringTriple::new_node("horse", "likes", "cow"));
         builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
 
-        runtime.block_on(builder.commit()).unwrap();
+        builder.commit().await.unwrap();
         let layer2: Arc<InternalLayer> = Arc::new(
-            runtime
-                .block_on(ChildLayer::load_from_files(name2, base_layer, &files2))
+            ChildLayer::load_from_files(name2, base_layer, &files2)
+                .await
                 .unwrap()
                 .into(),
         );
@@ -500,10 +494,10 @@ mod tests {
         builder.add_string_triple(StringTriple::new_node("horse", "likes", "pig"));
         builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
 
-        runtime.block_on(builder.commit()).unwrap();
+        builder.commit().await.unwrap();
         let layer3: Arc<InternalLayer> = Arc::new(
-            runtime
-                .block_on(ChildLayer::load_from_files(name3, layer2, &files3))
+            ChildLayer::load_from_files(name3, layer2, &files3)
+                .await
                 .unwrap()
                 .into(),
         );
@@ -513,10 +507,10 @@ mod tests {
         builder = SimpleLayerBuilder::from_parent(name4, layer3.clone(), files4.clone());
         builder.remove_string_triple(StringTriple::new_value("pig", "says", "oink"));
         builder.add_string_triple(StringTriple::new_node("cow", "likes", "horse"));
-        runtime.block_on(builder.commit()).unwrap();
+        builder.commit().await.unwrap();
         let layer4: Arc<InternalLayer> = Arc::new(
-            runtime
-                .block_on(ChildLayer::load_from_files(name4, layer3, &files4))
+            ChildLayer::load_from_files(name4, layer3, &files4)
+                .await
                 .unwrap()
                 .into(),
         );
@@ -531,9 +525,8 @@ mod tests {
         assert!(!layer4.string_triple_exists(&StringTriple::new_node("horse", "likes", "cow")));
     }
 
-    #[test]
-    fn remove_and_add_same_triple_on_base_layer_is_noop() {
-        let mut runtime = Runtime::new().unwrap();
+    #[tokio::test]
+    async fn remove_and_add_same_triple_on_base_layer_is_noop() {
         let files = new_base_files();
         let name = [0, 0, 0, 0, 0];
         let mut builder = SimpleLayerBuilder::new(name, files.clone());
@@ -541,10 +534,10 @@ mod tests {
         builder.remove_string_triple(StringTriple::new_value("crow", "says", "caw"));
         builder.add_string_triple(StringTriple::new_value("crow", "says", "caw"));
 
-        runtime.block_on(builder.commit()).unwrap();
+        builder.commit().await.unwrap();
         let base_layer: Arc<InternalLayer> = Arc::new(
-            runtime
-                .block_on(BaseLayer::load_from_files(name, &files))
+            BaseLayer::load_from_files(name, &files)
+                .await
                 .unwrap()
                 .into(),
         );
@@ -552,9 +545,8 @@ mod tests {
         assert!(!base_layer.string_triple_exists(&StringTriple::new_value("crow", "says", "caw")));
     }
 
-    #[test]
-    fn add_and_remove_same_triple_on_base_layer_is_noop() {
-        let mut runtime = Runtime::new().unwrap();
+    #[tokio::test]
+    async fn add_and_remove_same_triple_on_base_layer_is_noop() {
         let files = new_base_files();
         let name = [0, 0, 0, 0, 0];
         let mut builder = SimpleLayerBuilder::new(name, files.clone());
@@ -562,10 +554,10 @@ mod tests {
         builder.add_string_triple(StringTriple::new_value("crow", "says", "caw"));
         builder.remove_string_triple(StringTriple::new_value("crow", "says", "caw"));
 
-        runtime.block_on(builder.commit()).unwrap();
+        builder.commit().await.unwrap();
         let base_layer: Arc<InternalLayer> = Arc::new(
-            runtime
-                .block_on(BaseLayer::load_from_files(name, &files))
+            BaseLayer::load_from_files(name, &files)
+                .await
                 .unwrap()
                 .into(),
         );
@@ -573,10 +565,9 @@ mod tests {
         assert!(!base_layer.string_triple_exists(&StringTriple::new_value("crow", "says", "caw")));
     }
 
-    #[test]
-    fn remove_and_add_same_existing_triple_on_child_layer_is_noop() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn remove_and_add_same_existing_triple_on_child_layer_is_noop() {
+        let base_layer = example_base_layer().await;
         let files = new_child_files();
         let name = [0, 0, 0, 0, 0];
         let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
@@ -584,10 +575,10 @@ mod tests {
         builder.remove_string_triple(StringTriple::new_value("cow", "says", "moo"));
         builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
 
-        runtime.block_on(builder.commit()).unwrap();
+        builder.commit().await.unwrap();
         let child_layer: Arc<InternalLayer> = Arc::new(
-            runtime
-                .block_on(ChildLayer::load_from_files(name, base_layer, &files))
+            ChildLayer::load_from_files(name, base_layer, &files)
+                .await
                 .unwrap()
                 .into(),
         );
@@ -595,10 +586,9 @@ mod tests {
         assert!(child_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
     }
 
-    #[test]
-    fn add_and_remove_same_existing_triple_on_child_layer_is_noop() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn add_and_remove_same_existing_triple_on_child_layer_is_noop() {
+        let base_layer = example_base_layer().await;
         let files = new_child_files();
         let name = [0, 0, 0, 0, 0];
         let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
@@ -606,10 +596,10 @@ mod tests {
         builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
         builder.remove_string_triple(StringTriple::new_value("cow", "says", "moo"));
 
-        runtime.block_on(builder.commit()).unwrap();
+        builder.commit().await.unwrap();
         let child_layer: Arc<InternalLayer> = Arc::new(
-            runtime
-                .block_on(ChildLayer::load_from_files(name, base_layer, &files))
+            ChildLayer::load_from_files(name, base_layer, &files)
+                .await
                 .unwrap()
                 .into(),
         );
@@ -617,10 +607,9 @@ mod tests {
         assert!(child_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
     }
 
-    #[test]
-    fn remove_and_add_same_nonexisting_triple_on_child_layer_is_noop() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn remove_and_add_same_nonexisting_triple_on_child_layer_is_noop() {
+        let base_layer = example_base_layer().await;
         let files = new_child_files();
         let name = [0, 0, 0, 0, 0];
         let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
@@ -628,10 +617,10 @@ mod tests {
         builder.remove_string_triple(StringTriple::new_value("crow", "says", "caw"));
         builder.add_string_triple(StringTriple::new_value("crow", "says", "caw"));
 
-        runtime.block_on(builder.commit()).unwrap();
+        builder.commit().await.unwrap();
         let child_layer: Arc<InternalLayer> = Arc::new(
-            runtime
-                .block_on(ChildLayer::load_from_files(name, base_layer, &files))
+            ChildLayer::load_from_files(name, base_layer, &files)
+                .await
                 .unwrap()
                 .into(),
         );
@@ -639,10 +628,9 @@ mod tests {
         assert!(!child_layer.string_triple_exists(&StringTriple::new_value("crow", "says", "caw")));
     }
 
-    #[test]
-    fn add_and_remove_same_nonexisting_triple_on_child_layer_is_noop() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn add_and_remove_same_nonexisting_triple_on_child_layer_is_noop() {
+        let base_layer = example_base_layer().await;
         let files = new_child_files();
         let name = [0, 0, 0, 0, 0];
         let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
@@ -650,10 +638,10 @@ mod tests {
         builder.add_string_triple(StringTriple::new_value("crow", "says", "caw"));
         builder.remove_string_triple(StringTriple::new_value("crow", "says", "caw"));
 
-        runtime.block_on(builder.commit()).unwrap();
+        builder.commit().await.unwrap();
         let child_layer: Arc<InternalLayer> = Arc::new(
-            runtime
-                .block_on(ChildLayer::load_from_files(name, base_layer, &files))
+            ChildLayer::load_from_files(name, base_layer, &files)
+                .await
                 .unwrap()
                 .into(),
         );
@@ -661,10 +649,9 @@ mod tests {
         assert!(!child_layer.string_triple_exists(&StringTriple::new_value("crow", "says", "caw")));
     }
 
-    #[test]
-    fn remove_and_add_same_triple_by_id_and_string_on_child_layer_is_noop() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn remove_and_add_same_triple_by_id_and_string_on_child_layer_is_noop() {
+        let base_layer = example_base_layer().await;
         let files = new_child_files();
         let name = [0, 0, 0, 0, 0];
         let node_id = base_layer.subject_id("cow").unwrap();
@@ -675,10 +662,10 @@ mod tests {
         builder.remove_string_triple(StringTriple::new_value("cow", "says", "moo"));
         builder.add_id_triple(IdTriple::new(node_id, predicate_id, value_id));
 
-        runtime.block_on(builder.commit()).unwrap();
+        builder.commit().await.unwrap();
         let child_layer: Arc<InternalLayer> = Arc::new(
-            runtime
-                .block_on(ChildLayer::load_from_files(name, base_layer, &files))
+            ChildLayer::load_from_files(name, base_layer, &files)
+                .await
                 .unwrap()
                 .into(),
         );
@@ -686,10 +673,9 @@ mod tests {
         assert!(child_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
     }
 
-    #[test]
-    fn remove_and_add_same_triple_by_string_and_id_on_child_layer_is_noop() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn remove_and_add_same_triple_by_string_and_id_on_child_layer_is_noop() {
+        let base_layer = example_base_layer().await;
         let files = new_child_files();
         let name = [0, 0, 0, 0, 0];
         let node_id = base_layer.subject_id("cow").unwrap();
@@ -700,10 +686,10 @@ mod tests {
         builder.remove_id_triple(IdTriple::new(node_id, predicate_id, value_id));
         builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
 
-        runtime.block_on(builder.commit()).unwrap();
+        builder.commit().await.unwrap();
         let child_layer: Arc<InternalLayer> = Arc::new(
-            runtime
-                .block_on(ChildLayer::load_from_files(name, base_layer, &files))
+            ChildLayer::load_from_files(name, base_layer, &files)
+                .await
                 .unwrap()
                 .into(),
         );
@@ -711,10 +697,9 @@ mod tests {
         assert!(child_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
     }
 
-    #[test]
-    fn add_and_remove_same_triple_by_id_and_string_on_child_layer_is_noop() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn add_and_remove_same_triple_by_id_and_string_on_child_layer_is_noop() {
+        let base_layer = example_base_layer().await;
         let files = new_child_files();
         let name = [0, 0, 0, 0, 0];
         let node_id = base_layer.subject_id("cow").unwrap();
@@ -725,10 +710,10 @@ mod tests {
         builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
         builder.remove_id_triple(IdTriple::new(node_id, predicate_id, value_id));
 
-        runtime.block_on(builder.commit()).unwrap();
+        builder.commit().await.unwrap();
         let child_layer: Arc<InternalLayer> = Arc::new(
-            runtime
-                .block_on(ChildLayer::load_from_files(name, base_layer, &files))
+            ChildLayer::load_from_files(name, base_layer, &files)
+                .await
                 .unwrap()
                 .into(),
         );
@@ -736,10 +721,9 @@ mod tests {
         assert!(child_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
     }
 
-    #[test]
-    fn add_and_remove_same_triple_by_string_and_id_on_child_layer_is_noop() {
-        let mut runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(&runtime.handle());
+    #[tokio::test]
+    async fn add_and_remove_same_triple_by_string_and_id_on_child_layer_is_noop() {
+        let base_layer = example_base_layer().await;
         let files = new_child_files();
         let name = [0, 0, 0, 0, 0];
         let node_id = base_layer.subject_id("cow").unwrap();
@@ -750,10 +734,10 @@ mod tests {
         builder.add_id_triple(IdTriple::new(node_id, predicate_id, value_id));
         builder.remove_string_triple(StringTriple::new_value("cow", "says", "moo"));
 
-        runtime.block_on(builder.commit()).unwrap();
+        builder.commit().await.unwrap();
         let child_layer: Arc<InternalLayer> = Arc::new(
-            runtime
-                .block_on(ChildLayer::load_from_files(name, base_layer, &files))
+            ChildLayer::load_from_files(name, base_layer, &files)
+                .await
                 .unwrap()
                 .into(),
         );

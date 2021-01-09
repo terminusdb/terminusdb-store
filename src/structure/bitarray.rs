@@ -28,6 +28,8 @@
 //!
 //! * length: the number of usable bits in the bit array
 
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+
 use super::util;
 use crate::storage::*;
 use crate::structure::bititer::BitIter;
@@ -37,7 +39,6 @@ use futures::future::FutureExt;
 use futures::io;
 use futures::stream::{Stream, StreamExt, TryStreamExt};
 use std::{convert::TryFrom, error, fmt};
-use tokio::prelude::*;
 use tokio_util::codec::{Decoder, FramedRead};
 
 /// A thread-safe, reference-counted, compressed bit sequence.

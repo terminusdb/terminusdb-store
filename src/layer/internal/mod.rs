@@ -977,10 +977,8 @@ mod tests {
     }
 
     use crate::layer::base::tests::*;
-    use tokio::runtime::Runtime;
-    #[test]
-    fn base_layer_with_gaps_addition_count() {
-        let mut runtime = Runtime::new().unwrap();
+    #[tokio::test]
+    async fn base_layer_with_gaps_addition_count() {
         let files = base_layer_files();
 
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
@@ -1003,10 +1001,10 @@ mod tests {
             builder.finalize().await
         };
 
-        runtime.block_on(future).unwrap();
+        future.await.unwrap();
 
-        let layer = runtime
-            .block_on(BaseLayer::load_from_files([1, 2, 3, 4, 5], &files))
+        let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
+            .await
             .unwrap();
 
         assert_eq!(1, layer.triple_layer_addition_count());

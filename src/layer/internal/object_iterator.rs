@@ -227,9 +227,8 @@ mod tests {
     use crate::layer::base::tests::*;
     use crate::storage::memory::*;
     use crate::storage::*;
-    use tokio::runtime::{Handle, Runtime};
 
-    fn example_base_layer_files(handle: &Handle) -> BaseLayerFiles<MemoryBackedStore> {
+    async fn example_base_layer_files() -> BaseLayerFiles<MemoryBackedStore> {
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
@@ -262,28 +261,24 @@ mod tests {
             builder.finalize().await
         };
 
-        handle.block_on(future).unwrap();
+        future.await.unwrap();
 
         base_layer_files
     }
 
-    fn example_base_layer(handle: &Handle) -> BaseLayer {
-        let base_layer_files = example_base_layer_files(handle);
+    async fn example_base_layer() -> BaseLayer {
+        let base_layer_files = example_base_layer_files().await;
 
-        let layer = handle
-            .block_on(BaseLayer::load_from_files(
-                [1, 2, 3, 4, 5],
-                &base_layer_files,
-            ))
+        let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files)
+            .await
             .unwrap();
 
         layer
     }
 
-    #[test]
-    fn object_iterator() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(runtime.handle());
+    #[tokio::test]
+    async fn object_iterator() {
+        let base_layer = example_base_layer().await;
 
         let iterator = base_layer.internal_triple_additions_by_object();
         let triples: Vec<_> = iterator.collect();
@@ -302,10 +297,9 @@ mod tests {
         assert_eq!(expected, triples);
     }
 
-    #[test]
-    fn object_iterator_seek() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(runtime.handle());
+    #[tokio::test]
+    async fn object_iterator_seek() {
+        let base_layer = example_base_layer().await;
 
         let iterator = base_layer.internal_triple_additions_by_object();
         let triples: Vec<_> = iterator.seek_object(5).collect();
@@ -321,10 +315,9 @@ mod tests {
         assert_eq!(expected, triples);
     }
 
-    #[test]
-    fn object_iterator_seek_0() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(runtime.handle());
+    #[tokio::test]
+    async fn object_iterator_seek_0() {
+        let base_layer = example_base_layer().await;
 
         let iterator = base_layer.internal_triple_additions_by_object();
         let triples: Vec<_> = iterator.seek_object(0).collect();
@@ -343,10 +336,9 @@ mod tests {
         assert_eq!(expected, triples);
     }
 
-    #[test]
-    fn object_iterator_seek_before_begin() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(runtime.handle());
+    #[tokio::test]
+    async fn object_iterator_seek_before_begin() {
+        let base_layer = example_base_layer().await;
 
         let iterator = base_layer.internal_triple_additions_by_object();
         let triples: Vec<_> = iterator.seek_object(1).collect();
@@ -365,10 +357,9 @@ mod tests {
         assert_eq!(expected, triples);
     }
 
-    #[test]
-    fn object_iterator_seek_nonexistent() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(runtime.handle());
+    #[tokio::test]
+    async fn object_iterator_seek_nonexistent() {
+        let base_layer = example_base_layer().await;
 
         let iterator = base_layer.internal_triple_additions_by_object();
         let triples: Vec<_> = iterator.seek_object(4).collect();
@@ -384,20 +375,18 @@ mod tests {
         assert_eq!(expected, triples);
     }
 
-    #[test]
-    fn object_iterator_seek_past_end() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(runtime.handle());
+    #[tokio::test]
+    async fn object_iterator_seek_past_end() {
+        let base_layer = example_base_layer().await;
 
         let iterator = base_layer.internal_triple_additions_by_object();
         let triples: Vec<_> = iterator.seek_object(7).collect();
         assert!(triples.is_empty());
     }
 
-    #[test]
-    fn object_additions_iterator_for_object() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(runtime.handle());
+    #[tokio::test]
+    async fn object_additions_iterator_for_object() {
+        let base_layer = example_base_layer().await;
 
         let triples: Vec<_> = base_layer.triple_additions_o(5).collect();
 
@@ -410,71 +399,58 @@ mod tests {
         assert_eq!(expected, triples);
     }
 
-    #[test]
-    fn object_additions_iterator_for_nonexistent_object() {
-        let runtime = Runtime::new().unwrap();
-        let base_layer = example_base_layer(runtime.handle());
+    #[tokio::test]
+    async fn object_additions_iterator_for_nonexistent_object() {
+        let base_layer = example_base_layer().await;
 
         let triples: Vec<_> = base_layer.triple_additions_o(4).collect();
 
         assert!(triples.is_empty());
     }
 
-    #[test]
-    fn combined_iterator_for_object() {
-        let mut runtime = Runtime::new().unwrap();
+    #[tokio::test]
+    async fn combined_iterator_for_object() {
         let store = MemoryLayerStore::new();
-        let mut builder = runtime.block_on(store.create_base_layer()).unwrap();
+        let mut builder = store.create_base_layer().await.unwrap();
         let base_name = builder.name();
 
         builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
         builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
         builder.add_string_triple(StringTriple::new_node("cow", "likes", "duck"));
         builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
-        runtime.block_on(builder.commit_boxed()).unwrap();
+        builder.commit_boxed().await.unwrap();
 
-        builder = runtime
-            .block_on(store.create_child_layer(base_name))
-            .unwrap();
+        builder = store.create_child_layer(base_name).await.unwrap();
         let child1_name = builder.name();
 
         builder.add_string_triple(StringTriple::new_value("horse", "says", "neigh"));
         builder.add_string_triple(StringTriple::new_node("horse", "likes", "horse"));
         builder.add_string_triple(StringTriple::new_node("horse", "likes", "cow"));
-        runtime.block_on(builder.commit_boxed()).unwrap();
+        builder.commit_boxed().await.unwrap();
 
-        builder = runtime
-            .block_on(store.create_child_layer(child1_name))
-            .unwrap();
+        builder = store.create_child_layer(child1_name).await.unwrap();
         let child2_name = builder.name();
 
         builder.remove_string_triple(StringTriple::new_node("duck", "hates", "cow"));
         builder.add_string_triple(StringTriple::new_node("duck", "likes", "cow"));
-        runtime.block_on(builder.commit_boxed()).unwrap();
+        builder.commit_boxed().await.unwrap();
 
-        builder = runtime
-            .block_on(store.create_child_layer(child2_name))
-            .unwrap();
+        builder = store.create_child_layer(child2_name).await.unwrap();
         let child3_name = builder.name();
 
         builder.remove_string_triple(StringTriple::new_node("duck", "likes", "cow"));
         builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
-        runtime.block_on(builder.commit_boxed()).unwrap();
+        builder.commit_boxed().await.unwrap();
 
-        builder = runtime
-            .block_on(store.create_child_layer(child3_name))
-            .unwrap();
+        builder = store.create_child_layer(child3_name).await.unwrap();
         let child4_name = builder.name();
 
         builder.remove_string_triple(StringTriple::new_node("duck", "hates", "cow"));
         builder.add_string_triple(StringTriple::new_node("duck", "likes", "cow"));
         builder.add_string_triple(StringTriple::new_node("field", "contains", "cow"));
-        runtime.block_on(builder.commit_boxed()).unwrap();
+        builder.commit_boxed().await.unwrap();
 
-        let layer = runtime
-            .block_on(store.get_layer(child4_name))
-            .unwrap()
-            .unwrap();
+        let layer = store.get_layer(child4_name).await.unwrap().unwrap();
 
         let object_id = layer.object_node_id("cow").unwrap();
         let triples: Vec<_> = layer

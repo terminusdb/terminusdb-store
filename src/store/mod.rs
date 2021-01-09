@@ -580,83 +580,73 @@ pub fn open_directory_store<P: Into<PathBuf>>(path: P) -> Store {
 mod tests {
     use super::*;
     use tempfile::tempdir;
-    use tokio::runtime::Runtime;
 
-    fn create_and_manipulate_database(mut runtime: Runtime, store: Store) {
-        let database = runtime.block_on(store.create("foodb")).unwrap();
+    async fn create_and_manipulate_database(store: Store) {
+        let database = store.create("foodb").await.unwrap();
 
-        let head = runtime.block_on(database.head()).unwrap();
+        let head = database.head().await.unwrap();
         assert!(head.is_none());
 
-        let mut builder = runtime.block_on(store.create_base_layer()).unwrap();
+        let mut builder = store.create_base_layer().await.unwrap();
         builder
             .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
-        let layer = runtime.block_on(builder.commit()).unwrap();
-        assert!(runtime.block_on(database.set_head(&layer)).unwrap());
+        let layer = builder.commit().await.unwrap();
+        assert!(database.set_head(&layer).await.unwrap());
 
-        builder = runtime.block_on(layer.open_write()).unwrap();
+        builder = layer.open_write().await.unwrap();
         builder
             .add_string_triple(StringTriple::new_value("pig", "says", "oink"))
             .unwrap();
 
-        let layer2 = runtime.block_on(builder.commit()).unwrap();
-        assert!(runtime.block_on(database.set_head(&layer2)).unwrap());
+        let layer2 = builder.commit().await.unwrap();
+        assert!(database.set_head(&layer2).await.unwrap());
         let layer2_name = layer2.name();
 
-        let layer = runtime.block_on(database.head()).unwrap().unwrap();
+        let layer = database.head().await.unwrap().unwrap();
 
         assert_eq!(layer2_name, layer.name());
         assert!(layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
     }
 
-    #[test]
-    fn create_and_manipulate_memory_database() {
-        let runtime = Runtime::new().unwrap();
+    #[tokio::test]
+    async fn create_and_manipulate_memory_database() {
         let store = open_memory_store();
 
-        create_and_manipulate_database(runtime, store);
+        create_and_manipulate_database(store).await;
     }
 
-    #[test]
-    fn create_and_manipulate_directory_database() {
-        let runtime = Runtime::new().unwrap();
+    #[tokio::test]
+    async fn create_and_manipulate_directory_database() {
         let dir = tempdir().unwrap();
         let store = open_directory_store(dir.path());
 
-        create_and_manipulate_database(runtime, store);
+        create_and_manipulate_database(store).await;
     }
 
-    #[test]
-    fn create_layer_and_retrieve_it_by_id() {
-        let mut runtime = Runtime::new().unwrap();
-
+    #[tokio::test]
+    async fn create_layer_and_retrieve_it_by_id() {
         let store = open_memory_store();
-        let builder = runtime.block_on(store.create_base_layer()).unwrap();
+        let builder = store.create_base_layer().await.unwrap();
         builder
             .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
-        let layer = runtime.block_on(builder.commit()).unwrap();
+        let layer = builder.commit().await.unwrap();
 
         let id = layer.name();
 
-        let layer2 = runtime
-            .block_on(store.get_layer_from_id(id))
-            .unwrap()
-            .unwrap();
+        let layer2 = store.get_layer_from_id(id).await.unwrap().unwrap();
 
         assert!(layer2.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
     }
 
-    #[test]
-    fn commit_builder_makes_builder_committed() {
-        let mut runtime = Runtime::new().unwrap();
-
+    #[tokio::test]
+    async fn commit_builder_makes_builder_committed() {
         let store = open_memory_store();
-        let builder = runtime.block_on(store.create_base_layer()).unwrap();
+        let builder = store.create_base_layer().await.unwrap();
 
         builder
             .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
@@ -664,91 +654,85 @@ mod tests {
 
         assert!(!builder.committed());
 
-        runtime.block_on(builder.commit_no_load()).unwrap();
+        builder.commit_no_load().await.unwrap();
 
         assert!(builder.committed());
     }
 
-    #[test]
-    fn hard_reset() {
-        let mut runtime = Runtime::new().unwrap();
-
+    #[tokio::test]
+    async fn hard_reset() {
         let store = open_memory_store();
-        let database = runtime.block_on(store.create("foodb")).unwrap();
+        let database = store.create("foodb").await.unwrap();
 
-        let builder1 = runtime.block_on(store.create_base_layer()).unwrap();
+        let builder1 = store.create_base_layer().await.unwrap();
         builder1
             .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
-        let layer1 = runtime.block_on(builder1.commit()).unwrap();
+        let layer1 = builder1.commit().await.unwrap();
 
-        assert!(runtime.block_on(database.set_head(&layer1)).unwrap());
+        assert!(database.set_head(&layer1).await.unwrap());
 
-        let builder2 = runtime.block_on(store.create_base_layer()).unwrap();
+        let builder2 = store.create_base_layer().await.unwrap();
         builder2
             .add_string_triple(StringTriple::new_value("duck", "says", "quack"))
             .unwrap();
 
-        let layer2 = runtime.block_on(builder2.commit()).unwrap();
+        let layer2 = builder2.commit().await.unwrap();
 
-        assert!(runtime.block_on(database.force_set_head(&layer2)).unwrap());
+        assert!(database.force_set_head(&layer2).await.unwrap());
 
-        let new_layer = runtime.block_on(database.head()).unwrap().unwrap();
+        let new_layer = database.head().await.unwrap().unwrap();
 
         assert!(new_layer.string_triple_exists(&StringTriple::new_value("duck", "says", "quack")));
         assert!(!new_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
     }
 
-    #[test]
-    fn create_two_layers_and_squash() {
-        let mut runtime = Runtime::new().unwrap();
-
+    #[tokio::test]
+    async fn create_two_layers_and_squash() {
         let store = open_memory_store();
-        let builder = runtime.block_on(store.create_base_layer()).unwrap();
+        let builder = store.create_base_layer().await.unwrap();
         builder
             .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
-        let layer = runtime.block_on(builder.commit()).unwrap();
+        let layer = builder.commit().await.unwrap();
 
-        let builder2 = runtime.block_on(layer.open_write()).unwrap();
+        let builder2 = layer.open_write().await.unwrap();
 
         builder2
             .add_string_triple(StringTriple::new_value("dog", "says", "woof"))
             .unwrap();
 
-        let layer2 = runtime.block_on(builder2.commit()).unwrap();
+        let layer2 = builder2.commit().await.unwrap();
 
-        let new = runtime.block_on(layer2.squash()).unwrap();
+        let new = layer2.squash().await.unwrap();
 
         assert!(new.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(new.string_triple_exists(&StringTriple::new_value("dog", "says", "woof")));
-        assert!(runtime.block_on(new.parent()).unwrap().is_none());
+        assert!(new.parent().await.unwrap().is_none());
     }
 
-    #[test]
-    fn apply_a_base_delta() {
-        let mut runtime = Runtime::new().unwrap();
-
+    #[tokio::test]
+    async fn apply_a_base_delta() {
         let store = open_memory_store();
-        let builder = runtime.block_on(store.create_base_layer()).unwrap();
+        let builder = store.create_base_layer().await.unwrap();
 
         builder
             .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
             .unwrap();
 
-        let layer = runtime.block_on(builder.commit()).unwrap();
+        let layer = builder.commit().await.unwrap();
 
-        let builder2 = runtime.block_on(layer.open_write()).unwrap();
+        let builder2 = layer.open_write().await.unwrap();
 
         builder2
             .add_string_triple(StringTriple::new_value("dog", "says", "woof"))
             .unwrap();
 
-        let layer2 = runtime.block_on(builder2.commit()).unwrap();
+        let layer2 = builder2.commit().await.unwrap();
 
-        let delta_builder_1 = runtime.block_on(store.create_base_layer()).unwrap();
+        let delta_builder_1 = store.create_base_layer().await.unwrap();
 
         delta_builder_1
             .add_string_triple(StringTriple::new_value("dog", "says", "woof"))
@@ -757,9 +741,9 @@ mod tests {
             .add_string_triple(StringTriple::new_value("cat", "says", "meow"))
             .unwrap();
 
-        let delta_1 = runtime.block_on(delta_builder_1.commit()).unwrap();
+        let delta_1 = delta_builder_1.commit().await.unwrap();
 
-        let delta_builder_2 = runtime.block_on(delta_1.open_write()).unwrap();
+        let delta_builder_2 = delta_1.open_write().await.unwrap();
 
         delta_builder_2
             .add_string_triple(StringTriple::new_value("crow", "says", "caw"))
@@ -768,13 +752,13 @@ mod tests {
             .remove_string_triple(StringTriple::new_value("cat", "says", "meow"))
             .unwrap();
 
-        let delta = runtime.block_on(delta_builder_2.commit()).unwrap();
+        let delta = delta_builder_2.commit().await.unwrap();
 
-        let rebase_builder = runtime.block_on(layer2.open_write()).unwrap();
+        let rebase_builder = layer2.open_write().await.unwrap();
 
         let _ = rebase_builder.apply_delta(&delta).unwrap();
 
-        let rebase_layer = runtime.block_on(rebase_builder.commit()).unwrap();
+        let rebase_layer = rebase_builder.commit().await.unwrap();
 
         assert!(rebase_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(rebase_layer.string_triple_exists(&StringTriple::new_value("crow", "says", "caw")));

@@ -223,7 +223,6 @@ pub mod tests {
     use crate::storage::directory::*;
     use crate::storage::memory::*;
     use tempfile::tempdir;
-    use tokio::runtime::Runtime;
 
     fn cached_layer_eq(layer1: &dyn Layer, layer2: &dyn Layer) -> bool {
         // a trait object consists of two parts, a pointer to the concrete data, followed by a vtable.
@@ -235,111 +234,83 @@ pub mod tests {
         }
     }
 
-    #[test]
-    fn cached_memory_layer_store_returns_same_layer_multiple_times() {
-        let mut runtime = Runtime::new().unwrap();
+    #[tokio::test]
+    async fn cached_memory_layer_store_returns_same_layer_multiple_times() {
         let store = CachedLayerStore::new(MemoryLayerStore::new(), LockingHashMapLayerCache::new());
-        let mut builder = runtime.block_on(store.create_base_layer()).unwrap();
+        let mut builder = store.create_base_layer().await.unwrap();
         let base_name = builder.name();
 
         builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
         builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
         builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
 
-        runtime.block_on(builder.commit_boxed()).unwrap();
+        builder.commit_boxed().await.unwrap();
 
-        builder = runtime
-            .block_on(store.create_child_layer(base_name))
-            .unwrap();
+        builder = store.create_child_layer(base_name).await.unwrap();
         let child_name = builder.name();
 
         builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
         builder.add_string_triple(StringTriple::new_node("cow", "likes", "pig"));
 
-        runtime.block_on(builder.commit_boxed()).unwrap();
+        builder.commit_boxed().await.unwrap();
 
-        let layer1 = runtime
-            .block_on(store.get_layer(child_name))
-            .unwrap()
-            .unwrap();
-        let layer2 = runtime
-            .block_on(store.get_layer(child_name))
-            .unwrap()
-            .unwrap();
+        let layer1 = store.get_layer(child_name).await.unwrap().unwrap();
+        let layer2 = store.get_layer(child_name).await.unwrap().unwrap();
 
         let base_layer = store.cache.get_layer_from_cache(base_name).unwrap();
-        let base_layer_2 = runtime
-            .block_on(store.get_layer(base_name))
-            .unwrap()
-            .unwrap();
+        let base_layer_2 = store.get_layer(base_name).await.unwrap().unwrap();
 
         assert!(cached_layer_eq(&*layer1, &*layer2));
         assert!(cached_layer_eq(&*base_layer, &*base_layer_2));
     }
 
-    #[test]
-    fn cached_directory_layer_store_returns_same_layer_multiple_times() {
+    #[tokio::test]
+    async fn cached_directory_layer_store_returns_same_layer_multiple_times() {
         let dir = tempdir().unwrap();
-        let mut runtime = Runtime::new().unwrap();
         let store = CachedLayerStore::new(
             DirectoryLayerStore::new(dir.path()),
             LockingHashMapLayerCache::new(),
         );
-        let mut builder = runtime.block_on(store.create_base_layer()).unwrap();
+        let mut builder = store.create_base_layer().await.unwrap();
         let base_name = builder.name();
 
         builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
         builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
         builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
 
-        runtime.block_on(builder.commit_boxed()).unwrap();
+        builder.commit_boxed().await.unwrap();
 
-        builder = runtime
-            .block_on(store.create_child_layer(base_name))
-            .unwrap();
+        builder = store.create_child_layer(base_name).await.unwrap();
         let child_name = builder.name();
 
         builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
         builder.add_string_triple(StringTriple::new_node("cow", "likes", "pig"));
 
-        runtime.block_on(builder.commit_boxed()).unwrap();
+        builder.commit_boxed().await.unwrap();
 
-        let layer1 = runtime
-            .block_on(store.get_layer(child_name))
-            .unwrap()
-            .unwrap();
-        let layer2 = runtime
-            .block_on(store.get_layer(child_name))
-            .unwrap()
-            .unwrap();
+        let layer1 = store.get_layer(child_name).await.unwrap().unwrap();
+        let layer2 = store.get_layer(child_name).await.unwrap().unwrap();
 
         let base_layer = store.cache.get_layer_from_cache(base_name).unwrap();
-        let base_layer_2 = runtime
-            .block_on(store.get_layer(base_name))
-            .unwrap()
-            .unwrap();
+        let base_layer_2 = store.get_layer(base_name).await.unwrap().unwrap();
 
         assert!(cached_layer_eq(&*layer1, &*layer2));
         assert!(cached_layer_eq(&*base_layer, &*base_layer_2));
     }
 
-    #[test]
-    fn cached_layer_store_forgets_entries_when_they_are_dropped() {
-        let mut runtime = Runtime::new().unwrap();
+    #[tokio::test]
+    async fn cached_layer_store_forgets_entries_when_they_are_dropped() {
         let store = CachedLayerStore::new(MemoryLayerStore::new(), LockingHashMapLayerCache::new());
-        let mut builder = runtime.block_on(store.create_base_layer()).unwrap();
+        let mut builder = store.create_base_layer().await.unwrap();
         let base_name = builder.name();
 
         builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
         builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
         builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
 
-        runtime.block_on(builder.commit_boxed()).unwrap();
+        builder.commit_boxed().await.unwrap();
 
-        let layer = runtime
-            .block_on(store.get_layer(base_name))
-            .unwrap()
-            .unwrap();
+        let layer = store.get_layer(base_name).await.unwrap().unwrap();
         let weak = Arc::downgrade(&layer);
 
         // we expect 2 weak pointers, the one we made above and the one stored in cache
@@ -352,10 +323,7 @@ pub mod tests {
         assert!(weak.upgrade().is_none());
 
         // retrieving the same layer again works just fine
-        let layer = runtime
-            .block_on(store.get_layer(base_name))
-            .unwrap()
-            .unwrap();
+        let layer = store.get_layer(base_name).await.unwrap().unwrap();
 
         // and only has one weak pointer pointing to it, the newly cached one
         assert_eq!(1, Arc::weak_count(&layer));

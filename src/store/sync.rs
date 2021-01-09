@@ -25,7 +25,7 @@ lazy_static! {
 /// tokio_threadpool. Spawning the future indirectly appears to work
 /// without memory leak.
 fn task_sync<T: Send, F: Future<Output = T> + Send>(future: F) -> T {
-    RUNTIME.handle().block_on(future)
+    RUNTIME.block_on(future)
 }
 
 /// A wrapper over a SimpleLayerBuilder, providing a thread-safe sharable interface
