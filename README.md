@@ -1,6 +1,6 @@
 # terminusdb-store, a tokio-enabled data store for triple data
 
-[![Build Status](https://travis-ci.com/terminusdb/terminusdb-store.svg?branch=master)](https://travis-ci.com/terminusdb/terminus-store)
+[![Build Status](https://github.com/terminusdb/terminusdb-store/workflows/Build/badge.svg)](https://github.com/terminusdb/terminusdb-store/actions)
 [![Crate](https://img.shields.io/crates/v/terminus-store.svg)](https://crates.io/crates/terminus-store")
 [![Documentation](https://docs.rs/terminus-store/badge.svg)](https://docs.rs/terminus-store/)
 [![codecov](https://codecov.io/gh/terminusdb/terminus-store/branch/master/graph/badge.svg)](https://codecov.io/gh/terminusdb/terminus-store)
