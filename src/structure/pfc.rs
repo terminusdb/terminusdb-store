@@ -393,7 +393,7 @@ impl PfcDictEntry {
                         }
                     }
                     Ordering::Equal => {
-                        if &part != &slice {
+                        if part != slice {
                             return false;
                         }
 
@@ -626,12 +626,10 @@ impl PfcDict {
             PfcBlock::parse_incomplete(block, remainder as usize).unwrap()
         };
 
-        let mut count = 0;
-        for block_entry in block.entries() {
+        for (count, block_entry) in block.entries().enumerate() {
             if block_entry.buf_eq(s_bytes) {
                 return Some((found * BLOCK_SIZE + count) as u64);
             }
-            count += 1;
         }
 
         None
