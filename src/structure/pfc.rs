@@ -706,10 +706,10 @@ impl<W: 'static + tokio::io::AsyncWrite + Unpin + Send> PfcDictFileBuilder<W> {
 
     pub async fn add_all_entries<I: 'static + Iterator<Item = PfcDictEntry> + Send>(
         &mut self,
-        mut it: I,
+        it: I,
     ) -> io::Result<Vec<u64>> {
         let mut result = Vec::new();
-        while let Some(next) = it.next() {
+        for next in it {
             let r = self.add_entry(&next).await?;
             result.push(r);
         }
@@ -719,10 +719,10 @@ impl<W: 'static + tokio::io::AsyncWrite + Unpin + Send> PfcDictFileBuilder<W> {
 
     pub async fn add_all<'a, I: 'static + Iterator<Item = &'a str> + Send>(
         &mut self,
-        mut it: I,
+        it: I,
     ) -> io::Result<Vec<u64>> {
         let mut result = Vec::new();
-        while let Some(next) = it.next() {
+        for next in it {
             let r = self.add(next).await?;
             result.push(r);
         }
