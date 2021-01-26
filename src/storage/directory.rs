@@ -110,10 +110,12 @@ impl PersistentLayerStore for DirectoryLayerStore {
             while let Some(direntry) = stream.next_entry().await? {
                 if direntry.file_type().await?.is_dir() {
                     let os_name = direntry.file_name();
-                    let name = os_name.to_str().ok_or(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "unexpected non-utf8 directory name",
-                    ))?;
+                    let name = os_name.to_str().ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "unexpected non-utf8 directory name",
+                        )
+                    })?;
                     result.push(string_to_name(name)?);
                 }
             }
@@ -311,10 +313,12 @@ impl LabelStore for DirectoryLabelStore {
             while let Some(direntry) = stream.next_entry().await? {
                 if direntry.file_type().await?.is_file() {
                     let os_name = direntry.file_name();
-                    let name = os_name.to_str().ok_or(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "unexpected non-utf8 directory name",
-                    ))?;
+                    let name = os_name.to_str().ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "unexpected non-utf8 directory name",
+                        )
+                    })?;
                     if name.ends_with(".label") {
                         let label = get_label_from_file(name).await?;
                         result.push(label);
