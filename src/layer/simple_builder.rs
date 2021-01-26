@@ -19,7 +19,6 @@ use std::sync::Arc;
 
 use futures::future::Future;
 
-use rayon;
 use rayon::prelude::*;
 
 /// A layer builder trait with no generic typing.

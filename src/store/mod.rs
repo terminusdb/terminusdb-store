@@ -13,7 +13,6 @@ use crate::storage::{CachedLayerStore, LabelStore, LayerStore, LockingHashMapLay
 
 use std::io;
 
-use rayon;
 use rayon::prelude::*;
 
 /// A store, storing a set of layers and database labels pointing to these layers

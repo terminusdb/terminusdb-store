@@ -6,7 +6,6 @@ use bytes::Bytes;
 use futures::future::{self, Future};
 use futures::io;
 use futures::task::{Context, Poll};
-use futures_locks;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::{self, Arc, RwLock};
