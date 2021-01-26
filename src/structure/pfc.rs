@@ -6,7 +6,7 @@ use futures::stream::{Stream, StreamExt};
 use std::cmp::{Ord, Ordering};
 use std::convert::TryInto;
 use std::error::Error;
-use std::fmt::Display;
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::io;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
@@ -23,8 +23,8 @@ pub enum PfcError {
     NotEnoughData,
 }
 
-impl Display for PfcError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+impl fmt::Display for PfcError {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(formatter, "{:?}", self)
     }
 }
@@ -341,11 +341,6 @@ impl PfcDictEntry {
         self.parts.iter().map(|b| b.len()).sum::<usize>()
     }
 
-    pub fn to_string(&self) -> String {
-        let vec = self.to_bytes();
-        String::from_utf8(vec).unwrap()
-    }
-
     pub fn to_bytes(&self) -> Vec<u8> {
         let len = self.len();
         let mut vec = Vec::with_capacity(len);
@@ -420,6 +415,13 @@ impl PartialEq for PfcDictEntry {
         }
 
         self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl fmt::Display for PfcDictEntry {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let vec = self.to_bytes();
+        write!(f, "{}", String::from_utf8(vec).unwrap())
     }
 }
 
