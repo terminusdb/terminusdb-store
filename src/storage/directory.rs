@@ -427,7 +427,7 @@ impl From<std::str::Utf8Error> for PackError {
     }
 }
 
-pub fn pack_layer_parents<'a, R: io::Read>(
+pub fn pack_layer_parents<R: io::Read>(
     readable: R,
 ) -> Result<HashMap<[u32; 5], Option<[u32; 5]>>, PackError> {
     let tar = GzDecoder::new(readable);
