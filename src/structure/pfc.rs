@@ -246,7 +246,7 @@ impl Iterator for PfcDictBlockIterator {
     type Item = PfcBlock;
 
     fn next(&mut self) -> Option<PfcBlock> {
-        if self.block_index >= self.dict.block_offsets.len() + 1 {
+        if self.block_index > self.dict.block_offsets.len() {
             None
         } else {
             let block_offset = if self.block_index == 0 {
