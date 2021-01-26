@@ -111,20 +111,20 @@ pub trait Layer: Send + Sync {
         PartiallyResolvedTriple {
             subject: self
                 .subject_id(&triple.subject)
-                .map(|id| PossiblyResolved::Resolved(id))
+                .map(PossiblyResolved::Resolved)
                 .unwrap_or(PossiblyResolved::Unresolved(triple.subject)),
             predicate: self
                 .predicate_id(&triple.predicate)
-                .map(|id| PossiblyResolved::Resolved(id))
+                .map(PossiblyResolved::Resolved)
                 .unwrap_or(PossiblyResolved::Unresolved(triple.predicate)),
             object: match &triple.object {
                 ObjectType::Node(node) => self
                     .object_node_id(&node)
-                    .map(|id| PossiblyResolved::Resolved(id))
+                    .map(PossiblyResolved::Resolved)
                     .unwrap_or(PossiblyResolved::Unresolved(triple.object)),
                 ObjectType::Value(value) => self
                     .object_value_id(&value)
-                    .map(|id| PossiblyResolved::Resolved(id))
+                    .map(PossiblyResolved::Resolved)
                     .unwrap_or(PossiblyResolved::Unresolved(triple.object)),
             },
         }
