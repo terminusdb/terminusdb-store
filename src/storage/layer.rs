@@ -511,8 +511,7 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
         name: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
         let self_ = self.clone();
-        let mut result = Vec::new();
-        result.push(name);
+        let mut result = vec![name];
 
         Box::pin(async move {
             loop {
@@ -615,8 +614,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             return Box::pin(future::ok(Some(layer)));
         }
 
-        let mut layers_to_load = Vec::new();
-        layers_to_load.push((name, None));
+        let mut layers_to_load = vec![(name, None)];
         let self_ = self.clone();
         Box::pin(async move {
             if !self_.directory_exists(name).await? {

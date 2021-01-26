@@ -347,8 +347,8 @@ impl LayerStore for MemoryLayerStore {
             return Box::pin(future::ok(Some(layer)));
         }
 
-        let mut layers_to_load: Vec<([u32; 5], Option<([u32; 5], Option<[u32; 5]>)>)> = Vec::new();
-        layers_to_load.push((name, None));
+        let mut layers_to_load: Vec<([u32; 5], Option<([u32; 5], Option<[u32; 5]>)>)> =
+            vec![(name, None)];
 
         let guard = self.layers.read();
         Box::pin(async move {
