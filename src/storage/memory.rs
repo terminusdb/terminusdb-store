@@ -379,7 +379,7 @@ impl LayerStore for MemoryLayerStore {
                             }
 
                             layers_to_load.pop().unwrap(); // we don't want to load this, we want to load the rollup instead!
-                            layers_to_load.push((last, Some((rollup, parent.clone()))));
+                            layers_to_load.push((last, Some((rollup, *parent))));
                         } else if parent.is_some() {
                             let parent = parent.unwrap();
                             layers_to_load.push((parent, None));
@@ -415,7 +415,7 @@ impl LayerStore for MemoryLayerStore {
                             RollupLayer::from_base_layer(
                                 base_layer,
                                 base_id,
-                                original_parent_id_option.clone(),
+                                original_parent_id_option,
                             )
                             .into(),
                         );
