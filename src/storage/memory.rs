@@ -102,7 +102,7 @@ impl AsyncRead for MemoryBackedStoreReader {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct MemoryBackedStore {
     exists: Arc<RwLock<bool>>,
     vec: Arc<sync::RwLock<Vec<u8>>>,
@@ -110,10 +110,7 @@ pub struct MemoryBackedStore {
 
 impl MemoryBackedStore {
     pub fn new() -> MemoryBackedStore {
-        MemoryBackedStore {
-            vec: Default::default(),
-            exists: Arc::new(RwLock::new(false)),
-        }
+        Default::default()
     }
 }
 
@@ -155,7 +152,7 @@ impl FileLoad for MemoryBackedStore {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct MemoryLayerStore {
     layers: futures_locks::RwLock<
         HashMap<
@@ -171,9 +168,7 @@ pub struct MemoryLayerStore {
 
 impl MemoryLayerStore {
     pub fn new() -> MemoryLayerStore {
-        MemoryLayerStore {
-            layers: futures_locks::RwLock::new(HashMap::new()),
-        }
+        Default::default()
     }
 }
 
@@ -721,16 +716,14 @@ impl LayerStore for MemoryLayerStore {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct MemoryLabelStore {
     labels: futures_locks::RwLock<HashMap<String, Label>>,
 }
 
 impl MemoryLabelStore {
     pub fn new() -> MemoryLabelStore {
-        MemoryLabelStore {
-            labels: futures_locks::RwLock::new(HashMap::new()),
-        }
+        Default::default()
     }
 }
 
