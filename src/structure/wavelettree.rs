@@ -257,7 +257,7 @@ fn create_fragments(width: u8) -> Vec<FragmentBuilder> {
 fn push_to_fragments(num: u64, width: u8, fragments: &mut Vec<FragmentBuilder>) {
     let mut num_it: usize = num.try_into().unwrap(); // this will ensure that we get some sort of error on 32 bit for large nums
     for i in 0..width {
-        num_it = num_it >> 1;
+        num_it >>= 1;
         let index = num_it + 2_usize.pow((width - i - 1) as u32) - 1;
         fragments[index].push(num);
     }

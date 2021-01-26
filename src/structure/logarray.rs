@@ -367,14 +367,14 @@ impl<W: AsyncWrite + Unpin> LogArrayFileBuilder<W> {
 
         // Otherwise, push `val` onto the log array.
         // Advance the element count since we know we're going to write `val`.
-        self.count = self.count + 1;
+        self.count += 1;
 
         // Write the first part of `val` to `current`, putting the msb of `val` at the `offset`
         // bit. This may be either the upper bits of `val` only or all of it. We check later.
-        self.current = self.current | val << leading_zeros >> self.offset;
+        self.current |= val << leading_zeros >> self.offset;
 
         // Increment `offset` past `val`.
-        self.offset = self.offset + self.width;
+        self.offset += self.width;
 
         // Check if the new `offset` is larger than 64.
         if self.offset >= 64 {
