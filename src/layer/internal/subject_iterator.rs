@@ -179,7 +179,9 @@ pub struct OptInternalLayerTripleSubjectIterator(pub Option<InternalLayerTripleS
 
 impl OptInternalLayerTripleSubjectIterator {
     pub fn seek_subject_ref(&mut self, subject: u64) {
-        self.0.as_mut().map(|i| i.seek_subject_ref(subject));
+        if let Some(i) = self.0.as_mut() {
+            i.seek_subject_ref(subject)
+        };
     }
 
     pub fn seek_subject(self, subject: u64) -> Self {
@@ -187,9 +189,9 @@ impl OptInternalLayerTripleSubjectIterator {
     }
 
     pub fn seek_subject_predicate_ref(&mut self, subject: u64, predicate: u64) {
-        self.0
-            .as_mut()
-            .map(|i| i.seek_subject_predicate_ref(subject, predicate));
+        if let Some(i) = self.0.as_mut() {
+            i.seek_subject_predicate_ref(subject, predicate)
+        };
     }
 
     pub fn seek_subject_predicate(self, subject: u64, predicate: u64) -> Self {

@@ -176,17 +176,17 @@ impl StoreLayerBuilder {
             || {
                 if let Some(this) = self.parent() {
                     this.triples().par_bridge().for_each(|t| {
-                        this.id_triple_to_string(&t).map(|st| {
+                        if let Some(st) = this.id_triple_to_string(&t) {
                             if !other.string_triple_exists(&st) {
                                 self.remove_string_triple(st).unwrap()
-                            };
-                        });
+                            }
+                        }
                     })
                 };
             },
             || {
                 other.triples().par_bridge().for_each(|t| {
-                    other.id_triple_to_string(&t).map(|st| {
+                    if let Some(st) = other.id_triple_to_string(&t) {
                         if let Some(this) = self.parent() {
                             if !this.string_triple_exists(&st) {
                                 self.add_string_triple(st).unwrap()
@@ -194,7 +194,7 @@ impl StoreLayerBuilder {
                         } else {
                             self.add_string_triple(st).unwrap()
                         };
-                    });
+                    }
                 })
             },
         );
