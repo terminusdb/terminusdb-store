@@ -542,7 +542,7 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
             return true;
         }
         if self.triple_removal_exists(subject, predicate, object) {
-            return false;
+            false
         } else {
             let mut parent_opt = self.immediate_parent();
             while parent_opt.is_some() {
@@ -556,7 +556,7 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
                 parent_opt = parent.immediate_parent();
             }
 
-            return false;
+            false
         }
     }
 
@@ -923,7 +923,7 @@ fn layer_triple_exists(
         sp_o_position += 1;
     }
 
-    return false;
+    false
 }
 
 #[cfg(test)]

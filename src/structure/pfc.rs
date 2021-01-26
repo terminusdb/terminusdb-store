@@ -247,7 +247,7 @@ impl Iterator for PfcDictBlockIterator {
 
     fn next(&mut self) -> Option<PfcBlock> {
         if self.block_index >= self.dict.block_offsets.len() + 1 {
-            return None;
+            None
         } else {
             let block_offset = if self.block_index == 0 {
                 0
@@ -419,7 +419,7 @@ impl PartialEq for PfcDictEntry {
             return false;
         }
 
-        return self.cmp(other) == Ordering::Equal;
+        self.cmp(other) == Ordering::Equal
     }
 }
 

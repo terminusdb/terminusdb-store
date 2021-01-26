@@ -656,7 +656,7 @@ impl MonotonicLogArray {
             }
         }
 
-        return (min + max) / 2 + 1;
+        (min + max) / 2 + 1
     }
 }
 
