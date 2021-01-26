@@ -522,9 +522,9 @@ impl PfcDict {
         let block_offsets = LogArray::parse(offsets)?;
 
         Ok(PfcDict {
-            n_strings: n_strings,
-            block_offsets: block_offsets,
-            blocks: blocks,
+            n_strings,
+            block_offsets,
+            blocks,
         })
     }
 
