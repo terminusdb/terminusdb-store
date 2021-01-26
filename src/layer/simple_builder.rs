@@ -340,11 +340,9 @@ fn collect_unresolved_strings(
                     };
 
                     match (subject, object) {
-                        (Some(subject), Some(object)) => {
-                            Some(vec![subject.to_owned(), object.to_owned()])
-                        }
-                        (Some(subject), _) => Some(vec![subject.to_owned()]),
-                        (_, Some(object)) => Some(vec![object.to_owned()]),
+                        (Some(subject), Some(object)) => Some(vec![subject, object]),
+                        (Some(subject), _) => Some(vec![subject]),
+                        (_, Some(object)) => Some(vec![object]),
                         _ => None,
                     }
                 })
