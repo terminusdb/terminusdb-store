@@ -446,57 +446,61 @@ impl Ord for PfcDictEntry {
         let mut part2 = it2.next().unwrap().clone();
 
         loop {
-            if part1.len() == part2.len() {
-                match part1.cmp(&part2) {
-                    Ordering::Less => return Ordering::Less,
-                    Ordering::Greater => return Ordering::Greater,
-                    Ordering::Equal => {}
-                }
+            match part1.len().cmp(&part2.len()) {
+                Ordering::Equal => {
+                    match part1.cmp(&part2) {
+                        Ordering::Less => return Ordering::Less,
+                        Ordering::Greater => return Ordering::Greater,
+                        Ordering::Equal => {}
+                    }
 
-                let p1_next = it1.next();
-                let p2_next = it2.next();
+                    let p1_next = it1.next();
+                    let p2_next = it2.next();
 
-                if let (Some(p1), Some(p2)) = (p1_next, p2_next) {
-                    part1 = p1.clone();
-                    part2 = p2.clone();
-                } else if p1_next.is_none() && p2_next.is_none() {
-                    // done! everything has been compared equally and nothign remains.
-                    return Ordering::Equal;
-                } else if p1_next.is_none() {
-                    // the left side is a prefix of the right side
+                    if let (Some(p1), Some(p2)) = (p1_next, p2_next) {
+                        part1 = p1.clone();
+                        part2 = p2.clone();
+                    } else if p1_next.is_none() && p2_next.is_none() {
+                        // done! everything has been compared equally and nothign remains.
+                        return Ordering::Equal;
+                    } else if p1_next.is_none() {
+                        // the left side is a prefix of the right side
 
-                    return Ordering::Less;
-                } else {
-                    return Ordering::Greater;
+                        return Ordering::Less;
+                    } else {
+                        return Ordering::Greater;
+                    }
                 }
-            } else if part1.len() < part2.len() {
-                let part2_slice = part2.slice(0..part1.len());
-                match part1.cmp(&part2_slice) {
-                    Ordering::Less => return Ordering::Less,
-                    Ordering::Greater => return Ordering::Greater,
-                    Ordering::Equal => {}
-                }
+                Ordering::Less => {
+                    let part2_slice = part2.slice(0..part1.len());
+                    match part1.cmp(&part2_slice) {
+                        Ordering::Less => return Ordering::Less,
+                        Ordering::Greater => return Ordering::Greater,
+                        Ordering::Equal => {}
+                    }
 
-                part2 = part2.slice(part1.len()..);
-                let part1_option = it1.next();
-                if part1_option.is_none() {
-                    return Ordering::Less;
+                    part2 = part2.slice(part1.len()..);
+                    let part1_option = it1.next();
+                    if part1_option.is_none() {
+                        return Ordering::Less;
+                    }
+                    part1 = part1_option.unwrap().clone();
                 }
-                part1 = part1_option.unwrap().clone();
-            } else {
-                let part1_slice = part1.slice(0..part2.len());
-                match part1_slice.cmp(&part2) {
-                    Ordering::Less => return Ordering::Less,
-                    Ordering::Greater => return Ordering::Greater,
-                    Ordering::Equal => {}
-                }
+                Ordering::Greater => {
+                    let part1_slice = part1.slice(0..part2.len());
+                    match part1_slice.cmp(&part2) {
+                        Ordering::Less => return Ordering::Less,
+                        Ordering::Greater => return Ordering::Greater,
+                        Ordering::Equal => {}
+                    }
 
-                part1 = part1.slice(part2.len()..);
-                let part2_option = it2.next();
-                if part2_option.is_none() {
-                    return Ordering::Greater;
+                    part1 = part1.slice(part2.len()..);
+                    let part2_option = it2.next();
+                    if part2_option.is_none() {
+                        return Ordering::Greater;
+                    }
+                    part2 = part2_option.unwrap().clone();
                 }
-                part2 = part2_option.unwrap().clone();
             }
         }
     }

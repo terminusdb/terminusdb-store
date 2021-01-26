@@ -1,6 +1,7 @@
 use super::super::layer::*;
 use super::InternalLayerImpl;
 use crate::structure::*;
+use std::cmp::Ordering;
 use std::convert::TryInto;
 use thiserror::Error;
 
@@ -391,23 +392,27 @@ impl Iterator for InternalTripleStackIterator {
                 (Some(lowest_pos_index), Some(lowest_neg_index)) => {
                     let lowest_pos = self.positives[lowest_pos_index].peek().unwrap();
                     let lowest_neg = self.negatives[lowest_neg_index].peek().unwrap();
-                    if lowest_pos < lowest_neg {
-                        // next change is an addition, and there's no matching removal
-                        return Some((
-                            TripleChange::Addition,
-                            self.positives[lowest_pos_index].next().unwrap(),
-                        ));
-                    } else if lowest_pos > lowest_neg {
-                        // next change is a removal, and there's no mathcinga ddition
-                        return Some((
-                            TripleChange::Removal,
-                            self.negatives[lowest_neg_index].next().unwrap(),
-                        ));
-                    } else {
-                        // we found both an addition and a removal for the same triple. They cancel eachother.
-                        self.positives[lowest_pos_index].next().unwrap();
-                        self.negatives[lowest_neg_index].next().unwrap();
-                        continue 'outer;
+                    match lowest_pos.cmp(&lowest_neg) {
+                        Ordering::Less => {
+                            // next change is an addition, and there's no matching removal
+                            return Some((
+                                TripleChange::Addition,
+                                self.positives[lowest_pos_index].next().unwrap(),
+                            ));
+                        }
+                        Ordering::Greater => {
+                            // next change is a removal, and there's no mathcinga ddition
+                            return Some((
+                                TripleChange::Removal,
+                                self.negatives[lowest_neg_index].next().unwrap(),
+                            ));
+                        }
+                        Ordering::Equal => {
+                            // we found both an addition and a removal for the same triple. They cancel eachother.
+                            self.positives[lowest_pos_index].next().unwrap();
+                            self.negatives[lowest_neg_index].next().unwrap();
+                            continue 'outer;
+                        }
                     }
                 }
             }
