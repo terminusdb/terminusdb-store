@@ -339,7 +339,7 @@ impl LayerStore for MemoryLayerStore {
         let guard = self.layers.read();
         Box::pin(async {
             let layers = guard.await;
-            Ok(layers.keys().map(|k| k.clone()).collect())
+            Ok(layers.keys().cloned().collect())
         })
     }
 
@@ -739,7 +739,7 @@ impl LabelStore for MemoryLabelStore {
         let guard = self.labels.read();
         Box::pin(async move {
             let labels = guard.await;
-            Ok(labels.values().map(|v| v.clone()).collect())
+            Ok(labels.values().cloned().collect())
         })
     }
 
@@ -769,7 +769,7 @@ impl LabelStore for MemoryLabelStore {
         let guard = self.labels.read();
         Box::pin(async move {
             let labels = guard.await;
-            Ok(labels.get(&name).map(|label| label.clone()))
+            Ok(labels.get(&name).cloned())
         })
     }
 

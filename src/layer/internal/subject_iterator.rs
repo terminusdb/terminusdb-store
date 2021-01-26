@@ -22,7 +22,7 @@ impl InternalLayerTripleSubjectIterator {
         sp_o_adjacency_list: &AdjacencyList,
     ) -> Self {
         Self {
-            subjects: subjects.map(|s| s.clone()),
+            subjects: subjects.cloned(),
             s_p_adjacency_list: s_p_adjacency_list.clone(),
             sp_o_adjacency_list: sp_o_adjacency_list.clone(),
             s_position: 0,
