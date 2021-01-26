@@ -334,7 +334,7 @@ impl LabelStore for DirectoryLabelStore {
         let mut p = self.path.clone();
         let label = label.to_owned();
         p.push(format!("{}.label", label));
-        let contents = format!("0\n\n").into_bytes();
+        let contents = "0\n\n".to_string().into_bytes();
         Box::pin(async move {
             match fs::metadata(&p).await {
                 Ok(_) => Err(io::Error::new(
