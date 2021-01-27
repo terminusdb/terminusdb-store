@@ -18,3 +18,16 @@ jobs:
     - uses: actions/checkout@v2
     - name: Run tests
       run: cargo test --verbose
+
+  code_coverage:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install latest nightly
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+        components: llvm-tools-preview
+    - name: Run code coverage
+      run: bash ci/linux_build.sh
