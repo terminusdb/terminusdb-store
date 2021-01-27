@@ -148,7 +148,7 @@ pub fn sorted_iterator<
 ) -> impl Iterator<Item = T> {
     let peekable_iters = iters
         .into_iter()
-        .map(|s| std::iter::Iterator::peekable(s))
+        .map(std::iter::Iterator::peekable)
         .collect();
     SortedIterator {
         iters: peekable_iters,
@@ -159,7 +159,7 @@ pub fn sorted_iterator<
 pub fn stream_iter_ok<T, E, I: IntoIterator<Item = T>>(
     iter: I,
 ) -> impl Stream<Item = std::result::Result<T, E>> {
-    futures::stream::iter(iter).map(|x| Ok::<T, E>(x))
+    futures::stream::iter(iter).map(Ok::<T, E>)
 }
 
 pub fn assert_poll_next<T, S: Stream<Item = T>>(stream: Pin<&mut S>, cx: &mut Context) -> T {

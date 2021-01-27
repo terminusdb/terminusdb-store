@@ -110,10 +110,12 @@ impl PersistentLayerStore for DirectoryLayerStore {
             while let Some(direntry) = stream.next_entry().await? {
                 if direntry.file_type().await?.is_dir() {
                     let os_name = direntry.file_name();
-                    let name = os_name.to_str().ok_or(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "unexpected non-utf8 directory name",
-                    ))?;
+                    let name = os_name.to_str().ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "unexpected non-utf8 directory name",
+                        )
+                    })?;
                     result.push(string_to_name(name)?);
                 }
             }
@@ -311,10 +313,12 @@ impl LabelStore for DirectoryLabelStore {
             while let Some(direntry) = stream.next_entry().await? {
                 if direntry.file_type().await?.is_file() {
                     let os_name = direntry.file_name();
-                    let name = os_name.to_str().ok_or(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "unexpected non-utf8 directory name",
-                    ))?;
+                    let name = os_name.to_str().ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "unexpected non-utf8 directory name",
+                        )
+                    })?;
                     if name.ends_with(".label") {
                         let label = get_label_from_file(name).await?;
                         result.push(label);
@@ -330,7 +334,7 @@ impl LabelStore for DirectoryLabelStore {
         let mut p = self.path.clone();
         let label = label.to_owned();
         p.push(format!("{}.label", label));
-        let contents = format!("0\n\n").into_bytes();
+        let contents = "0\n\n".to_string().into_bytes();
         Box::pin(async move {
             match fs::metadata(&p).await {
                 Ok(_) => Err(io::Error::new(
@@ -427,7 +431,7 @@ impl From<std::str::Utf8Error> for PackError {
     }
 }
 
-pub fn pack_layer_parents<'a, R: io::Read>(
+pub fn pack_layer_parents<R: io::Read>(
     readable: R,
 ) -> Result<HashMap<[u32; 5], Option<[u32; 5]>>, PackError> {
     let tar = GzDecoder::new(readable);

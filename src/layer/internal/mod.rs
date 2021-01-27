@@ -403,7 +403,7 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
         while let Some(current_layer) = current_option {
             let mut corrected_id = id - 1;
             if let Some(parent) = current_layer.immediate_parent() {
-                parent_count = parent_count - current_layer.predicate_dict_len() as u64;
+                parent_count -= current_layer.predicate_dict_len() as u64;
                 if corrected_id >= parent_count as u64 {
                     // subject, if it exists, is in this layer
                     corrected_id -= parent_count;
@@ -542,7 +542,7 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
             return true;
         }
         if self.triple_removal_exists(subject, predicate, object) {
-            return false;
+            false
         } else {
             let mut parent_opt = self.immediate_parent();
             while parent_opt.is_some() {
@@ -556,7 +556,7 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
                 parent_opt = parent.immediate_parent();
             }
 
-            return false;
+            false
         }
     }
 
@@ -923,7 +923,7 @@ fn layer_triple_exists(
         sp_o_position += 1;
     }
 
-    return false;
+    false
 }
 
 #[cfg(test)]

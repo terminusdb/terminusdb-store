@@ -13,7 +13,6 @@ use crate::storage::{CachedLayerStore, LabelStore, LayerStore, LockingHashMapLay
 
 use std::io;
 
-use rayon;
 use rayon::prelude::*;
 
 /// A store, storing a set of layers and database labels pointing to these layers
@@ -177,17 +176,17 @@ impl StoreLayerBuilder {
             || {
                 if let Some(this) = self.parent() {
                     this.triples().par_bridge().for_each(|t| {
-                        this.id_triple_to_string(&t).map(|st| {
+                        if let Some(st) = this.id_triple_to_string(&t) {
                             if !other.string_triple_exists(&st) {
                                 self.remove_string_triple(st).unwrap()
-                            };
-                        });
+                            }
+                        }
                     })
                 };
             },
             || {
                 other.triples().par_bridge().for_each(|t| {
-                    other.id_triple_to_string(&t).map(|st| {
+                    if let Some(st) = other.id_triple_to_string(&t) {
                         if let Some(this) = self.parent() {
                             if !this.string_triple_exists(&st) {
                                 self.add_string_triple(st).unwrap()
@@ -195,7 +194,7 @@ impl StoreLayerBuilder {
                         } else {
                             self.add_string_triple(st).unwrap()
                         };
-                    });
+                    }
                 })
             },
         );
@@ -258,7 +257,8 @@ impl StoreLayer {
         let store1 = self.store.layer_store.clone();
         // TODO: This is awkward, we should have a way to get the internal layer
         let layer_opt = store1.get_layer(self.name()).await?;
-        let layer = layer_opt.ok_or(io::Error::new(io::ErrorKind::NotFound, "label not found"))?;
+        let layer =
+            layer_opt.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "label not found"))?;
         let store2 = self.store.layer_store.clone();
         store2.rollup(layer).await?;
         Ok(())

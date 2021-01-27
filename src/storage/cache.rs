@@ -32,15 +32,14 @@ lazy_static! {
 // locking isn't really ideal but the lock window will be relatively small so it shouldn't hurt performance too much except on heavy updates.
 // ideally we should be using some concurrent hashmap implementation instead.
 // furthermore, there should be some logic to remove stale entries, like a periodic pass. right now, there isn't.
+#[derive(Default)]
 pub struct LockingHashMapLayerCache {
     cache: RwLock<HashMap<[u32; 5], Weak<InternalLayer>>>,
 }
 
 impl LockingHashMapLayerCache {
     pub fn new() -> Self {
-        Self {
-            cache: RwLock::new(HashMap::new()),
-        }
+        Default::default()
     }
 }
 

@@ -22,8 +22,8 @@ impl InternalLayerTripleObjectIterator {
         s_p_adjacency_list: &AdjacencyList,
     ) -> Self {
         Self {
-            subjects: subjects.map(|s| s.clone()),
-            objects: objects.map(|o| o.clone()),
+            subjects: subjects.cloned(),
+            objects: objects.cloned(),
             o_ps_adjacency_list: o_ps_adjacency_list.clone(),
             s_p_adjacency_list: s_p_adjacency_list.clone(),
             o_position: 0,
@@ -121,7 +121,9 @@ impl OptInternalLayerTripleObjectIterator {
     }
 
     pub fn seek_object_ref(&mut self, object: u64) {
-        self.0.as_mut().map(|i| i.seek_object_ref(object));
+        if let Some(i) = self.0.as_mut() {
+            i.seek_object_ref(object)
+        }
     }
 
     pub fn peek(&mut self) -> Option<&IdTriple> {

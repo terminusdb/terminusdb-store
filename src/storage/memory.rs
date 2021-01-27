@@ -6,7 +6,6 @@ use bytes::Bytes;
 use futures::future::{self, Future};
 use futures::io;
 use futures::task::{Context, Poll};
-use futures_locks;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::{self, Arc, RwLock};
@@ -103,7 +102,7 @@ impl AsyncRead for MemoryBackedStoreReader {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct MemoryBackedStore {
     exists: Arc<RwLock<bool>>,
     vec: Arc<sync::RwLock<Vec<u8>>>,
@@ -111,10 +110,7 @@ pub struct MemoryBackedStore {
 
 impl MemoryBackedStore {
     pub fn new() -> MemoryBackedStore {
-        MemoryBackedStore {
-            vec: Default::default(),
-            exists: Arc::new(RwLock::new(false)),
-        }
+        Default::default()
     }
 }
 
@@ -156,7 +152,7 @@ impl FileLoad for MemoryBackedStore {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct MemoryLayerStore {
     layers: futures_locks::RwLock<
         HashMap<
@@ -172,9 +168,7 @@ pub struct MemoryLayerStore {
 
 impl MemoryLayerStore {
     pub fn new() -> MemoryLayerStore {
-        MemoryLayerStore {
-            layers: futures_locks::RwLock::new(HashMap::new()),
-        }
+        Default::default()
     }
 }
 
@@ -340,7 +334,7 @@ impl LayerStore for MemoryLayerStore {
         let guard = self.layers.read();
         Box::pin(async {
             let layers = guard.await;
-            Ok(layers.keys().map(|k| k.clone()).collect())
+            Ok(layers.keys().cloned().collect())
         })
     }
 
@@ -353,8 +347,8 @@ impl LayerStore for MemoryLayerStore {
             return Box::pin(future::ok(Some(layer)));
         }
 
-        let mut layers_to_load: Vec<([u32; 5], Option<([u32; 5], Option<[u32; 5]>)>)> = Vec::new();
-        layers_to_load.push((name, None));
+        let mut layers_to_load: Vec<([u32; 5], Option<([u32; 5], Option<[u32; 5]>)>)> =
+            vec![(name, None)];
 
         let guard = self.layers.read();
         Box::pin(async move {
@@ -385,7 +379,7 @@ impl LayerStore for MemoryLayerStore {
                             }
 
                             layers_to_load.pop().unwrap(); // we don't want to load this, we want to load the rollup instead!
-                            layers_to_load.push((last, Some((rollup, parent.clone()))));
+                            layers_to_load.push((last, Some((rollup, *parent))));
                         } else if parent.is_some() {
                             let parent = parent.unwrap();
                             layers_to_load.push((parent, None));
@@ -421,7 +415,7 @@ impl LayerStore for MemoryLayerStore {
                             RollupLayer::from_base_layer(
                                 base_layer,
                                 base_id,
-                                original_parent_id_option.clone(),
+                                original_parent_id_option,
                             )
                             .into(),
                         );
@@ -722,16 +716,14 @@ impl LayerStore for MemoryLayerStore {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct MemoryLabelStore {
     labels: futures_locks::RwLock<HashMap<String, Label>>,
 }
 
 impl MemoryLabelStore {
     pub fn new() -> MemoryLabelStore {
-        MemoryLabelStore {
-            labels: futures_locks::RwLock::new(HashMap::new()),
-        }
+        Default::default()
     }
 }
 
@@ -740,7 +732,7 @@ impl LabelStore for MemoryLabelStore {
         let guard = self.labels.read();
         Box::pin(async move {
             let labels = guard.await;
-            Ok(labels.values().map(|v| v.clone()).collect())
+            Ok(labels.values().cloned().collect())
         })
     }
 
@@ -770,7 +762,7 @@ impl LabelStore for MemoryLabelStore {
         let guard = self.labels.read();
         Box::pin(async move {
             let labels = guard.await;
-            Ok(labels.get(&name).map(|label| label.clone()))
+            Ok(labels.get(&name).cloned())
         })
     }
 

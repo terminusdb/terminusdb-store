@@ -6,7 +6,7 @@ use futures::stream::{Stream, StreamExt};
 use std::cmp::{Ord, Ordering};
 use std::convert::TryInto;
 use std::error::Error;
-use std::fmt::Display;
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::io;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
@@ -23,8 +23,8 @@ pub enum PfcError {
     NotEnoughData,
 }
 
-impl Display for PfcError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+impl fmt::Display for PfcError {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(formatter, "{:?}", self)
     }
 }
@@ -246,8 +246,8 @@ impl Iterator for PfcDictBlockIterator {
     type Item = PfcBlock;
 
     fn next(&mut self) -> Option<PfcBlock> {
-        if self.block_index >= self.dict.block_offsets.len() + 1 {
-            return None;
+        if self.block_index > self.dict.block_offsets.len() {
+            None
         } else {
             let block_offset = if self.block_index == 0 {
                 0
@@ -341,11 +341,6 @@ impl PfcDictEntry {
         self.parts.iter().map(|b| b.len()).sum::<usize>()
     }
 
-    pub fn to_string(&self) -> String {
-        let vec = self.to_bytes();
-        String::from_utf8(vec).unwrap()
-    }
-
     pub fn to_bytes(&self) -> Vec<u8> {
         let len = self.len();
         let mut vec = Vec::with_capacity(len);
@@ -393,7 +388,7 @@ impl PfcDictEntry {
                         }
                     }
                     Ordering::Equal => {
-                        if &part != &slice {
+                        if part != slice {
                             return false;
                         }
 
@@ -419,7 +414,14 @@ impl PartialEq for PfcDictEntry {
             return false;
         }
 
-        return self.cmp(other) == Ordering::Equal;
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl fmt::Display for PfcDictEntry {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let vec = self.to_bytes();
+        write!(f, "{}", String::from_utf8(vec).unwrap())
     }
 }
 
@@ -446,57 +448,61 @@ impl Ord for PfcDictEntry {
         let mut part2 = it2.next().unwrap().clone();
 
         loop {
-            if part1.len() == part2.len() {
-                match part1.cmp(&part2) {
-                    Ordering::Less => return Ordering::Less,
-                    Ordering::Greater => return Ordering::Greater,
-                    Ordering::Equal => {}
-                }
+            match part1.len().cmp(&part2.len()) {
+                Ordering::Equal => {
+                    match part1.cmp(&part2) {
+                        Ordering::Less => return Ordering::Less,
+                        Ordering::Greater => return Ordering::Greater,
+                        Ordering::Equal => {}
+                    }
 
-                let p1_next = it1.next();
-                let p2_next = it2.next();
+                    let p1_next = it1.next();
+                    let p2_next = it2.next();
 
-                if let (Some(p1), Some(p2)) = (p1_next, p2_next) {
-                    part1 = p1.clone();
-                    part2 = p2.clone();
-                } else if p1_next.is_none() && p2_next.is_none() {
-                    // done! everything has been compared equally and nothign remains.
-                    return Ordering::Equal;
-                } else if p1_next.is_none() {
-                    // the left side is a prefix of the right side
+                    if let (Some(p1), Some(p2)) = (p1_next, p2_next) {
+                        part1 = p1.clone();
+                        part2 = p2.clone();
+                    } else if p1_next.is_none() && p2_next.is_none() {
+                        // done! everything has been compared equally and nothign remains.
+                        return Ordering::Equal;
+                    } else if p1_next.is_none() {
+                        // the left side is a prefix of the right side
 
-                    return Ordering::Less;
-                } else {
-                    return Ordering::Greater;
+                        return Ordering::Less;
+                    } else {
+                        return Ordering::Greater;
+                    }
                 }
-            } else if part1.len() < part2.len() {
-                let part2_slice = part2.slice(0..part1.len());
-                match part1.cmp(&part2_slice) {
-                    Ordering::Less => return Ordering::Less,
-                    Ordering::Greater => return Ordering::Greater,
-                    Ordering::Equal => {}
-                }
+                Ordering::Less => {
+                    let part2_slice = part2.slice(0..part1.len());
+                    match part1.cmp(&part2_slice) {
+                        Ordering::Less => return Ordering::Less,
+                        Ordering::Greater => return Ordering::Greater,
+                        Ordering::Equal => {}
+                    }
 
-                part2 = part2.slice(part1.len()..);
-                let part1_option = it1.next();
-                if part1_option.is_none() {
-                    return Ordering::Less;
+                    part2 = part2.slice(part1.len()..);
+                    let part1_option = it1.next();
+                    if part1_option.is_none() {
+                        return Ordering::Less;
+                    }
+                    part1 = part1_option.unwrap().clone();
                 }
-                part1 = part1_option.unwrap().clone();
-            } else {
-                let part1_slice = part1.slice(0..part2.len());
-                match part1_slice.cmp(&part2) {
-                    Ordering::Less => return Ordering::Less,
-                    Ordering::Greater => return Ordering::Greater,
-                    Ordering::Equal => {}
-                }
+                Ordering::Greater => {
+                    let part1_slice = part1.slice(0..part2.len());
+                    match part1_slice.cmp(&part2) {
+                        Ordering::Less => return Ordering::Less,
+                        Ordering::Greater => return Ordering::Greater,
+                        Ordering::Equal => {}
+                    }
 
-                part1 = part1.slice(part2.len()..);
-                let part2_option = it2.next();
-                if part2_option.is_none() {
-                    return Ordering::Greater;
+                    part1 = part1.slice(part2.len()..);
+                    let part2_option = it2.next();
+                    if part2_option.is_none() {
+                        return Ordering::Greater;
+                    }
+                    part2 = part2_option.unwrap().clone();
                 }
-                part2 = part2_option.unwrap().clone();
             }
         }
     }
@@ -522,9 +528,9 @@ impl PfcDict {
         let block_offsets = LogArray::parse(offsets)?;
 
         Ok(PfcDict {
-            n_strings: n_strings,
-            block_offsets: block_offsets,
-            blocks: blocks,
+            n_strings,
+            block_offsets,
+            blocks,
         })
     }
 
@@ -622,12 +628,10 @@ impl PfcDict {
             PfcBlock::parse_incomplete(block, remainder as usize).unwrap()
         };
 
-        let mut count = 0;
-        for block_entry in block.entries() {
+        for (count, block_entry) in block.entries().enumerate() {
             if block_entry.buf_eq(s_bytes) {
                 return Some((found * BLOCK_SIZE + count) as u64);
             }
-            count += 1;
         }
 
         None
@@ -706,10 +710,10 @@ impl<W: 'static + tokio::io::AsyncWrite + Unpin + Send> PfcDictFileBuilder<W> {
 
     pub async fn add_all_entries<I: 'static + Iterator<Item = PfcDictEntry> + Send>(
         &mut self,
-        mut it: I,
+        it: I,
     ) -> io::Result<Vec<u64>> {
         let mut result = Vec::new();
-        while let Some(next) = it.next() {
+        for next in it {
             let r = self.add_entry(&next).await?;
             result.push(r);
         }
@@ -719,10 +723,10 @@ impl<W: 'static + tokio::io::AsyncWrite + Unpin + Send> PfcDictFileBuilder<W> {
 
     pub async fn add_all<'a, I: 'static + Iterator<Item = &'a str> + Send>(
         &mut self,
-        mut it: I,
+        it: I,
     ) -> io::Result<Vec<u64>> {
         let mut result = Vec::new();
-        while let Some(next) = it.next() {
+        for next in it {
             let r = self.add(next).await?;
             result.push(r);
         }

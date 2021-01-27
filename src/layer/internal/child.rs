@@ -166,11 +166,11 @@ impl ChildLayer {
 
         ChildLayer {
             name,
-            parent: parent,
+            parent,
 
-            node_dictionary: node_dictionary,
-            predicate_dictionary: predicate_dictionary,
-            value_dictionary: value_dictionary,
+            node_dictionary,
+            predicate_dictionary,
+            value_dictionary,
 
             node_value_idmap,
             predicate_idmap,

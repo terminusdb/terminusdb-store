@@ -84,7 +84,7 @@ impl SyncStoreLayerBuilder {
     pub fn commit(&self) -> Result<SyncStoreLayer, io::Error> {
         let inner = task_sync(self.inner.commit());
 
-        inner.map(|i| SyncStoreLayer::wrap(i))
+        inner.map(SyncStoreLayer::wrap)
     }
 
     pub fn apply_delta(&self, delta: &SyncStoreLayer) -> Result<(), io::Error> {
@@ -111,7 +111,7 @@ impl SyncStoreLayer {
     pub fn open_write(&self) -> Result<SyncStoreLayerBuilder, io::Error> {
         let inner = task_sync(self.inner.open_write());
 
-        inner.map(|i| SyncStoreLayerBuilder::wrap(i))
+        inner.map(SyncStoreLayerBuilder::wrap)
     }
 
     pub fn parent(&self) -> Result<Option<SyncStoreLayer>, io::Error> {
@@ -122,7 +122,7 @@ impl SyncStoreLayer {
     pub fn squash(&self) -> Result<SyncStoreLayer, io::Error> {
         let inner = task_sync(self.inner.clone().squash());
 
-        inner.map(|i| SyncStoreLayer::wrap(i))
+        inner.map(SyncStoreLayer::wrap)
     }
 
     pub fn rollup(&self) -> Result<(), io::Error> {
@@ -309,7 +309,7 @@ impl SyncNamedGraph {
     pub fn head(&self) -> Result<Option<SyncStoreLayer>, io::Error> {
         let inner = task_sync(self.inner.head());
 
-        inner.map(|i| i.map(|i| SyncStoreLayer::wrap(i)))
+        inner.map(|i| i.map(SyncStoreLayer::wrap))
     }
 
     /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise
@@ -342,14 +342,14 @@ impl SyncStore {
     pub fn create(&self, label: &str) -> Result<SyncNamedGraph, io::Error> {
         let inner = task_sync(self.inner.create(label));
 
-        inner.map(|i| SyncNamedGraph::wrap(i))
+        inner.map(SyncNamedGraph::wrap)
     }
 
     /// Open an existing database with the given name, or None if it does not exist
     pub fn open(&self, label: &str) -> Result<Option<SyncNamedGraph>, io::Error> {
         let inner = task_sync(self.inner.open(label));
 
-        inner.map(|i| i.map(|i| SyncNamedGraph::wrap(i)))
+        inner.map(|i| i.map(SyncNamedGraph::wrap))
     }
 
     pub fn get_layer_from_id(
@@ -358,7 +358,7 @@ impl SyncStore {
     ) -> Result<Option<SyncStoreLayer>, std::io::Error> {
         let inner = task_sync(self.inner.get_layer_from_id(layer));
 
-        inner.map(|layer| layer.map(|l| SyncStoreLayer::wrap(l)))
+        inner.map(|layer| layer.map(SyncStoreLayer::wrap))
     }
 
     /// Create a base layer builder, unattached to any database label
@@ -367,7 +367,7 @@ impl SyncStore {
     pub fn create_base_layer(&self) -> Result<SyncStoreLayerBuilder, io::Error> {
         let inner = task_sync(self.inner.create_base_layer());
 
-        inner.map(|i| SyncStoreLayerBuilder::wrap(i))
+        inner.map(SyncStoreLayerBuilder::wrap)
     }
 
     pub fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {

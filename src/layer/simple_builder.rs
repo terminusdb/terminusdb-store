@@ -19,7 +19,6 @@ use std::sync::Arc;
 
 use futures::future::Future;
 
-use rayon;
 use rayon::prelude::*;
 
 /// A layer builder trait with no generic typing.
@@ -294,20 +293,20 @@ fn zero_equivalents(
             break;
         }
 
-        if next < Some(&mut addition) {
+        if next < Some(&addition) {
             loop {
                 removals_iter.next().unwrap();
                 next = removals_iter.peek();
 
                 if next == None {
                     break 'outer;
-                } else if next >= Some(&mut addition) {
+                } else if next >= Some(&addition) {
                     break;
                 }
             }
         }
 
-        if next == Some(&mut addition) {
+        if next == Some(&addition) {
             let mut removal = removals_iter.next().unwrap();
             addition.subject = PossiblyResolved::Resolved(0);
             addition.predicate = PossiblyResolved::Resolved(0);
@@ -341,11 +340,9 @@ fn collect_unresolved_strings(
                     };
 
                     match (subject, object) {
-                        (Some(subject), Some(object)) => {
-                            Some(vec![subject.to_owned(), object.to_owned()])
-                        }
-                        (Some(subject), _) => Some(vec![subject.to_owned()]),
-                        (_, Some(object)) => Some(vec![object.to_owned()]),
+                        (Some(subject), Some(object)) => Some(vec![subject, object]),
+                        (Some(subject), _) => Some(vec![subject]),
+                        (_, Some(object)) => Some(vec![object]),
                         _ => None,
                     }
                 })

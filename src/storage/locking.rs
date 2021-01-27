@@ -146,9 +146,8 @@ impl Drop for LockedFile {
     fn drop(&mut self) {
         let mut file = None;
         std::mem::swap(&mut file, &mut self.file);
-        if file.is_some() {
-            file.unwrap()
-                .try_into_std()
+        if let Some(file) = file {
+            file.try_into_std()
                 .expect("could not convert tokio file into std")
                 .unlock()
                 .unwrap();
@@ -261,9 +260,8 @@ impl Drop for ExclusiveLockedFile {
     fn drop(&mut self) {
         let mut file = None;
         std::mem::swap(&mut file, &mut self.file);
-        if file.is_some() {
-            file.unwrap()
-                .try_into_std()
+        if let Some(file) = file {
+            file.try_into_std()
                 .expect("could not convert tokio file into std")
                 .unlock()
                 .unwrap();
