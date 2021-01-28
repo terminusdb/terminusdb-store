@@ -12,8 +12,11 @@ use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
 use crate::storage::{CachedLayerStore, LabelStore, LayerStore, LockingHashMapLayerCache};
 
 use std::io;
+use std::pin::Pin;
 
 use rayon::prelude::*;
+
+use futures::future::Future;
 
 /// A store, storing a set of layers and database labels pointing to these layers
 #[derive(Clone)]
@@ -146,19 +149,21 @@ impl StoreLayerBuilder {
         ))
     }
 
-    pub fn apply_delta(&self, delta: &StoreLayer) -> Result<(), io::Error> {
+    pub async fn apply_delta(&self, delta: &StoreLayer) -> Result<(), io::Error> {
         // create a child builder and use it directly
         // first check what dictionary entries we don't know about, add those
+        let triple_additions = delta.triple_additions().await?;
+        let triple_removals = delta.triple_removals().await?;
         rayon::join(
-            || {
-                delta.triple_additions().par_bridge().for_each(|t| {
+            move || {
+                triple_additions.par_bridge().for_each(|t| {
                     delta
                         .id_triple_to_string(&t)
                         .map(|st| self.add_string_triple(st));
                 });
             },
-            || {
-                delta.triple_removals().par_bridge().for_each(|t| {
+            move || {
+                triple_removals.par_bridge().for_each(|t| {
                     delta
                         .id_triple_to_string(&t)
                         .map(|st| self.remove_string_triple(st));
@@ -263,6 +268,141 @@ impl StoreLayer {
         store2.rollup(layer).await?;
         Ok(())
     }
+
+    pub fn triple_addition_exists(
+        &self,
+        subject: u64,
+        predicate: u64,
+        object: u64,
+    ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> {
+        self.store
+            .layer_store
+            .triple_addition_exists(self.layer.name(), subject, predicate, object)
+    }
+
+    pub fn triple_removal_exists(
+        &self,
+        subject: u64,
+        predicate: u64,
+        object: u64,
+    ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> {
+        self.store
+            .layer_store
+            .triple_removal_exists(self.layer.name(), subject, predicate, object)
+    }
+
+    pub fn triple_additions(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    {
+        self.store.layer_store.triple_additions(self.layer.name())
+    }
+
+    pub fn triple_removals(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    {
+        self.store.layer_store.triple_removals(self.layer.name())
+    }
+
+    pub fn triple_additions_s(
+        &self,
+        subject: u64,
+    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    {
+        self.store
+            .layer_store
+            .triple_additions_s(self.layer.name(), subject)
+    }
+
+    pub fn triple_removals_s(
+        &self,
+        subject: u64,
+    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    {
+        self.store
+            .layer_store
+            .triple_removals_s(self.layer.name(), subject)
+    }
+
+    pub fn triple_additions_sp(
+        &self,
+        subject: u64,
+        predicate: u64,
+    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    {
+        self.store
+            .layer_store
+            .triple_additions_sp(self.layer.name(), subject, predicate)
+    }
+
+    pub fn triple_removals_sp(
+        &self,
+        subject: u64,
+        predicate: u64,
+    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    {
+        self.store
+            .layer_store
+            .triple_removals_sp(self.layer.name(), subject, predicate)
+    }
+
+    pub fn triple_additions_p(
+        &self,
+        predicate: u64,
+    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    {
+        self.store
+            .layer_store
+            .triple_additions_p(self.layer.name(), predicate)
+    }
+
+    pub fn triple_removals_p(
+        &self,
+        predicate: u64,
+    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    {
+        self.store
+            .layer_store
+            .triple_removals_p(self.layer.name(), predicate)
+    }
+
+    pub fn triple_additions_o(
+        &self,
+        object: u64,
+    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    {
+        self.store
+            .layer_store
+            .triple_additions_o(self.layer.name(), object)
+    }
+
+    pub fn triple_removals_o(
+        &self,
+        object: u64,
+    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    {
+        self.store
+            .layer_store
+            .triple_removals_o(self.layer.name(), object)
+    }
+
+    /// Returns the amount of triples that this layer adds.
+    pub fn triple_layer_addition_count(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = io::Result<usize>> + Send>> {
+        self.store
+            .layer_store
+            .triple_layer_addition_count(self.layer.name())
+    }
+    /// Returns the amount of triples that this layer removes.
+    pub fn triple_layer_removal_count(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = io::Result<usize>> + Send>> {
+        self.store
+            .layer_store
+            .triple_layer_removal_count(self.layer.name())
+    }
 }
 
 impl Layer for StoreLayer {
@@ -314,37 +454,12 @@ impl Layer for StoreLayer {
         self.layer.triple_exists(subject, predicate, object)
     }
 
-    fn triple_addition_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
-        self.layer
-            .triple_addition_exists(subject, predicate, object)
-    }
-
-    fn triple_removal_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
-        self.layer.triple_removal_exists(subject, predicate, object)
-    }
-
     fn triples(&self) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.layer.triples()
     }
 
-    fn triple_additions(&self) -> Box<dyn Iterator<Item = IdTriple> + Send> {
-        self.layer.triple_additions()
-    }
-
-    fn triple_removals(&self) -> Box<dyn Iterator<Item = IdTriple> + Send> {
-        self.layer.triple_removals()
-    }
-
     fn triples_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.layer.triples_s(subject)
-    }
-
-    fn triple_additions_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
-        self.layer.triple_additions_s(subject)
-    }
-
-    fn triple_removals_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
-        self.layer.triple_removals_s(subject)
     }
 
     fn triples_sp(
@@ -355,56 +470,16 @@ impl Layer for StoreLayer {
         self.layer.triples_sp(subject, predicate)
     }
 
-    fn triple_additions_sp(
-        &self,
-        subject: u64,
-        predicate: u64,
-    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
-        self.layer.triple_additions_sp(subject, predicate)
-    }
-
-    fn triple_removals_sp(
-        &self,
-        subject: u64,
-        predicate: u64,
-    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
-        self.layer.triple_removals_sp(subject, predicate)
-    }
-
     fn triples_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.layer.triples_p(predicate)
-    }
-
-    fn triple_additions_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
-        self.layer.triple_additions_p(predicate)
-    }
-
-    fn triple_removals_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
-        self.layer.triple_removals_p(predicate)
     }
 
     fn triples_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.layer.triples_o(object)
     }
 
-    fn triple_additions_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
-        self.layer.triple_additions_o(object)
-    }
-
-    fn triple_removals_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
-        self.layer.triple_removals_o(object)
-    }
-
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())
-    }
-
-    fn triple_layer_addition_count(&self) -> usize {
-        self.layer.triple_layer_addition_count()
-    }
-
-    fn triple_layer_removal_count(&self) -> usize {
-        self.layer.triple_layer_removal_count()
     }
 
     fn triple_addition_count(&self) -> usize {
@@ -756,7 +831,7 @@ mod tests {
 
         let rebase_builder = layer2.open_write().await.unwrap();
 
-        let _ = rebase_builder.apply_delta(&delta).unwrap();
+        let _ = rebase_builder.apply_delta(&delta).await.unwrap();
 
         let rebase_layer = rebase_builder.commit().await.unwrap();
 

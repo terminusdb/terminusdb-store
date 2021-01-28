@@ -6,6 +6,8 @@ use futures::io;
 use std::pin::Pin;
 use tokio::io::{AsyncRead, AsyncWrite};
 
+use crate::structure::{AdjacencyList, BitIndex};
+
 pub trait FileStore: Clone + Send + Sync {
     type Write: AsyncWrite + Unpin + Send;
     fn open_write(&self) -> Self::Write {
@@ -289,6 +291,12 @@ pub struct BitIndexMaps {
     pub sblocks_map: Bytes,
 }
 
+impl Into<BitIndex> for BitIndexMaps {
+    fn into(self) -> BitIndex {
+        BitIndex::from_maps(self.bits_map, self.blocks_map, self.sblocks_map)
+    }
+}
+
 #[derive(Clone)]
 pub struct BitIndexFiles<F: 'static + FileLoad> {
     pub bits_file: F,
@@ -322,6 +330,17 @@ impl<F: 'static + FileLoad + FileStore> BitIndexFiles<F> {
 pub struct AdjacencyListMaps {
     pub bitindex_maps: BitIndexMaps,
     pub nums_map: Bytes,
+}
+
+impl Into<AdjacencyList> for AdjacencyListMaps {
+    fn into(self) -> AdjacencyList {
+        AdjacencyList::parse(
+            self.nums_map,
+            self.bitindex_maps.bits_map,
+            self.bitindex_maps.blocks_map,
+            self.bitindex_maps.sblocks_map,
+        )
+    }
 }
 
 #[derive(Clone)]

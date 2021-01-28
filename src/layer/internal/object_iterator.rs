@@ -16,16 +16,16 @@ pub struct InternalLayerTripleObjectIterator {
 
 impl InternalLayerTripleObjectIterator {
     pub fn new(
-        subjects: Option<&MonotonicLogArray>,
-        objects: Option<&MonotonicLogArray>,
-        o_ps_adjacency_list: &AdjacencyList,
-        s_p_adjacency_list: &AdjacencyList,
+        subjects: Option<MonotonicLogArray>,
+        objects: Option<MonotonicLogArray>,
+        o_ps_adjacency_list: AdjacencyList,
+        s_p_adjacency_list: AdjacencyList,
     ) -> Self {
         Self {
-            subjects: subjects.cloned(),
-            objects: objects.cloned(),
-            o_ps_adjacency_list: o_ps_adjacency_list.clone(),
-            s_p_adjacency_list: s_p_adjacency_list.clone(),
+            subjects: subjects,
+            objects: objects,
+            o_ps_adjacency_list: o_ps_adjacency_list,
+            s_p_adjacency_list: s_p_adjacency_list,
             o_position: 0,
             o_ps_position: 0,
             peeked: None,
@@ -390,7 +390,7 @@ mod tests {
     async fn object_additions_iterator_for_object() {
         let base_layer = example_base_layer().await;
 
-        let triples: Vec<_> = base_layer.triple_additions_o(5).collect();
+        let triples: Vec<_> = base_layer.internal_triple_additions_o(5).collect();
 
         let expected = vec![
             IdTriple::new(2, 1, 5),
@@ -405,7 +405,7 @@ mod tests {
     async fn object_additions_iterator_for_nonexistent_object() {
         let base_layer = example_base_layer().await;
 
-        let triples: Vec<_> = base_layer.triple_additions_o(4).collect();
+        let triples: Vec<_> = base_layer.internal_triple_additions_o(4).collect();
 
         assert!(triples.is_empty());
     }

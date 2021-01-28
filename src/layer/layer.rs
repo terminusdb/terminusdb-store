@@ -43,9 +43,6 @@ pub trait Layer: Send + Sync {
     /// Returns true if the given triple exists, and false otherwise.
     fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool;
 
-    fn triple_addition_exists(&self, subject: u64, predicate: u64, object: u64) -> bool;
-    fn triple_removal_exists(&self, subject: u64, predicate: u64, object: u64) -> bool;
-
     /// Returns true if the given triple exists, and false otherwise.
     fn id_triple_exists(&self, triple: IdTriple) -> bool {
         self.triple_exists(triple.subject, triple.predicate, triple.object)
@@ -58,26 +55,10 @@ pub trait Layer: Send + Sync {
             .unwrap_or(false)
     }
 
-    fn triple_additions(&self) -> Box<dyn Iterator<Item = IdTriple> + Send>;
-    fn triple_removals(&self) -> Box<dyn Iterator<Item = IdTriple> + Send>;
-
     /// Iterator over all triples known to this layer.
     fn triples(&self) -> Box<dyn Iterator<Item = IdTriple> + Send>;
 
-    fn triple_additions_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
-    fn triple_removals_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
     fn triples_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
-
-    fn triple_additions_sp(
-        &self,
-        subject: u64,
-        predicate: u64,
-    ) -> Box<dyn Iterator<Item = IdTriple> + Send>;
-    fn triple_removals_sp(
-        &self,
-        subject: u64,
-        predicate: u64,
-    ) -> Box<dyn Iterator<Item = IdTriple> + Send>;
     fn triples_sp(&self, subject: u64, predicate: u64)
         -> Box<dyn Iterator<Item = IdTriple> + Send>;
 
@@ -98,12 +79,8 @@ pub trait Layer: Send + Sync {
         })
     }
 
-    fn triple_additions_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
-    fn triple_removals_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
     fn triples_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
 
-    fn triple_additions_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
-    fn triple_removals_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
     fn triples_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
 
     /// Convert all known strings in the given string triple to ids.
@@ -153,11 +130,6 @@ pub trait Layer: Send + Sync {
     fn triple_count(&self) -> usize {
         self.triple_addition_count() - self.triple_removal_count()
     }
-
-    /// Returns the amount of triples that this layer adds.
-    fn triple_layer_addition_count(&self) -> usize;
-    /// Returns the amount of triples that this layer removes.
-    fn triple_layer_removal_count(&self) -> usize;
 }
 
 pub struct LayerCounts {
@@ -399,17 +371,17 @@ mod tests {
 
         // TODO why are we not using these results?
         let _base_triples_additions: Vec<_> = base
-            .triple_additions()
+            .internal_triple_additions()
             .map(|t| child.id_triple_to_string(&t).unwrap())
             .collect();
 
         let _triples_additions: Vec<_> = child
-            .triple_additions()
+            .internal_triple_additions()
             .map(|t| child.id_triple_to_string(&t).unwrap())
             .collect();
 
         let _triples_removals: Vec<_> = child
-            .triple_removals()
+            .internal_triple_removals()
             .map(|t| child.id_triple_to_string(&t).unwrap())
             .collect();
 

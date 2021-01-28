@@ -18,14 +18,14 @@ pub struct InternalLayerTripleSubjectIterator {
 
 impl InternalLayerTripleSubjectIterator {
     pub fn new(
-        subjects: Option<&MonotonicLogArray>,
-        s_p_adjacency_list: &AdjacencyList,
-        sp_o_adjacency_list: &AdjacencyList,
+        subjects: Option<MonotonicLogArray>,
+        s_p_adjacency_list: AdjacencyList,
+        sp_o_adjacency_list: AdjacencyList,
     ) -> Self {
         Self {
-            subjects: subjects.cloned(),
-            s_p_adjacency_list: s_p_adjacency_list.clone(),
-            sp_o_adjacency_list: sp_o_adjacency_list.clone(),
+            subjects: subjects,
+            s_p_adjacency_list: s_p_adjacency_list,
+            sp_o_adjacency_list: sp_o_adjacency_list,
             s_position: 0,
             s_p_position: 0,
             sp_o_position: 0,
@@ -432,7 +432,7 @@ mod tests {
     async fn base_triple_iterator() {
         let base_layer: InternalLayer = example_base_layer().await.into();
 
-        let triples: Vec<_> = base_layer.triple_additions().collect();
+        let triples: Vec<_> = base_layer.internal_triple_additions().collect();
         let expected = vec![
             IdTriple::new(1, 1, 1),
             IdTriple::new(2, 1, 1),
@@ -450,7 +450,7 @@ mod tests {
     async fn base_triple_removal_iterator() {
         let base_layer: InternalLayer = example_base_layer().await.into();
 
-        let triples: Vec<_> = base_layer.triple_removals().collect();
+        let triples: Vec<_> = base_layer.internal_triple_removals().collect();
         assert!(triples.is_empty());
     }
 
@@ -487,7 +487,7 @@ mod tests {
             .await
             .unwrap();
 
-        let triples: Vec<_> = layer.triple_additions().collect();
+        let triples: Vec<_> = layer.internal_triple_additions().collect();
 
         let expected = vec![
             IdTriple::new(1, 1, 1),
@@ -796,7 +796,7 @@ mod tests {
     async fn base_triple_iterator_additions_for_subject() {
         let layer = layer_for_seek_tests().await;
 
-        let triples: Vec<_> = layer.triple_additions_s(3).collect();
+        let triples: Vec<_> = layer.internal_triple_additions_s(3).collect();
 
         let expected = vec![IdTriple::new(3, 2, 5), IdTriple::new(3, 3, 5)];
 
@@ -813,7 +813,7 @@ mod tests {
             IdTriple::new(3, 4, 5),
         ];
 
-        let triples: Vec<_> = layer.triple_additions_sp(3, 4).collect();
+        let triples: Vec<_> = layer.internal_triple_additions_sp(3, 4).collect();
 
         assert_eq!(expected, triples);
     }
@@ -848,7 +848,7 @@ mod tests {
     async fn child_triple_addition_iterator() {
         let layer = child_layer().await;
 
-        let triples: Vec<_> = layer.triple_additions().collect();
+        let triples: Vec<_> = layer.internal_triple_additions().collect();
 
         let expected = vec![
             IdTriple::new(1, 2, 3),
@@ -863,7 +863,7 @@ mod tests {
     async fn child_triple_removal_iterator() {
         let layer = child_layer().await;
 
-        let triples: Vec<_> = layer.triple_removals().collect();
+        let triples: Vec<_> = layer.internal_triple_removals().collect();
 
         let expected = vec![
             IdTriple::new(1, 1, 1),

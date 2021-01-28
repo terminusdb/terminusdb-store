@@ -317,7 +317,7 @@ pub fn bitarray_stream_blocks<R: AsyncRead + Unpin>(r: R) -> FramedRead<R, BitAr
 }
 
 /// Read the length (number of bits) from a `FileLoad`.
-async fn bitarray_len_from_file<F: FileLoad>(f: F) -> io::Result<u64> {
+pub(crate) async fn bitarray_len_from_file<F: FileLoad>(f: F) -> io::Result<u64> {
     BitArrayError::validate_input_buf_size(f.size())?;
     let mut control_word = vec![0; 8];
     f.open_read_from(f.size() - 8)

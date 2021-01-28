@@ -744,8 +744,8 @@ pub mod tests {
             .await
             .unwrap();
 
-        assert_eq!(7, layer.triple_layer_addition_count());
-        assert_eq!(0, layer.triple_layer_removal_count());
+        assert_eq!(7, layer.internal_triple_layer_addition_count());
+        assert_eq!(0, layer.internal_triple_layer_removal_count());
         assert_eq!(7, layer.triple_addition_count());
         assert_eq!(0, layer.triple_removal_count());
         assert_eq!(7, layer.triple_count());

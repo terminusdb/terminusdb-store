@@ -660,6 +660,12 @@ impl MonotonicLogArray {
     }
 }
 
+impl From<LogArray> for MonotonicLogArray {
+    fn from(l: LogArray) -> Self {
+        Self::from_logarray(l)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
