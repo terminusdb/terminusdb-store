@@ -269,6 +269,17 @@ impl StoreLayer {
         Ok(())
     }
 
+    pub async fn rollup_upto(&self, upto: &StoreLayer) -> io::Result<()> {
+        let store1 = self.store.layer_store.clone();
+        // TODO: This is awkward, we should have a way to get the internal layer
+        let layer_opt = store1.get_layer(self.name()).await?;
+        let layer =
+            layer_opt.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "label not found"))?;
+        let store2 = self.store.layer_store.clone();
+        store2.rollup_upto(layer, upto.name()).await?;
+        Ok(())
+    }
+
     pub fn triple_addition_exists(
         &self,
         subject: u64,

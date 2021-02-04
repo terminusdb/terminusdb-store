@@ -129,6 +129,10 @@ impl SyncStoreLayer {
         task_sync(self.inner.clone().rollup())
     }
 
+    pub fn rollup_upto(&self, upto: &SyncStoreLayer) -> Result<(), io::Error> {
+        task_sync(self.inner.clone().rollup_upto(&upto.inner))
+    }
+
     pub fn triple_addition_exists(
         &self,
         subject: u64,
