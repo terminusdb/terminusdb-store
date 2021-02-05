@@ -227,6 +227,12 @@ impl SyncStoreLayer {
     pub fn triple_layer_removal_count(&self) -> io::Result<usize> {
         task_sync(self.inner.triple_layer_removal_count())
     }
+
+    pub fn retrieve_layer_stack_names(
+        &self,
+    ) -> io::Result<Vec<[u32; 5]>> {
+        task_sync(self.inner.retrieve_layer_stack_names())
+    }
 }
 
 impl Layer for SyncStoreLayer {

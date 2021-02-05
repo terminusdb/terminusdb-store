@@ -473,6 +473,8 @@ impl MemoryLayerStore {
             }
         })
     }
+
+    
 }
 
 pub fn base_layer_memory_files() -> BaseLayerFiles<MemoryBackedStore> {
@@ -1318,6 +1320,32 @@ impl LayerStore for MemoryLayerStore {
             } else {
                 Ok(0)
             }
+        })
+    }
+
+    fn retrieve_layer_stack_names(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
+        let guard = self.layers.read();
+        Box::pin(async move {
+            let layers = guard.await;
+            let mut result = vec![name];
+            let mut d = name;
+            loop {
+                match layers.get(&d) {
+                    Some((Some(parent), _, _)) => {
+                        d = *parent;
+                        result.push(d)
+                    },
+                    _ => {
+                        result.reverse();
+
+                        return Ok(result)
+                    }
+                }
+            }
+
         })
     }
 }

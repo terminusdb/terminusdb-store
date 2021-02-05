@@ -207,6 +207,12 @@ pub trait LayerStore: 'static + Send + Sync {
         &self,
         layer: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<usize>> + Send>>;
+
+    fn retrieve_layer_stack_names(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>>;
+
 }
 
 pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
@@ -1826,6 +1832,28 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             }
         })
     }
+
+    fn retrieve_layer_stack_names(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
+        let self_ = self.clone();
+        let mut result = vec![name];
+
+        Box::pin(async move {
+            loop {
+                if self_.layer_has_parent(*result.last().unwrap()).await? {
+                    let parent = self_.read_parent_file(*result.last().unwrap()).await?;
+                    result.push(parent);
+                } else {
+                    result.reverse();
+
+                    return Ok(result);
+                }
+            }
+        })
+    }
+
 }
 
 pub(crate) async fn file_triple_exists<F: FileLoad + FileStore>(

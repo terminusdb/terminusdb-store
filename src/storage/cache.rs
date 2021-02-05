@@ -440,6 +440,15 @@ impl LayerStore for CachedLayerStore {
 
         self.inner.triple_layer_removal_count(layer)
     }
+
+    fn retrieve_layer_stack_names(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
+        // Note: Doesn't use cache, but does pointer chasing on disk anyhow
+        self.inner.retrieve_layer_stack_names(name)
+    }
+
 }
 
 #[cfg(test)]
