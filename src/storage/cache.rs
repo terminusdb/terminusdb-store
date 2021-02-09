@@ -448,7 +448,6 @@ impl LayerStore for CachedLayerStore {
         // Note: Doesn't use cache, but does pointer chasing on disk anyhow
         self.inner.retrieve_layer_stack_names(name)
     }
-
 }
 
 #[cfg(test)]

@@ -228,9 +228,7 @@ impl SyncStoreLayer {
         task_sync(self.inner.triple_layer_removal_count())
     }
 
-    pub fn retrieve_layer_stack_names(
-        &self,
-    ) -> io::Result<Vec<[u32; 5]>> {
+    pub fn retrieve_layer_stack_names(&self) -> io::Result<Vec<[u32; 5]>> {
         task_sync(self.inner.retrieve_layer_stack_names())
     }
 }

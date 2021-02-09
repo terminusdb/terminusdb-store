@@ -3,9 +3,9 @@ use super::consts::FILENAMES;
 use super::file::*;
 use crate::layer::{
     delta_rollup, delta_rollup_upto, layer_triple_exists, BaseLayer, ChildLayer, IdTriple,
-    InternalLayer, InternalLayerTripleObjectIterator, InternalLayerTriplePredicateIterator,
-    InternalLayerTripleSubjectIterator, LayerBuilder, OptInternalLayerTriplePredicateIterator,
-    RollupLayer, SimpleLayerBuilder,
+    InternalLayer, InternalLayerImpl, InternalLayerTripleObjectIterator,
+    InternalLayerTriplePredicateIterator, InternalLayerTripleSubjectIterator, LayerBuilder,
+    OptInternalLayerTriplePredicateIterator, RollupLayer, SimpleLayerBuilder,
 };
 use crate::structure::bitarray::bitarray_len_from_file;
 use crate::structure::logarray::logarray_file_get_length_and_width;
@@ -212,7 +212,6 @@ pub trait LayerStore: 'static + Send + Sync {
         &self,
         name: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>>;
-
 }
 
 pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
@@ -1454,8 +1453,24 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         &self,
         layer: Arc<InternalLayer>,
     ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+        if layer.parent_name().is_none() {
+            // we're already a base layer. there's nothing that can be rolled up.
+            // returning our own name will inhibit writing a rollup file.
+            return Box::pin(future::ok(layer.name()));
+        }
+
         let self_ = self.clone();
         Box::pin(async move {
+            // check if there's already an equivalent rollup
+            if self_.layer_has_rollup(layer.name()).await? {
+                let rollup = self_.read_rollup_file(layer.name()).await?;
+                // the rollup is equivalent if it is a base layer
+                if !self_.layer_has_parent(rollup).await? {
+                    // yup, equivalent. let's just return the rollup we know about.
+                    return Ok(rollup);
+                }
+            }
+
             let dir_name = self_.create_directory().await?;
             let files = self_.base_layer_files(dir_name).await?;
             delta_rollup(&layer, files).await?;
@@ -1470,8 +1485,24 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         upto: [u32; 5],
         cache: Arc<dyn LayerCache>,
     ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+        if layer.parent_name() == Some(upto) {
+            // rolling up to our parent is just going to create a clone of this child layer. Let's not do that.
+            return Box::pin(future::ok(layer.name()));
+        }
+
         let self_ = self.clone();
         Box::pin(async move {
+            // check if there's already an equivalent rollup
+            if self_.layer_has_rollup(layer.name()).await? {
+                let rollup = self_.read_rollup_file(layer.name()).await?;
+
+                // get rollup parent. if it is the same as upto, we're requesting something equivalent.
+                if upto == self_.read_parent_file(rollup).await? {
+                    // yup, equivalent. Let's just return the rollup we know about.
+                    return Ok(rollup);
+                }
+            }
+
             let (layer_dir, _parent_layer, child_layer_files) = self_
                 .create_child_layer_files_with_cache(upto, cache)
                 .await?;
@@ -1485,7 +1516,12 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         layer: [u32; 5],
         rollup: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> {
-        self.write_rollup_file(layer, rollup)
+        if layer == rollup {
+            // let's not create a loop
+            Box::pin(future::ok(()))
+        } else {
+            self.write_rollup_file(layer, rollup)
+        }
     }
 
     fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
@@ -1853,7 +1889,6 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             }
         })
     }
-
 }
 
 pub(crate) async fn file_triple_exists<F: FileLoad + FileStore>(

@@ -473,8 +473,6 @@ impl MemoryLayerStore {
             }
         })
     }
-
-    
 }
 
 pub fn base_layer_memory_files() -> BaseLayerFiles<MemoryBackedStore> {
@@ -1337,15 +1335,14 @@ impl LayerStore for MemoryLayerStore {
                     Some((Some(parent), _, _)) => {
                         d = *parent;
                         result.push(d)
-                    },
+                    }
                     _ => {
                         result.reverse();
 
-                        return Ok(result)
+                        return Ok(result);
                     }
                 }
             }
-
         })
     }
 }

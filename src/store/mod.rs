@@ -417,14 +417,10 @@ impl StoreLayer {
 
     pub fn retrieve_layer_stack_names(
         &self,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>>  {
+    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
         let name = self.name();
-        self.store
-            .layer_store
-            .retrieve_layer_stack_names(name)
+        self.store.layer_store.retrieve_layer_stack_names(name)
     }
-
-
 }
 
 impl Layer for StoreLayer {
@@ -515,7 +511,6 @@ impl Layer for StoreLayer {
     fn all_counts(&self) -> LayerCounts {
         self.layer.all_counts()
     }
-
 }
 
 /// A named graph in terminus-store.
