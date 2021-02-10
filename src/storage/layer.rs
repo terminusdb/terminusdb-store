@@ -1549,16 +1549,12 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                     return Ok(true);
                 }
 
-                let parent = self_.read_parent_file(descendant).await;
-                match parent {
-                    Ok(parent) => descendant = parent,
-                    Err(e) => {
-                        if e.kind() == io::ErrorKind::NotFound {
-                            return Ok(false);
-                        } else {
-                            return Err(e);
-                        }
-                    }
+                if self_.layer_has_parent(descendant).await? {
+                    let parent = self_.read_parent_file(descendant).await?;
+                    descendant = parent;
+                }
+                else {
+                    return Ok(false);
                 }
             }
         })
