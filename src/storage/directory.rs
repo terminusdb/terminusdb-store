@@ -24,6 +24,14 @@ pub struct FileBackedStore {
     path: PathBuf,
 }
 
+impl SyncableFile for File {
+    fn sync_all(self) -> Pin<Box<dyn Future<Output = io::Result<()>>+Send>> {
+        Box::pin(async move {
+            File::sync_all(&self).await
+        })
+    }
+}
+
 impl FileBackedStore {
     pub fn new<P: Into<PathBuf>>(path: P) -> FileBackedStore {
         FileBackedStore { path: path.into() }
@@ -346,6 +354,7 @@ impl LabelStore for DirectoryLabelStore {
                         let mut file = ExclusiveLockedFile::create_and_open(p).await?;
                         file.write_all(&contents).await?;
                         file.flush().await?;
+                        file.sync_all().await?;
 
                         Ok(Label::new_empty(&label))
                     }

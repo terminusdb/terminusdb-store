@@ -8,8 +8,12 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::structure::{AdjacencyList, BitIndex};
 
+pub trait SyncableFile: AsyncWrite + Unpin + Send {
+    fn sync_all(self) -> Pin<Box<dyn Future<Output = io::Result<()>>+Send>>;
+}
+
 pub trait FileStore: Clone + Send + Sync {
-    type Write: AsyncWrite + Unpin + Send;
+    type Write: SyncableFile;
     fn open_write(&self) -> Self::Write {
         self.open_write_from(0)
     }

@@ -206,6 +206,14 @@ impl ExclusiveLockedFile {
         let pos = file.seek(SeekFrom::Current(0)).await?;
         file.set_len(pos).await
     }
+
+    pub async fn sync_all(&mut self) -> io::Result<()> {
+        let file = self
+            .file
+            .as_mut()
+            .expect("tried to sync a dropped file");
+        file.sync_all().await
+    }
 }
 
 impl AsyncRead for ExclusiveLockedFile {
