@@ -28,7 +28,7 @@
 //!
 //! * length: the number of usable bits in the bit array
 
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 
 use super::util;
 use crate::storage::*;
@@ -210,7 +210,7 @@ pub struct BitArrayFileBuilder<W> {
     count: u64,
 }
 
-impl<W: AsyncWrite + Unpin> BitArrayFileBuilder<W> {
+impl<W: SyncableFile> BitArrayFileBuilder<W> {
     pub fn new(dest: W) -> BitArrayFileBuilder<W> {
         BitArrayFileBuilder {
             dest,
@@ -260,7 +260,7 @@ impl<W: AsyncWrite + Unpin> BitArrayFileBuilder<W> {
         Ok(())
     }
 
-    pub async fn finalize(mut self) -> io::Result<W> {
+    pub async fn finalize(mut self) -> io::Result<()> {
         let count = self.count;
         // Write the final data word.
         self.finalize_data().await?;
@@ -268,8 +268,9 @@ impl<W: AsyncWrite + Unpin> BitArrayFileBuilder<W> {
         util::write_u64(&mut self.dest, count).await?;
         // Flush the `dest`.
         self.dest.flush().await?;
+        self.dest.sync_all().await?;
 
-        Ok(self.dest)
+        Ok(())
     }
 
     pub fn count(&self) -> u64 {

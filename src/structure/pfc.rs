@@ -650,7 +650,7 @@ impl PfcDict {
     }
 }
 
-pub struct PfcDictFileBuilder<W: tokio::io::AsyncWrite + Unpin + Send> {
+pub struct PfcDictFileBuilder<W: SyncableFile> {
     /// the file that this builder writes the pfc blocks to
     pfc_blocks_file: W,
     /// the file that this builder writes the block offsets to
@@ -663,7 +663,7 @@ pub struct PfcDictFileBuilder<W: tokio::io::AsyncWrite + Unpin + Send> {
     index: Vec<u64>,
 }
 
-impl<W: 'static + tokio::io::AsyncWrite + Unpin + Send> PfcDictFileBuilder<W> {
+impl<W: 'static + SyncableFile> PfcDictFileBuilder<W> {
     pub fn new(pfc_blocks_file: W, pfc_block_offsets_file: W) -> PfcDictFileBuilder<W> {
         PfcDictFileBuilder {
             pfc_blocks_file,
@@ -750,6 +750,7 @@ impl<W: 'static + tokio::io::AsyncWrite + Unpin + Send> PfcDictFileBuilder<W> {
         write_padding(&mut self.pfc_blocks_file, self.size, 8).await?;
         write_u64(&mut self.pfc_blocks_file, count).await?;
         self.pfc_blocks_file.flush().await?;
+        self.pfc_blocks_file.sync_all().await?;
 
         Ok(())
     }

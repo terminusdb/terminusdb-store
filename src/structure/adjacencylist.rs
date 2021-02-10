@@ -10,8 +10,6 @@
 //! left-hand-side has more pairs to follow, or 1 if this was the last
 //! pair).
 
-use tokio::io::AsyncWrite;
-
 use std::convert::TryInto;
 use std::io;
 use std::pin::Pin;
@@ -227,9 +225,9 @@ pub fn adjacency_list_stream_pairs<F: 'static + FileLoad>(
 pub struct AdjacencyListBuilder<F, W1, W2, W3>
 where
     F: 'static + FileLoad + FileStore,
-    W1: 'static + AsyncWrite + Unpin + Send,
-    W2: 'static + AsyncWrite + Unpin + Send,
-    W3: 'static + AsyncWrite + Unpin + Send,
+    W1: 'static + SyncableFile,
+    W2: 'static + SyncableFile,
+    W3: 'static + SyncableFile,
 {
     bitfile: F,
     bitarray: BitArrayFileBuilder<F::Write>,
@@ -243,9 +241,9 @@ where
 impl<F, W1, W2, W3> AdjacencyListBuilder<F, W1, W2, W3>
 where
     F: 'static + FileLoad + FileStore,
-    W1: 'static + AsyncWrite + Unpin + Send,
-    W2: 'static + AsyncWrite + Unpin + Send,
-    W3: 'static + AsyncWrite + Unpin + Send,
+    W1: 'static + SyncableFile,
+    W2: 'static + SyncableFile,
+    W3: 'static + SyncableFile,
 {
     pub fn new(
         bitfile: F,

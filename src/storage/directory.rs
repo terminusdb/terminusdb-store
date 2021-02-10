@@ -25,10 +25,8 @@ pub struct FileBackedStore {
 }
 
 impl SyncableFile for File {
-    fn sync_all(self) -> Pin<Box<dyn Future<Output = io::Result<()>>+Send>> {
-        Box::pin(async move {
-            File::sync_all(&self).await
-        })
+    fn sync_all(self) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> {
+        Box::pin(async move { File::sync_all(&self).await })
     }
 }
 

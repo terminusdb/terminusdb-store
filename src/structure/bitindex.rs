@@ -4,9 +4,12 @@ use bytes::Bytes;
 
 use super::bitarray::*;
 use super::logarray::*;
+
+use crate::storage::SyncableFile;
+
 use futures::io;
 use futures::stream::StreamExt;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::AsyncRead;
 
 // a block is 64 bit, which is the register size on modern architectures
 // Block size is not tunable, and therefore no const is defined here.
@@ -315,8 +318,8 @@ impl BitIndex {
 
 pub async fn build_bitindex<
     R: 'static + AsyncRead + Unpin + Send,
-    W1: 'static + AsyncWrite + Unpin + Send,
-    W2: 'static + AsyncWrite + Unpin + Send,
+    W1: 'static + SyncableFile + Send,
+    W2: 'static + SyncableFile + Send,
 >(
     bitarray: R,
     blocks: W1,

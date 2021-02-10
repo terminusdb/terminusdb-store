@@ -57,7 +57,7 @@ use futures::future::FutureExt;
 use futures::stream::{self, Stream, StreamExt};
 use std::pin::Pin;
 use std::{cmp::Ordering, convert::TryFrom, error, fmt, io};
-use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::codec::{Decoder, FramedRead};
 
 // Static assertion: We expect the system architecture bus width to be >= 32 bits. If it is not,
@@ -322,7 +322,7 @@ impl LogArray {
 }
 
 /// write a logarray directly to an AsyncWrite
-pub struct LogArrayFileBuilder<W: AsyncWrite + Unpin> {
+pub struct LogArrayFileBuilder<W: SyncableFile> {
     /// Destination of the log array data
     file: W,
     /// Bit width of an element
@@ -335,7 +335,7 @@ pub struct LogArrayFileBuilder<W: AsyncWrite + Unpin> {
     count: u32,
 }
 
-impl<W: AsyncWrite + Unpin> LogArrayFileBuilder<W> {
+impl<W: SyncableFile> LogArrayFileBuilder<W> {
     pub fn new(w: W, width: u8) -> LogArrayFileBuilder<W> {
         LogArrayFileBuilder {
             file: w,
@@ -415,7 +415,7 @@ impl<W: AsyncWrite + Unpin> LogArrayFileBuilder<W> {
         Ok(())
     }
 
-    pub async fn finalize(mut self) -> io::Result<W> {
+    pub async fn finalize(mut self) -> io::Result<()> {
         let len = self.count;
         let width = self.width;
 
@@ -429,8 +429,9 @@ impl<W: AsyncWrite + Unpin> LogArrayFileBuilder<W> {
         self.file.write_all(&buf).await?;
 
         self.file.flush().await?;
+        self.file.sync_all().await?;
 
-        Ok(self.file)
+        Ok(())
     }
 }
 

@@ -9,7 +9,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use crate::structure::{AdjacencyList, BitIndex};
 
 pub trait SyncableFile: AsyncWrite + Unpin + Send {
-    fn sync_all(self) -> Pin<Box<dyn Future<Output = io::Result<()>>+Send>>;
+    fn sync_all(self) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>>;
 }
 
 pub trait FileStore: Clone + Send + Sync {

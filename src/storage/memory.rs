@@ -115,7 +115,7 @@ impl MemoryBackedStore {
 }
 
 impl SyncableFile for MemoryBackedStoreWriter {
-    fn sync_all(self) -> Pin<Box<dyn Future<Output = io::Result<()>>+Send>> {
+    fn sync_all(self) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> {
         // nothing to do
         Box::pin(future::ok(()))
     }
