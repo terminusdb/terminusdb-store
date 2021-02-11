@@ -671,25 +671,52 @@ impl LayerStore for MemoryLayerStore {
             // find an ancestor in cache
             let mut ancestor = None;
             loop {
-                let (last, _) = *layers_to_load.last().unwrap();
-                match cache.get_layer_from_cache(last) {
+                let (last, rollup_option) = *layers_to_load.last().unwrap();
+                let current_layer;
+
+                if let Some((rollup, _original_parent)) = rollup_option {
+                    current_layer = rollup;
+                } else {
+                    current_layer = last;
+                }
+                match cache.get_layer_from_cache(current_layer) {
                     Some(layer) => {
                         // remove found cached layer from ids to retrieve
                         layers_to_load.pop().unwrap();
-                        ancestor = Some(layer);
+
+                        // if this is a rollup, the behavior has to be slightly different
+                        if let Some((_, original_parent)) = rollup_option {
+                            if layer.immediate_parent().is_some() {
+                                ancestor = Some(Arc::new(
+                                    RollupLayer::from_child_layer(
+                                        layer,
+                                        last,
+                                        original_parent.unwrap(),
+                                    )
+                                    .into(),
+                                ));
+                            } else {
+                                ancestor = Some(Arc::new(
+                                    RollupLayer::from_base_layer(layer, last, original_parent)
+                                        .into(),
+                                ));
+                            }
+                        } else {
+                            ancestor = Some(layer);
+                        }
                         break;
                     }
                     None => {
-                        let (parent, rollup, _files) = layers.get(&last).unwrap();
+                        let (parent, rollup, _files) = layers.get(&current_layer).unwrap();
                         if rollup.is_some() {
                             let rollup = rollup.unwrap();
 
-                            if rollup == last {
+                            if rollup == current_layer {
                                 panic!("infinite rollup loop for layer {:?}", rollup);
                             }
 
                             layers_to_load.pop().unwrap(); // we don't want to load this, we want to load the rollup instead!
-                            layers_to_load.push((last, Some((rollup, *parent))));
+                            layers_to_load.push((current_layer, Some((rollup, *parent))));
                         } else if parent.is_some() {
                             let parent = parent.unwrap();
                             layers_to_load.push((parent, None));
@@ -929,13 +956,15 @@ impl LayerStore for MemoryLayerStore {
 
         let layers = self.layers.clone();
         Box::pin(async move {
-            let layers_r = layers.read().await;
-            if let Some((_, Some(rollup), _)) = layers_r.get(&layer.name()) {
-                // the rollup is equivalent if it is a base layer
-                if let Some((rollup_parent, _, _)) = layers_r.get(rollup) {
-                    if rollup_parent.is_none() {
-                        // yup, equivalent. let's just return the rollup we know about.
-                        return Ok(*rollup);
+            {
+                let layers_r = layers.read().await;
+                if let Some((_, Some(rollup), _)) = layers_r.get(&layer.name()) {
+                    // the rollup is equivalent if it is a base layer
+                    if let Some((rollup_parent, _, _)) = layers_r.get(rollup) {
+                        if rollup_parent.is_none() {
+                            // yup, equivalent. let's just return the rollup we know about.
+                            return Ok(*rollup);
+                        }
                     }
                 }
             }
@@ -966,13 +995,15 @@ impl LayerStore for MemoryLayerStore {
 
         let layers = self.layers.clone();
         Box::pin(async move {
-            let layers_r = layers.read().await;
-            if let Some((_, Some(rollup), _)) = layers_r.get(&layer.name()) {
-                // get rollup parent. if it is the same as upto, we're requesting something equivalent.
-                if let Some((Some(rollup_parent), _, _)) = layers_r.get(rollup) {
-                    if *rollup_parent == upto {
-                        // yup, equivalent. let's just return the rollup we know about.
-                        return Ok(*rollup);
+            {
+                let layers_r = layers.read().await;
+                if let Some((_, Some(rollup), _)) = layers_r.get(&layer.name()) {
+                    // get rollup parent. if it is the same as upto, we're requesting something equivalent.
+                    if let Some((Some(rollup_parent), _, _)) = layers_r.get(rollup) {
+                        if *rollup_parent == upto {
+                            // yup, equivalent. let's just return the rollup we know about.
+                            return Ok(*rollup);
+                        }
                     }
                 }
             }

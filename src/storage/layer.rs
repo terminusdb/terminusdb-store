@@ -1299,7 +1299,8 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             return Box::pin(future::ok(Some(layer)));
         }
 
-        let mut layers_to_load: Vec<([u32;5], Option<([u32;5], Option<[u32;5]>)>)> = vec![(name, None)];
+        let mut layers_to_load: Vec<([u32; 5], Option<([u32; 5], Option<[u32; 5]>)>)> =
+            vec![(name, None)];
         let self_ = self.clone();
         Box::pin(async move {
             if !self_.directory_exists(name).await? {
@@ -1313,8 +1314,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                 let current_layer;
                 if let Some((rollup, _original_parent)) = rollup_option {
                     current_layer = rollup;
-                }
-                else {
+                } else {
                     current_layer = original_layer;
                 }
 
@@ -1331,18 +1331,20 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                                         layer,
                                         original_layer,
                                         original_parent.unwrap(),
-                                    ).into()));
-                            }
-                            else {
+                                    )
+                                    .into(),
+                                ));
+                            } else {
                                 ancestor = Some(Arc::new(
                                     RollupLayer::from_base_layer(
                                         layer,
                                         original_layer,
                                         original_parent,
-                                    ).into()));
+                                    )
+                                    .into(),
+                                ));
                             }
-                        }
-                        else {
+                        } else {
                             ancestor = Some(layer);
                         }
                         break;
@@ -1580,8 +1582,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                 if self_.layer_has_parent(descendant).await? {
                     let parent = self_.read_parent_file(descendant).await?;
                     descendant = parent;
-                }
-                else {
+                } else {
                     return Ok(false);
                 }
             }
