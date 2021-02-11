@@ -1299,7 +1299,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             return Box::pin(future::ok(Some(layer)));
         }
 
-        let mut layers_to_load = vec![(name, None)];
+        let mut layers_to_load: Vec<([u32;5], Option<([u32;5], Option<[u32;5]>)>)> = vec![(name, None)];
         let self_ = self.clone();
         Box::pin(async move {
             if !self_.directory_exists(name).await? {
@@ -1309,16 +1309,42 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             // find an ancestor in cache
             let mut ancestor = None;
             loop {
-                let (mut current_layer, rollup_option) = *layers_to_load.last().unwrap();
+                let (original_layer, rollup_option) = *layers_to_load.last().unwrap();
+                let current_layer;
                 if let Some((rollup, _original_parent)) = rollup_option {
                     current_layer = rollup;
+                }
+                else {
+                    current_layer = original_layer;
                 }
 
                 match cache.get_layer_from_cache(current_layer) {
                     Some(layer) => {
                         // remove found cached layer from ids to retrieve
                         layers_to_load.pop().unwrap();
-                        ancestor = Some(layer);
+
+                        // if this is a rollup, the behavior has to be slightly different
+                        if let Some((_, original_parent)) = rollup_option {
+                            if layer.immediate_parent().is_some() {
+                                ancestor = Some(Arc::new(
+                                    RollupLayer::from_child_layer(
+                                        layer,
+                                        original_layer,
+                                        original_parent.unwrap(),
+                                    ).into()));
+                            }
+                            else {
+                                ancestor = Some(Arc::new(
+                                    RollupLayer::from_base_layer(
+                                        layer,
+                                        original_layer,
+                                        original_parent,
+                                    ).into()));
+                            }
+                        }
+                        else {
+                            ancestor = Some(layer);
+                        }
                         break;
                     }
                     None => {
@@ -1418,6 +1444,8 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                 cache.cache_layer(layer.clone());
                 ancestor = layer;
             }
+
+            debug_assert_eq!(name, ancestor.name());
 
             Ok(Some(ancestor))
         })

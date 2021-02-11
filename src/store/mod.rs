@@ -858,4 +858,71 @@ mod tests {
         assert!(rebase_layer.string_triple_exists(&StringTriple::new_value("dog", "says", "woof")));
         assert!(!rebase_layer.string_triple_exists(&StringTriple::new_value("cat", "says", "meow")));
     }
+
+    #[tokio::test]
+    async fn cached_layer_name_does_not_change_after_rollup() {
+        let dir = tempdir().unwrap();
+        let store = open_directory_store(dir.path());
+        let builder = store.create_base_layer().await.unwrap();
+        let base_name = builder.name();
+        let x = builder.commit().await.unwrap();
+        let builder = x.open_write().await.unwrap();
+        let child_name = builder.name();
+        builder.commit().await.unwrap();
+
+        let unrolled_layer = store.get_layer_from_id(child_name).await.unwrap().unwrap();
+        let unrolled_name = unrolled_layer.name();
+        let unrolled_parent_name = unrolled_layer.parent_name().unwrap();
+        assert_eq!(child_name, unrolled_name);
+        assert_eq!(base_name, unrolled_parent_name);
+
+        unrolled_layer.rollup().await.unwrap();
+        let rolled_layer = store.get_layer_from_id(child_name).await.unwrap().unwrap();
+        let rolled_name = rolled_layer.name();
+        let rolled_parent_name = rolled_layer.parent_name().unwrap();
+        assert_eq!(child_name, rolled_name);
+        assert_eq!(base_name, rolled_parent_name);
+
+        rolled_layer.rollup().await.unwrap();
+        let rolled_layer2 = store.get_layer_from_id(child_name).await.unwrap().unwrap();
+        let rolled_name2 = rolled_layer2.name();
+        let rolled_parent_name2 = rolled_layer2.parent_name().unwrap();
+        assert_eq!(child_name, rolled_name2);
+        assert_eq!(base_name, rolled_parent_name2);
+    }
+
+    #[tokio::test]
+    async fn cached_layer_name_does_not_change_after_rollup_upto() {
+        let dir = tempdir().unwrap();
+        let store = open_directory_store(dir.path());
+        let builder = store.create_base_layer().await.unwrap();
+        let _base_name = builder.name();
+        let x = builder.commit().await.unwrap();
+        let builder = x.open_write().await.unwrap();
+        let child_name = builder.name();
+        let x = builder.commit().await.unwrap();
+        let builder = x.open_write().await.unwrap();
+        let child_name2 = builder.name();
+        builder.commit().await.unwrap();
+
+        let unrolled_layer = store.get_layer_from_id(child_name2).await.unwrap().unwrap();
+        let unrolled_name = unrolled_layer.name();
+        let unrolled_parent_name = unrolled_layer.parent_name().unwrap();
+        assert_eq!(child_name2, unrolled_name);
+        assert_eq!(child_name, unrolled_parent_name);
+
+        unrolled_layer.rollup().await.unwrap();
+        let rolled_layer = store.get_layer_from_id(child_name2).await.unwrap().unwrap();
+        let rolled_name = rolled_layer.name();
+        let rolled_parent_name = rolled_layer.parent_name().unwrap();
+        assert_eq!(child_name2, rolled_name);
+        assert_eq!(child_name, rolled_parent_name);
+
+        rolled_layer.rollup().await.unwrap();
+        let rolled_layer2 = store.get_layer_from_id(child_name2).await.unwrap().unwrap();
+        let rolled_name2 = rolled_layer2.name();
+        let rolled_parent_name2 = rolled_layer2.parent_name().unwrap();
+        assert_eq!(child_name2, rolled_name2);
+        assert_eq!(child_name, rolled_parent_name2);
+    }
 }
