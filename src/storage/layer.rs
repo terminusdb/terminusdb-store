@@ -2042,7 +2042,7 @@ pub(crate) async fn file_triple_layer_count<F: FileLoad + FileStore>(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::layer::{Layer, ObjectType, StringTriple};
     use crate::storage::directory::DirectoryLayerStore;
@@ -2054,7 +2054,7 @@ mod tests {
     // They test functionality that should really work for both
 
     lazy_static! {
-        static ref BASE_TRIPLES: Vec<StringTriple> = vec![
+        pub(crate) static ref BASE_TRIPLES: Vec<StringTriple> = vec![
             StringTriple::new_value("cow", "says", "moo"),
             StringTriple::new_value("cow", "says", "mooo"),
             StringTriple::new_node("cow", "likes", "duck"),
@@ -2067,14 +2067,14 @@ mod tests {
             StringTriple::new_node("duck", "hates", "pig"),
             StringTriple::new_value("duck", "name", "donald"),
         ];
-        static ref CHILD_ADDITION_TRIPLES: Vec<StringTriple> = vec![
+        pub(crate) static ref CHILD_ADDITION_TRIPLES: Vec<StringTriple> = vec![
             StringTriple::new_value("cow", "says", "moooo"),
             StringTriple::new_value("cow", "says", "mooooo"),
             StringTriple::new_node("cow", "likes", "horse"),
             StringTriple::new_node("pig", "likes", "platypus"),
             StringTriple::new_node("duck", "hates", "platypus"),
         ];
-        static ref CHILD_REMOVAL_TRIPLES: Vec<StringTriple> = vec![
+        pub(crate) static ref CHILD_REMOVAL_TRIPLES: Vec<StringTriple> = vec![
             StringTriple::new_value("cow", "says", "mooo"),
             StringTriple::new_value("cow", "name", "clarabelle"),
             StringTriple::new_node("pig", "hates", "cow"),
@@ -2084,7 +2084,7 @@ mod tests {
         ];
     }
 
-    async fn example_base_layer<S: LayerStore>(
+    pub(crate) async fn example_base_layer<S: LayerStore>(
         store: &S,
     ) -> io::Result<([u32; 5], HashMap<StringTriple, IdTriple>)> {
         let mut builder = store.create_base_layer().await?;
@@ -2104,7 +2104,7 @@ mod tests {
         Ok((name, contents))
     }
 
-    async fn example_child_layer<S: LayerStore>(
+    pub(crate) async fn example_child_layer<S: LayerStore>(
         store: &S,
     ) -> io::Result<(
         [u32; 5],
