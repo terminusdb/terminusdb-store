@@ -5,5 +5,5 @@ curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x8
 cargo build --verbose $CARGO_OPTIONS
 cargo test --verbose $CARGO_OPTIONS
 zip -0 ccov.zip `find . \( -name "terminus*.gc*" \) -print`;
-./grcov ccov.zip -s . -t lcov --llvm --branch --ignore-not-existing --ignore "/*" -o lcov.info;
+./grcov ccov.zip -s . -t lcov --llvm --branch --excl-br-line 'assert_eq!' --excl-br-line 'assert!' --ignore-not-existing --ignore "/*" -o lcov.info;
 bash <(curl -s https://codecov.io/bash) -f lcov.info;
