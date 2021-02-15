@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1613410084168,
+  "lastUpdate": 1613411132902,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -29,6 +29,36 @@ window.BENCHMARK_DATA = {
             "name": "bench_add_string_triple",
             "value": 385,
             "range": "± 45",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rderooij685@gmail.com",
+            "name": "Robin de Rooij",
+            "username": "rrooij"
+          },
+          "committer": {
+            "email": "rderooij685@gmail.com",
+            "name": "Robin de Rooij",
+            "username": "rrooij"
+          },
+          "distinct": true,
+          "id": "f8f7dce87eb4bc10b71a3fac4da908e45d31b921",
+          "message": "Merge branch 'benchmark_test'",
+          "timestamp": "2021-02-15T18:38:21+01:00",
+          "tree_id": "f0390a59b8c6838097894e54486750f9c1d31cdb",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/f8f7dce87eb4bc10b71a3fac4da908e45d31b921"
+        },
+        "date": 1613411132481,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 348,
+            "range": "± 57",
             "unit": "ns/iter"
           }
         ]
