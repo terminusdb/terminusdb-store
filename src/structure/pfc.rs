@@ -744,7 +744,7 @@ impl<W: 'static + SyncableFile> PfcDictFileBuilder<W> {
         let mut builder = LogArrayFileBuilder::new(self.pfc_block_offsets_file, width as u8);
         let count = self.count as u64;
 
-        builder.push_all(stream_iter_ok(self.index)).await?;
+        builder.push_vec(self.index).await?;
         builder.finalize().await?;
 
         write_padding(&mut self.pfc_blocks_file, self.size, 8).await?;

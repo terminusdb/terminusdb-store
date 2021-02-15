@@ -396,7 +396,7 @@ impl<W: SyncableFile> LogArrayFileBuilder<W> {
         Ok(())
     }
 
-    pub async fn push_all_vec(&mut self, vals: Vec<u64>) -> io::Result<()> {
+    pub async fn push_vec(&mut self, vals: Vec<u64>) -> io::Result<()> {
         for val in vals {
             self.push(val).await?;
         }

@@ -27,7 +27,7 @@ fn logarray_test(b: &mut Bencher, width: u8, size: usize, as_vec: bool) {
         let data = data.clone();
         rt.block_on(async move {
             if as_vec {
-                builder.push_all_vec(data).await.unwrap();
+                builder.push_vec(data).await.unwrap();
             } else {
                 builder.push_all(stream_iter_ok(data)).await.unwrap();
             }
@@ -38,37 +38,37 @@ fn logarray_test(b: &mut Bencher, width: u8, size: usize, as_vec: bool) {
 
 #[bench]
 fn logarray_w5_empty(b: &mut Bencher) {
-    logarray_test(b, 5, 0, false);
+    logarray_test(b, 5, 0, true);
 }
 
 #[bench]
 fn logarray_w5_1(b: &mut Bencher) {
-    logarray_test(b, 5, 1, false);
+    logarray_test(b, 5, 1, true);
 }
 
 #[bench]
 fn logarray_w5_10(b: &mut Bencher) {
-    logarray_test(b, 5, 10, false);
+    logarray_test(b, 5, 10, true);
 }
 
 #[bench]
 fn logarray_w5_100(b: &mut Bencher) {
-    logarray_test(b, 5, 100, false);
+    logarray_test(b, 5, 100, true);
 }
 
 #[bench]
 fn logarray_w5_1000(b: &mut Bencher) {
-    logarray_test(b, 5, 1000, false);
+    logarray_test(b, 5, 1000, true);
 }
 
 #[bench]
 fn logarray_w5_10000(b: &mut Bencher) {
-    logarray_test(b, 5, 10000, false);
+    logarray_test(b, 5, 10000, true);
 }
 
 #[bench]
-fn logarray_w5_10000_as_vec(b: &mut Bencher) {
-    logarray_test(b, 5, 10000, true);
+fn logarray_w5_10000_as_stream(b: &mut Bencher) {
+    logarray_test(b, 5, 10000, false);
 }
 
 #[bench]

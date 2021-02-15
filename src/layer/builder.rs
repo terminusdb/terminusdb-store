@@ -273,9 +273,7 @@ impl<F: 'static + FileLoad + FileStore> TripleFileBuilder<F> {
             let mut subjects_logarray_builder =
                 LogArrayFileBuilder::new(self.subjects_file.unwrap().open_write(), subjects_width);
 
-            subjects_logarray_builder
-                .push_all(util::stream_iter_ok(subjects))
-                .await?;
+            subjects_logarray_builder.push_vec(subjects).await?;
             subjects_logarray_builder.finalize().await?;
         };
 
@@ -332,9 +330,7 @@ pub async fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad
         // write out the object list
         let mut objects_builder =
             LogArrayFileBuilder::new(objects_file.unwrap().open_write(), objects_width);
-        objects_builder
-            .push_all(util::stream_iter_ok(objects))
-            .await?;
+        objects_builder.push_vec(objects).await?;
         objects_builder.finalize().await?;
     } else {
         o_ps_adjacency_list_builder
