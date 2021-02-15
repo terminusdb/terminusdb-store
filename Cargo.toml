@@ -16,7 +16,7 @@ futures-locks = "0.6"
 tokio = {version = "1.0", features = ["full"]}
 tokio-util = {version = "0.6", features = ["codec"]}
 bytes = "1.0"
-rand = "0.7"
+rand = "0.8"
 lazy_static = "1.4"
 fs2 = "0.4.3"
 tar = "0.4"
