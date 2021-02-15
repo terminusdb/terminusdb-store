@@ -531,6 +531,7 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
             let mut writer = file.open_write();
 
             writer.write_all(parent_string.as_bytes()).await?;
+            writer.flush().await?;
             writer.sync_all().await?;
 
             Ok(())
@@ -568,6 +569,7 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
 
             let contents = format!("{}\n{}\n", 1, rollup_string);
             writer.write_all(contents.as_bytes()).await?;
+            writer.flush().await?;
             writer.sync_all().await?;
 
             Ok(())

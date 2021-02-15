@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use tar::Archive;
 use tokio::fs::{self, *};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 
 use super::*;
 
@@ -30,12 +30,23 @@ impl SyncableFile for File {
     }
 }
 
+impl SyncableFile for BufWriter<File> {
+    fn sync_all(self) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> {
+        Box::pin(async move {
+            let inner = self.into_inner();
+
+            File::sync_all(&inner).await
+        })
+    }
+}
+
 impl FileBackedStore {
     pub fn new<P: Into<PathBuf>>(path: P) -> FileBackedStore {
         FileBackedStore { path: path.into() }
     }
 
     fn open_read_from_std(&self, offset: usize) -> std::fs::File {
+        println!("opening {:?}", self.path);
         let mut options = std::fs::OpenOptions::new();
         options.read(true);
         let mut file = options.open(&self.path).unwrap();
@@ -82,16 +93,16 @@ impl FileLoad for FileBackedStore {
 }
 
 impl FileStore for FileBackedStore {
-    type Write = File;
+    type Write = BufWriter<File>;
 
-    fn open_write_from(&self, offset: usize) -> File {
+    fn open_write_from(&self, offset: usize) -> BufWriter<File> {
         let mut options = std::fs::OpenOptions::new();
         options.read(true).write(true).create(true);
         let mut file = options.open(&self.path).unwrap();
 
         file.seek(SeekFrom::Start(offset as u64)).unwrap();
 
-        File::from_std(file)
+        BufWriter::new(File::from_std(file))
     }
 }
 
