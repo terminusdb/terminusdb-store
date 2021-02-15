@@ -19,7 +19,7 @@ jobs:
     - name: Run tests
       run: cargo test --verbose
 
-  code_coverage:
+  code_coverage_benchmark:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
@@ -31,3 +31,13 @@ jobs:
         components: llvm-tools-preview
     - name: Run code coverage
       run: bash ci/linux_build.sh
+    - name: Run benchmark
+      run: cargo +nightly bench | tee output.txt
+    - name: Store benchmark result
+      uses: rhysd/github-action-benchmark@v1
+      with:
+        name: Rust Benchmark
+        tool: 'cargo'
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        output-file-path: output.txt
+        auto-push: true
