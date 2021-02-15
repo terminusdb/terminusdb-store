@@ -43,12 +43,12 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-terminus-store = "0.12"
+terminus-store = "0.16"
 ```
 
 create a directory where you want the store to be, then open that store with
 ```rust
-let future = terminus_store::open_directory_store("/path/to/store");
+let store = terminus_store::open_directory_store("/path/to/store").await.unwrap();
 ```
 
 Or use the sync wrapper:
