@@ -2057,10 +2057,28 @@ mod tests {
             StringTriple::new_value("cow", "says", "mooo"),
             StringTriple::new_node("cow", "likes", "duck"),
             StringTriple::new_node("cow", "likes", "pig"),
+            StringTriple::new_value("cow", "name", "clarabelle"),
             StringTriple::new_value("pig", "says", "oink"),
-            StringTriple::new_node("pig", "likes", "cow"),
+            StringTriple::new_node("pig", "hates", "cow"),
             StringTriple::new_value("duck", "says", "quack"),
             StringTriple::new_node("duck", "hates", "cow"),
+            StringTriple::new_node("duck", "hates", "pig"),
+            StringTriple::new_value("duck", "name", "donald"),
+        ];
+        static ref CHILD_ADDITION_TRIPLES: Vec<StringTriple> = vec![
+            StringTriple::new_value("cow", "says", "moooo"),
+            StringTriple::new_value("cow", "says", "mooooo"),
+            StringTriple::new_node("cow", "likes", "horse"),
+            StringTriple::new_node("pig", "likes", "platypus"),
+            StringTriple::new_node("duck", "hates", "platypus"),
+        ];
+        static ref CHILD_REMOVAL_TRIPLES: Vec<StringTriple> = vec![
+            StringTriple::new_value("cow", "says", "mooo"),
+            StringTriple::new_value("cow", "name", "clarabelle"),
+            StringTriple::new_node("pig", "hates", "cow"),
+            StringTriple::new_node("duck", "hates", "cow"),
+            StringTriple::new_node("duck", "hates", "pig"),
+            StringTriple::new_value("duck", "name", "donald"),
         ];
     }
 
@@ -2082,6 +2100,40 @@ mod tests {
         }
 
         Ok((name, contents))
+    }
+
+    async fn example_child_layer<S: LayerStore>(
+        store: &S,
+    ) -> io::Result<(
+        [u32; 5],
+        HashMap<StringTriple, IdTriple>,
+        HashMap<StringTriple, IdTriple>,
+    )> {
+        let (base_name, _) = example_base_layer(store).await?;
+        let mut builder = store.create_child_layer(base_name).await?;
+        let name = builder.name();
+        for t in CHILD_ADDITION_TRIPLES.iter() {
+            builder.add_string_triple(t.clone());
+        }
+        for t in CHILD_REMOVAL_TRIPLES.iter() {
+            builder.remove_string_triple(t.clone());
+        }
+        builder.commit_boxed().await?;
+        let layer = store.get_layer(name).await?.unwrap();
+
+        let mut add_contents = HashMap::with_capacity(BASE_TRIPLES.len());
+        for t in CHILD_ADDITION_TRIPLES.iter() {
+            let t_id = layer.string_triple_to_id(t).unwrap();
+            add_contents.insert(t.clone(), t_id);
+        }
+
+        let mut remove_contents = HashMap::with_capacity(BASE_TRIPLES.len());
+        for t in CHILD_REMOVAL_TRIPLES.iter() {
+            let t_id = layer.string_triple_to_id(t).unwrap();
+            remove_contents.insert(t.clone(), t_id);
+        }
+
+        Ok((name, add_contents, remove_contents))
     }
 
     async fn base_layer_addition_exists<S: LayerStore>(store: &S) -> io::Result<()> {
@@ -2146,7 +2198,7 @@ mod tests {
             .cloned()
             .collect();
         triples.sort();
-        assert_eq!(4, triples.len());
+        assert_eq!(5, triples.len());
 
         let result: Vec<_> = store
             .triple_additions_s(name, triples[0].subject)
@@ -2312,5 +2364,405 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = DirectoryLayerStore::new(dir.path());
         base_layer_removals(&store).await.unwrap();
+    }
+
+    async fn child_layer_addition_exists<S: LayerStore>(store: &S) -> io::Result<()> {
+        let (name, triples, _) = example_child_layer(store).await?;
+
+        for t in triples.values() {
+            assert!(
+                store
+                    .triple_addition_exists(name, t.subject, t.predicate, t.object)
+                    .await?
+            );
+        }
+
+        assert!(!store.triple_addition_exists(name, 42, 42, 42).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn memory_child_layer_addition_exists() {
+        let store = MemoryLayerStore::new();
+        child_layer_addition_exists(&store).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn directory_child_layer_addition_exists() {
+        let dir = tempdir().unwrap();
+        let store = DirectoryLayerStore::new(dir.path());
+        child_layer_addition_exists(&store).await.unwrap();
+    }
+
+    async fn child_layer_additions<S: LayerStore>(store: &S) -> io::Result<()> {
+        let (name, triples, _) = example_child_layer(store).await?;
+        let mut values: Vec<_> = triples.values().cloned().collect();
+        values.sort();
+
+        let additions: Vec<_> = store.triple_additions(name).await?.collect();
+        assert_eq!(values, additions);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn memory_child_layer_additions() {
+        let store = MemoryLayerStore::new();
+        child_layer_additions(&store).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn directory_child_layer_additions() {
+        let dir = tempdir().unwrap();
+        let store = DirectoryLayerStore::new(dir.path());
+        child_layer_additions(&store).await.unwrap();
+    }
+
+    async fn child_layer_additions_s<S: LayerStore>(store: &S) -> io::Result<()> {
+        let (name, contents, _removals) = example_child_layer(store).await?;
+
+        let mut triples: Vec<_> = contents
+            .iter()
+            .filter(|(t, _)| t.subject == "cow")
+            .map(|(_, t)| t)
+            .cloned()
+            .collect();
+        triples.sort();
+        assert_eq!(3, triples.len());
+
+        let result: Vec<_> = store
+            .triple_additions_s(name, triples[0].subject)
+            .await?
+            .collect();
+        assert_eq!(triples, result);
+
+        assert!(store.triple_additions_s(name, 42).await?.next().is_none());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn memory_child_layer_additions_s() {
+        let store = MemoryLayerStore::new();
+        child_layer_additions_s(&store).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn directory_child_layer_additions_s() {
+        let dir = tempdir().unwrap();
+        let store = DirectoryLayerStore::new(dir.path());
+        child_layer_additions_s(&store).await.unwrap();
+    }
+
+    async fn child_layer_additions_sp<S: LayerStore>(store: &S) -> io::Result<()> {
+        let (name, contents, _removals) = example_child_layer(store).await?;
+
+        let mut triples: Vec<_> = contents
+            .iter()
+            .filter(|(t, _)| t.subject == "cow" && t.predicate == "says")
+            .map(|(_, t)| t)
+            .cloned()
+            .collect();
+        triples.sort();
+        assert_eq!(2, triples.len());
+
+        let result: Vec<_> = store
+            .triple_additions_sp(name, triples[0].subject, triples[0].predicate)
+            .await?
+            .collect();
+        assert_eq!(triples, result);
+
+        assert!(store
+            .triple_additions_sp(name, 42, 42)
+            .await?
+            .next()
+            .is_none());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn memory_child_layer_additions_sp() {
+        let store = MemoryLayerStore::new();
+        child_layer_additions_sp(&store).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn directory_child_layer_additions_sp() {
+        let dir = tempdir().unwrap();
+        let store = DirectoryLayerStore::new(dir.path());
+        child_layer_additions_sp(&store).await.unwrap();
+    }
+
+    async fn child_layer_additions_p<S: LayerStore>(store: &S) -> io::Result<()> {
+        let (name, contents, _removals) = example_child_layer(store).await?;
+
+        let mut triples: Vec<_> = contents
+            .iter()
+            .filter(|(t, _)| t.predicate == "likes")
+            .map(|(_, t)| t)
+            .cloned()
+            .collect();
+        triples.sort();
+        assert_eq!(2, triples.len());
+
+        let result: Vec<_> = store
+            .triple_additions_p(name, triples[0].predicate)
+            .await?
+            .collect();
+        assert_eq!(triples, result);
+
+        assert!(store.triple_additions_p(name, 42).await?.next().is_none());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn memory_child_layer_additions_p() {
+        let store = MemoryLayerStore::new();
+        child_layer_additions_p(&store).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn directory_child_layer_additions_p() {
+        let dir = tempdir().unwrap();
+        let store = DirectoryLayerStore::new(dir.path());
+        child_layer_additions_p(&store).await.unwrap();
+    }
+
+    async fn child_layer_additions_o<S: LayerStore>(store: &S) -> io::Result<()> {
+        let (name, contents, _removals) = example_child_layer(store).await?;
+
+        let mut triples: Vec<_> = contents
+            .iter()
+            .filter(|(t, _)| t.object == ObjectType::Node("platypus".to_string()))
+            .map(|(_, t)| t)
+            .cloned()
+            .collect();
+        triples.sort();
+        assert_eq!(2, triples.len());
+
+        let result: Vec<_> = store
+            .triple_additions_o(name, triples[0].object)
+            .await?
+            .collect();
+        assert_eq!(triples, result);
+
+        assert!(store.triple_additions_o(name, 42).await?.next().is_none());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn memory_child_layer_additions_o() {
+        let store = MemoryLayerStore::new();
+        child_layer_additions_o(&store).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn directory_child_layer_additions_o() {
+        let dir = tempdir().unwrap();
+        let store = DirectoryLayerStore::new(dir.path());
+        child_layer_additions_o(&store).await.unwrap();
+    }
+
+    async fn child_layer_removal_exists<S: LayerStore>(store: &S) -> io::Result<()> {
+        let (name, _, removals) = example_child_layer(store).await?;
+
+        for t in removals.values() {
+            assert!(
+                store
+                    .triple_removal_exists(name, t.subject, t.predicate, t.object)
+                    .await?
+            );
+        }
+
+        assert!(!store.triple_removal_exists(name, 42, 42, 42).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn memory_child_layer_removal_exists() {
+        let store = MemoryLayerStore::new();
+        child_layer_removal_exists(&store).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn directory_child_layer_removal_exists() {
+        let dir = tempdir().unwrap();
+        let store = DirectoryLayerStore::new(dir.path());
+        child_layer_removal_exists(&store).await.unwrap();
+    }
+
+    async fn child_layer_removals<S: LayerStore>(store: &S) -> io::Result<()> {
+        let (name, _, removals) = example_child_layer(store).await?;
+        let mut values: Vec<_> = removals.values().cloned().collect();
+        values.sort();
+
+        let removals: Vec<_> = store.triple_removals(name).await?.collect();
+        assert_eq!(values, removals);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn memory_child_layer_removals() {
+        let store = MemoryLayerStore::new();
+        child_layer_removals(&store).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn directory_child_layer_removals() {
+        let dir = tempdir().unwrap();
+        let store = DirectoryLayerStore::new(dir.path());
+        child_layer_removals(&store).await.unwrap();
+    }
+
+    async fn child_layer_removals_s<S: LayerStore>(store: &S) -> io::Result<()> {
+        let (name, _additions, removals) = example_child_layer(store).await?;
+
+        let mut triples: Vec<_> = removals
+            .iter()
+            .filter(|(t, _)| t.subject == "duck")
+            .map(|(_, t)| t)
+            .cloned()
+            .collect();
+        triples.sort();
+        assert_eq!(3, triples.len());
+
+        let result: Vec<_> = store
+            .triple_removals_s(name, triples[0].subject)
+            .await?
+            .collect();
+        assert_eq!(triples, result);
+
+        assert!(store.triple_removals_s(name, 42).await?.next().is_none());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn memory_child_layer_removals_s() {
+        let store = MemoryLayerStore::new();
+        child_layer_removals_s(&store).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn directory_child_layer_removals_s() {
+        let dir = tempdir().unwrap();
+        let store = DirectoryLayerStore::new(dir.path());
+        child_layer_removals_s(&store).await.unwrap();
+    }
+
+    async fn child_layer_removals_sp<S: LayerStore>(store: &S) -> io::Result<()> {
+        let (name, _additions, removals) = example_child_layer(store).await?;
+
+        let mut triples: Vec<_> = removals
+            .iter()
+            .filter(|(t, _)| t.subject == "duck" && t.predicate == "hates")
+            .map(|(_, t)| t)
+            .cloned()
+            .collect();
+        triples.sort();
+        assert_eq!(2, triples.len());
+
+        let result: Vec<_> = store
+            .triple_removals_sp(name, triples[0].subject, triples[0].predicate)
+            .await?
+            .collect();
+        assert_eq!(triples, result);
+
+        assert!(store
+            .triple_removals_sp(name, 42, 42)
+            .await?
+            .next()
+            .is_none());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn memory_child_layer_removals_sp() {
+        let store = MemoryLayerStore::new();
+        child_layer_removals_sp(&store).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn directory_child_layer_removals_sp() {
+        let dir = tempdir().unwrap();
+        let store = DirectoryLayerStore::new(dir.path());
+        child_layer_removals_sp(&store).await.unwrap();
+    }
+
+    async fn child_layer_removals_p<S: LayerStore>(store: &S) -> io::Result<()> {
+        let (name, _additions, removals) = example_child_layer(store).await?;
+
+        let mut triples: Vec<_> = removals
+            .iter()
+            .filter(|(t, _)| t.predicate == "hates")
+            .map(|(_, t)| t)
+            .cloned()
+            .collect();
+        triples.sort();
+        assert_eq!(3, triples.len());
+
+        let result: Vec<_> = store
+            .triple_removals_p(name, triples[0].predicate)
+            .await?
+            .collect();
+        assert_eq!(triples, result);
+
+        assert!(store.triple_removals_p(name, 42).await?.next().is_none());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn memory_child_layer_removals_p() {
+        let store = MemoryLayerStore::new();
+        child_layer_removals_p(&store).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn directory_child_layer_removals_p() {
+        let dir = tempdir().unwrap();
+        let store = DirectoryLayerStore::new(dir.path());
+        child_layer_removals_p(&store).await.unwrap();
+    }
+
+    async fn child_layer_removals_o<S: LayerStore>(store: &S) -> io::Result<()> {
+        let (name, _additions, removals) = example_child_layer(store).await?;
+
+        let mut triples: Vec<_> = removals
+            .iter()
+            .filter(|(t, _)| t.object == ObjectType::Node("cow".to_string()))
+            .map(|(_, t)| t)
+            .cloned()
+            .collect();
+        triples.sort();
+        assert_eq!(2, triples.len());
+
+        let result: Vec<_> = store
+            .triple_removals_o(name, triples[0].object)
+            .await?
+            .collect();
+        assert_eq!(triples, result);
+
+        assert!(store.triple_removals_o(name, 42).await?.next().is_none());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn memory_child_layer_removals_o() {
+        let store = MemoryLayerStore::new();
+        child_layer_removals_o(&store).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn directory_child_layer_removals_o() {
+        let dir = tempdir().unwrap();
+        let store = DirectoryLayerStore::new(dir.path());
+        child_layer_removals_o(&store).await.unwrap();
     }
 }
