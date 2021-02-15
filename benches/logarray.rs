@@ -73,5 +73,5 @@ fn logarray_w5_10000_as_stream(b: &mut Bencher) {
 
 #[bench]
 fn logarray_w10_1000(b: &mut Bencher) {
-    logarray_test(b, 10, 1000, false);
+    logarray_test(b, 10, 1000, true);
 }
