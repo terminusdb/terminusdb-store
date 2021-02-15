@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1613411132902,
+  "lastUpdate": 1613424197021,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -59,6 +59,66 @@ window.BENCHMARK_DATA = {
             "name": "bench_add_string_triple",
             "value": 348,
             "range": "± 57",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "matthijs@terminusdb.com",
+            "name": "Matthijs van Otterdijk",
+            "username": "matko"
+          },
+          "committer": {
+            "email": "matthijs@terminusdb.com",
+            "name": "Matthijs van Otterdijk",
+            "username": "matko"
+          },
+          "distinct": true,
+          "id": "84b898e2657e8bd2f9fea4e18e843ab5bb00701c",
+          "message": "add builder benchmark tests",
+          "timestamp": "2021-02-15T22:13:33+01:00",
+          "tree_id": "bf9ce8b671f8587bd7a16928f8f70e4c92fba3cb",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/84b898e2657e8bd2f9fea4e18e843ab5bb00701c"
+        },
+        "date": 1613424196561,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 442,
+            "range": "± 25",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 63898479,
+            "range": "± 6691017",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 12672234,
+            "range": "± 4900615",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 16194044,
+            "range": "± 5110904",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 68713438,
+            "range": "± 5487940",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 45796244,
+            "range": "± 5709148",
             "unit": "ns/iter"
           }
         ]
