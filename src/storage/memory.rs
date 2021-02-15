@@ -454,19 +454,21 @@ impl MemoryLayerStore {
         >,
     > {
         let guard = self.layers.read();
-        let predicate_wavelet_files_fut = self.predicate_wavelet_addition_files(layer);
+        let predicate_wavelet_files_fut = self.predicate_wavelet_removal_files(layer);
         Box::pin(async move {
             if let Some((_, _, files)) = guard.await.get(&layer) {
                 match files {
                     LayerFiles::Base(_files) => Ok(None),
                     LayerFiles::Child(files) => {
-                        let s_p_nums_file = files.pos_s_p_adjacency_list_files.nums_file.clone();
+                        let s_p_nums_file = files.neg_s_p_adjacency_list_files.nums_file.clone();
                         let sp_o_bits_file = files
-                            .pos_sp_o_adjacency_list_files
+                            .neg_sp_o_adjacency_list_files
                             .bitindex_files
                             .bits_file
                             .clone();
-                        let predicate_wavelet_files = predicate_wavelet_files_fut.await?;
+                        let predicate_wavelet_files = predicate_wavelet_files_fut
+                            .await?
+                            .expect("expected predicate removal wavelet files to exist");
 
                         Ok(Some((
                             s_p_nums_file,

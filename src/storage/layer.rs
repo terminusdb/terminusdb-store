@@ -1225,13 +1225,15 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
                 if self_.layer_has_parent(layer).await? {
                     // this is a child layer
                     let s_p_nums_file = self_
-                        .get_file(layer, FILENAMES.pos_s_p_adjacency_list_nums)
+                        .get_file(layer, FILENAMES.neg_s_p_adjacency_list_nums)
                         .await?;
                     let sp_o_bits_file = self_
-                        .get_file(layer, FILENAMES.pos_sp_o_adjacency_list_bits)
+                        .get_file(layer, FILENAMES.neg_sp_o_adjacency_list_bits)
                         .await?;
-                    let predicate_wavelet_files =
-                        self_.predicate_wavelet_addition_files(layer).await?;
+                    let predicate_wavelet_files = self_
+                        .predicate_wavelet_removal_files(layer)
+                        .await?
+                        .expect("expected wavelet removal files to exist");
                     Ok(Some((
                         s_p_nums_file,
                         sp_o_bits_file,
@@ -2134,6 +2136,48 @@ mod tests {
         }
 
         Ok((name, add_contents, remove_contents))
+    }
+
+    async fn base_layer_counts<S: LayerStore>(store: &S) -> io::Result<()> {
+        let (name, _) = example_base_layer(store).await?;
+        assert_eq!(11, store.triple_layer_addition_count(name).await?);
+        assert_eq!(0, store.triple_layer_removal_count(name).await?);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn memory_base_layer_counts() {
+        let store = MemoryLayerStore::new();
+        base_layer_counts(&store).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn directory_base_layer_counts() {
+        let dir = tempdir().unwrap();
+        let store = DirectoryLayerStore::new(dir.path());
+        base_layer_counts(&store).await.unwrap();
+    }
+
+    async fn child_layer_counts<S: LayerStore>(store: &S) -> io::Result<()> {
+        let (name, _, _) = example_child_layer(store).await?;
+        assert_eq!(5, store.triple_layer_addition_count(name).await?);
+        assert_eq!(6, store.triple_layer_removal_count(name).await?);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn memory_child_layer_counts() {
+        let store = MemoryLayerStore::new();
+        child_layer_counts(&store).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn directory_child_layer_counts() {
+        let dir = tempdir().unwrap();
+        let store = DirectoryLayerStore::new(dir.path());
+        child_layer_counts(&store).await.unwrap();
     }
 
     async fn base_layer_addition_exists<S: LayerStore>(store: &S) -> io::Result<()> {
