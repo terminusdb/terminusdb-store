@@ -71,6 +71,13 @@ pub trait LayerStore: 'static + Send + Sync {
         rollup: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>>;
 
+    /// Create a new rollup layer which rolls up all triples in the given layer, as well as all its ancestors.
+    ///
+    /// It is a good idea to keep layer stacks small, meaning, to only
+    /// have a handful of ancestors for a layer. The more layers there
+    /// are, the longer queries take. Rollup is one approach of
+    /// accomplishing this. Squash is another. Rollup is the better
+    /// option if you need to retain history.
     fn rollup(
         self: Arc<Self>,
         layer: Arc<InternalLayer>,
@@ -101,6 +108,13 @@ pub trait LayerStore: 'static + Send + Sync {
         })
     }
 
+    /// Create a new rollup layer which rolls up all triples in the given layer, as well as all ancestors up to (but not including) the given ancestor.
+    ///
+    /// It is a good idea to keep layer stacks small, meaning, to only
+    /// have a handful of ancestors for a layer. The more layers there
+    /// are, the longer queries take. Rollup is one approach of
+    /// accomplishing this. Squash is another. Rollup is the better
+    /// option if you need to retain history.
     fn rollup_upto(
         self: Arc<Self>,
         layer: Arc<InternalLayer>,
@@ -109,7 +123,14 @@ pub trait LayerStore: 'static + Send + Sync {
         self.rollup_upto_with_cache(layer, upto, NOCACHE.clone())
     }
 
+    /// Export the given layers by creating a pack, a Vec<u8> that can later be used with `import_layers` on a different store.
     fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8>;
+
+    /// Import the specified layers from the given pack, a byte slice that was previously generated with `export_layers`, on another store, and possibly even another machine).
+    ///
+    /// After this operation, the specified layers will be retrievable
+    /// from this store, provided they existed in the pack. specified
+    /// layers that are not in the pack are silently ignored.
     fn import_layers(
         &self,
         pack: &[u8],

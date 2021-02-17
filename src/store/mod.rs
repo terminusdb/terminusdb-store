@@ -18,21 +18,22 @@ use rayon::prelude::*;
 
 use futures::future::Future;
 
-/// A store, storing a set of layers and database labels pointing to these layers
+/// A store, storing a set of layers and database labels pointing to these layers.
 #[derive(Clone)]
 pub struct Store {
     label_store: Arc<dyn LabelStore>,
     layer_store: Arc<dyn LayerStore>,
 }
 
-/// A wrapper over a SimpleLayerBuilder, providing a thread-safe sharable interface
+/// A wrapper over a SimpleLayerBuilder, providing a thread-safe sharable interface.
 ///
 /// The SimpleLayerBuilder requires one to have a mutable reference to
-/// it, and on commit it will be consumed. This builder only requires
-/// an immutable reference, and uses a futures-aware read-write lock
-/// to synchronize access to it between threads. Also, rather than
-/// consuming itself on commit, this wrapper will simply mark itself
-/// as having committed, returning errors on further calls.
+/// the underlying LayerBuilder, and on commit it will be
+/// consumed. This builder only requires an immutable reference, and
+/// uses a futures-aware read-write lock to synchronize access to it
+/// between threads. Also, rather than consuming itself on commit,
+/// this wrapper will simply mark itself as having committed,
+/// returning errors on further calls.
 pub struct StoreLayerBuilder {
     parent: Option<Arc<dyn Layer>>,
     builder: RwLock<Option<Box<dyn LayerBuilder>>>,
@@ -78,31 +79,34 @@ impl StoreLayerBuilder {
         }
     }
 
-    /// Returns the name of the layer being built
+    /// Returns the name of the layer being built.
     pub fn name(&self) -> [u32; 5] {
         self.name
     }
 
+    /// Returns the parent layer this builder is building on top of, if any.
+    ///
+    /// If there's no parent, this returns None.
     pub fn parent(&self) -> Option<Arc<dyn Layer>> {
         self.parent.clone()
     }
 
-    /// Add a string triple
+    /// Add a string triple.
     pub fn add_string_triple(&self, triple: StringTriple) -> Result<(), io::Error> {
         self.with_builder(move |b| b.add_string_triple(triple))
     }
 
-    /// Add an id triple
+    /// Add an id triple.
     pub fn add_id_triple(&self, triple: IdTriple) -> Result<(), io::Error> {
         self.with_builder(move |b| b.add_id_triple(triple))
     }
 
-    /// Remove a string triple
+    /// Remove a string triple.
     pub fn remove_string_triple(&self, triple: StringTriple) -> Result<(), io::Error> {
         self.with_builder(move |b| b.remove_string_triple(triple))
     }
 
-    /// Remove an id triple
+    /// Remove an id triple.
     pub fn remove_id_triple(&self, triple: IdTriple) -> Result<(), io::Error> {
         self.with_builder(move |b| b.remove_id_triple(triple))
     }
@@ -115,7 +119,7 @@ impl StoreLayerBuilder {
             .is_none()
     }
 
-    /// Commit the layer to storage without loading the resulting layer
+    /// Commit the layer to storage without loading the resulting layer.
     pub async fn commit_no_load(&self) -> io::Result<()> {
         let mut builder = None;
         {
@@ -137,7 +141,7 @@ impl StoreLayerBuilder {
         }
     }
 
-    /// Commit the layer to storage
+    /// Commit the layer to storage.
     pub async fn commit(&self) -> io::Result<StoreLayer> {
         let name = self.name;
         self.commit_no_load().await?;
@@ -149,6 +153,10 @@ impl StoreLayerBuilder {
         ))
     }
 
+    /// Apply all triples added and removed by a layer to this builder.
+    ///
+    /// This is a way to 'cherry-pick' a layer on top of another
+    /// layer, without caring about its history.
     pub async fn apply_delta(&self, delta: &StoreLayer) -> Result<(), io::Error> {
         // create a child builder and use it directly
         // first check what dictionary entries we don't know about, add those
@@ -174,6 +182,7 @@ impl StoreLayerBuilder {
         Ok(())
     }
 
+    /// Apply the changes required to change our parent layer into the given layer.
     pub fn apply_diff(&self, other: &StoreLayer) -> Result<(), io::Error> {
         // create a child builder and use it directly
         // first check what dictionary entries we don't know about, add those
@@ -208,7 +217,17 @@ impl StoreLayerBuilder {
     }
 }
 
-/// A layer that keeps track of the store it came out of, allowing the creation of a layer builder on top of this layer
+/// A layer that keeps track of the store it came out of, allowing the creation of a layer builder on top of this layer.
+///
+/// This type of layer supports querying what was added and what was
+/// removed in this layer. This can not be done in general, because
+/// the layer that has been loaded may not be the layer that was
+/// originally built. This happens whenever a rollup is done. A rollup
+/// will create a new layer that bundles the changes of various
+/// layers. It allows for more efficient querying, but loses the
+/// ability to do these delta queries directly. In order to support
+/// them anyway, the StoreLayer will dynamically load in the relevant
+/// files to perform the requested addition or removal query method.
 #[derive(Clone)]
 pub struct StoreLayer {
     // TODO this Arc here is not great
@@ -221,7 +240,7 @@ impl StoreLayer {
         StoreLayer { layer, store }
     }
 
-    /// Create a layer builder based on this layer
+    /// Create a layer builder based on this layer.
     pub async fn open_write(&self) -> io::Result<StoreLayerBuilder> {
         let layer = self
             .store
@@ -232,6 +251,7 @@ impl StoreLayer {
         Ok(StoreLayerBuilder::wrap(layer, self.store.clone()))
     }
 
+    /// Returns the parent of this layer, if any, or None if this layer has no parent.
     pub async fn parent(&self) -> io::Result<Option<StoreLayer>> {
         let parent_name = self.layer.parent_name();
 
@@ -247,6 +267,14 @@ impl StoreLayer {
         }
     }
 
+    /// Create a new base layer consisting of all triples in this layer, as well as all its ancestors.
+    ///
+    /// It is a good idea to keep layer stacks small, meaning, to only
+    /// have a handful of ancestors for a layer. The more layers there
+    /// are, the longer queries take. Squash is one approach of
+    /// accomplishing this. Rollup is another. Squash is the better
+    /// option if you do not care for history, as it throws away all
+    /// data that you no longer need.
     pub async fn squash(&self) -> io::Result<StoreLayer> {
         // TODO check if we already committed
         let new_builder = self.store.create_base_layer().await?;
@@ -258,6 +286,13 @@ impl StoreLayer {
         new_builder.commit().await
     }
 
+    /// Create a new rollup layer which rolls up all triples in this layer, as well as all its ancestors.
+    ///
+    /// It is a good idea to keep layer stacks small, meaning, to only
+    /// have a handful of ancestors for a layer. The more layers there
+    /// are, the longer queries take. Rollup is one approach of
+    /// accomplishing this. Squash is another. Rollup is the better
+    /// option if you need to retain history.
     pub async fn rollup(&self) -> io::Result<()> {
         let store1 = self.store.layer_store.clone();
         // TODO: This is awkward, we should have a way to get the internal layer
@@ -269,6 +304,13 @@ impl StoreLayer {
         Ok(())
     }
 
+    /// Create a new rollup layer which rolls up all triples in this layer, as well as all ancestors up to (but not including) the given ancestor.
+    ///
+    /// It is a good idea to keep layer stacks small, meaning, to only
+    /// have a handful of ancestors for a layer. The more layers there
+    /// are, the longer queries take. Rollup is one approach of
+    /// accomplishing this. Squash is another. Rollup is the better
+    /// option if you need to retain history.
     pub async fn rollup_upto(&self, upto: &StoreLayer) -> io::Result<()> {
         let store1 = self.store.layer_store.clone();
         // TODO: This is awkward, we should have a way to get the internal layer
@@ -280,6 +322,7 @@ impl StoreLayer {
         Ok(())
     }
 
+    /// Returns a future that yields true if this triple has been added in this layer, or false if it doesn't.
     pub fn triple_addition_exists(
         &self,
         subject: u64,
@@ -291,6 +334,7 @@ impl StoreLayer {
             .triple_addition_exists(self.layer.name(), subject, predicate, object)
     }
 
+    /// Returns a future that yields true if this triple has been removed in this layer, or false if it doesn't.
     pub fn triple_removal_exists(
         &self,
         subject: u64,
@@ -302,6 +346,7 @@ impl StoreLayer {
             .triple_removal_exists(self.layer.name(), subject, predicate, object)
     }
 
+    /// Returns a future that yields an iterator over all layer additions.
     pub fn triple_additions(
         &self,
     ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
@@ -309,6 +354,7 @@ impl StoreLayer {
         self.store.layer_store.triple_additions(self.layer.name())
     }
 
+    /// Returns a future that yields an iterator over all layer removals.
     pub fn triple_removals(
         &self,
     ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
@@ -316,6 +362,7 @@ impl StoreLayer {
         self.store.layer_store.triple_removals(self.layer.name())
     }
 
+    /// Returns a future that yields an iterator over all layer additions that share a particular subject.
     pub fn triple_additions_s(
         &self,
         subject: u64,
@@ -326,6 +373,7 @@ impl StoreLayer {
             .triple_additions_s(self.layer.name(), subject)
     }
 
+    /// Returns a future that yields an iterator over all layer removals that share a particular subject.
     pub fn triple_removals_s(
         &self,
         subject: u64,
@@ -336,6 +384,7 @@ impl StoreLayer {
             .triple_removals_s(self.layer.name(), subject)
     }
 
+    /// Returns a future that yields an iterator over all layer additions that share a particular subject and predicate.
     pub fn triple_additions_sp(
         &self,
         subject: u64,
@@ -347,6 +396,7 @@ impl StoreLayer {
             .triple_additions_sp(self.layer.name(), subject, predicate)
     }
 
+    /// Returns a future that yields an iterator over all layer removals that share a particular subject and predicate.
     pub fn triple_removals_sp(
         &self,
         subject: u64,
@@ -358,6 +408,7 @@ impl StoreLayer {
             .triple_removals_sp(self.layer.name(), subject, predicate)
     }
 
+    /// Returns a future that yields an iterator over all layer additions that share a particular predicate.
     pub fn triple_additions_p(
         &self,
         predicate: u64,
@@ -368,6 +419,7 @@ impl StoreLayer {
             .triple_additions_p(self.layer.name(), predicate)
     }
 
+    /// Returns a future that yields an iterator over all layer removals that share a particular predicate.
     pub fn triple_removals_p(
         &self,
         predicate: u64,
@@ -378,6 +430,7 @@ impl StoreLayer {
             .triple_removals_p(self.layer.name(), predicate)
     }
 
+    /// Returns a future that yields an iterator over all layer additions that share a particular object.
     pub fn triple_additions_o(
         &self,
         object: u64,
@@ -388,6 +441,7 @@ impl StoreLayer {
             .triple_additions_o(self.layer.name(), object)
     }
 
+    /// Returns a future that yields an iterator over all layer removals that share a particular object.
     pub fn triple_removals_o(
         &self,
         object: u64,
@@ -398,7 +452,7 @@ impl StoreLayer {
             .triple_removals_o(self.layer.name(), object)
     }
 
-    /// Returns the amount of triples that this layer adds.
+    /// Returns a future that yields the amount of triples that this layer adds.
     pub fn triple_layer_addition_count(
         &self,
     ) -> Pin<Box<dyn Future<Output = io::Result<usize>> + Send>> {
@@ -406,7 +460,7 @@ impl StoreLayer {
             .layer_store
             .triple_layer_addition_count(self.layer.name())
     }
-    /// Returns the amount of triples that this layer removes.
+    /// Returns a future that yields the amount of triples that this layer removes.
     pub fn triple_layer_removal_count(
         &self,
     ) -> Pin<Box<dyn Future<Output = io::Result<usize>> + Send>> {
@@ -415,6 +469,7 @@ impl StoreLayer {
             .triple_layer_removal_count(self.layer.name())
     }
 
+    /// Returns a future that yields a vector of layer stack names describing the history of this layer, starting from the base layer up to and including the name of this layer itself.
     pub fn retrieve_layer_stack_names(
         &self,
     ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
@@ -530,11 +585,12 @@ impl NamedGraph {
         NamedGraph { label, store }
     }
 
+    /// Returns the label name itself.
     pub fn name(&self) -> &str {
         &self.label
     }
 
-    /// Returns the layer this database points at
+    /// Returns the layer this database points at.
     pub async fn head(&self) -> io::Result<Option<StoreLayer>> {
         let new_label = self.store.label_store.get_label(&self.label).await?;
 
@@ -559,7 +615,7 @@ impl NamedGraph {
         }
     }
 
-    /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise
+    /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise.
     pub async fn set_head(&self, layer: &StoreLayer) -> io::Result<bool> {
         let layer_name = layer.name();
         let label = self.store.label_store.get_label(&self.label).await?;
@@ -585,7 +641,7 @@ impl NamedGraph {
         Ok(set_is_ok)
     }
 
-    /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise
+    /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise.
     pub async fn force_set_head(&self, layer: &StoreLayer) -> io::Result<bool> {
         let layer_name = layer.name();
         let label = self.store.label_store.get_label(&self.label).await?;
@@ -601,7 +657,7 @@ impl NamedGraph {
 }
 
 impl Store {
-    /// Create a new store from the given label and layer store
+    /// Create a new store from the given label and layer store.
     pub fn new<Labels: 'static + LabelStore, Layers: 'static + LayerStore>(
         label_store: Labels,
         layer_store: Layers,
@@ -626,6 +682,7 @@ impl Store {
         Ok(label.map(|label| NamedGraph::new(label.name, self.clone())))
     }
 
+    /// Retrieve a layer with the given name from the layer store this Store was initialized with.
     pub async fn get_layer_from_id(&self, layer: [u32; 5]) -> io::Result<Option<StoreLayer>> {
         let layer = self.layer_store.get_layer(layer).await?;
         Ok(layer.map(|layer| StoreLayer::wrap(layer, self.clone())))
@@ -638,9 +695,16 @@ impl Store {
         StoreLayerBuilder::new(self.clone()).await
     }
 
+    /// Export the given layers by creating a pack, a Vec<u8> that can later be used with `import_layers` on a different store.
     pub fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
         self.layer_store.export_layers(layer_ids)
     }
+
+    /// Import the specified layers from the given pack, a byte slice that was previously generated with `export_layers`, on another store, and possibly even another machine).
+    ///
+    /// After this operation, the specified layers will be retrievable
+    /// from this store, provided they existed in the pack. specified
+    /// layers that are not in the pack are silently ignored.
     pub fn import_layers(
         &self,
         pack: &[u8],
@@ -650,7 +714,7 @@ impl Store {
     }
 }
 
-/// Open a store that is entirely in memory
+/// Open a store that is entirely in memory.
 ///
 /// This is useful for testing purposes, or if the database is only going to be used for caching purposes
 pub fn open_memory_store() -> Store {
@@ -660,7 +724,7 @@ pub fn open_memory_store() -> Store {
     )
 }
 
-/// Open a store that stores its data in the given directory
+/// Open a store that stores its data in the given directory.
 pub fn open_directory_store<P: Into<PathBuf>>(path: P) -> Store {
     let p = path.into();
     Store::new(
