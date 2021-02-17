@@ -2,7 +2,9 @@
 //!
 //! Since not everyone likes tokio, or dealing with async code, this
 //! module exposes the same API as the asynchronous store API, only
-//! without any futures.
+//! without any futures. This is done by wrapping all the async calls
+//! in a sync wrapper that runs on a tokio runtime managed by this
+//! module.
 use futures::Future;
 use tokio::runtime::Runtime;
 
@@ -28,7 +30,7 @@ fn task_sync<T: Send, F: Future<Output = T> + Send>(future: F) -> T {
     RUNTIME.block_on(future)
 }
 
-/// A wrapper over a SimpleLayerBuilder, providing a thread-safe sharable interface
+/// A wrapper over a SimpleLayerBuilder, providing a thread-safe sharable interface.
 ///
 /// The SimpleLayerBuilder requires one to have a mutable reference to
 /// it, and on commit it will be consumed. This builder only requires
@@ -45,27 +47,27 @@ impl SyncStoreLayerBuilder {
         SyncStoreLayerBuilder { inner }
     }
 
-    /// Returns the name of the layer being built
+    /// Returns the name of the layer being built.
     pub fn name(&self) -> [u32; 5] {
         self.inner.name()
     }
 
-    /// Add a string triple
+    /// Add a string triple.
     pub fn add_string_triple(&self, triple: StringTriple) -> Result<(), io::Error> {
         self.inner.add_string_triple(triple)
     }
 
-    /// Add an id triple
+    /// Add an id triple.
     pub fn add_id_triple(&self, triple: IdTriple) -> Result<(), io::Error> {
         self.inner.add_id_triple(triple)
     }
 
-    /// Remove a string triple
+    /// Remove a string triple.
     pub fn remove_string_triple(&self, triple: StringTriple) -> Result<(), io::Error> {
         self.inner.remove_string_triple(triple)
     }
 
-    /// Remove an id triple
+    /// Remove an id triple.
     pub fn remove_id_triple(&self, triple: IdTriple) -> Result<(), io::Error> {
         self.inner.remove_id_triple(triple)
     }
@@ -75,28 +77,44 @@ impl SyncStoreLayerBuilder {
         self.inner.committed()
     }
 
-    /// Commit the layer to storage without loading the resulting layer
+    /// Commit the layer to storage without loading the resulting layer.
     pub fn commit_no_load(&self) -> Result<(), io::Error> {
         task_sync(self.inner.commit_no_load())
     }
 
-    /// Commit the layer to storage
+    /// Commit the layer to storage.
     pub fn commit(&self) -> Result<SyncStoreLayer, io::Error> {
         let inner = task_sync(self.inner.commit());
 
         inner.map(SyncStoreLayer::wrap)
     }
 
+    /// Apply all triples added and removed by a layer to this builder.
+    ///
+    /// This is a way to 'cherry-pick' a layer on top of another
+    /// layer, without caring about its history.
     pub fn apply_delta(&self, delta: &SyncStoreLayer) -> Result<(), io::Error> {
         task_sync(self.inner.apply_delta(&delta.inner))
     }
 
+    /// Apply the changes required to change our parent layer into the given layer.
     pub fn apply_diff(&self, other: &SyncStoreLayer) -> Result<(), io::Error> {
         self.inner.apply_diff(&other.inner)
     }
 }
 
-/// A layer that keeps track of the store it came out of, allowing the creation of a layer builder on top of this layer
+/// A layer that keeps track of the store it came out of, allowing the creation of a layer builder on top of this layer.
+///
+/// This type of layer supports querying what was added and what was
+/// removed in this layer. This can not be done in general, because
+/// the layer that has been loaded may not be the layer that was
+/// originally built. This happens whenever a rollup is done. A rollup
+/// will create a new layer that bundles the changes of various
+/// layers. It allows for more efficient querying, but loses the
+/// ability to do these delta queries directly. In order to support
+/// them anyway, the SyncStoreLayer will dynamically load in the
+/// relevant files to perform the requested addition or removal query
+/// method.
 #[derive(Clone)]
 pub struct SyncStoreLayer {
     inner: StoreLayer,
@@ -107,32 +125,59 @@ impl SyncStoreLayer {
         Self { inner }
     }
 
-    /// Create a layer builder based on this layer
+    /// Create a layer builder based on this layer.
     pub fn open_write(&self) -> Result<SyncStoreLayerBuilder, io::Error> {
         let inner = task_sync(self.inner.open_write());
 
         inner.map(SyncStoreLayerBuilder::wrap)
     }
 
+    /// Returns the parent of this layer, if any, or None if this layer has no parent.
     pub fn parent(&self) -> Result<Option<SyncStoreLayer>, io::Error> {
         let inner = task_sync(self.inner.parent());
         inner.map(|p| p.map(|p| SyncStoreLayer { inner: p }))
     }
 
+    /// Create a new base layer consisting of all triples in this layer, as well as all its ancestors.
+    ///
+    /// It is a good idea to keep layer stacks small, meaning, to only
+    /// have a handful of ancestors for a layer. The more layers there
+    /// are, the longer queries take. Squash is one approach of
+    /// accomplishing this. Rollup is another. Squash is the better
+    /// option if you do not care for history, as it throws away all
+    /// data that you no longer need.
     pub fn squash(&self) -> Result<SyncStoreLayer, io::Error> {
         let inner = task_sync(self.inner.clone().squash());
 
         inner.map(SyncStoreLayer::wrap)
     }
 
+    /// Create a new rollup layer which rolls up all triples in this layer, as well as all its ancestors.
+    ///
+    /// It is a good idea to keep layer stacks small, meaning, to only
+    /// have a handful of ancestors for a layer. The more layers there
+    /// are, the longer queries take. Rollup is one approach of
+    /// accomplishing this. Squash is another. Rollup is the better
+    /// option if you need to retain history.
     pub fn rollup(&self) -> Result<(), io::Error> {
         task_sync(self.inner.clone().rollup())
     }
 
+    /// Create a new rollup layer which rolls up all triples in this layer, as well as all ancestors up to (but not including) the given ancestor.
+    ///
+    /// It is a good idea to keep layer stacks small, meaning, to only
+    /// have a handful of ancestors for a layer. The more layers there
+    /// are, the longer queries take. Rollup is one approach of
+    /// accomplishing this. Squash is another. Rollup is the better
+    /// option if you need to retain history.
     pub fn rollup_upto(&self, upto: &SyncStoreLayer) -> Result<(), io::Error> {
         task_sync(self.inner.clone().rollup_upto(&upto.inner))
     }
 
+    /// Returns true if this triple has been added in this layer, or false if it doesn't.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_addition_exists(
         &self,
         subject: u64,
@@ -145,6 +190,10 @@ impl SyncStoreLayer {
         )
     }
 
+    /// Returns true if this triple has been removed in this layer, or false if it doesn't.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_removal_exists(
         &self,
         subject: u64,
@@ -154,14 +203,26 @@ impl SyncStoreLayer {
         task_sync(self.inner.triple_removal_exists(subject, predicate, object))
     }
 
+    /// Returns an iterator over all layer additions.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_additions(&self) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
         task_sync(self.inner.triple_additions())
     }
 
+    /// Returns an iterator over all layer removals.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_removals(&self) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
         task_sync(self.inner.triple_removals())
     }
 
+    /// Returns an iterator over all layer additions that share a particular subject.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_additions_s(
         &self,
         subject: u64,
@@ -169,6 +230,10 @@ impl SyncStoreLayer {
         task_sync(self.inner.triple_additions_s(subject))
     }
 
+    /// Returns an iterator over all layer removals that share a particular subject.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_removals_s(
         &self,
         subject: u64,
@@ -176,6 +241,10 @@ impl SyncStoreLayer {
         task_sync(self.inner.triple_removals_s(subject))
     }
 
+    /// Returns an iterator over all layer additions that share a particular subject and predicate.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_additions_sp(
         &self,
         subject: u64,
@@ -184,6 +253,10 @@ impl SyncStoreLayer {
         task_sync(self.inner.triple_additions_sp(subject, predicate))
     }
 
+    /// Returns an iterator over all layer removals that share a particular subject and predicate.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_removals_sp(
         &self,
         subject: u64,
@@ -192,6 +265,10 @@ impl SyncStoreLayer {
         task_sync(self.inner.triple_removals_sp(subject, predicate))
     }
 
+    /// Returns an iterator over all layer additions that share a particular predicate.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_additions_p(
         &self,
         predicate: u64,
@@ -199,6 +276,10 @@ impl SyncStoreLayer {
         task_sync(self.inner.triple_additions_p(predicate))
     }
 
+    /// Returns an iterator over all layer removals that share a particular predicate.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_removals_p(
         &self,
         predicate: u64,
@@ -206,6 +287,10 @@ impl SyncStoreLayer {
         task_sync(self.inner.triple_removals_p(predicate))
     }
 
+    /// Returns an iterator over all layer additions that share a particular object.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_additions_o(
         &self,
         object: u64,
@@ -213,6 +298,10 @@ impl SyncStoreLayer {
         task_sync(self.inner.triple_additions_o(object))
     }
 
+    /// Returns an iterator over all layer removals that share a particular object.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_removals_o(
         &self,
         object: u64,
@@ -220,14 +309,23 @@ impl SyncStoreLayer {
         task_sync(self.inner.triple_removals_o(object))
     }
 
+    /// Returns the amount of triples that this layer adds.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_layer_addition_count(&self) -> io::Result<usize> {
         task_sync(self.inner.triple_layer_addition_count())
     }
 
+    /// Returns the amount of triples that this layer removes.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_layer_removal_count(&self) -> io::Result<usize> {
         task_sync(self.inner.triple_layer_removal_count())
     }
 
+    /// Returns a vector of layer stack names describing the history of this layer, starting from the base layer up to and including the name of this layer itself.
     pub fn retrieve_layer_stack_names(&self) -> io::Result<Vec<[u32; 5]>> {
         task_sync(self.inner.retrieve_layer_stack_names())
     }
@@ -339,57 +437,57 @@ impl SyncNamedGraph {
         Self { inner }
     }
 
+    /// Returns the label name itself.
     pub fn name(&self) -> &str {
         self.inner.name()
     }
 
-    /// Returns the layer this database points at
+    /// Returns the layer this database points at.
     pub fn head(&self) -> Result<Option<SyncStoreLayer>, io::Error> {
         let inner = task_sync(self.inner.head());
 
         inner.map(|i| i.map(SyncStoreLayer::wrap))
     }
 
-    /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise
+    /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise.
     pub fn set_head(&self, layer: &SyncStoreLayer) -> Result<bool, io::Error> {
         task_sync(self.inner.set_head(&layer.inner))
     }
 
+    /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise.
     pub fn force_set_head(&self, layer: &SyncStoreLayer) -> Result<bool, io::Error> {
         task_sync(self.inner.force_set_head(&layer.inner))
     }
 }
 
-/// A store, storing a set of layers and database labels pointing to these layers
+/// A store, storing a set of layers and database labels pointing to these layers.
 pub struct SyncStore {
     inner: Store,
 }
 
 impl SyncStore {
-    /// wrap an asynchronous `Store`, running all futures on a lazily-constructed tokio runtime
-    ///
-    /// The runtime will be constructed on the first call to wrap. Any
-    /// subsequent SyncStore will reuse the same runtime.
+    /// wrap an asynchronous `Store`, running all futures on a lazily-constructed tokio runtime.
     pub fn wrap(inner: Store) -> Self {
         Self { inner }
     }
 
-    /// Create a new database with the given name
+    /// Create a new database with the given name.
     ///
-    /// If the database already exists, this will return an error
+    /// If the database already exists, this will return an error.
     pub fn create(&self, label: &str) -> Result<SyncNamedGraph, io::Error> {
         let inner = task_sync(self.inner.create(label));
 
         inner.map(SyncNamedGraph::wrap)
     }
 
-    /// Open an existing database with the given name, or None if it does not exist
+    /// Open an existing database with the given name, or None if it does not exist.
     pub fn open(&self, label: &str) -> Result<Option<SyncNamedGraph>, io::Error> {
         let inner = task_sync(self.inner.open(label));
 
         inner.map(|i| i.map(SyncNamedGraph::wrap))
     }
 
+    /// Retrieve a layer with the given name from the layer store this Store was initialized with.
     pub fn get_layer_from_id(
         &self,
         layer: [u32; 5],
@@ -399,7 +497,7 @@ impl SyncStore {
         inner.map(|layer| layer.map(SyncStoreLayer::wrap))
     }
 
-    /// Create a base layer builder, unattached to any database label
+    /// Create a base layer builder, unattached to any database label.
     ///
     /// After having committed it, use `set_head` on a `NamedGraph` to attach it.
     pub fn create_base_layer(&self) -> Result<SyncStoreLayerBuilder, io::Error> {
@@ -408,9 +506,16 @@ impl SyncStore {
         inner.map(SyncStoreLayerBuilder::wrap)
     }
 
+    /// Export the given layers by creating a pack, a Vec<u8> that can later be used with `import_layers` on a different store.
     pub fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
         self.inner.layer_store.export_layers(layer_ids)
     }
+
+    /// Import the specified layers from the given pack, a byte slice that was previously generated with `export_layers`, on another store, and possibly even another machine).
+    ///
+    /// After this operation, the specified layers will be retrievable
+    /// from this store, provided they existed in the pack. specified
+    /// layers that are not in the pack are silently ignored.
     pub fn import_layers(
         &self,
         pack: &[u8],
@@ -420,14 +525,14 @@ impl SyncStore {
     }
 }
 
-/// Open a store that is entirely in memory
+/// Open a store that is entirely in memory.
 ///
-/// This is useful for testing purposes, or if the database is only going to be used for caching purposes
+/// This is useful for testing purposes, or if the database is only going to be used for caching purposes.
 pub fn open_sync_memory_store() -> SyncStore {
     SyncStore::wrap(open_memory_store())
 }
 
-/// Open a store that stores its data in the given directory
+/// Open a store that stores its data in the given directory.
 pub fn open_sync_directory_store<P: Into<PathBuf>>(path: P) -> SyncStore {
     SyncStore::wrap(open_directory_store(path))
 }

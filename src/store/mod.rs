@@ -323,6 +323,9 @@ impl StoreLayer {
     }
 
     /// Returns a future that yields true if this triple has been added in this layer, or false if it doesn't.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_addition_exists(
         &self,
         subject: u64,
@@ -335,6 +338,9 @@ impl StoreLayer {
     }
 
     /// Returns a future that yields true if this triple has been removed in this layer, or false if it doesn't.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_removal_exists(
         &self,
         subject: u64,
@@ -347,6 +353,9 @@ impl StoreLayer {
     }
 
     /// Returns a future that yields an iterator over all layer additions.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_additions(
         &self,
     ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
@@ -355,6 +364,9 @@ impl StoreLayer {
     }
 
     /// Returns a future that yields an iterator over all layer removals.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_removals(
         &self,
     ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
@@ -363,6 +375,9 @@ impl StoreLayer {
     }
 
     /// Returns a future that yields an iterator over all layer additions that share a particular subject.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_additions_s(
         &self,
         subject: u64,
@@ -374,6 +389,9 @@ impl StoreLayer {
     }
 
     /// Returns a future that yields an iterator over all layer removals that share a particular subject.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_removals_s(
         &self,
         subject: u64,
@@ -385,6 +403,9 @@ impl StoreLayer {
     }
 
     /// Returns a future that yields an iterator over all layer additions that share a particular subject and predicate.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_additions_sp(
         &self,
         subject: u64,
@@ -397,6 +418,9 @@ impl StoreLayer {
     }
 
     /// Returns a future that yields an iterator over all layer removals that share a particular subject and predicate.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_removals_sp(
         &self,
         subject: u64,
@@ -409,6 +433,9 @@ impl StoreLayer {
     }
 
     /// Returns a future that yields an iterator over all layer additions that share a particular predicate.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_additions_p(
         &self,
         predicate: u64,
@@ -420,6 +447,9 @@ impl StoreLayer {
     }
 
     /// Returns a future that yields an iterator over all layer removals that share a particular predicate.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_removals_p(
         &self,
         predicate: u64,
@@ -431,6 +461,9 @@ impl StoreLayer {
     }
 
     /// Returns a future that yields an iterator over all layer additions that share a particular object.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_additions_o(
         &self,
         object: u64,
@@ -442,6 +475,9 @@ impl StoreLayer {
     }
 
     /// Returns a future that yields an iterator over all layer removals that share a particular object.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_removals_o(
         &self,
         object: u64,
@@ -453,6 +489,9 @@ impl StoreLayer {
     }
 
     /// Returns a future that yields the amount of triples that this layer adds.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_layer_addition_count(
         &self,
     ) -> Pin<Box<dyn Future<Output = io::Result<usize>> + Send>> {
@@ -460,7 +499,11 @@ impl StoreLayer {
             .layer_store
             .triple_layer_addition_count(self.layer.name())
     }
+
     /// Returns a future that yields the amount of triples that this layer removes.
+    ///
+    /// Since this operation will involve io when this layer is a
+    /// rollup layer, io errors may occur.
     pub fn triple_layer_removal_count(
         &self,
     ) -> Pin<Box<dyn Future<Output = io::Result<usize>> + Send>> {
@@ -668,15 +711,15 @@ impl Store {
         }
     }
 
-    /// Create a new database with the given name
+    /// Create a new database with the given name.
     ///
-    /// If the database already exists, this will return an error
+    /// If the database already exists, this will return an error.
     pub async fn create(&self, label: &str) -> io::Result<NamedGraph> {
         let label = self.label_store.create_label(label).await?;
         Ok(NamedGraph::new(label.name, self.clone()))
     }
 
-    /// Open an existing database with the given name, or None if it does not exist
+    /// Open an existing database with the given name, or None if it does not exist.
     pub async fn open(&self, label: &str) -> io::Result<Option<NamedGraph>> {
         let label = self.label_store.get_label(label).await?;
         Ok(label.map(|label| NamedGraph::new(label.name, self.clone())))
@@ -688,7 +731,7 @@ impl Store {
         Ok(layer.map(|layer| StoreLayer::wrap(layer, self.clone())))
     }
 
-    /// Create a base layer builder, unattached to any database label
+    /// Create a base layer builder, unattached to any database label.
     ///
     /// After having committed it, use `set_head` on a `NamedGraph` to attach it.
     pub async fn create_base_layer(&self) -> io::Result<StoreLayerBuilder> {
@@ -716,7 +759,7 @@ impl Store {
 
 /// Open a store that is entirely in memory.
 ///
-/// This is useful for testing purposes, or if the database is only going to be used for caching purposes
+/// This is useful for testing purposes, or if the database is only going to be used for caching purposes.
 pub fn open_memory_store() -> Store {
     Store::new(
         MemoryLabelStore::new(),
