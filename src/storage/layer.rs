@@ -1542,6 +1542,11 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         upto: [u32; 5],
         cache: Arc<dyn LayerCache>,
     ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+        if layer.name() == upto {
+            // rolling up upto ourselves is pretty pointless. Let's not do that.
+            return Box::pin(future::ok(layer.name()));
+        }
+
         if layer.parent_name() == Some(upto) {
             // rolling up to our parent is just going to create a clone of this child layer. Let's not do that.
             return Box::pin(future::ok(layer.name()));
