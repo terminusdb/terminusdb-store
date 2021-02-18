@@ -46,7 +46,6 @@ impl FileBackedStore {
     }
 
     fn open_read_from_std(&self, offset: usize) -> std::fs::File {
-        println!("opening {:?}", self.path);
         let mut options = std::fs::OpenOptions::new();
         options.read(true);
         let mut file = options.open(&self.path).unwrap();
