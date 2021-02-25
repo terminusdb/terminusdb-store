@@ -181,3 +181,102 @@ pub const FILENAMES: Filenames = Filenames {
     parent: "parent.hex",
     rollup: "rollup.hex",
 };
+
+pub const SHARED_REQUIRED_FILES: [&'static str;6] = [
+        FILENAMES.node_dictionary_blocks,
+        FILENAMES.node_dictionary_offsets,
+
+        FILENAMES.predicate_dictionary_blocks,
+        FILENAMES.predicate_dictionary_offsets,
+
+        FILENAMES.value_dictionary_blocks,
+        FILENAMES.value_dictionary_offsets,
+    ];
+
+pub const SHARED_OPTIONAL_FILES: [&'static str;7] = [
+        FILENAMES.node_value_idmap_bits,
+        FILENAMES.node_value_idmap_bit_index_blocks,
+        FILENAMES.node_value_idmap_bit_index_sblocks,
+
+        FILENAMES.predicate_idmap_bits,
+        FILENAMES.predicate_idmap_bit_index_blocks,
+        FILENAMES.predicate_idmap_bit_index_sblocks,
+
+        FILENAMES.rollup,
+    ];
+
+pub const BASE_LAYER_REQUIRED_FILES: [&'static str;15] = [
+        FILENAMES.base_s_p_adjacency_list_nums,
+        FILENAMES.base_s_p_adjacency_list_bits,
+        FILENAMES.base_s_p_adjacency_list_bit_index_blocks,
+        FILENAMES.base_s_p_adjacency_list_bit_index_sblocks,
+
+        FILENAMES.base_sp_o_adjacency_list_nums,
+        FILENAMES.base_sp_o_adjacency_list_bits,
+        FILENAMES.base_sp_o_adjacency_list_bit_index_blocks,
+        FILENAMES.base_sp_o_adjacency_list_bit_index_sblocks,
+
+        FILENAMES.base_o_ps_adjacency_list_nums,
+        FILENAMES.base_o_ps_adjacency_list_bits,
+        FILENAMES.base_o_ps_adjacency_list_bit_index_blocks,
+        FILENAMES.base_o_ps_adjacency_list_bit_index_sblocks,
+
+        FILENAMES.base_predicate_wavelet_tree_bits,
+        FILENAMES.base_predicate_wavelet_tree_bit_index_blocks,
+        FILENAMES.base_predicate_wavelet_tree_bit_index_sblocks,
+    ];
+
+pub const BASE_LAYER_OPTIONAL_FILES: [&'static str;2] = [
+        FILENAMES.base_subjects,
+        FILENAMES.base_objects
+    ];
+
+pub const CHILD_LAYER_REQUIRED_FILES: [&'static str;31] = [
+        FILENAMES.parent,
+
+        FILENAMES.pos_s_p_adjacency_list_nums,
+        FILENAMES.pos_s_p_adjacency_list_bits,
+        FILENAMES.pos_s_p_adjacency_list_bit_index_blocks,
+        FILENAMES.pos_s_p_adjacency_list_bit_index_sblocks,
+
+        FILENAMES.pos_sp_o_adjacency_list_nums,
+        FILENAMES.pos_sp_o_adjacency_list_bits,
+        FILENAMES.pos_sp_o_adjacency_list_bit_index_blocks,
+        FILENAMES.pos_sp_o_adjacency_list_bit_index_sblocks,
+
+        FILENAMES.pos_o_ps_adjacency_list_nums,
+        FILENAMES.pos_o_ps_adjacency_list_bits,
+        FILENAMES.pos_o_ps_adjacency_list_bit_index_blocks,
+        FILENAMES.pos_o_ps_adjacency_list_bit_index_sblocks,
+
+        FILENAMES.pos_predicate_wavelet_tree_bits,
+        FILENAMES.pos_predicate_wavelet_tree_bit_index_blocks,
+        FILENAMES.pos_predicate_wavelet_tree_bit_index_sblocks,
+
+        FILENAMES.neg_s_p_adjacency_list_nums,
+        FILENAMES.neg_s_p_adjacency_list_bits,
+        FILENAMES.neg_s_p_adjacency_list_bit_index_blocks,
+        FILENAMES.neg_s_p_adjacency_list_bit_index_sblocks,
+
+        FILENAMES.neg_sp_o_adjacency_list_nums,
+        FILENAMES.neg_sp_o_adjacency_list_bits,
+        FILENAMES.neg_sp_o_adjacency_list_bit_index_blocks,
+        FILENAMES.neg_sp_o_adjacency_list_bit_index_sblocks,
+
+        FILENAMES.neg_o_ps_adjacency_list_nums,
+        FILENAMES.neg_o_ps_adjacency_list_bits,
+        FILENAMES.neg_o_ps_adjacency_list_bit_index_blocks,
+        FILENAMES.neg_o_ps_adjacency_list_bit_index_sblocks,
+
+        FILENAMES.neg_predicate_wavelet_tree_bits,
+        FILENAMES.neg_predicate_wavelet_tree_bit_index_blocks,
+        FILENAMES.neg_predicate_wavelet_tree_bit_index_sblocks,
+    ];
+
+pub const CHILD_LAYER_OPTIONAL_FILES: [&'static str;4] = [
+        FILENAMES.pos_subjects,
+        FILENAMES.pos_objects,
+
+        FILENAMES.neg_subjects,
+        FILENAMES.neg_objects
+    ];
