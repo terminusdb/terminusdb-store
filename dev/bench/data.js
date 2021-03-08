@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1614261407899,
+  "lastUpdate": 1615243297577,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -2111,6 +2111,126 @@ window.BENCHMARK_DATA = {
             "name": "logarray_w5_empty",
             "value": 478,
             "range": "± 60",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "cheukting.ho@gmail.com",
+            "name": "Cheuk Ting Ho",
+            "username": "Cheukting"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "799bf928a8d96a53c3dc1ba4f623365cae314c63",
+          "message": "Adding auto triage label",
+          "timestamp": "2021-03-08T22:32:01Z",
+          "tree_id": "3b23e288c3823f3b3d83037154ed81685fd4b911",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/799bf928a8d96a53c3dc1ba4f623365cae314c63"
+        },
+        "date": 1615243297095,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 430,
+            "range": "± 65",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 38813999,
+            "range": "± 7421602",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 21342323,
+            "range": "± 10344422",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 24799349,
+            "range": "± 6321418",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 40334033,
+            "range": "± 9729246",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 39126790,
+            "range": "± 7697246",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w10_1000",
+            "value": 19642,
+            "range": "± 3225",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1",
+            "value": 582,
+            "range": "± 75",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10",
+            "value": 713,
+            "range": "± 134",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_100",
+            "value": 2159,
+            "range": "± 393",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1000",
+            "value": 14912,
+            "range": "± 3087",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000",
+            "value": 147464,
+            "range": "± 17925",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_as_stream",
+            "value": 222620,
+            "range": "± 81257",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent",
+            "value": 1463709,
+            "range": "± 706014",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent_as_stream",
+            "value": 1707570,
+            "range": "± 570912",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_empty",
+            "value": 491,
+            "range": "± 54",
             "unit": "ns/iter"
           }
         ]
