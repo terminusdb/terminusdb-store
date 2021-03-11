@@ -29,9 +29,11 @@ mod file;
 mod label;
 mod layer;
 mod locking;
+pub mod delta;
 pub mod memory;
 
 pub use cache::*;
 pub use file::*;
 pub use label::*;
 pub use layer::*;
+pub use delta::*;

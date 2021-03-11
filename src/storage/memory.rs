@@ -11,8 +11,9 @@ use std::pin::Pin;
 use std::sync::{self, Arc, RwLock};
 
 use super::*;
+use super::delta::*;
 use crate::layer::{
-    delta_rollup, delta_rollup_upto, BaseLayer, ChildLayer, IdTriple, InternalLayer, LayerBuilder,
+    BaseLayer, ChildLayer, IdTriple, InternalLayer, LayerBuilder,
     RollupLayer, SimpleLayerBuilder,
 };
 

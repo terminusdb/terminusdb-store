@@ -1,8 +1,9 @@
 use super::cache::*;
 use super::consts::FILENAMES;
 use super::file::*;
+use super::delta::*;
 use crate::layer::{
-    delta_rollup, delta_rollup_upto, layer_triple_exists, BaseLayer, ChildLayer, IdTriple,
+    layer_triple_exists, BaseLayer, ChildLayer, IdTriple,
     InternalLayer, InternalLayerImpl, InternalLayerTripleObjectIterator,
     InternalLayerTriplePredicateIterator, InternalLayerTripleSubjectIterator, LayerBuilder,
     OptInternalLayerTriplePredicateIterator, RollupLayer, SimpleLayerBuilder,

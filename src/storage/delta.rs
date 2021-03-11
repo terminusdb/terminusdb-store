@@ -1,9 +1,8 @@
 use std::io;
 
-use super::internal::*;
 use crate::layer::builder::{build_indexes, TripleFileBuilder};
 use crate::layer::id_map::{construct_idmaps, construct_idmaps_upto};
-use crate::layer::Layer;
+use crate::layer::*;
 use crate::storage::*;
 use crate::structure::*;
 
@@ -151,7 +150,6 @@ pub async fn delta_rollup_upto<F: 'static + FileLoad + FileStore>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layer::*;
     use crate::storage::memory::*;
     use std::sync::Arc;
     async fn build_three_layers(
