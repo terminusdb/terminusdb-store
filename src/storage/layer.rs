@@ -234,6 +234,12 @@ pub trait LayerStore: 'static + Send + Sync {
         &self,
         name: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>>;
+
+    fn retrieve_layer_stack_names_upto(
+        &self,
+        name: [u32; 5],
+        upto: [u32; 5]
+    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>>;
 }
 
 pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
@@ -626,27 +632,6 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
             let layer_str = &lines[1];
 
             string_to_name(layer_str)
-        })
-    }
-
-    fn retrieve_layer_stack_names(
-        &self,
-        name: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
-        let self_ = self.clone();
-        let mut result = vec![name];
-
-        Box::pin(async move {
-            loop {
-                if self_.layer_has_parent(*result.last().unwrap()).await? {
-                    let parent = self_.read_parent_file(*result.last().unwrap()).await?;
-                    result.push(parent);
-                } else {
-                    result.reverse();
-
-                    return Ok(result);
-                }
-            }
         })
     }
 
@@ -1945,6 +1930,35 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                     return Ok(result);
                 }
             }
+        })
+    }
+
+    fn retrieve_layer_stack_names_upto(
+        &self,
+        name: [u32; 5],
+        upto: [u32; 5]
+    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
+        let self_ = self.clone();
+        let mut result = vec![name];
+
+        Box::pin(async move {
+            loop {
+                if self_.layer_has_parent(*result.last().unwrap()).await? {
+                    let parent = self_.read_parent_file(*result.last().unwrap()).await?;
+                    if parent == upto {
+                        break;
+                    }
+                    result.push(parent);
+                } else {
+                    return Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "parent layer not found",
+                    ));
+                }
+            }
+
+            result.reverse();
+            Ok(result)
         })
     }
 }

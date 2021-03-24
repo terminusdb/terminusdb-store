@@ -450,8 +450,15 @@ impl LayerStore for CachedLayerStore {
         &self,
         name: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
-        // Note: Doesn't use cache, but does pointer chasing on disk anyhow
         self.inner.retrieve_layer_stack_names(name)
+    }
+
+    fn retrieve_layer_stack_names_upto(
+        &self,
+        name: [u32; 5],
+        upto: [u32; 5]
+    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
+        self.inner.retrieve_layer_stack_names_upto(name, upto)
     }
 }
 

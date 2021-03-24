@@ -1424,6 +1424,40 @@ impl LayerStore for MemoryLayerStore {
             }
         })
     }
+
+    fn retrieve_layer_stack_names_upto(
+        &self,
+        name: [u32; 5],
+        upto: [u32; 5]
+    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
+        let guard = self.layers.read();
+        Box::pin(async move {
+            let layers = guard.await;
+            let mut result = vec![name];
+            let mut d = name;
+            loop {
+                match layers.get(&d) {
+                    Some((Some(parent), _, _)) => {
+                        if upto == *parent {
+                            break;
+                        }
+                        d = *parent;
+                        result.push(d)
+                    }
+                    _ => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::NotFound,
+                            "parent layer not found",
+                        ));
+                    }
+                }
+            }
+
+            result.reverse();
+
+            Ok(result)
+        })
+    }
 }
 
 #[derive(Clone, Default)]
