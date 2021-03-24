@@ -1,10 +1,52 @@
 use std::io;
+use std::sync::Arc;
 
 use crate::layer::builder::{build_indexes, TripleFileBuilder};
 use crate::layer::id_map::{construct_idmaps, construct_idmaps_upto};
 use crate::layer::*;
 use crate::storage::*;
 use crate::structure::*;
+
+async fn safe_upto_bound<S:LayerStore>(
+    store: &S,
+    layer: Arc<InternalLayer>,
+    upto: [u32; 5]
+) -> io::Result<[u32;5]> {
+    if InternalLayerImpl::name(&*layer) == upto {
+        return Ok(upto);
+    }
+    let mut disk_layer_names = store.retrieve_layer_stack_names_upto(InternalLayerImpl::name(&*layer), upto).await?;
+
+    let mut l = &*layer;
+    loop {
+        let parent = match l.immediate_parent() {
+            None => {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "parent layer not found",
+                ));
+            },
+            Some(p) => p
+        };
+
+        if InternalLayerImpl::name(parent) == upto {
+            // reached our destination and all is swell.
+            return Ok(upto);
+        }
+        else {
+            // is parent in the disk layers?
+            if let Some(ix) = disk_layer_names.iter().position(|&n| n == InternalLayerImpl::name(parent)) {
+                // yes, so move further back
+                disk_layer_names.truncate(ix);
+                l = parent;
+            }
+            else {
+                // no! safe bound was the last thing
+                return Ok(InternalLayerImpl::name(l));
+            }
+        }
+    }
+}
 
 pub async fn dictionary_rollup<F: 'static + FileLoad + FileStore>(
     layer: &InternalLayer,
