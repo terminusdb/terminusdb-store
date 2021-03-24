@@ -47,6 +47,50 @@ async fn safe_upto_bound<S:LayerStore>(
     }
 }
 
+/*
+async fn load_dictionaries_upto<S: LayerStore>(
+    store: &S,
+    layer: [u32; 5],
+    upto: [u32; 5]
+) -> io::Result<Vec<PfcDict>> {
+    let mut result = Vec::new();
+    let mut curr = upto;
+    loop {
+        store.
+    }
+    todo!();
+}
+*/
+
+/*
+async fn dictionary_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore>(
+    store: &S,
+    layer: &InternalLayer,
+    memory_upto: [u32; 5],
+    upto: [u32; 5],
+    files: &ChildLayerFiles<F>,
+) -> io::Result<()> {
+    let node_dicts = layer
+        .immediate_layers_upto(upto)
+        .into_iter()
+        .map(|l| l.node_dictionary());
+    let predicate_dicts = layer
+        .immediate_layers_upto(upto)
+        .into_iter()
+        .map(|l| l.predicate_dictionary());
+    let value_dicts = layer
+        .immediate_layers_upto(upto)
+        .into_iter()
+        .map(|l| l.value_dictionary());
+
+    merge_dictionaries(node_dicts, files.node_dictionary_files.clone()).await?;
+    merge_dictionaries(predicate_dicts, files.predicate_dictionary_files.clone()).await?;
+    merge_dictionaries(value_dicts, files.value_dictionary_files.clone()).await?;
+
+    construct_idmaps_upto(layer, upto, files.id_map_files.clone()).await
+}
+*/
+
 pub async fn dictionary_rollup<F: 'static + FileLoad + FileStore>(
     layer: &InternalLayer,
     files: &BaseLayerFiles<F>,
@@ -71,7 +115,7 @@ pub async fn dictionary_rollup<F: 'static + FileLoad + FileStore>(
     construct_idmaps(layer, files.id_map_files.clone()).await
 }
 
-pub async fn dictionary_rollup_upto<F: 'static + FileLoad + FileStore>(
+async fn memory_dictionary_rollup_upto<F: 'static + FileLoad + FileStore>(
     layer: &InternalLayer,
     upto: [u32; 5],
     files: &ChildLayerFiles<F>,
@@ -133,7 +177,7 @@ pub async fn imprecise_delta_rollup_upto<S:LayerStore, F: 'static + FileLoad + F
     files: ChildLayerFiles<F>,
 ) -> io::Result<()> {
     let bound = safe_upto_bound(store, layer, upto).await?;
-    dictionary_rollup_upto(layer, bound, &files).await?;
+    memory_dictionary_rollup_upto(layer, bound, &files).await?;
 
     let counts = layer.all_counts();
 
@@ -189,7 +233,15 @@ pub async fn imprecise_delta_rollup_upto<S:LayerStore, F: 'static + FileLoad + F
     )
     .await
 }
+pub async fn delta_rollup_upto<F: 'static + FileLoad + FileStore>(
+    _layer: &InternalLayer,
+    _upto: [u32; 5],
+    _files: ChildLayerFiles<F>,
+) -> io::Result<()> {
+    todo!();
+}
 
+/*
 pub async fn delta_rollup_upto<F: 'static + FileLoad + FileStore>(
     layer: &InternalLayer,
     upto: [u32; 5],
@@ -251,6 +303,7 @@ pub async fn delta_rollup_upto<F: 'static + FileLoad + FileStore>(
     )
     .await
 }
+*/
 
 #[cfg(test)]
 mod tests {

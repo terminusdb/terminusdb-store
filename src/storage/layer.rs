@@ -10,7 +10,7 @@ use crate::layer::{
 };
 use crate::structure::bitarray::bitarray_len_from_file;
 use crate::structure::logarray::logarray_file_get_length_and_width;
-use crate::structure::{AdjacencyList, LogArray, MonotonicLogArray, WaveletTree};
+use crate::structure::{AdjacencyList, LogArray, MonotonicLogArray, WaveletTree, PfcDict};
 use std::convert::TryInto;
 use std::io;
 use std::sync::Arc;
@@ -33,6 +33,21 @@ pub trait LayerStore: 'static + Send + Sync {
     ) -> Pin<Box<dyn Future<Output = io::Result<Option<Arc<InternalLayer>>>> + Send>> {
         self.get_layer_with_cache(name, NOCACHE.clone())
     }
+
+    fn get_node_dictionary(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>>+Send>>;
+
+    fn get_predicate_dictionary(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>>+Send>>;
+
+    fn get_value_dictionary(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>>+Send>>;
 
     fn create_base_layer(
         &self,
@@ -667,6 +682,72 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
             let child_layer_files = self_.child_layer_files(layer_dir).await?;
 
             Ok((layer_dir, parent_layer, child_layer_files))
+        })
+    }
+
+    fn node_dictionary_files(
+        &self,
+        layer: [u32; 5]
+    ) -> Pin<Box<dyn Future<Output = io::Result<DictionaryFiles<Self::File>>>+Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            // does layer exist?
+            if self_.directory_exists(layer).await? {
+                let blocks_file = self_.get_file(layer, FILENAMES.node_dictionary_blocks).await?;
+                let offsets_file = self_.get_file(layer, FILENAMES.node_dictionary_offsets).await?;
+
+                Ok(DictionaryFiles {
+                    blocks_file,
+                    offsets_file
+                })
+            }
+            else {
+                Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"))
+            }
+        })
+    }
+
+    fn predicate_dictionary_files(
+        &self,
+        layer: [u32; 5]
+    ) -> Pin<Box<dyn Future<Output = io::Result<DictionaryFiles<Self::File>>>+Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            // does layer exist?
+            if self_.directory_exists(layer).await? {
+                let blocks_file = self_.get_file(layer, FILENAMES.predicate_dictionary_blocks).await?;
+                let offsets_file = self_.get_file(layer, FILENAMES.predicate_dictionary_offsets).await?;
+
+                Ok(DictionaryFiles {
+                    blocks_file,
+                    offsets_file
+                })
+            }
+            else {
+                Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"))
+            }
+        })
+    }
+
+    fn value_dictionary_files(
+        &self,
+        layer: [u32; 5]
+    ) -> Pin<Box<dyn Future<Output = io::Result<DictionaryFiles<Self::File>>>+Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            // does layer exist?
+            if self_.directory_exists(layer).await? {
+                let blocks_file = self_.get_file(layer, FILENAMES.value_dictionary_blocks).await?;
+                let offsets_file = self_.get_file(layer, FILENAMES.value_dictionary_offsets).await?;
+
+                Ok(DictionaryFiles {
+                    blocks_file,
+                    offsets_file
+                })
+            }
+            else {
+                Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"))
+            }
         })
     }
 
@@ -1461,6 +1542,60 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             debug_assert_eq!(name, ancestor.name());
 
             Ok(Some(ancestor))
+        })
+    }
+
+    fn get_node_dictionary(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>>+Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            if self_.directory_exists(name).await? {
+                let files = self_.node_dictionary_files(name).await?;
+                let maps = files.map_all().await?;
+
+                Ok(Some(PfcDict::parse(maps.blocks_map, maps.offsets_map)?))
+            }
+            else {
+                Ok(None)
+            }
+        })
+    }
+
+    fn get_predicate_dictionary(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>>+Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            if self_.directory_exists(name).await? {
+                let files = self_.predicate_dictionary_files(name).await?;
+                let maps = files.map_all().await?;
+
+                Ok(Some(PfcDict::parse(maps.blocks_map, maps.offsets_map)?))
+            }
+            else {
+                Ok(None)
+            }
+        })
+    }
+
+    fn get_value_dictionary(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>>+Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            if self_.directory_exists(name).await? {
+                let files = self_.value_dictionary_files(name).await?;
+                let maps = files.map_all().await?;
+
+                Ok(Some(PfcDict::parse(maps.blocks_map, maps.offsets_map)?))
+            }
+            else {
+                Ok(None)
+            }
         })
     }
 

@@ -16,6 +16,7 @@ use crate::layer::{
     BaseLayer, ChildLayer, IdTriple, InternalLayer, LayerBuilder,
     RollupLayer, SimpleLayerBuilder,
 };
+use crate::structure::PfcDict;
 
 pub struct MemoryBackedStoreWriter {
     vec: Arc<sync::RwLock<Vec<u8>>>,
@@ -177,6 +178,55 @@ pub struct MemoryLayerStore {
 impl MemoryLayerStore {
     pub fn new() -> MemoryLayerStore {
         Default::default()
+    }
+
+    fn layer_files_exist(&self, layer: [u32; 5]) -> Pin<Box<dyn Future<Output = io::Result<bool>>+Send>> {
+        let guard = self.layers.read();
+        Box::pin(async move {
+            Ok(guard.await.get(&layer).is_some())
+        })
+    }
+
+    fn node_dictionary_files(
+        &self,
+        layer: [u32; 5]
+    ) -> Pin<Box<dyn Future<Output = io::Result<DictionaryFiles<MemoryBackedStore>>>+Send>> {
+        let guard = self.layers.read();
+        Box::pin(async move {
+            if let Some((_, _, files)) = guard.await.get(&layer) {
+                Ok(files.node_dictionary_files().clone())
+            } else {
+                Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"))
+            }
+        })
+    }
+
+    fn predicate_dictionary_files(
+        &self,
+        layer: [u32; 5]
+    ) -> Pin<Box<dyn Future<Output = io::Result<DictionaryFiles<MemoryBackedStore>>>+Send>> {
+        let guard = self.layers.read();
+        Box::pin(async move {
+            if let Some((_, _, files)) = guard.await.get(&layer) {
+                Ok(files.predicate_dictionary_files().clone())
+            } else {
+                Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"))
+            }
+        })
+    }
+
+    fn value_dictionary_files(
+        &self,
+        layer: [u32; 5]
+    ) -> Pin<Box<dyn Future<Output = io::Result<DictionaryFiles<MemoryBackedStore>>>+Send>> {
+        let guard = self.layers.read();
+        Box::pin(async move {
+            if let Some((_, _, files)) = guard.await.get(&layer) {
+                Ok(files.value_dictionary_files().clone())
+            } else {
+                Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"))
+            }
+        })
     }
 
     fn triple_addition_files(
@@ -816,91 +866,57 @@ impl LayerStore for MemoryLayerStore {
             Ok(Some(ancestor))
         })
     }
-    /*
-        {
-        if let Some(layer) = cache.get_layer_from_cache(name) {
-            return Box::pin(future::ok(Some(layer)));
-        }
 
-        let guard = self.layers.read();
+    fn get_node_dictionary(
+        &self,
+        name: [u32; 5]
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>>+Send>> {
+        let self_ = self.clone();
         Box::pin(async move {
-            let layers = guard.await;
-
-            let mut ids = Vec::new();
-            // collect ids until we get a cache hit
-            let mut id = name;
-            let mut first = true;
-            let mut cached = None;
-            loop {
-                match cache.get_layer_from_cache(id) {
-                    None => {
-                        if let Some((parent, rollup, _)) = layers.get(&id) {
-                            first = false;
-                            match rollup {
-                                None => {
-                                    match parent {
-                                        None => break, // we traversed all the way to the base layer without finding a cached layer
-                                        Some(parent) => {
-                                            id = *parent;
-                                        }
-                                    }
-                                    ids.push(id);
-                                }
-                                Some(rollup) => {
-                                    id = rollup;
-                                }
-                            }
-                        } else if first {
-                            // the requested layer does not exist.
-                            return Ok(None);
-                        } else {
-                            // layer parent does not exist. this should never happen
-                            panic!("expected to find parent layer, but not found");
-                        }
-                    }
-                    Some(layer) => {
-                        // great, we found a cached layer, now we can iteratively build all the child layers.
-                        cached = Some(layer);
-                        break;
-                    }
-                }
+            if self_.layer_files_exist(name).await? {
+                return Ok(None)
             }
 
-            // at this point we have a list of layer ids, and optionally, we have a cached layer
-            // starting with the cached layer, we need to construct child layers iteratively.
-            // lacking a cached layer, the very last item in the vec is a base layer and that is our starting point.
+            let files = self_.node_dictionary_files(name).await?;
+            let maps = files.map_all().await?;
 
-            let mut layer = match cached {
-                None => {
-                    // construct base layer out of last id, then pop it
-                    let base_id = ids.pop().unwrap();
-                    let (_, _, files) = layers.get(&base_id).unwrap();
-                    let base_layer =
-                        BaseLayer::load_from_files(base_id, &files.clone().into_base()).await?;
-
-                    let result = Arc::new(base_layer.into()) as Arc<InternalLayer>;
-                    cache.cache_layer(result.clone());
-
-                    result
-                }
-                Some(layer) => layer,
-            };
-
-            ids.reverse();
-
-            for id in ids {
-                let (_, _, files) = layers.get(&id).unwrap();
-                let child =
-                    ChildLayer::load_from_files(id, layer, &files.clone().into_child()).await?;
-
-                layer = Arc::new(child.into()) as Arc<InternalLayer>;
-                cache.cache_layer(layer.clone());
-            }
-
-            Ok(Some(layer))
+            Ok(Some(PfcDict::parse(maps.blocks_map, maps.offsets_map)?))
         })
     }
-    */
+
+    fn get_predicate_dictionary(
+        &self,
+        name: [u32; 5]
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>>+Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            if self_.layer_files_exist(name).await? {
+                return Ok(None)
+            }
+
+            let files = self_.predicate_dictionary_files(name).await?;
+            let maps = files.map_all().await?;
+
+            Ok(Some(PfcDict::parse(maps.blocks_map, maps.offsets_map)?))
+        })
+    }
+
+    fn get_value_dictionary(
+        &self,
+        name: [u32; 5]
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>>+Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            if self_.layer_files_exist(name).await? {
+                return Ok(None)
+            }
+
+            let files = self_.value_dictionary_files(name).await?;
+            let maps = files.map_all().await?;
+
+            Ok(Some(PfcDict::parse(maps.blocks_map, maps.offsets_map)?))
+        })
+    }
 
     fn create_base_layer(
         &self,

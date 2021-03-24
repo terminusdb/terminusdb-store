@@ -1,5 +1,6 @@
 use super::layer::*;
 use crate::layer::*;
+use crate::structure::PfcDict;
 use futures::future::{self, Future};
 use std::collections::HashMap;
 use std::io;
@@ -124,6 +125,51 @@ impl LayerStore for CachedLayerStore {
         cache: Arc<dyn LayerCache>,
     ) -> Pin<Box<dyn Future<Output = io::Result<Option<Arc<InternalLayer>>>> + Send>> {
         self.inner.get_layer_with_cache(name, cache)
+    }
+
+    fn get_node_dictionary(
+        &self,
+        name: [u32; 5]
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>>+Send>> {
+        // is layer in cache? if so, we can use the cached version
+        if let Some(layer) = self.cache.get_layer_from_cache(name) {
+            // unless it is a rollup
+            if !layer.is_rollup() {
+                return Box::pin(future::ok(Some(layer.node_dictionary().clone())));
+            }
+        }
+
+        self.inner.get_node_dictionary(name)
+    }
+
+    fn get_predicate_dictionary(
+        &self,
+        name: [u32; 5]
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>>+Send>> {
+        // is layer in cache? if so, we can use the cached version
+        if let Some(layer) = self.cache.get_layer_from_cache(name) {
+            // unless it is a rollup
+            if !layer.is_rollup() {
+                return Box::pin(future::ok(Some(layer.predicate_dictionary().clone())));
+            }
+        }
+
+        self.inner.get_predicate_dictionary(name)
+    }
+
+    fn get_value_dictionary(
+        &self,
+        name: [u32; 5]
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>>+Send>> {
+        // is layer in cache? if so, we can use the cached version
+        if let Some(layer) = self.cache.get_layer_from_cache(name) {
+            // unless it is a rollup
+            if !layer.is_rollup() {
+                return Box::pin(future::ok(Some(layer.value_dictionary().clone())));
+            }
+        }
+
+        self.inner.get_value_dictionary(name)
     }
 
     fn create_base_layer(
