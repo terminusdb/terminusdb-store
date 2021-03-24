@@ -10,11 +10,10 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::{self, Arc, RwLock};
 
-use super::*;
 use super::delta::*;
+use super::*;
 use crate::layer::{
-    BaseLayer, ChildLayer, IdTriple, InternalLayer, LayerBuilder,
-    RollupLayer, SimpleLayerBuilder,
+    BaseLayer, ChildLayer, IdTriple, InternalLayer, LayerBuilder, RollupLayer, SimpleLayerBuilder,
 };
 use crate::structure::PfcDict;
 
@@ -180,17 +179,18 @@ impl MemoryLayerStore {
         Default::default()
     }
 
-    fn layer_files_exist(&self, layer: [u32; 5]) -> Pin<Box<dyn Future<Output = io::Result<bool>>+Send>> {
+    fn layer_files_exist(
+        &self,
+        layer: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> {
         let guard = self.layers.read();
-        Box::pin(async move {
-            Ok(guard.await.get(&layer).is_some())
-        })
+        Box::pin(async move { Ok(guard.await.get(&layer).is_some()) })
     }
 
     fn node_dictionary_files(
         &self,
-        layer: [u32; 5]
-    ) -> Pin<Box<dyn Future<Output = io::Result<DictionaryFiles<MemoryBackedStore>>>+Send>> {
+        layer: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<DictionaryFiles<MemoryBackedStore>>> + Send>> {
         let guard = self.layers.read();
         Box::pin(async move {
             if let Some((_, _, files)) = guard.await.get(&layer) {
@@ -203,8 +203,8 @@ impl MemoryLayerStore {
 
     fn predicate_dictionary_files(
         &self,
-        layer: [u32; 5]
-    ) -> Pin<Box<dyn Future<Output = io::Result<DictionaryFiles<MemoryBackedStore>>>+Send>> {
+        layer: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<DictionaryFiles<MemoryBackedStore>>> + Send>> {
         let guard = self.layers.read();
         Box::pin(async move {
             if let Some((_, _, files)) = guard.await.get(&layer) {
@@ -217,8 +217,8 @@ impl MemoryLayerStore {
 
     fn value_dictionary_files(
         &self,
-        layer: [u32; 5]
-    ) -> Pin<Box<dyn Future<Output = io::Result<DictionaryFiles<MemoryBackedStore>>>+Send>> {
+        layer: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<DictionaryFiles<MemoryBackedStore>>> + Send>> {
         let guard = self.layers.read();
         Box::pin(async move {
             if let Some((_, _, files)) = guard.await.get(&layer) {
@@ -869,12 +869,12 @@ impl LayerStore for MemoryLayerStore {
 
     fn get_node_dictionary(
         &self,
-        name: [u32; 5]
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>>+Send>> {
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
         let self_ = self.clone();
         Box::pin(async move {
             if self_.layer_files_exist(name).await? {
-                return Ok(None)
+                return Ok(None);
             }
 
             let files = self_.node_dictionary_files(name).await?;
@@ -886,12 +886,12 @@ impl LayerStore for MemoryLayerStore {
 
     fn get_predicate_dictionary(
         &self,
-        name: [u32; 5]
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>>+Send>> {
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
         let self_ = self.clone();
         Box::pin(async move {
             if self_.layer_files_exist(name).await? {
-                return Ok(None)
+                return Ok(None);
             }
 
             let files = self_.predicate_dictionary_files(name).await?;
@@ -903,12 +903,12 @@ impl LayerStore for MemoryLayerStore {
 
     fn get_value_dictionary(
         &self,
-        name: [u32; 5]
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>>+Send>> {
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
         let self_ = self.clone();
         Box::pin(async move {
             if self_.layer_files_exist(name).await? {
-                return Ok(None)
+                return Ok(None);
             }
 
             let files = self_.value_dictionary_files(name).await?;
@@ -1444,7 +1444,7 @@ impl LayerStore for MemoryLayerStore {
     fn retrieve_layer_stack_names_upto(
         &self,
         name: [u32; 5],
-        upto: [u32; 5]
+        upto: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
         let guard = self.layers.read();
         Box::pin(async move {

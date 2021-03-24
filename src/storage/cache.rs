@@ -129,8 +129,8 @@ impl LayerStore for CachedLayerStore {
 
     fn get_node_dictionary(
         &self,
-        name: [u32; 5]
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>>+Send>> {
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
@@ -144,8 +144,8 @@ impl LayerStore for CachedLayerStore {
 
     fn get_predicate_dictionary(
         &self,
-        name: [u32; 5]
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>>+Send>> {
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
@@ -159,8 +159,8 @@ impl LayerStore for CachedLayerStore {
 
     fn get_value_dictionary(
         &self,
-        name: [u32; 5]
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>>+Send>> {
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
@@ -502,7 +502,7 @@ impl LayerStore for CachedLayerStore {
     fn retrieve_layer_stack_names_upto(
         &self,
         name: [u32; 5],
-        upto: [u32; 5]
+        upto: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
         self.inner.retrieve_layer_stack_names_upto(name, upto)
     }

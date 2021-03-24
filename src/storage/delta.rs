@@ -6,15 +6,17 @@ use crate::layer::*;
 use crate::storage::*;
 use crate::structure::*;
 
-async fn safe_upto_bound<S:LayerStore>(
+async fn safe_upto_bound<S: LayerStore>(
     store: &S,
     layer: &InternalLayer,
-    upto: [u32; 5]
-) -> io::Result<[u32;5]> {
+    upto: [u32; 5],
+) -> io::Result<[u32; 5]> {
     if InternalLayerImpl::name(&*layer) == upto {
         return Ok(upto);
     }
-    let mut disk_layer_names = store.retrieve_layer_stack_names_upto(InternalLayerImpl::name(&*layer), upto).await?;
+    let mut disk_layer_names = store
+        .retrieve_layer_stack_names_upto(InternalLayerImpl::name(&*layer), upto)
+        .await?;
 
     let mut l = &*layer;
     loop {
@@ -24,22 +26,23 @@ async fn safe_upto_bound<S:LayerStore>(
                     io::ErrorKind::NotFound,
                     "parent layer not found",
                 ));
-            },
-            Some(p) => p
+            }
+            Some(p) => p,
         };
 
         if InternalLayerImpl::name(parent) == upto {
             // reached our destination and all is swell.
             return Ok(upto);
-        }
-        else {
+        } else {
             // is parent in the disk layers?
-            if let Some(ix) = disk_layer_names.iter().position(|&n| n == InternalLayerImpl::name(parent)) {
+            if let Some(ix) = disk_layer_names
+                .iter()
+                .position(|&n| n == InternalLayerImpl::name(parent))
+            {
                 // yes, so move further back
                 disk_layer_names.truncate(ix);
                 l = parent;
-            }
-            else {
+            } else {
                 // no! safe bound was the last thing
                 return Ok(InternalLayerImpl::name(l));
             }
@@ -170,7 +173,7 @@ pub async fn delta_rollup<F: 'static + FileLoad + FileStore>(
     .await
 }
 
-pub async fn imprecise_delta_rollup_upto<S:LayerStore, F: 'static + FileLoad + FileStore>(
+pub async fn imprecise_delta_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore>(
     store: &S,
     layer: &InternalLayer,
     upto: [u32; 5],
