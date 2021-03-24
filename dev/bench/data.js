@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1616595417206,
+  "lastUpdate": 1616595804030,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -2471,6 +2471,126 @@ window.BENCHMARK_DATA = {
             "name": "logarray_w5_empty",
             "value": 476,
             "range": "± 67",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "matthijs@terminusdb.com",
+            "name": "Matthijs van Otterdijk",
+            "username": "matko"
+          },
+          "committer": {
+            "email": "matthijs@terminusdb.com",
+            "name": "Matthijs van Otterdijk",
+            "username": "matko"
+          },
+          "distinct": true,
+          "id": "f69b5a73e83e8e5b03e4571ae5238f5fe8202c23",
+          "message": "imprecise rollup upto implementation",
+          "timestamp": "2021-03-24T15:11:35+01:00",
+          "tree_id": "3b4ca432a3f066aa8354ecf27cdc69525004a0f2",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/f69b5a73e83e8e5b03e4571ae5238f5fe8202c23"
+        },
+        "date": 1616595802101,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 469,
+            "range": "± 29",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 38211197,
+            "range": "± 10398013",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 18956029,
+            "range": "± 5521144",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 23746790,
+            "range": "± 9792175",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 41379461,
+            "range": "± 11030890",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 37390296,
+            "range": "± 11175825",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w10_1000",
+            "value": 20256,
+            "range": "± 1631",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1",
+            "value": 653,
+            "range": "± 96",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10",
+            "value": 728,
+            "range": "± 111",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_100",
+            "value": 2389,
+            "range": "± 215",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1000",
+            "value": 16197,
+            "range": "± 1516",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000",
+            "value": 152096,
+            "range": "± 20449",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_as_stream",
+            "value": 228691,
+            "range": "± 22270",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent",
+            "value": 1240592,
+            "range": "± 508675",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent_as_stream",
+            "value": 1366196,
+            "range": "± 903882",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_empty",
+            "value": 549,
+            "range": "± 57",
             "unit": "ns/iter"
           }
         ]
