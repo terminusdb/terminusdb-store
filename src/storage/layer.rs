@@ -34,6 +34,11 @@ pub trait LayerStore: 'static + Send + Sync {
         self.get_layer_with_cache(name, NOCACHE.clone())
     }
 
+    fn get_layer_parent_name(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<[u32; 5]>>> + Send>>;
+
     fn get_node_dictionary(
         &self,
         name: [u32; 5],
@@ -1551,6 +1556,28 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             debug_assert_eq!(name, ancestor.name());
 
             Ok(Some(ancestor))
+        })
+    }
+
+    fn get_layer_parent_name(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<[u32; 5]>>> + Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            if self_.directory_exists(name).await? {
+                if self_.layer_has_parent(name).await? {
+                    let parent = self_.read_parent_file(name).await?;
+                    Ok(Some(parent))
+                } else {
+                    Ok(None)
+                }
+            } else {
+                Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "parent layer not found",
+                ))
+            }
         })
     }
 

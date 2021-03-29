@@ -127,6 +127,18 @@ impl LayerStore for CachedLayerStore {
         self.inner.get_layer_with_cache(name, cache)
     }
 
+    fn get_layer_parent_name(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<[u32; 5]>>> + Send>> {
+        // is layer in cache? if so, we can use the cached version
+        if let Some(layer) = self.cache.get_layer_from_cache(name) {
+            Box::pin(future::ok(InternalLayerImpl::parent_name(&*layer)))
+        } else {
+            self.inner.get_layer_parent_name(name)
+        }
+    }
+
     fn get_node_dictionary(
         &self,
         name: [u32; 5],

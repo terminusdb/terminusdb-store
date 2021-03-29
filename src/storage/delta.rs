@@ -50,20 +50,40 @@ async fn safe_upto_bound<S: LayerStore>(
     }
 }
 
-/*
 async fn load_dictionaries_upto<S: LayerStore>(
     store: &S,
     layer: [u32; 5],
-    upto: [u32; 5]
-) -> io::Result<Vec<PfcDict>> {
+    upto: [u32; 5],
+) -> io::Result<Vec<(PfcDict, PfcDict, PfcDict)>> {
     let mut result = Vec::new();
+    if layer == upto {
+        return Ok(result);
+    }
+
     let mut curr = upto;
     loop {
-        store.
+        // todo error pls
+        let node_dict = store.get_node_dictionary(curr).await?.unwrap();
+        let predicate_dict = store.get_predicate_dictionary(curr).await?.unwrap();
+        let value_dict = store.get_value_dictionary(curr).await?.unwrap();
+
+        result.push((node_dict, predicate_dict, value_dict));
+
+        let parent = store.get_layer_parent_name(curr).await?;
+        match parent {
+            None => panic!("eek"), // todo error pls
+            Some(parent) => {
+                if parent == upto {
+                    break;
+                }
+                curr = parent;
+            }
+        }
     }
-    todo!();
+
+    result.reverse();
+    Ok(result)
 }
-*/
 
 /*
 async fn dictionary_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore>(

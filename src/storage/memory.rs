@@ -867,13 +867,30 @@ impl LayerStore for MemoryLayerStore {
         })
     }
 
+    fn get_layer_parent_name(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<[u32; 5]>>> + Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            if let Some((parent, _, _)) = self_.layers.read().await.get(&name) {
+                Ok(parent.clone())
+            } else {
+                Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "parent layer not found",
+                ))
+            }
+        })
+    }
+
     fn get_node_dictionary(
         &self,
         name: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
         let self_ = self.clone();
         Box::pin(async move {
-            if self_.layer_files_exist(name).await? {
+            if !self_.layer_files_exist(name).await? {
                 return Ok(None);
             }
 
@@ -890,7 +907,7 @@ impl LayerStore for MemoryLayerStore {
     ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
         let self_ = self.clone();
         Box::pin(async move {
-            if self_.layer_files_exist(name).await? {
+            if !self_.layer_files_exist(name).await? {
                 return Ok(None);
             }
 
@@ -907,7 +924,7 @@ impl LayerStore for MemoryLayerStore {
     ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
         let self_ = self.clone();
         Box::pin(async move {
-            if self_.layer_files_exist(name).await? {
+            if !self_.layer_files_exist(name).await? {
                 return Ok(None);
             }
 
