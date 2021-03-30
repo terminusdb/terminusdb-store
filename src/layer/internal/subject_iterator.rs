@@ -1,5 +1,8 @@
+use std::io;
+
 use super::super::layer::*;
 use super::InternalLayerImpl;
+use crate::storage::LayerStore;
 use crate::structure::*;
 use std::cmp::Ordering;
 use std::convert::TryInto;
@@ -349,6 +352,31 @@ impl InternalTripleStackIterator {
             positives,
             negatives,
         })
+    }
+
+    pub async fn from_disk_upto<S: LayerStore>(
+        store: &S,
+        layer: [u32; 5],
+        upto: [u32; 5],
+    ) -> io::Result<InternalTripleStackIterator> {
+        todo!();
+    }
+
+    pub fn merge_stack_iterators<I: Iterator<Item = InternalTripleStackIterator>>(
+        stacks: I,
+    ) -> InternalTripleStackIterator {
+        let mut positives = Vec::new();
+        let mut negatives = Vec::new();
+
+        for stack in stacks {
+            positives.extend(stack.positives);
+            negatives.extend(stack.negatives);
+        }
+
+        Self {
+            positives,
+            negatives,
+        }
     }
 }
 

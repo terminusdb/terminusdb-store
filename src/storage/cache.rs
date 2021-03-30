@@ -319,12 +319,11 @@ impl LayerStore for CachedLayerStore {
     fn triple_additions(
         &self,
         layer: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    ) -> Pin<Box<dyn Future<Output = io::Result<OptInternalLayerTripleSubjectIterator>> + Send>>
     {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
-                return Box::pin(future::ok(Box::new(cached.internal_triple_additions())
-                    as Box<dyn Iterator<Item = _> + Send>));
+                return Box::pin(future::ok(cached.internal_triple_additions()));
             }
         }
 
@@ -334,12 +333,11 @@ impl LayerStore for CachedLayerStore {
     fn triple_removals(
         &self,
         layer: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    ) -> Pin<Box<dyn Future<Output = io::Result<OptInternalLayerTripleSubjectIterator>> + Send>>
     {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
-                return Box::pin(future::ok(Box::new(cached.internal_triple_removals())
-                    as Box<dyn Iterator<Item = _> + Send>));
+                return Box::pin(future::ok(cached.internal_triple_removals()));
             }
         }
 

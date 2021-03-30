@@ -13,7 +13,8 @@ use std::sync::{self, Arc, RwLock};
 use super::delta::*;
 use super::*;
 use crate::layer::{
-    BaseLayer, ChildLayer, IdTriple, InternalLayer, LayerBuilder, RollupLayer, SimpleLayerBuilder,
+    BaseLayer, ChildLayer, IdTriple, InternalLayer, LayerBuilder,
+    OptInternalLayerTripleSubjectIterator, RollupLayer, SimpleLayerBuilder,
 };
 use crate::structure::PfcDict;
 
@@ -1181,35 +1182,33 @@ impl LayerStore for MemoryLayerStore {
     fn triple_additions(
         &self,
         layer: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    ) -> Pin<Box<dyn Future<Output = io::Result<OptInternalLayerTripleSubjectIterator>> + Send>>
     {
         let files_fut = self.triple_addition_files(layer);
         Box::pin(async move {
             let (subjects_file, s_p_aj_files, sp_o_aj_files) = files_fut.await?;
 
-            Ok(
-                Box::new(file_triple_iterator(subjects_file, s_p_aj_files, sp_o_aj_files).await?)
-                    as Box<dyn Iterator<Item = _> + Send>,
-            )
+            Ok(OptInternalLayerTripleSubjectIterator(Some(
+                file_triple_iterator(subjects_file, s_p_aj_files, sp_o_aj_files).await?,
+            )))
         })
     }
 
     fn triple_removals(
         &self,
         layer: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    ) -> Pin<Box<dyn Future<Output = io::Result<OptInternalLayerTripleSubjectIterator>> + Send>>
     {
         let files_fut = self.triple_removal_files(layer);
         Box::pin(async move {
-            if let Some((subjects_file, s_p_aj_files, sp_o_aj_files)) = files_fut.await? {
-                Ok(
-                    Box::new(
+            Ok(OptInternalLayerTripleSubjectIterator(
+                match files_fut.await? {
+                    Some((subjects_file, s_p_aj_files, sp_o_aj_files)) => Some(
                         file_triple_iterator(subjects_file, s_p_aj_files, sp_o_aj_files).await?,
-                    ) as Box<dyn Iterator<Item = _> + Send>,
-                )
-            } else {
-                Ok(Box::new(std::iter::empty()) as Box<dyn Iterator<Item = _> + Send>)
-            }
+                    ),
+                    None => None,
+                },
+            ))
         })
     }
 

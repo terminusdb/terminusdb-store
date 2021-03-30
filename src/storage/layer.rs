@@ -6,7 +6,7 @@ use crate::layer::{
     layer_triple_exists, BaseLayer, ChildLayer, IdTriple, InternalLayer, InternalLayerImpl,
     InternalLayerTripleObjectIterator, InternalLayerTriplePredicateIterator,
     InternalLayerTripleSubjectIterator, LayerBuilder, OptInternalLayerTriplePredicateIterator,
-    RollupLayer, SimpleLayerBuilder,
+    OptInternalLayerTripleSubjectIterator, RollupLayer, SimpleLayerBuilder,
 };
 use crate::structure::bitarray::bitarray_len_from_file;
 use crate::structure::logarray::logarray_file_get_length_and_width;
@@ -183,12 +183,12 @@ pub trait LayerStore: 'static + Send + Sync {
     fn triple_additions(
         &self,
         layer: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = io::Result<OptInternalLayerTripleSubjectIterator>> + Send>>;
 
     fn triple_removals(
         &self,
         layer: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = io::Result<OptInternalLayerTripleSubjectIterator>> + Send>>;
 
     fn triple_additions_s(
         &self,
@@ -1827,35 +1827,32 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
     fn triple_additions(
         &self,
         layer: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    ) -> Pin<Box<dyn Future<Output = io::Result<OptInternalLayerTripleSubjectIterator>> + Send>>
     {
         let self_ = self.clone();
         Box::pin(async move {
             let (subjects_file, s_p_aj_files, sp_o_aj_files) =
                 self_.triple_addition_files(layer).await?;
 
-            Ok(
-                Box::new(file_triple_iterator(subjects_file, s_p_aj_files, sp_o_aj_files).await?)
-                    as Box<dyn Iterator<Item = _> + Send>,
-            )
+            Ok(OptInternalLayerTripleSubjectIterator(Some(
+                file_triple_iterator(subjects_file, s_p_aj_files, sp_o_aj_files).await?,
+            )))
         })
     }
 
     fn triple_removals(
         &self,
         layer: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    ) -> Pin<Box<dyn Future<Output = io::Result<OptInternalLayerTripleSubjectIterator>> + Send>>
     {
         let files_fut = self.triple_removal_files(layer);
         Box::pin(async move {
             if let Some((subjects_file, s_p_aj_files, sp_o_aj_files)) = files_fut.await? {
-                Ok(
-                    Box::new(
-                        file_triple_iterator(subjects_file, s_p_aj_files, sp_o_aj_files).await?,
-                    ) as Box<dyn Iterator<Item = _> + Send>,
-                )
+                Ok(OptInternalLayerTripleSubjectIterator(Some(
+                    file_triple_iterator(subjects_file, s_p_aj_files, sp_o_aj_files).await?,
+                )))
             } else {
-                Ok(Box::new(std::iter::empty()) as Box<dyn Iterator<Item = _> + Send>)
+                Ok(OptInternalLayerTripleSubjectIterator(None))
             }
         })
     }
