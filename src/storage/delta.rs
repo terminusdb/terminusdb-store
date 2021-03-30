@@ -1,3 +1,4 @@
+use futures::prelude::*;
 use std::io;
 
 use crate::layer::builder::{build_indexes, TripleFileBuilder};
@@ -85,7 +86,88 @@ async fn load_dictionaries_upto<S: LayerStore>(
     Ok(result)
 }
 
-/*
+macro_rules! walk_backwards_from_disk {
+    ($store:ident, $name:ident, $upto:ident, $current:ident, $body:block) => {
+        let mut $current = $name;
+        loop {
+            if $current == $upto {
+                break Ok(());
+            }
+
+
+            if let Some(parent) = $store.get_layer_parent_name($current).await? {
+                if parent == $upto {
+                    break Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"));
+                }
+
+                $body
+
+                $current = parent;
+            }
+            else {
+                break Ok(());
+            }
+        }?
+    }
+}
+
+async fn get_node_dicts_from_disk<S: LayerStore>(
+    store: &S,
+    name: [u32; 5],
+    upto: [u32; 5],
+) -> io::Result<Vec<PfcDict>> {
+    let mut result = Vec::new();
+    walk_backwards_from_disk!(store, name, upto, current, {
+        let dict = store
+            .get_node_dictionary(current)
+            .await?
+            .expect("expected dictionary to exist");
+        result.push(dict);
+    });
+
+    result.reverse();
+
+    Ok(result)
+}
+
+async fn get_predicate_dicts_from_disk<S: LayerStore>(
+    store: &S,
+    name: [u32; 5],
+    upto: [u32; 5],
+) -> io::Result<Vec<PfcDict>> {
+    let mut result = Vec::new();
+    walk_backwards_from_disk!(store, name, upto, current, {
+        let dict = store
+            .get_predicate_dictionary(current)
+            .await?
+            .expect("expected dictionary to exist");
+        result.push(dict);
+    });
+
+    result.reverse();
+
+    Ok(result)
+}
+
+async fn get_value_dicts_from_disk<S: LayerStore>(
+    store: &S,
+    name: [u32; 5],
+    upto: [u32; 5],
+) -> io::Result<Vec<PfcDict>> {
+    let mut result = Vec::new();
+    walk_backwards_from_disk!(store, name, upto, current, {
+        let dict = store
+            .get_value_dictionary(current)
+            .await?
+            .expect("expected dictionary to exist");
+        result.push(dict);
+    });
+
+    result.reverse();
+
+    Ok(result)
+}
+
 async fn dictionary_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore>(
     store: &S,
     layer: &InternalLayer,
@@ -93,18 +175,27 @@ async fn dictionary_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore
     upto: [u32; 5],
     files: &ChildLayerFiles<F>,
 ) -> io::Result<()> {
-    let node_dicts = layer
-        .immediate_layers_upto(upto)
-        .into_iter()
-        .map(|l| l.node_dictionary());
-    let predicate_dicts = layer
-        .immediate_layers_upto(upto)
-        .into_iter()
-        .map(|l| l.predicate_dictionary());
-    let value_dicts = layer
-        .immediate_layers_upto(upto)
-        .into_iter()
-        .map(|l| l.value_dictionary());
+    let disk_node_dicts = get_node_dicts_from_disk(store, memory_upto, upto).await?;
+    let disk_predicate_dicts = get_predicate_dicts_from_disk(store, memory_upto, upto).await?;
+    let disk_value_dicts = get_value_dicts_from_disk(store, memory_upto, upto).await?;
+    let node_dicts = disk_node_dicts.iter().chain(
+        layer
+            .immediate_layers_upto(memory_upto)
+            .into_iter()
+            .map(|l| l.node_dictionary()),
+    );
+    let predicate_dicts = disk_predicate_dicts.iter().chain(
+        layer
+            .immediate_layers_upto(memory_upto)
+            .into_iter()
+            .map(|l| l.predicate_dictionary()),
+    );
+    let value_dicts = disk_value_dicts.iter().chain(
+        layer
+            .immediate_layers_upto(memory_upto)
+            .into_iter()
+            .map(|l| l.value_dictionary()),
+    );
 
     merge_dictionaries(node_dicts, files.node_dictionary_files.clone()).await?;
     merge_dictionaries(predicate_dicts, files.predicate_dictionary_files.clone()).await?;
@@ -112,7 +203,6 @@ async fn dictionary_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore
 
     construct_idmaps_upto(layer, upto, files.id_map_files.clone()).await
 }
-*/
 
 pub async fn dictionary_rollup<F: 'static + FileLoad + FileStore>(
     layer: &InternalLayer,
@@ -256,11 +346,15 @@ pub async fn imprecise_delta_rollup_upto<S: LayerStore, F: 'static + FileLoad + 
     )
     .await
 }
+
 pub async fn delta_rollup_upto<F: 'static + FileLoad + FileStore>(
-    _layer: &InternalLayer,
-    _upto: [u32; 5],
-    _files: ChildLayerFiles<F>,
+    layer: &InternalLayer,
+    upto: [u32; 5],
+    files: ChildLayerFiles<F>,
 ) -> io::Result<()> {
+    // here's what we need to do
+    // find safe bound
+    // traverse up to
     todo!();
 }
 
