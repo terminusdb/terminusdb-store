@@ -32,6 +32,7 @@ mod layer;
 pub mod delta;
 mod locking;
 pub mod memory;
+pub mod new_memory;
 
 pub use cache::*;
 pub use delta::*;
