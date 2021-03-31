@@ -110,17 +110,17 @@ pub trait LayerStore: 'static + Send + Sync {
         &self,
         layer: Arc<InternalLayer>,
     ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>>;
-    fn perform_rollup_upto_with_cache(
-        &self,
+    fn perform_rollup_upto_with_cache<'a>(
+        &'a self,
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
         cache: Arc<dyn LayerCache>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>>;
-    fn perform_rollup_upto(
-        &self,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>>;
+    fn perform_rollup_upto<'a>(
+        &'a self,
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
         self.perform_rollup_upto_with_cache(layer, upto, NOCACHE.clone())
     }
     fn register_rollup(
@@ -298,10 +298,10 @@ pub trait LayerStore: 'static + Send + Sync {
         upto: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>>;
 
-    fn layer_changes(
-        self: Arc<Self>,
+    fn layer_changes<'a>(
+        &'a self,
         name: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<InternalTripleStackIterator>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = io::Result<InternalTripleStackIterator>> + Send + 'a>> {
         Box::pin(async move {
             let mut positives = Vec::new();
             let mut negatives = Vec::new();
@@ -318,11 +318,11 @@ pub trait LayerStore: 'static + Send + Sync {
         })
     }
 
-    fn layer_changes_upto(
-        self: Arc<Self>,
+    fn layer_changes_upto<'a>(
+        &'a self,
         name: [u32; 5],
         upto: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<InternalTripleStackIterator>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = io::Result<InternalTripleStackIterator>> + 'a + Send>> {
         Box::pin(async move {
             let mut positives = Vec::new();
             let mut negatives = Vec::new();
@@ -1768,12 +1768,12 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         })
     }
 
-    fn perform_rollup_upto_with_cache(
-        &self,
+    fn perform_rollup_upto_with_cache<'a>(
+        &'a self,
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
         cache: Arc<dyn LayerCache>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
         if layer.name() == upto {
             // rolling up upto ourselves is pretty pointless. Let's not do that.
             return Box::pin(future::ok(layer.name()));
@@ -1800,7 +1800,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             let (layer_dir, _parent_layer, child_layer_files) = self_
                 .create_child_layer_files_with_cache(upto, cache)
                 .await?;
-            delta_rollup_upto(&layer, upto, child_layer_files).await?;
+            delta_rollup_upto(self, &layer, upto, child_layer_files).await?;
             Ok(layer_dir)
         })
     }
@@ -2195,7 +2195,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                 } else {
                     return Err(io::Error::new(
                         io::ErrorKind::NotFound,
-                        "parent layer not found",
+                        "parent layer not found while retrieving names of layer stack",
                     ));
                 }
             }

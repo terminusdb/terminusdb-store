@@ -1,8 +1,5 @@
-use std::io;
-
 use super::super::layer::*;
 use super::InternalLayerImpl;
-use crate::storage::LayerStore;
 use crate::structure::*;
 use std::cmp::Ordering;
 use std::convert::TryInto;
@@ -364,13 +361,11 @@ impl InternalTripleStackIterator {
         }
     }
 
-    pub fn merge_stack_iterators<I: Iterator<Item = InternalTripleStackIterator>>(
-        stacks: I,
-    ) -> Self {
+    pub fn merge<I: IntoIterator<Item = InternalTripleStackIterator>>(stacks: I) -> Self {
         let mut positives = Vec::new();
         let mut negatives = Vec::new();
 
-        for stack in stacks {
+        for stack in stacks.into_iter() {
             positives.extend(stack.positives);
             negatives.extend(stack.negatives);
         }

@@ -1019,12 +1019,12 @@ impl LayerStore for MemoryLayerStore {
         })
     }
 
-    fn perform_rollup_upto_with_cache(
-        &self,
+    fn perform_rollup_upto_with_cache<'a>(
+        &'a self,
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
         _cache: Arc<dyn LayerCache>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
         if layer.parent_name() == Some(upto) {
             // rolling up to our parent is just going to create a clone of this child layer. Let's not do that.
             return Box::pin(future::ok(layer.name()));
@@ -1048,7 +1048,7 @@ impl LayerStore for MemoryLayerStore {
             let name = rand::random();
             let clf = child_layer_memory_files();
 
-            delta_rollup_upto(&layer, upto, clf.clone()).await?;
+            delta_rollup_upto(self, &layer, upto, clf.clone()).await?;
             layers
                 .write()
                 .await
@@ -1479,7 +1479,7 @@ impl LayerStore for MemoryLayerStore {
                     _ => {
                         return Err(io::Error::new(
                             io::ErrorKind::NotFound,
-                            "parent layer not found",
+                            "parent layer not found while retrieving layer stack names",
                         ));
                     }
                 }

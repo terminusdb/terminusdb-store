@@ -213,21 +213,21 @@ impl LayerStore for CachedLayerStore {
         self.inner.perform_rollup(layer)
     }
 
-    fn perform_rollup_upto_with_cache(
-        &self,
+    fn perform_rollup_upto_with_cache<'a>(
+        &'a self,
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
         cache: Arc<dyn LayerCache>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
         self.inner
             .perform_rollup_upto_with_cache(layer, upto, cache)
     }
 
-    fn perform_rollup_upto(
-        &self,
+    fn perform_rollup_upto<'a>(
+        &'a self,
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
         self.inner
             .perform_rollup_upto_with_cache(layer, upto, self.cache.clone())
     }

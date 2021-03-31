@@ -1,4 +1,3 @@
-use futures::prelude::*;
 use std::io;
 
 use crate::layer::builder::{build_indexes, TripleFileBuilder};
@@ -25,7 +24,7 @@ async fn safe_upto_bound<S: LayerStore>(
             None => {
                 return Err(io::Error::new(
                     io::ErrorKind::NotFound,
-                    "parent layer not found",
+                    "parent layer not found while searching for safe upto bound",
                 ));
             }
             Some(p) => p,
@@ -49,41 +48,6 @@ async fn safe_upto_bound<S: LayerStore>(
             }
         }
     }
-}
-
-async fn load_dictionaries_upto<S: LayerStore>(
-    store: &S,
-    layer: [u32; 5],
-    upto: [u32; 5],
-) -> io::Result<Vec<(PfcDict, PfcDict, PfcDict)>> {
-    let mut result = Vec::new();
-    if layer == upto {
-        return Ok(result);
-    }
-
-    let mut curr = upto;
-    loop {
-        // todo error pls
-        let node_dict = store.get_node_dictionary(curr).await?.unwrap();
-        let predicate_dict = store.get_predicate_dictionary(curr).await?.unwrap();
-        let value_dict = store.get_value_dictionary(curr).await?.unwrap();
-
-        result.push((node_dict, predicate_dict, value_dict));
-
-        let parent = store.get_layer_parent_name(curr).await?;
-        match parent {
-            None => panic!("eek"), // todo error pls
-            Some(parent) => {
-                if parent == upto {
-                    break;
-                }
-                curr = parent;
-            }
-        }
-    }
-
-    result.reverse();
-    Ok(result)
 }
 
 async fn get_node_dicts_from_disk<S: LayerStore>(
@@ -322,15 +286,74 @@ pub async fn imprecise_delta_rollup_upto<S: LayerStore, F: 'static + FileLoad + 
     .await
 }
 
-pub async fn delta_rollup_upto<F: 'static + FileLoad + FileStore>(
+pub async fn delta_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore>(
+    store: &S,
     layer: &InternalLayer,
     upto: [u32; 5],
     files: ChildLayerFiles<F>,
 ) -> io::Result<()> {
-    // here's what we need to do
-    // find safe bound
-    // traverse up to
-    todo!();
+    println!("letsgo");
+    let bound = safe_upto_bound(store, layer, upto).await?;
+    println!("got my bound");
+    dictionary_rollup_upto(store, layer, bound, upto, &files).await?;
+    println!("rolled up dicts");
+
+    let counts = layer.all_counts();
+
+    let mut pos_builder = TripleFileBuilder::new(
+        files.pos_s_p_adjacency_list_files.clone(),
+        files.pos_sp_o_adjacency_list_files.clone(),
+        counts.node_count,
+        counts.predicate_count,
+        counts.value_count,
+        Some(files.pos_subjects_file),
+    );
+
+    let mut neg_builder = TripleFileBuilder::new(
+        files.neg_s_p_adjacency_list_files.clone(),
+        files.neg_sp_o_adjacency_list_files.clone(),
+        counts.node_count,
+        counts.predicate_count,
+        counts.value_count,
+        Some(files.neg_subjects_file),
+    );
+
+    let disk_changes = store.layer_changes_upto(bound, upto).await?;
+    let memory_changes =
+        InternalTripleStackIterator::from_layer_stack(layer, bound).expect("upto not found");
+    let changes = InternalTripleStackIterator::merge(vec![disk_changes, memory_changes]);
+    let additions = changes
+        .clone()
+        .filter(|(sort, _)| *sort == TripleChange::Addition)
+        .map(|(_, t)| t);
+    let removals = changes
+        .clone()
+        .filter(|(sort, _)| *sort == TripleChange::Removal)
+        .map(|(_, t)| t);
+
+    pos_builder.add_id_triples(additions).await?;
+    pos_builder.finalize().await?;
+
+    neg_builder.add_id_triples(removals).await?;
+    neg_builder.finalize().await?;
+
+    build_indexes(
+        files.pos_s_p_adjacency_list_files.clone(),
+        files.pos_sp_o_adjacency_list_files.clone(),
+        files.pos_o_ps_adjacency_list_files.clone(),
+        Some(files.pos_objects_file.clone()),
+        files.pos_predicate_wavelet_tree_files.clone(),
+    )
+    .await?;
+
+    build_indexes(
+        files.neg_s_p_adjacency_list_files.clone(),
+        files.neg_sp_o_adjacency_list_files.clone(),
+        files.neg_o_ps_adjacency_list_files.clone(),
+        Some(files.neg_objects_file.clone()),
+        files.neg_predicate_wavelet_tree_files.clone(),
+    )
+    .await
 }
 
 /*
@@ -402,63 +425,46 @@ mod tests {
     use super::*;
     use crate::storage::memory::*;
     use std::sync::Arc;
-    async fn build_three_layers(
+    async fn build_three_layers<S: LayerStore>(
+        store: &S,
     ) -> io::Result<(Arc<InternalLayer>, Arc<InternalLayer>, Arc<InternalLayer>)> {
-        let base_files = base_layer_memory_files();
-        let mut builder = SimpleLayerBuilder::new([0, 0, 0, 0, 1], base_files.clone());
+        let mut builder = store.create_base_layer().await?;
+        let base_name = builder.name();
         builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
         builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
         builder.add_string_triple(StringTriple::new_node("cow", "likes", "duck"));
         builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
 
-        builder.commit().await?;
-        let base_layer: Arc<InternalLayer> = Arc::new(
-            BaseLayer::load_from_files([0, 0, 0, 0, 1], &base_files)
-                .await?
-                .into(),
-        );
+        builder.commit_boxed().await?;
+        let base_layer = store.get_layer(base_name).await?.unwrap();
 
-        let child1_files = child_layer_memory_files();
-        builder = SimpleLayerBuilder::from_parent(
-            [0, 0, 0, 0, 2],
-            base_layer.clone(),
-            child1_files.clone(),
-        );
+        builder = store.create_child_layer(base_name).await?;
+        let child1_name = builder.name();
         builder.remove_string_triple(StringTriple::new_node("duck", "hates", "cow"));
         builder.add_string_triple(StringTriple::new_node("duck", "likes", "cow"));
         builder.add_string_triple(StringTriple::new_value("horse", "says", "neigh"));
         builder.add_string_triple(StringTriple::new_node("pig", "likes", "pig"));
 
-        builder.commit().await?;
-        let child1_layer: Arc<InternalLayer> = Arc::new(
-            ChildLayer::load_from_files([0, 0, 0, 0, 2], base_layer.clone(), &child1_files)
-                .await?
-                .into(),
-        );
+        builder.commit_boxed().await?;
+        let child1_layer = store.get_layer(child1_name).await?.unwrap();
 
-        let child2_files = child_layer_memory_files();
-        builder = SimpleLayerBuilder::from_parent(
-            [0, 0, 0, 0, 3],
-            child1_layer.clone(),
-            child2_files.clone(),
-        );
+        builder = store.create_child_layer(child1_name).await?;
+        let child2_name = builder.name();
         builder.remove_string_triple(StringTriple::new_node("pig", "likes", "pig"));
         builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
         builder.add_string_triple(StringTriple::new_value("sheep", "says", "baah"));
         builder.add_string_triple(StringTriple::new_value("pig", "likes", "sheep"));
-        builder.commit().await?;
-        let child2_layer: Arc<InternalLayer> = Arc::new(
-            ChildLayer::load_from_files([0, 0, 0, 0, 3], child1_layer.clone(), &child2_files)
-                .await?
-                .into(),
-        );
+        builder.commit_boxed().await?;
+
+        let child2_layer = store.get_layer(child2_name).await?.unwrap();
 
         Ok((base_layer, child1_layer, child2_layer))
     }
 
     #[tokio::test]
     async fn rollup_three_layers() {
-        let (_, _, layer) = build_three_layers().await.unwrap();
+        let store = MemoryLayerStore::new();
+        let (_, _, layer) = build_three_layers(&store).await.unwrap();
 
         let delta_files = base_layer_memory_files();
         delta_rollup(&layer, delta_files.clone()).await.unwrap();
@@ -490,10 +496,12 @@ mod tests {
 
     #[tokio::test]
     async fn rollup_two_of_three_layers() {
-        let (base_layer, _, child_layer) = build_three_layers().await.unwrap();
+        let store = MemoryLayerStore::new();
+        let (base_layer, _, child_layer) = build_three_layers(&store).await.unwrap();
+        let base_name = Layer::name(&*base_layer);
 
         let delta_files = child_layer_memory_files();
-        delta_rollup_upto(&child_layer, [0, 0, 0, 0, 1], delta_files.clone())
+        delta_rollup_upto(&store, &child_layer, base_name, delta_files.clone())
             .await
             .unwrap();
 
@@ -522,11 +530,11 @@ mod tests {
         }
 
         let change_expected: Vec<_> =
-            InternalTripleStackIterator::from_layer_stack(&*child_layer, [0, 0, 0, 0, 1])
+            InternalTripleStackIterator::from_layer_stack(&*child_layer, base_name)
                 .unwrap()
                 .collect();
         let change_actual: Vec<_> =
-            InternalTripleStackIterator::from_layer_stack(&*delta_layer, [0, 0, 0, 0, 1])
+            InternalTripleStackIterator::from_layer_stack(&*delta_layer, base_name)
                 .unwrap()
                 .collect();
 
@@ -535,12 +543,18 @@ mod tests {
 
     #[tokio::test]
     async fn rollup_twice() {
-        let (base_layer, _, child_layer) = build_three_layers().await.unwrap();
+        let store = MemoryLayerStore::new();
+        let (base_layer, _, child_layer) = build_three_layers(&store).await.unwrap();
 
         let delta1_files = child_layer_memory_files();
-        delta_rollup_upto(&child_layer, [0, 0, 0, 0, 1], delta1_files.clone())
-            .await
-            .unwrap();
+        delta_rollup_upto(
+            &store,
+            &child_layer,
+            Layer::name(&*base_layer),
+            delta1_files.clone(),
+        )
+        .await
+        .unwrap();
 
         let delta_layer1: Arc<InternalLayer> = Arc::new(
             ChildLayer::load_from_files([0, 0, 0, 0, 4], base_layer, &delta1_files)
