@@ -292,11 +292,8 @@ pub async fn delta_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore>
     upto: [u32; 5],
     files: ChildLayerFiles<F>,
 ) -> io::Result<()> {
-    println!("letsgo");
     let bound = safe_upto_bound(store, layer, upto).await?;
-    println!("got my bound");
     dictionary_rollup_upto(store, layer, bound, upto, &files).await?;
-    println!("rolled up dicts");
 
     let counts = layer.all_counts();
 
