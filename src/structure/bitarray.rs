@@ -471,10 +471,12 @@ mod tests {
         }
     }
 
-    #[test]
-    fn bitarray_len_from_file_errors() {
+    #[tokio::test]
+    async fn bitarray_len_from_file_errors() {
         let store = MemoryBackedStore::new();
-        block_on(store.open_write().write_all(&[0, 0, 0])).unwrap();
+        let mut writer = store.open_write();
+        writer.write_all(&[0, 0, 0]).await.unwrap();
+        writer.sync_all().await.unwrap();
         assert_eq!(
             io::Error::from(BitArrayError::InputBufferTooSmall(3)).to_string(),
             block_on(bitarray_len_from_file(store))
@@ -484,7 +486,9 @@ mod tests {
         );
 
         let store = MemoryBackedStore::new();
-        block_on(store.open_write().write_all(&[0, 0, 0, 0, 0, 0, 0, 2])).unwrap();
+        let mut writer = store.open_write();
+        writer.write_all(&[0, 0, 0, 0, 0, 0, 0, 2]).await.unwrap();
+        writer.sync_all().await.unwrap();
         assert_eq!(
             io::Error::from(BitArrayError::UnexpectedInputBufferSize(8, 16, 2)).to_string(),
             block_on(bitarray_len_from_file(store))
