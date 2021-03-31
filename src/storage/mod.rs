@@ -24,11 +24,12 @@
 //! the layer this label is pointing at.
 mod cache;
 mod consts;
-pub mod delta;
 pub mod directory;
 mod file;
 mod label;
+#[macro_use]
 mod layer;
+pub mod delta;
 mod locking;
 pub mod memory;
 

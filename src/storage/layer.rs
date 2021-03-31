@@ -5,8 +5,9 @@ use super::file::*;
 use crate::layer::{
     layer_triple_exists, BaseLayer, ChildLayer, IdTriple, InternalLayer, InternalLayerImpl,
     InternalLayerTripleObjectIterator, InternalLayerTriplePredicateIterator,
-    InternalLayerTripleSubjectIterator, LayerBuilder, OptInternalLayerTriplePredicateIterator,
-    OptInternalLayerTripleSubjectIterator, RollupLayer, SimpleLayerBuilder,
+    InternalLayerTripleSubjectIterator, InternalTripleStackIterator, LayerBuilder,
+    OptInternalLayerTriplePredicateIterator, OptInternalLayerTripleSubjectIterator, RollupLayer,
+    SimpleLayerBuilder,
 };
 use crate::structure::bitarray::bitarray_len_from_file;
 use crate::structure::logarray::logarray_file_get_length_and_width;
@@ -19,6 +20,42 @@ use futures::future::{self, Future};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use std::pin::Pin;
+
+macro_rules! walk_backwards_from_disk {
+    ($store:ident, $name:ident, $current:ident, $body:block) => {
+        let mut $current = $name;
+        loop {
+            $body
+
+            if let Some(parent) = $store.get_layer_parent_name($current).await? {
+                $current = parent;
+            }
+            else {
+                break;
+            }
+        }
+    }
+}
+
+macro_rules! walk_backwards_from_disk_upto {
+    ($store:ident, $name:ident, $upto:ident, $current:ident, $body:block) => {
+        let mut $current = $name;
+        loop {
+            if $current == $upto {
+                break Ok(());
+            }
+
+            $body
+
+            if let Some(parent) = $store.get_layer_parent_name($current).await? {
+                $current = parent;
+            }
+            else {
+                break Err(io::Error::new(io::ErrorKind::NotFound, "expected a parent layer, but it was not found"));
+            }
+        }?
+    }
+}
 
 pub trait LayerStore: 'static + Send + Sync {
     fn layers(&self) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>>;
@@ -260,6 +297,47 @@ pub trait LayerStore: 'static + Send + Sync {
         name: [u32; 5],
         upto: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>>;
+
+    fn layer_changes(
+        self: Arc<Self>,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<InternalTripleStackIterator>> + Send>> {
+        Box::pin(async move {
+            let mut positives = Vec::new();
+            let mut negatives = Vec::new();
+            walk_backwards_from_disk!(self, name, current, {
+                positives.push(self.triple_additions(name).await?);
+                negatives.push(self.triple_removals(name).await?);
+            });
+            positives.reverse();
+            negatives.reverse();
+
+            Ok(InternalTripleStackIterator::from_parts(
+                positives, negatives,
+            ))
+        })
+    }
+
+    fn layer_changes_upto(
+        self: Arc<Self>,
+        name: [u32; 5],
+        upto: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<InternalTripleStackIterator>> + Send>> {
+        Box::pin(async move {
+            let mut positives = Vec::new();
+            let mut negatives = Vec::new();
+            walk_backwards_from_disk_upto!(self, name, upto, current, {
+                positives.push(self.triple_additions(name).await?);
+                negatives.push(self.triple_removals(name).await?);
+            });
+            positives.reverse();
+            negatives.reverse();
+
+            Ok(InternalTripleStackIterator::from_parts(
+                positives, negatives,
+            ))
+        })
+    }
 }
 
 pub trait PersistentLayerStore: 'static + Send + Sync + Clone {

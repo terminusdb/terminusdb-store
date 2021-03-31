@@ -354,17 +354,19 @@ impl InternalTripleStackIterator {
         })
     }
 
-    pub async fn from_disk_upto<S: LayerStore>(
-        store: &S,
-        layer: [u32; 5],
-        upto: [u32; 5],
-    ) -> io::Result<InternalTripleStackIterator> {
-        todo!();
+    pub fn from_parts(
+        positives: Vec<OptInternalLayerTripleSubjectIterator>,
+        negatives: Vec<OptInternalLayerTripleSubjectIterator>,
+    ) -> Self {
+        Self {
+            positives,
+            negatives,
+        }
     }
 
     pub fn merge_stack_iterators<I: Iterator<Item = InternalTripleStackIterator>>(
         stacks: I,
-    ) -> InternalTripleStackIterator {
+    ) -> Self {
         let mut positives = Vec::new();
         let mut negatives = Vec::new();
 

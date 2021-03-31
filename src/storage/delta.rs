@@ -86,38 +86,13 @@ async fn load_dictionaries_upto<S: LayerStore>(
     Ok(result)
 }
 
-macro_rules! walk_backwards_from_disk {
-    ($store:ident, $name:ident, $upto:ident, $current:ident, $body:block) => {
-        let mut $current = $name;
-        loop {
-            if $current == $upto {
-                break Ok(());
-            }
-
-
-            if let Some(parent) = $store.get_layer_parent_name($current).await? {
-                if parent == $upto {
-                    break Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"));
-                }
-
-                $body
-
-                $current = parent;
-            }
-            else {
-                break Ok(());
-            }
-        }?
-    }
-}
-
 async fn get_node_dicts_from_disk<S: LayerStore>(
     store: &S,
     name: [u32; 5],
     upto: [u32; 5],
 ) -> io::Result<Vec<PfcDict>> {
     let mut result = Vec::new();
-    walk_backwards_from_disk!(store, name, upto, current, {
+    walk_backwards_from_disk_upto!(store, name, upto, current, {
         let dict = store
             .get_node_dictionary(current)
             .await?
@@ -136,7 +111,7 @@ async fn get_predicate_dicts_from_disk<S: LayerStore>(
     upto: [u32; 5],
 ) -> io::Result<Vec<PfcDict>> {
     let mut result = Vec::new();
-    walk_backwards_from_disk!(store, name, upto, current, {
+    walk_backwards_from_disk_upto!(store, name, upto, current, {
         let dict = store
             .get_predicate_dictionary(current)
             .await?
@@ -155,7 +130,7 @@ async fn get_value_dicts_from_disk<S: LayerStore>(
     upto: [u32; 5],
 ) -> io::Result<Vec<PfcDict>> {
     let mut result = Vec::new();
-    walk_backwards_from_disk!(store, name, upto, current, {
+    walk_backwards_from_disk_upto!(store, name, upto, current, {
         let dict = store
             .get_value_dictionary(current)
             .await?
