@@ -1,10 +1,14 @@
-use super::file::*;
-use futures::task::{Context, Poll};
-use futures::{future, Future};
+use std::collections::HashMap;
 use std::io;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
+
+use futures::task::{Context, Poll};
+use futures::{future, Future};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+
+use super::file::*;
+use super::layer::*;
 
 use bytes::{Bytes, BytesMut};
 enum MemoryBackedStoreContents {
@@ -163,5 +167,85 @@ impl FileLoad for NewMemoryBackedStore {
             }
             MemoryBackedStoreContents::Existent(bytes) => Box::pin(future::ok(bytes.clone())),
         }
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct NewMemoryLayerStore {
+    layers: futures_locks::RwLock<HashMap<[u32; 5], HashMap<String, NewMemoryBackedStore>>>,
+}
+
+impl PersistentLayerStore for NewMemoryLayerStore {
+    type File = NewMemoryBackedStore;
+
+    fn directories(&self) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
+        let guard = self.layers.read();
+        Box::pin(async move { Ok(guard.await.keys().cloned().collect()) })
+    }
+
+    fn create_directory(&self) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+        let guard = self.layers.write();
+        Box::pin(async move {
+            let name: [u32; 5] = rand::random();
+            guard.await.insert(name, HashMap::new());
+
+            Ok(name)
+        })
+    }
+
+    fn directory_exists(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> {
+        let guard = self.layers.read();
+        Box::pin(async move { Ok(guard.await.contains_key(&name)) })
+    }
+
+    fn file_exists(
+        &self,
+        directory: [u32; 5],
+        file: &str,
+    ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> {
+        let guard = self.layers.read();
+        let file = file.to_owned();
+        Box::pin(async move {
+            if let Some(files) = guard.await.get(&directory) {
+                Ok(files.contains_key(&file))
+            } else {
+                Ok(false)
+            }
+        })
+    }
+
+    fn get_file(
+        &self,
+        directory: [u32; 5],
+        name: &str,
+    ) -> Pin<Box<dyn Future<Output = io::Result<Self::File>> + Send>> {
+        let guard = self.layers.read();
+        let name = name.to_owned();
+        Box::pin(async move {
+            if let Some(files) = guard.await.get(&directory) {
+                if let Some(file) = files.get(&name) {
+                    Ok(file.clone())
+                } else {
+                    Err(io::Error::new(io::ErrorKind::NotFound, "file not found"))
+                }
+            } else {
+                Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"))
+            }
+        })
+    }
+
+    fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
+        todo!();
+    }
+
+    fn import_layers(
+        &self,
+        pack: &[u8],
+        layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
+    ) -> Result<(), io::Error> {
+        todo!();
     }
 }
