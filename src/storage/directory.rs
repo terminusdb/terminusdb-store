@@ -95,12 +95,10 @@ impl FileLoad for FileBackedStore {
 impl FileStore for FileBackedStore {
     type Write = BufWriter<File>;
 
-    fn open_write_from(&self, offset: usize) -> BufWriter<File> {
+    fn open_write(&self) -> BufWriter<File> {
         let mut options = std::fs::OpenOptions::new();
         options.read(true).write(true).create(true);
-        let mut file = options.open(&self.path).unwrap();
-
-        file.seek(SeekFrom::Start(offset as u64)).unwrap();
+        let file = options.open(&self.path).unwrap();
 
         BufWriter::new(File::from_std(file))
     }

@@ -14,10 +14,7 @@ pub trait SyncableFile: AsyncWrite + Unpin + Send {
 
 pub trait FileStore: Clone + Send + Sync {
     type Write: SyncableFile;
-    fn open_write(&self) -> Self::Write {
-        self.open_write_from(0)
-    }
-    fn open_write_from(&self, offset: usize) -> Self::Write;
+    fn open_write(&self) -> Self::Write;
 }
 
 pub trait FileLoad: Clone + Send + Sync {

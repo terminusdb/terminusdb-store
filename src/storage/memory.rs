@@ -126,11 +126,11 @@ impl SyncableFile for MemoryBackedStoreWriter {
 impl FileStore for MemoryBackedStore {
     type Write = MemoryBackedStoreWriter;
 
-    fn open_write_from(&self, pos: usize) -> MemoryBackedStoreWriter {
+    fn open_write(&self) -> MemoryBackedStoreWriter {
         *self.exists.write().unwrap() = true;
         MemoryBackedStoreWriter {
             vec: self.vec.clone(),
-            pos,
+            pos: 0,
         }
     }
 }
