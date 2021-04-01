@@ -123,6 +123,19 @@ pub trait LayerStore: 'static + Send + Sync {
     ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
         self.perform_rollup_upto_with_cache(layer, upto, NOCACHE.clone())
     }
+    fn perform_imprecise_rollup_upto_with_cache<'a>(
+        &'a self,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+        cache: Arc<dyn LayerCache>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>>;
+    fn perform_imprecise_rollup_upto<'a>(
+        &'a self,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
+        self.perform_rollup_upto_with_cache(layer, upto, NOCACHE.clone())
+    }
     fn register_rollup(
         &self,
         layer: [u32; 5],
@@ -179,6 +192,38 @@ pub trait LayerStore: 'static + Send + Sync {
         upto: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
         self.rollup_upto_with_cache(layer, upto, NOCACHE.clone())
+    }
+
+    fn imprecise_rollup_upto_with_cache(
+        self: Arc<Self>,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+        cache: Arc<dyn LayerCache>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+        Box::pin(async move {
+            let name = layer.name();
+            let rollup = self
+                .perform_imprecise_rollup_upto_with_cache(layer, upto, cache)
+                .await?;
+            self.register_rollup(name, rollup).await?;
+
+            Ok(rollup)
+        })
+    }
+
+    /// Create a new rollup layer which rolls up all triples in the given layer, as well as all ancestors up to (but not including) the given ancestor.
+    ///
+    /// It is a good idea to keep layer stacks small, meaning, to only
+    /// have a handful of ancestors for a layer. The more layers there
+    /// are, the longer queries take. Rollup is one approach of
+    /// accomplishing this. Squash is another. Rollup is the better
+    /// option if you need to retain history.
+    fn imprecise_rollup_upto(
+        self: Arc<Self>,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+        self.imprecise_rollup_upto_with_cache(layer, upto, NOCACHE.clone())
     }
 
     /// Export the given layers by creating a pack, a Vec<u8> that can later be used with `import_layers` on a different store.
@@ -1801,6 +1846,43 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                 .create_child_layer_files_with_cache(upto, cache)
                 .await?;
             delta_rollup_upto(self, &layer, upto, child_layer_files).await?;
+            Ok(layer_dir)
+        })
+    }
+
+    fn perform_imprecise_rollup_upto_with_cache<'a>(
+        &'a self,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+        cache: Arc<dyn LayerCache>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
+        if layer.name() == upto {
+            // rolling up upto ourselves is pretty pointless. Let's not do that.
+            return Box::pin(future::ok(layer.name()));
+        }
+
+        if layer.parent_name() == Some(upto) {
+            // rolling up to our parent is just going to create a clone of this child layer. Let's not do that.
+            return Box::pin(future::ok(layer.name()));
+        }
+
+        let self_ = self.clone();
+        Box::pin(async move {
+            // check if there's already an equivalent rollup
+            if self_.layer_has_rollup(layer.name()).await? {
+                let rollup = self_.read_rollup_file(layer.name()).await?;
+
+                // get rollup parent. if it is the same as upto, we're requesting something equivalent.
+                if upto == self_.read_parent_file(rollup).await? {
+                    // yup, equivalent. Let's just return the rollup we know about.
+                    return Ok(rollup);
+                }
+            }
+
+            let (layer_dir, _parent_layer, child_layer_files) = self_
+                .create_child_layer_files_with_cache(upto, cache)
+                .await?;
+            imprecise_delta_rollup_upto(self, &layer, upto, child_layer_files).await?;
             Ok(layer_dir)
         })
     }

@@ -1058,6 +1058,45 @@ impl LayerStore for MemoryLayerStore {
         })
     }
 
+    fn perform_imprecise_rollup_upto_with_cache<'a>(
+        &'a self,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+        _cache: Arc<dyn LayerCache>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
+        if layer.parent_name() == Some(upto) {
+            // rolling up to our parent is just going to create a clone of this child layer. Let's not do that.
+            return Box::pin(future::ok(layer.name()));
+        }
+
+        let layers = self.layers.clone();
+        Box::pin(async move {
+            {
+                let layers_r = layers.read().await;
+                if let Some((_, Some(rollup), _)) = layers_r.get(&layer.name()) {
+                    // get rollup parent. if it is the same as upto, we're requesting something equivalent.
+                    if let Some((Some(rollup_parent), _, _)) = layers_r.get(rollup) {
+                        if *rollup_parent == upto {
+                            // yup, equivalent. let's just return the rollup we know about.
+                            return Ok(*rollup);
+                        }
+                    }
+                }
+            }
+
+            let name = rand::random();
+            let clf = child_layer_memory_files();
+
+            imprecise_delta_rollup_upto(self, &layer, upto, clf.clone()).await?;
+            layers
+                .write()
+                .await
+                .insert(name, (Some(upto), None, LayerFiles::Child(clf)));
+
+            Ok(name)
+        })
+    }
+
     fn register_rollup(
         &self,
         layer: [u32; 5],
