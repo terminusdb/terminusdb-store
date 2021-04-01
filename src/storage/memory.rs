@@ -166,7 +166,8 @@ impl FileLoad for MemoryBackedStore {
     fn map(&self) -> Pin<Box<dyn Future<Output = io::Result<Bytes>> + Send>> {
         match &*self.contents.read().unwrap() {
             MemoryBackedStoreContents::Nonexistent => {
-                panic!("tried to open nonexistent memory file for reading")
+                Box::pin(future::err(io::Error::new(io::ErrorKind::NotFound,
+                                                    "tried to open a nonexistent memory file for reading")))
             }
             MemoryBackedStoreContents::Existent(bytes) => Box::pin(future::ok(bytes.clone())),
         }
