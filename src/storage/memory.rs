@@ -165,10 +165,10 @@ impl FileLoad for MemoryBackedStore {
 
     fn map(&self) -> Pin<Box<dyn Future<Output = io::Result<Bytes>> + Send>> {
         match &*self.contents.read().unwrap() {
-            MemoryBackedStoreContents::Nonexistent => {
-                Box::pin(future::err(io::Error::new(io::ErrorKind::NotFound,
-                                                    "tried to open a nonexistent memory file for reading")))
-            }
+            MemoryBackedStoreContents::Nonexistent => Box::pin(future::err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "tried to open a nonexistent memory file for reading",
+            ))),
             MemoryBackedStoreContents::Existent(bytes) => Box::pin(future::ok(bytes.clone())),
         }
     }
@@ -220,7 +220,11 @@ impl PersistentLayerStore for MemoryLayerStore {
         let file = file.to_owned();
         Box::pin(async move {
             if let Some(files) = guard.await.get(&directory) {
-                Ok(files.contains_key(&file))
+                if let Some(file) = files.get(&file) {
+                    Ok(file.exists())
+                } else {
+                    Ok(false)
+                }
             } else {
                 Ok(false)
             }
