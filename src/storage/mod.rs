@@ -27,11 +27,14 @@ mod consts;
 pub mod directory;
 mod file;
 mod label;
+#[macro_use]
 mod layer;
+pub mod delta;
 mod locking;
 pub mod memory;
 
 pub use cache::*;
+pub use delta::*;
 pub use file::*;
 pub use label::*;
 pub use layer::*;

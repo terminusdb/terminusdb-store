@@ -350,6 +350,31 @@ impl InternalTripleStackIterator {
             negatives,
         })
     }
+
+    pub fn from_parts(
+        positives: Vec<OptInternalLayerTripleSubjectIterator>,
+        negatives: Vec<OptInternalLayerTripleSubjectIterator>,
+    ) -> Self {
+        Self {
+            positives,
+            negatives,
+        }
+    }
+
+    pub fn merge<I: IntoIterator<Item = InternalTripleStackIterator>>(stacks: I) -> Self {
+        let mut positives = Vec::new();
+        let mut negatives = Vec::new();
+
+        for stack in stacks.into_iter() {
+            positives.extend(stack.positives);
+            negatives.extend(stack.negatives);
+        }
+
+        Self {
+            positives,
+            negatives,
+        }
+    }
 }
 
 impl Iterator for InternalTripleStackIterator {

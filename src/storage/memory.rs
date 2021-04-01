@@ -10,11 +10,13 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::{self, Arc, RwLock};
 
+use super::delta::*;
 use super::*;
 use crate::layer::{
-    delta_rollup, delta_rollup_upto, BaseLayer, ChildLayer, IdTriple, InternalLayer, LayerBuilder,
-    RollupLayer, SimpleLayerBuilder,
+    BaseLayer, ChildLayer, IdTriple, InternalLayer, LayerBuilder,
+    OptInternalLayerTripleSubjectIterator, RollupLayer, SimpleLayerBuilder,
 };
+use crate::structure::PfcDict;
 
 pub struct MemoryBackedStoreWriter {
     vec: Arc<sync::RwLock<Vec<u8>>>,
@@ -176,6 +178,56 @@ pub struct MemoryLayerStore {
 impl MemoryLayerStore {
     pub fn new() -> MemoryLayerStore {
         Default::default()
+    }
+
+    fn layer_files_exist(
+        &self,
+        layer: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> {
+        let guard = self.layers.read();
+        Box::pin(async move { Ok(guard.await.get(&layer).is_some()) })
+    }
+
+    fn node_dictionary_files(
+        &self,
+        layer: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<DictionaryFiles<MemoryBackedStore>>> + Send>> {
+        let guard = self.layers.read();
+        Box::pin(async move {
+            if let Some((_, _, files)) = guard.await.get(&layer) {
+                Ok(files.node_dictionary_files().clone())
+            } else {
+                Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"))
+            }
+        })
+    }
+
+    fn predicate_dictionary_files(
+        &self,
+        layer: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<DictionaryFiles<MemoryBackedStore>>> + Send>> {
+        let guard = self.layers.read();
+        Box::pin(async move {
+            if let Some((_, _, files)) = guard.await.get(&layer) {
+                Ok(files.predicate_dictionary_files().clone())
+            } else {
+                Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"))
+            }
+        })
+    }
+
+    fn value_dictionary_files(
+        &self,
+        layer: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<DictionaryFiles<MemoryBackedStore>>> + Send>> {
+        let guard = self.layers.read();
+        Box::pin(async move {
+            if let Some((_, _, files)) = guard.await.get(&layer) {
+                Ok(files.value_dictionary_files().clone())
+            } else {
+                Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"))
+            }
+        })
     }
 
     fn triple_addition_files(
@@ -815,91 +867,74 @@ impl LayerStore for MemoryLayerStore {
             Ok(Some(ancestor))
         })
     }
-    /*
-        {
-        if let Some(layer) = cache.get_layer_from_cache(name) {
-            return Box::pin(future::ok(Some(layer)));
-        }
 
-        let guard = self.layers.read();
+    fn get_layer_parent_name(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<[u32; 5]>>> + Send>> {
+        let self_ = self.clone();
         Box::pin(async move {
-            let layers = guard.await;
-
-            let mut ids = Vec::new();
-            // collect ids until we get a cache hit
-            let mut id = name;
-            let mut first = true;
-            let mut cached = None;
-            loop {
-                match cache.get_layer_from_cache(id) {
-                    None => {
-                        if let Some((parent, rollup, _)) = layers.get(&id) {
-                            first = false;
-                            match rollup {
-                                None => {
-                                    match parent {
-                                        None => break, // we traversed all the way to the base layer without finding a cached layer
-                                        Some(parent) => {
-                                            id = *parent;
-                                        }
-                                    }
-                                    ids.push(id);
-                                }
-                                Some(rollup) => {
-                                    id = rollup;
-                                }
-                            }
-                        } else if first {
-                            // the requested layer does not exist.
-                            return Ok(None);
-                        } else {
-                            // layer parent does not exist. this should never happen
-                            panic!("expected to find parent layer, but not found");
-                        }
-                    }
-                    Some(layer) => {
-                        // great, we found a cached layer, now we can iteratively build all the child layers.
-                        cached = Some(layer);
-                        break;
-                    }
-                }
+            if let Some((parent, _, _)) = self_.layers.read().await.get(&name) {
+                Ok(parent.clone())
+            } else {
+                Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "parent layer not found",
+                ))
             }
-
-            // at this point we have a list of layer ids, and optionally, we have a cached layer
-            // starting with the cached layer, we need to construct child layers iteratively.
-            // lacking a cached layer, the very last item in the vec is a base layer and that is our starting point.
-
-            let mut layer = match cached {
-                None => {
-                    // construct base layer out of last id, then pop it
-                    let base_id = ids.pop().unwrap();
-                    let (_, _, files) = layers.get(&base_id).unwrap();
-                    let base_layer =
-                        BaseLayer::load_from_files(base_id, &files.clone().into_base()).await?;
-
-                    let result = Arc::new(base_layer.into()) as Arc<InternalLayer>;
-                    cache.cache_layer(result.clone());
-
-                    result
-                }
-                Some(layer) => layer,
-            };
-
-            ids.reverse();
-
-            for id in ids {
-                let (_, _, files) = layers.get(&id).unwrap();
-                let child =
-                    ChildLayer::load_from_files(id, layer, &files.clone().into_child()).await?;
-
-                layer = Arc::new(child.into()) as Arc<InternalLayer>;
-                cache.cache_layer(layer.clone());
-            }
-
-            Ok(Some(layer))
         })
     }
-    */
+
+    fn get_node_dictionary(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            if !self_.layer_files_exist(name).await? {
+                return Ok(None);
+            }
+
+            let files = self_.node_dictionary_files(name).await?;
+            let maps = files.map_all().await?;
+
+            Ok(Some(PfcDict::parse(maps.blocks_map, maps.offsets_map)?))
+        })
+    }
+
+    fn get_predicate_dictionary(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            if !self_.layer_files_exist(name).await? {
+                return Ok(None);
+            }
+
+            let files = self_.predicate_dictionary_files(name).await?;
+            let maps = files.map_all().await?;
+
+            Ok(Some(PfcDict::parse(maps.blocks_map, maps.offsets_map)?))
+        })
+    }
+
+    fn get_value_dictionary(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            if !self_.layer_files_exist(name).await? {
+                return Ok(None);
+            }
+
+            let files = self_.value_dictionary_files(name).await?;
+            let maps = files.map_all().await?;
+
+            Ok(Some(PfcDict::parse(maps.blocks_map, maps.offsets_map)?))
+        })
+    }
 
     fn create_base_layer(
         &self,
@@ -984,12 +1019,12 @@ impl LayerStore for MemoryLayerStore {
         })
     }
 
-    fn perform_rollup_upto_with_cache(
-        &self,
+    fn perform_rollup_upto_with_cache<'a>(
+        &'a self,
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
         _cache: Arc<dyn LayerCache>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
         if layer.parent_name() == Some(upto) {
             // rolling up to our parent is just going to create a clone of this child layer. Let's not do that.
             return Box::pin(future::ok(layer.name()));
@@ -1013,7 +1048,46 @@ impl LayerStore for MemoryLayerStore {
             let name = rand::random();
             let clf = child_layer_memory_files();
 
-            delta_rollup_upto(&layer, upto, clf.clone()).await?;
+            delta_rollup_upto(self, &layer, upto, clf.clone()).await?;
+            layers
+                .write()
+                .await
+                .insert(name, (Some(upto), None, LayerFiles::Child(clf)));
+
+            Ok(name)
+        })
+    }
+
+    fn perform_imprecise_rollup_upto_with_cache<'a>(
+        &'a self,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+        _cache: Arc<dyn LayerCache>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
+        if layer.parent_name() == Some(upto) {
+            // rolling up to our parent is just going to create a clone of this child layer. Let's not do that.
+            return Box::pin(future::ok(layer.name()));
+        }
+
+        let layers = self.layers.clone();
+        Box::pin(async move {
+            {
+                let layers_r = layers.read().await;
+                if let Some((_, Some(rollup), _)) = layers_r.get(&layer.name()) {
+                    // get rollup parent. if it is the same as upto, we're requesting something equivalent.
+                    if let Some((Some(rollup_parent), _, _)) = layers_r.get(rollup) {
+                        if *rollup_parent == upto {
+                            // yup, equivalent. let's just return the rollup we know about.
+                            return Ok(*rollup);
+                        }
+                    }
+                }
+            }
+
+            let name = rand::random();
+            let clf = child_layer_memory_files();
+
+            imprecise_delta_rollup_upto(self, &layer, upto, clf.clone()).await?;
             layers
                 .write()
                 .await
@@ -1147,35 +1221,33 @@ impl LayerStore for MemoryLayerStore {
     fn triple_additions(
         &self,
         layer: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    ) -> Pin<Box<dyn Future<Output = io::Result<OptInternalLayerTripleSubjectIterator>> + Send>>
     {
         let files_fut = self.triple_addition_files(layer);
         Box::pin(async move {
             let (subjects_file, s_p_aj_files, sp_o_aj_files) = files_fut.await?;
 
-            Ok(
-                Box::new(file_triple_iterator(subjects_file, s_p_aj_files, sp_o_aj_files).await?)
-                    as Box<dyn Iterator<Item = _> + Send>,
-            )
+            Ok(OptInternalLayerTripleSubjectIterator(Some(
+                file_triple_iterator(subjects_file, s_p_aj_files, sp_o_aj_files).await?,
+            )))
         })
     }
 
     fn triple_removals(
         &self,
         layer: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    ) -> Pin<Box<dyn Future<Output = io::Result<OptInternalLayerTripleSubjectIterator>> + Send>>
     {
         let files_fut = self.triple_removal_files(layer);
         Box::pin(async move {
-            if let Some((subjects_file, s_p_aj_files, sp_o_aj_files)) = files_fut.await? {
-                Ok(
-                    Box::new(
+            Ok(OptInternalLayerTripleSubjectIterator(
+                match files_fut.await? {
+                    Some((subjects_file, s_p_aj_files, sp_o_aj_files)) => Some(
                         file_triple_iterator(subjects_file, s_p_aj_files, sp_o_aj_files).await?,
-                    ) as Box<dyn Iterator<Item = _> + Send>,
-                )
-            } else {
-                Ok(Box::new(std::iter::empty()) as Box<dyn Iterator<Item = _> + Send>)
-            }
+                    ),
+                    None => None,
+                },
+            ))
         })
     }
 
@@ -1421,6 +1493,40 @@ impl LayerStore for MemoryLayerStore {
                     }
                 }
             }
+        })
+    }
+
+    fn retrieve_layer_stack_names_upto(
+        &self,
+        name: [u32; 5],
+        upto: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
+        let guard = self.layers.read();
+        Box::pin(async move {
+            let layers = guard.await;
+            let mut result = vec![name];
+            let mut d = name;
+            loop {
+                match layers.get(&d) {
+                    Some((Some(parent), _, _)) => {
+                        if upto == *parent {
+                            break;
+                        }
+                        d = *parent;
+                        result.push(d)
+                    }
+                    _ => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::NotFound,
+                            "parent layer not found while retrieving layer stack names",
+                        ));
+                    }
+                }
+            }
+
+            result.reverse();
+
+            Ok(result)
         })
     }
 }

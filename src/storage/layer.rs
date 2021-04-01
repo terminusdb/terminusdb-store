@@ -1,15 +1,17 @@
 use super::cache::*;
 use super::consts::FILENAMES;
+use super::delta::*;
 use super::file::*;
 use crate::layer::{
-    delta_rollup, delta_rollup_upto, layer_triple_exists, BaseLayer, ChildLayer, IdTriple,
-    InternalLayer, InternalLayerImpl, InternalLayerTripleObjectIterator,
-    InternalLayerTriplePredicateIterator, InternalLayerTripleSubjectIterator, LayerBuilder,
-    OptInternalLayerTriplePredicateIterator, RollupLayer, SimpleLayerBuilder,
+    layer_triple_exists, BaseLayer, ChildLayer, IdTriple, InternalLayer, InternalLayerImpl,
+    InternalLayerTripleObjectIterator, InternalLayerTriplePredicateIterator,
+    InternalLayerTripleSubjectIterator, InternalTripleStackIterator, LayerBuilder,
+    OptInternalLayerTriplePredicateIterator, OptInternalLayerTripleSubjectIterator, RollupLayer,
+    SimpleLayerBuilder,
 };
 use crate::structure::bitarray::bitarray_len_from_file;
 use crate::structure::logarray::logarray_file_get_length_and_width;
-use crate::structure::{AdjacencyList, LogArray, MonotonicLogArray, WaveletTree};
+use crate::structure::{AdjacencyList, LogArray, MonotonicLogArray, PfcDict, WaveletTree};
 use std::convert::TryInto;
 use std::io;
 use std::sync::Arc;
@@ -18,6 +20,42 @@ use futures::future::{self, Future};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use std::pin::Pin;
+
+macro_rules! walk_backwards_from_disk {
+    ($store:ident, $name:ident, $current:ident, $body:block) => {
+        let mut $current = $name;
+        loop {
+            $body
+
+            if let Some(parent) = $store.get_layer_parent_name($current).await? {
+                $current = parent;
+            }
+            else {
+                break;
+            }
+        }
+    }
+}
+
+macro_rules! walk_backwards_from_disk_upto {
+    ($store:ident, $name:ident, $upto:ident, $current:ident, $body:block) => {
+        let mut $current = $name;
+        loop {
+            if $current == $upto {
+                break Ok(());
+            }
+
+            $body
+
+            if let Some(parent) = $store.get_layer_parent_name($current).await? {
+                $current = parent;
+            }
+            else {
+                break Err(io::Error::new(io::ErrorKind::NotFound, "expected a parent layer, but it was not found"));
+            }
+        }?
+    }
+}
 
 pub trait LayerStore: 'static + Send + Sync {
     fn layers(&self) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>>;
@@ -32,6 +70,26 @@ pub trait LayerStore: 'static + Send + Sync {
     ) -> Pin<Box<dyn Future<Output = io::Result<Option<Arc<InternalLayer>>>> + Send>> {
         self.get_layer_with_cache(name, NOCACHE.clone())
     }
+
+    fn get_layer_parent_name(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<[u32; 5]>>> + Send>>;
+
+    fn get_node_dictionary(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>>;
+
+    fn get_predicate_dictionary(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>>;
+
+    fn get_value_dictionary(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>>;
 
     fn create_base_layer(
         &self,
@@ -52,17 +110,30 @@ pub trait LayerStore: 'static + Send + Sync {
         &self,
         layer: Arc<InternalLayer>,
     ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>>;
-    fn perform_rollup_upto_with_cache(
-        &self,
+    fn perform_rollup_upto_with_cache<'a>(
+        &'a self,
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
         cache: Arc<dyn LayerCache>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>>;
-    fn perform_rollup_upto(
-        &self,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>>;
+    fn perform_rollup_upto<'a>(
+        &'a self,
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
+        self.perform_rollup_upto_with_cache(layer, upto, NOCACHE.clone())
+    }
+    fn perform_imprecise_rollup_upto_with_cache<'a>(
+        &'a self,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+        cache: Arc<dyn LayerCache>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>>;
+    fn perform_imprecise_rollup_upto<'a>(
+        &'a self,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
         self.perform_rollup_upto_with_cache(layer, upto, NOCACHE.clone())
     }
     fn register_rollup(
@@ -123,6 +194,38 @@ pub trait LayerStore: 'static + Send + Sync {
         self.rollup_upto_with_cache(layer, upto, NOCACHE.clone())
     }
 
+    fn imprecise_rollup_upto_with_cache(
+        self: Arc<Self>,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+        cache: Arc<dyn LayerCache>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+        Box::pin(async move {
+            let name = layer.name();
+            let rollup = self
+                .perform_imprecise_rollup_upto_with_cache(layer, upto, cache)
+                .await?;
+            self.register_rollup(name, rollup).await?;
+
+            Ok(rollup)
+        })
+    }
+
+    /// Create a new rollup layer which rolls up all triples in the given layer, as well as all ancestors up to (but not including) the given ancestor.
+    ///
+    /// It is a good idea to keep layer stacks small, meaning, to only
+    /// have a handful of ancestors for a layer. The more layers there
+    /// are, the longer queries take. Rollup is one approach of
+    /// accomplishing this. Squash is another. Rollup is the better
+    /// option if you need to retain history.
+    fn imprecise_rollup_upto(
+        self: Arc<Self>,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+        self.imprecise_rollup_upto_with_cache(layer, upto, NOCACHE.clone())
+    }
+
     /// Export the given layers by creating a pack, a Vec<u8> that can later be used with `import_layers` on a different store.
     fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8>;
 
@@ -162,12 +265,12 @@ pub trait LayerStore: 'static + Send + Sync {
     fn triple_additions(
         &self,
         layer: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = io::Result<OptInternalLayerTripleSubjectIterator>> + Send>>;
 
     fn triple_removals(
         &self,
         layer: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = io::Result<OptInternalLayerTripleSubjectIterator>> + Send>>;
 
     fn triple_additions_s(
         &self,
@@ -233,6 +336,53 @@ pub trait LayerStore: 'static + Send + Sync {
         &self,
         name: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>>;
+
+    fn retrieve_layer_stack_names_upto(
+        &self,
+        name: [u32; 5],
+        upto: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>>;
+
+    fn layer_changes<'a>(
+        &'a self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<InternalTripleStackIterator>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut positives = Vec::new();
+            let mut negatives = Vec::new();
+            walk_backwards_from_disk!(self, name, current, {
+                positives.push(self.triple_additions(name).await?);
+                negatives.push(self.triple_removals(name).await?);
+            });
+            positives.reverse();
+            negatives.reverse();
+
+            Ok(InternalTripleStackIterator::from_parts(
+                positives, negatives,
+            ))
+        })
+    }
+
+    fn layer_changes_upto<'a>(
+        &'a self,
+        name: [u32; 5],
+        upto: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<InternalTripleStackIterator>> + 'a + Send>> {
+        Box::pin(async move {
+            let mut positives = Vec::new();
+            let mut negatives = Vec::new();
+            walk_backwards_from_disk_upto!(self, name, upto, current, {
+                positives.push(self.triple_additions(name).await?);
+                negatives.push(self.triple_removals(name).await?);
+            });
+            positives.reverse();
+            negatives.reverse();
+
+            Ok(InternalTripleStackIterator::from_parts(
+                positives, negatives,
+            ))
+        })
+    }
 }
 
 pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
@@ -628,27 +778,6 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
         })
     }
 
-    fn retrieve_layer_stack_names(
-        &self,
-        name: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
-        let self_ = self.clone();
-        let mut result = vec![name];
-
-        Box::pin(async move {
-            loop {
-                if self_.layer_has_parent(*result.last().unwrap()).await? {
-                    let parent = self_.read_parent_file(*result.last().unwrap()).await?;
-                    result.push(parent);
-                } else {
-                    result.reverse();
-
-                    return Ok(result);
-                }
-            }
-        })
-    }
-
     fn create_child_layer_files_with_cache(
         &self,
         parent: [u32; 5],
@@ -681,6 +810,81 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
             let child_layer_files = self_.child_layer_files(layer_dir).await?;
 
             Ok((layer_dir, parent_layer, child_layer_files))
+        })
+    }
+
+    fn node_dictionary_files(
+        &self,
+        layer: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<DictionaryFiles<Self::File>>> + Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            // does layer exist?
+            if self_.directory_exists(layer).await? {
+                let blocks_file = self_
+                    .get_file(layer, FILENAMES.node_dictionary_blocks)
+                    .await?;
+                let offsets_file = self_
+                    .get_file(layer, FILENAMES.node_dictionary_offsets)
+                    .await?;
+
+                Ok(DictionaryFiles {
+                    blocks_file,
+                    offsets_file,
+                })
+            } else {
+                Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"))
+            }
+        })
+    }
+
+    fn predicate_dictionary_files(
+        &self,
+        layer: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<DictionaryFiles<Self::File>>> + Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            // does layer exist?
+            if self_.directory_exists(layer).await? {
+                let blocks_file = self_
+                    .get_file(layer, FILENAMES.predicate_dictionary_blocks)
+                    .await?;
+                let offsets_file = self_
+                    .get_file(layer, FILENAMES.predicate_dictionary_offsets)
+                    .await?;
+
+                Ok(DictionaryFiles {
+                    blocks_file,
+                    offsets_file,
+                })
+            } else {
+                Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"))
+            }
+        })
+    }
+
+    fn value_dictionary_files(
+        &self,
+        layer: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<DictionaryFiles<Self::File>>> + Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            // does layer exist?
+            if self_.directory_exists(layer).await? {
+                let blocks_file = self_
+                    .get_file(layer, FILENAMES.value_dictionary_blocks)
+                    .await?;
+                let offsets_file = self_
+                    .get_file(layer, FILENAMES.value_dictionary_offsets)
+                    .await?;
+
+                Ok(DictionaryFiles {
+                    blocks_file,
+                    offsets_file,
+                })
+            } else {
+                Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"))
+            }
         })
     }
 
@@ -1478,6 +1682,79 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         })
     }
 
+    fn get_layer_parent_name(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<[u32; 5]>>> + Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            if self_.directory_exists(name).await? {
+                if self_.layer_has_parent(name).await? {
+                    let parent = self_.read_parent_file(name).await?;
+                    Ok(Some(parent))
+                } else {
+                    Ok(None)
+                }
+            } else {
+                Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "parent layer not found",
+                ))
+            }
+        })
+    }
+
+    fn get_node_dictionary(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            if self_.directory_exists(name).await? {
+                let files = self_.node_dictionary_files(name).await?;
+                let maps = files.map_all().await?;
+
+                Ok(Some(PfcDict::parse(maps.blocks_map, maps.offsets_map)?))
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
+    fn get_predicate_dictionary(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            if self_.directory_exists(name).await? {
+                let files = self_.predicate_dictionary_files(name).await?;
+                let maps = files.map_all().await?;
+
+                Ok(Some(PfcDict::parse(maps.blocks_map, maps.offsets_map)?))
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
+    fn get_value_dictionary(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            if self_.directory_exists(name).await? {
+                let files = self_.value_dictionary_files(name).await?;
+                let maps = files.map_all().await?;
+
+                Ok(Some(PfcDict::parse(maps.blocks_map, maps.offsets_map)?))
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
     fn create_base_layer(
         &self,
     ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn LayerBuilder>>> + Send>> {
@@ -1536,12 +1813,12 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         })
     }
 
-    fn perform_rollup_upto_with_cache(
-        &self,
+    fn perform_rollup_upto_with_cache<'a>(
+        &'a self,
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
         cache: Arc<dyn LayerCache>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
         if layer.name() == upto {
             // rolling up upto ourselves is pretty pointless. Let's not do that.
             return Box::pin(future::ok(layer.name()));
@@ -1568,7 +1845,44 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             let (layer_dir, _parent_layer, child_layer_files) = self_
                 .create_child_layer_files_with_cache(upto, cache)
                 .await?;
-            delta_rollup_upto(&layer, upto, child_layer_files).await?;
+            delta_rollup_upto(self, &layer, upto, child_layer_files).await?;
+            Ok(layer_dir)
+        })
+    }
+
+    fn perform_imprecise_rollup_upto_with_cache<'a>(
+        &'a self,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+        cache: Arc<dyn LayerCache>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
+        if layer.name() == upto {
+            // rolling up upto ourselves is pretty pointless. Let's not do that.
+            return Box::pin(future::ok(layer.name()));
+        }
+
+        if layer.parent_name() == Some(upto) {
+            // rolling up to our parent is just going to create a clone of this child layer. Let's not do that.
+            return Box::pin(future::ok(layer.name()));
+        }
+
+        let self_ = self.clone();
+        Box::pin(async move {
+            // check if there's already an equivalent rollup
+            if self_.layer_has_rollup(layer.name()).await? {
+                let rollup = self_.read_rollup_file(layer.name()).await?;
+
+                // get rollup parent. if it is the same as upto, we're requesting something equivalent.
+                if upto == self_.read_parent_file(rollup).await? {
+                    // yup, equivalent. Let's just return the rollup we know about.
+                    return Ok(rollup);
+                }
+            }
+
+            let (layer_dir, _parent_layer, child_layer_files) = self_
+                .create_child_layer_files_with_cache(upto, cache)
+                .await?;
+            imprecise_delta_rollup_upto(self, &layer, upto, child_layer_files).await?;
             Ok(layer_dir)
         })
     }
@@ -1673,35 +1987,32 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
     fn triple_additions(
         &self,
         layer: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    ) -> Pin<Box<dyn Future<Output = io::Result<OptInternalLayerTripleSubjectIterator>> + Send>>
     {
         let self_ = self.clone();
         Box::pin(async move {
             let (subjects_file, s_p_aj_files, sp_o_aj_files) =
                 self_.triple_addition_files(layer).await?;
 
-            Ok(
-                Box::new(file_triple_iterator(subjects_file, s_p_aj_files, sp_o_aj_files).await?)
-                    as Box<dyn Iterator<Item = _> + Send>,
-            )
+            Ok(OptInternalLayerTripleSubjectIterator(Some(
+                file_triple_iterator(subjects_file, s_p_aj_files, sp_o_aj_files).await?,
+            )))
         })
     }
 
     fn triple_removals(
         &self,
         layer: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    ) -> Pin<Box<dyn Future<Output = io::Result<OptInternalLayerTripleSubjectIterator>> + Send>>
     {
         let files_fut = self.triple_removal_files(layer);
         Box::pin(async move {
             if let Some((subjects_file, s_p_aj_files, sp_o_aj_files)) = files_fut.await? {
-                Ok(
-                    Box::new(
-                        file_triple_iterator(subjects_file, s_p_aj_files, sp_o_aj_files).await?,
-                    ) as Box<dyn Iterator<Item = _> + Send>,
-                )
+                Ok(OptInternalLayerTripleSubjectIterator(Some(
+                    file_triple_iterator(subjects_file, s_p_aj_files, sp_o_aj_files).await?,
+                )))
             } else {
-                Ok(Box::new(std::iter::empty()) as Box<dyn Iterator<Item = _> + Send>)
+                Ok(OptInternalLayerTripleSubjectIterator(None))
             }
         })
     }
@@ -1944,6 +2255,35 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                     return Ok(result);
                 }
             }
+        })
+    }
+
+    fn retrieve_layer_stack_names_upto(
+        &self,
+        name: [u32; 5],
+        upto: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
+        let self_ = self.clone();
+        let mut result = vec![name];
+
+        Box::pin(async move {
+            loop {
+                if self_.layer_has_parent(*result.last().unwrap()).await? {
+                    let parent = self_.read_parent_file(*result.last().unwrap()).await?;
+                    if parent == upto {
+                        break;
+                    }
+                    result.push(parent);
+                } else {
+                    return Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "parent layer not found while retrieving names of layer stack",
+                    ));
+                }
+            }
+
+            result.reverse();
+            Ok(result)
         })
     }
 }

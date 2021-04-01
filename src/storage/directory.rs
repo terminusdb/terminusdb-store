@@ -15,8 +15,8 @@ use tar::{self, Archive};
 use tokio::fs::{self, *};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 
-use super::*;
 use super::consts::*;
+use super::*;
 
 const PREFIX_DIR_SIZE: usize = 3;
 
@@ -261,22 +261,35 @@ impl PersistentLayerStore for DirectoryLayerStore {
     }
 }
 
-fn tar_append_file<W:io::Write>(tar: &mut tar::Builder<W>, destination: &PathBuf, origin: &PathBuf, file: &str) -> io::Result<()> {
+fn tar_append_file<W: io::Write>(
+    tar: &mut tar::Builder<W>,
+    destination: &PathBuf,
+    origin: &PathBuf,
+    file: &str,
+) -> io::Result<()> {
     let file_path = origin.join(file);
     tar.append_path_with_name(file_path, destination.join(file))
 }
 
-fn tar_append_file_if_exists<W:io::Write>(tar: &mut tar::Builder<W>, destination: &PathBuf, origin: &PathBuf, file: &str) -> io::Result<()> {
+fn tar_append_file_if_exists<W: io::Write>(
+    tar: &mut tar::Builder<W>,
+    destination: &PathBuf,
+    origin: &PathBuf,
+    file: &str,
+) -> io::Result<()> {
     let file_path = origin.join(file);
     if file_path.exists() {
         tar.append_path_with_name(file_path, destination.join(file))
-    }
-    else {
+    } else {
         Ok(())
     }
 }
 
-fn tar_append_layer<W:io::Write>(tar: &mut tar::Builder<W>, tar_path: &PathBuf, layer_path: &PathBuf) -> io::Result<()> {
+fn tar_append_layer<W: io::Write>(
+    tar: &mut tar::Builder<W>,
+    tar_path: &PathBuf,
+    layer_path: &PathBuf,
+) -> io::Result<()> {
     // this appends known layer files, excluding the rollup file.
     tar.append_dir(tar_path, layer_path)?;
 
@@ -298,8 +311,7 @@ fn tar_append_layer<W:io::Write>(tar: &mut tar::Builder<W>, tar_path: &PathBuf, 
         for f in &CHILD_LAYER_OPTIONAL_FILES {
             tar_append_file_if_exists(tar, tar_path, layer_path, f)?;
         }
-    }
-    else {
+    } else {
         // this is a base layer
         for f in &BASE_LAYER_REQUIRED_FILES {
             tar_append_file(tar, tar_path, layer_path, f)?;
@@ -841,21 +853,29 @@ mod tests {
 
         let unrolled_layer = store1.get_layer(child_name).await.unwrap().unwrap();
 
-        store1.clone()
-            .rollup(unrolled_layer)
-            .await
-            .unwrap();
+        store1.clone().rollup(unrolled_layer).await.unwrap();
 
-        let export = LayerStore::export_layers(&*store1, Box::new(vec![base_name, child_name].into_iter()));
+        let export =
+            LayerStore::export_layers(&*store1, Box::new(vec![base_name, child_name].into_iter()));
 
-        LayerStore::import_layers(&*store2, &export, Box::new(vec![base_name, child_name].into_iter())).unwrap();
+        LayerStore::import_layers(
+            &*store2,
+            &export,
+            Box::new(vec![base_name, child_name].into_iter()),
+        )
+        .unwrap();
 
         let imported_layer = store2.get_layer(child_name).await.unwrap().unwrap();
-        let triples: Vec<_> = imported_layer.triples().map(|t|imported_layer.id_triple_to_string(&t).unwrap()).collect();
-        assert_eq!(vec![
-            StringTriple::new_node("cow", "likes", "duck"),
-            StringTriple::new_node("duck", "likes", "cow")
-        ],
-                   triples);
+        let triples: Vec<_> = imported_layer
+            .triples()
+            .map(|t| imported_layer.id_triple_to_string(&t).unwrap())
+            .collect();
+        assert_eq!(
+            vec![
+                StringTriple::new_node("cow", "likes", "duck"),
+                StringTriple::new_node("duck", "likes", "cow")
+            ],
+            triples
+        );
     }
 }

@@ -51,6 +51,27 @@ pub enum LayerFiles<F: 'static + FileLoad + FileStore + Clone> {
 }
 
 impl<F: 'static + FileLoad + FileStore + Clone> LayerFiles<F> {
+    pub fn node_dictionary_files(&self) -> &DictionaryFiles<F> {
+        match self {
+            Self::Base(b) => &b.node_dictionary_files,
+            Self::Child(c) => &c.node_dictionary_files,
+        }
+    }
+
+    pub fn predicate_dictionary_files(&self) -> &DictionaryFiles<F> {
+        match self {
+            Self::Base(b) => &b.predicate_dictionary_files,
+            Self::Child(c) => &c.predicate_dictionary_files,
+        }
+    }
+
+    pub fn value_dictionary_files(&self) -> &DictionaryFiles<F> {
+        match self {
+            Self::Base(b) => &b.value_dictionary_files,
+            Self::Child(c) => &c.value_dictionary_files,
+        }
+    }
+
     pub fn into_base(self) -> BaseLayerFiles<F> {
         match self {
             Self::Base(b) => b,

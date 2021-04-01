@@ -360,7 +360,12 @@ impl StoreLayer {
         &self,
     ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
     {
-        self.store.layer_store.triple_additions(self.layer.name())
+        let fut = self.store.layer_store.triple_additions(self.layer.name());
+        Box::pin(async move {
+            let result = fut.await?;
+
+            Ok(Box::new(result) as Box<dyn Iterator<Item = _> + Send>)
+        })
     }
 
     /// Returns a future that yields an iterator over all layer removals.
@@ -371,7 +376,12 @@ impl StoreLayer {
         &self,
     ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
     {
-        self.store.layer_store.triple_removals(self.layer.name())
+        let fut = self.store.layer_store.triple_removals(self.layer.name());
+        Box::pin(async move {
+            let result = fut.await?;
+
+            Ok(Box::new(result) as Box<dyn Iterator<Item = _> + Send>)
+        })
     }
 
     /// Returns a future that yields an iterator over all layer additions that share a particular subject.

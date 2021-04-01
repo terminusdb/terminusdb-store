@@ -1,5 +1,6 @@
 use super::layer::*;
 use crate::layer::*;
+use crate::structure::PfcDict;
 use futures::future::{self, Future};
 use std::collections::HashMap;
 use std::io;
@@ -126,6 +127,63 @@ impl LayerStore for CachedLayerStore {
         self.inner.get_layer_with_cache(name, cache)
     }
 
+    fn get_layer_parent_name(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<[u32; 5]>>> + Send>> {
+        // is layer in cache? if so, we can use the cached version
+        if let Some(layer) = self.cache.get_layer_from_cache(name) {
+            Box::pin(future::ok(InternalLayerImpl::parent_name(&*layer)))
+        } else {
+            self.inner.get_layer_parent_name(name)
+        }
+    }
+
+    fn get_node_dictionary(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
+        // is layer in cache? if so, we can use the cached version
+        if let Some(layer) = self.cache.get_layer_from_cache(name) {
+            // unless it is a rollup
+            if !layer.is_rollup() {
+                return Box::pin(future::ok(Some(layer.node_dictionary().clone())));
+            }
+        }
+
+        self.inner.get_node_dictionary(name)
+    }
+
+    fn get_predicate_dictionary(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
+        // is layer in cache? if so, we can use the cached version
+        if let Some(layer) = self.cache.get_layer_from_cache(name) {
+            // unless it is a rollup
+            if !layer.is_rollup() {
+                return Box::pin(future::ok(Some(layer.predicate_dictionary().clone())));
+            }
+        }
+
+        self.inner.get_predicate_dictionary(name)
+    }
+
+    fn get_value_dictionary(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
+        // is layer in cache? if so, we can use the cached version
+        if let Some(layer) = self.cache.get_layer_from_cache(name) {
+            // unless it is a rollup
+            if !layer.is_rollup() {
+                return Box::pin(future::ok(Some(layer.value_dictionary().clone())));
+            }
+        }
+
+        self.inner.get_value_dictionary(name)
+    }
+
     fn create_base_layer(
         &self,
     ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn LayerBuilder>>> + Send>> {
@@ -155,23 +213,42 @@ impl LayerStore for CachedLayerStore {
         self.inner.perform_rollup(layer)
     }
 
-    fn perform_rollup_upto_with_cache(
-        &self,
+    fn perform_rollup_upto_with_cache<'a>(
+        &'a self,
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
         cache: Arc<dyn LayerCache>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
         self.inner
             .perform_rollup_upto_with_cache(layer, upto, cache)
     }
 
-    fn perform_rollup_upto(
-        &self,
+    fn perform_rollup_upto<'a>(
+        &'a self,
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
         self.inner
             .perform_rollup_upto_with_cache(layer, upto, self.cache.clone())
+    }
+
+    fn perform_imprecise_rollup_upto_with_cache<'a>(
+        &'a self,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+        cache: Arc<dyn LayerCache>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
+        self.inner
+            .perform_imprecise_rollup_upto_with_cache(layer, upto, cache)
+    }
+
+    fn perform_imprecise_rollup_upto<'a>(
+        &'a self,
+        layer: Arc<InternalLayer>,
+        upto: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
+        self.inner
+            .perform_imprecise_rollup_upto_with_cache(layer, upto, self.cache.clone())
     }
 
     fn register_rollup(
@@ -261,12 +338,11 @@ impl LayerStore for CachedLayerStore {
     fn triple_additions(
         &self,
         layer: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    ) -> Pin<Box<dyn Future<Output = io::Result<OptInternalLayerTripleSubjectIterator>> + Send>>
     {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
-                return Box::pin(future::ok(Box::new(cached.internal_triple_additions())
-                    as Box<dyn Iterator<Item = _> + Send>));
+                return Box::pin(future::ok(cached.internal_triple_additions()));
             }
         }
 
@@ -276,12 +352,11 @@ impl LayerStore for CachedLayerStore {
     fn triple_removals(
         &self,
         layer: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
+    ) -> Pin<Box<dyn Future<Output = io::Result<OptInternalLayerTripleSubjectIterator>> + Send>>
     {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
-                return Box::pin(future::ok(Box::new(cached.internal_triple_removals())
-                    as Box<dyn Iterator<Item = _> + Send>));
+                return Box::pin(future::ok(cached.internal_triple_removals()));
             }
         }
 
@@ -450,8 +525,15 @@ impl LayerStore for CachedLayerStore {
         &self,
         name: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
-        // Note: Doesn't use cache, but does pointer chasing on disk anyhow
         self.inner.retrieve_layer_stack_names(name)
+    }
+
+    fn retrieve_layer_stack_names_upto(
+        &self,
+        name: [u32; 5],
+        upto: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
+        self.inner.retrieve_layer_stack_names_upto(name, upto)
     }
 }
 
