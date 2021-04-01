@@ -1,6 +1,6 @@
 //! Directory-based implementation of storage traits.
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -84,9 +84,18 @@ impl FileLoad for FileBackedStore {
                 Ok(Bytes::new())
             } else {
                 let mut f = file.open_read();
-                let mut v = Vec::with_capacity(file.size());
-                f.read_to_end(&mut v).await?;
-                Ok(Bytes::from(v))
+                let mut b = BytesMut::with_capacity(file.size());
+
+                // unsafe justification: We are immediately
+                // overwriting the data in this BytesMut with the file
+                // contents, so it doesn't matter that it is
+                // uninitialized.
+                // Should file reading fail, an error will be
+                // returned, and the BytesMut will be freed, ensuring
+                // nobody ever looks at the initialized data.
+                unsafe { b.set_len(file.size()) };
+                f.read_exact(&mut b[..]).await?;
+                Ok(b.freeze())
             }
         })
     }
@@ -95,12 +104,10 @@ impl FileLoad for FileBackedStore {
 impl FileStore for FileBackedStore {
     type Write = BufWriter<File>;
 
-    fn open_write_from(&self, offset: usize) -> BufWriter<File> {
+    fn open_write(&self) -> BufWriter<File> {
         let mut options = std::fs::OpenOptions::new();
         options.read(true).write(true).create(true);
-        let mut file = options.open(&self.path).unwrap();
-
-        file.seek(SeekFrom::Start(offset as u64)).unwrap();
+        let file = options.open(&self.path).unwrap();
 
         BufWriter::new(File::from_std(file))
     }

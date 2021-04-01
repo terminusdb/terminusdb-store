@@ -904,10 +904,12 @@ mod tests {
         assert_eq!(None, Decoder::decode(&mut decoder, &mut bytes).unwrap());
     }
 
-    #[test]
-    fn logarray_file_get_length_and_width_errors() {
+    #[tokio::test]
+    async fn logarray_file_get_length_and_width_errors() {
         let store = MemoryBackedStore::new();
-        let _ = block_on(store.open_write().write_all(&[0, 0, 0]));
+        let mut writer = store.open_write();
+        writer.write_all(&[0, 0, 0]).await.unwrap();
+        writer.sync_all().await.unwrap();
         assert_eq!(
             io::Error::from(LogArrayError::InputBufferTooSmall(3)).to_string(),
             block_on(logarray_file_get_length_and_width(store))
@@ -917,7 +919,9 @@ mod tests {
         );
 
         let store = MemoryBackedStore::new();
-        let _ = block_on(store.open_write().write_all(&[0, 0, 0, 0, 65, 0, 0, 0]));
+        let mut writer = store.open_write();
+        writer.write_all(&[0, 0, 0, 0, 65, 0, 0, 0]).await.unwrap();
+        writer.sync_all().await.unwrap();
         assert_eq!(
             io::Error::from(LogArrayError::WidthTooLarge(65)).to_string(),
             block_on(logarray_file_get_length_and_width(store))
@@ -927,7 +931,9 @@ mod tests {
         );
 
         let store = MemoryBackedStore::new();
-        let _ = block_on(store.open_write().write_all(&[0, 0, 0, 1, 17, 0, 0, 0]));
+        let mut writer = store.open_write();
+        writer.write_all(&[0, 0, 0, 1, 17, 0, 0, 0]).await.unwrap();
+        writer.sync_all().await.unwrap();
         assert_eq!(
             io::Error::from(LogArrayError::UnexpectedInputBufferSize(8, 16, 1, 17)).to_string(),
             block_on(logarray_file_get_length_and_width(store))
