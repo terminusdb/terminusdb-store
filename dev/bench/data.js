@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1617276575145,
+  "lastUpdate": 1617276820739,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -4511,6 +4511,126 @@ window.BENCHMARK_DATA = {
             "name": "logarray_w5_empty",
             "value": 399,
             "range": "± 81",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "matthijs@terminusdb.com",
+            "name": "Matthijs van Otterdijk",
+            "username": "matko"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "38ec5d68736edf31644fef0659057d5dc0ca839b",
+          "message": "Merge pull request #55 from terminusdb/delta_rollup_fix\n\nDelta rollup reimplementation which will load information from disk when required due to rollups",
+          "timestamp": "2021-04-01T13:24:12+02:00",
+          "tree_id": "fc606d5cf0802110141d6d5911a72dacda34a0d0",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/38ec5d68736edf31644fef0659057d5dc0ca839b"
+        },
+        "date": 1617276819784,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 444,
+            "range": "± 14",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 34938650,
+            "range": "± 10044256",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 13937603,
+            "range": "± 4407391",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 18521218,
+            "range": "± 6132329",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 36573081,
+            "range": "± 6631622",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 33453256,
+            "range": "± 9190821",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w10_1000",
+            "value": 22565,
+            "range": "± 754",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1",
+            "value": 631,
+            "range": "± 36",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10",
+            "value": 723,
+            "range": "± 89",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_100",
+            "value": 2343,
+            "range": "± 119",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1000",
+            "value": 17193,
+            "range": "± 487",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000",
+            "value": 165390,
+            "range": "± 7865",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_as_stream",
+            "value": 234823,
+            "range": "± 16365",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent",
+            "value": 927639,
+            "range": "± 222396",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent_as_stream",
+            "value": 1063096,
+            "range": "± 336355",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_empty",
+            "value": 525,
+            "range": "± 35",
             "unit": "ns/iter"
           }
         ]
