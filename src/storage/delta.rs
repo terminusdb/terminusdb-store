@@ -20,12 +20,11 @@ async fn safe_upto_bound<S: LayerStore>(
 
     let mut l = &*layer;
     loop {
+        println!("hi {:?}", Layer::name(l));
         let parent = match l.immediate_parent() {
             None => {
-                return Err(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "parent layer not found while searching for safe upto bound",
-                ));
+                // previous was the last found layer and therefore the bound
+                return Ok(InternalLayerImpl::name(&*l));
             }
             Some(p) => p,
         };
