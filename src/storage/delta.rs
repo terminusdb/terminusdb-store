@@ -1,7 +1,6 @@
 use std::io;
 
 use crate::layer::builder::{build_indexes, TripleFileBuilder};
-use crate::layer::id_map::{construct_idmaps, construct_idmaps_upto};
 use crate::layer::*;
 use crate::storage::*;
 use crate::structure::*;
@@ -22,10 +21,8 @@ async fn safe_upto_bound<S: LayerStore>(
     loop {
         let parent = match l.immediate_parent() {
             None => {
-                return Err(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "parent layer not found while searching for safe upto bound",
-                ));
+                // previous was the last found layer and therefore the bound
+                return Ok(InternalLayerImpl::name(&*l));
             }
             Some(p) => p,
         };
@@ -107,6 +104,44 @@ async fn get_value_dicts_from_disk<S: LayerStore>(
     Ok(result)
 }
 
+async fn get_node_value_idmaps_from_disk<S: LayerStore>(
+    store: &S,
+    name: [u32; 5],
+    upto: [u32; 5],
+) -> io::Result<Vec<IdMap>> {
+    let mut result = Vec::new();
+    walk_backwards_from_disk_upto!(store, name, upto, current, {
+        let dict = store
+            .get_node_value_idmap(current)
+            .await?
+            .expect("expected idmap to be retrievable");
+        result.push(dict);
+    });
+
+    result.reverse();
+
+    Ok(result)
+}
+
+async fn get_predicate_idmaps_from_disk<S: LayerStore>(
+    store: &S,
+    name: [u32; 5],
+    upto: [u32; 5],
+) -> io::Result<Vec<IdMap>> {
+    let mut result = Vec::new();
+    walk_backwards_from_disk_upto!(store, name, upto, current, {
+        let dict = store
+            .get_predicate_idmap(current)
+            .await?
+            .expect("expected idmap to be retrievable");
+        result.push(dict);
+    });
+
+    result.reverse();
+
+    Ok(result)
+}
+
 async fn dictionary_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore>(
     store: &S,
     layer: &InternalLayer,
@@ -117,30 +152,73 @@ async fn dictionary_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore
     let disk_node_dicts = get_node_dicts_from_disk(store, memory_upto, upto).await?;
     let disk_predicate_dicts = get_predicate_dicts_from_disk(store, memory_upto, upto).await?;
     let disk_value_dicts = get_value_dicts_from_disk(store, memory_upto, upto).await?;
-    let node_dicts = disk_node_dicts.iter().chain(
-        layer
-            .immediate_layers_upto(memory_upto)
-            .into_iter()
-            .map(|l| l.node_dictionary()),
-    );
-    let predicate_dicts = disk_predicate_dicts.iter().chain(
-        layer
-            .immediate_layers_upto(memory_upto)
-            .into_iter()
-            .map(|l| l.predicate_dictionary()),
-    );
-    let value_dicts = disk_value_dicts.iter().chain(
-        layer
-            .immediate_layers_upto(memory_upto)
-            .into_iter()
-            .map(|l| l.value_dictionary()),
-    );
+    let disk_node_value_idmaps = get_node_value_idmaps_from_disk(store, memory_upto, upto).await?;
+    let disk_predicate_idmaps = get_predicate_idmaps_from_disk(store, memory_upto, upto).await?;
+    let node_dicts: Vec<_> = disk_node_dicts
+        .into_iter()
+        .chain(
+            layer
+                .immediate_layers_upto(memory_upto)
+                .into_iter()
+                .map(|l| l.node_dictionary().clone()),
+        )
+        .collect();
+    let predicate_dicts: Vec<_> = disk_predicate_dicts
+        .into_iter()
+        .chain(
+            layer
+                .immediate_layers_upto(memory_upto)
+                .into_iter()
+                .map(|l| l.predicate_dictionary().clone()),
+        )
+        .collect();
+    let value_dicts: Vec<_> = disk_value_dicts
+        .into_iter()
+        .chain(
+            layer
+                .immediate_layers_upto(memory_upto)
+                .into_iter()
+                .map(|l| l.value_dictionary().clone()),
+        )
+        .collect();
 
-    merge_dictionaries(node_dicts, files.node_dictionary_files.clone()).await?;
-    merge_dictionaries(predicate_dicts, files.predicate_dictionary_files.clone()).await?;
-    merge_dictionaries(value_dicts, files.value_dictionary_files.clone()).await?;
+    let node_value_idmaps: Vec<_> = disk_node_value_idmaps
+        .into_iter()
+        .chain(
+            layer
+                .immediate_layers_upto(memory_upto)
+                .into_iter()
+                .map(|l| l.node_value_id_map().clone()),
+        )
+        .collect();
 
-    construct_idmaps_upto(layer, upto, files.id_map_files.clone()).await
+    let predicate_idmaps: Vec<_> = disk_predicate_idmaps
+        .into_iter()
+        .chain(
+            layer
+                .immediate_layers_upto(memory_upto)
+                .into_iter()
+                .map(|l| l.node_value_id_map().clone()),
+        )
+        .collect();
+
+    merge_dictionaries(node_dicts.iter(), files.node_dictionary_files.clone()).await?;
+    merge_dictionaries(
+        predicate_dicts.iter(),
+        files.predicate_dictionary_files.clone(),
+    )
+    .await?;
+    merge_dictionaries(value_dicts.iter(), files.value_dictionary_files.clone()).await?;
+
+    construct_idmaps_from_structures(
+        &node_dicts,
+        &predicate_dicts,
+        &value_dicts,
+        &node_value_idmaps,
+        &predicate_idmaps,
+        files.id_map_files.clone(),
+    )
+    .await
 }
 
 pub async fn dictionary_rollup<F: 'static + FileLoad + FileStore>(
@@ -164,7 +242,7 @@ pub async fn dictionary_rollup<F: 'static + FileLoad + FileStore>(
     merge_dictionaries(predicate_dicts, files.predicate_dictionary_files.clone()).await?;
     merge_dictionaries(value_dicts, files.value_dictionary_files.clone()).await?;
 
-    construct_idmaps(layer, files.id_map_files.clone()).await
+    memory_construct_idmaps(layer, files.id_map_files.clone()).await
 }
 
 async fn memory_dictionary_rollup_upto<F: 'static + FileLoad + FileStore>(
@@ -189,7 +267,7 @@ async fn memory_dictionary_rollup_upto<F: 'static + FileLoad + FileStore>(
     merge_dictionaries(predicate_dicts, files.predicate_dictionary_files.clone()).await?;
     merge_dictionaries(value_dicts, files.value_dictionary_files.clone()).await?;
 
-    construct_idmaps_upto(layer, upto, files.id_map_files.clone()).await
+    memory_construct_idmaps_upto(layer, upto, files.id_map_files.clone()).await
 }
 
 pub async fn delta_rollup<F: 'static + FileLoad + FileStore>(
@@ -524,5 +602,216 @@ mod tests {
         for t in expected {
             assert!(delta_layer2.string_triple_exists(&t));
         }
+    }
+
+    async fn create_layer_stack<S: LayerStore>(store: &S) -> Vec<[u32; 5]> {
+        let mut builder = store.create_base_layer().await.unwrap();
+        let base_name = builder.name();
+        builder.add_string_triple(StringTriple::new_value("a", "a", "a"));
+        builder.add_string_triple(StringTriple::new_value("a", "b", "c"));
+        builder.commit_boxed().await.unwrap();
+
+        let mut builder = store.create_child_layer(base_name).await.unwrap();
+        let child1_name = builder.name();
+        builder.add_string_triple(StringTriple::new_value("a", "a", "b"));
+        builder.add_string_triple(StringTriple::new_value("a", "b", "a"));
+        builder.add_string_triple(StringTriple::new_value("b", "a", "a"));
+        builder.add_string_triple(StringTriple::new_value("d", "d", "d"));
+        builder.remove_string_triple(StringTriple::new_value("a", "a", "a"));
+        builder.commit_boxed().await.unwrap();
+
+        let mut builder = store.create_child_layer(child1_name).await.unwrap();
+        builder.add_string_triple(StringTriple::new_value("a", "b", "b"));
+        builder.add_string_triple(StringTriple::new_value("b", "a", "b"));
+        builder.add_string_triple(StringTriple::new_value("e", "e", "e"));
+        builder.remove_string_triple(StringTriple::new_value("a", "a", "b"));
+        let child2_name = builder.name();
+        builder.commit_boxed().await.unwrap();
+
+        let mut builder = store.create_child_layer(child2_name).await.unwrap();
+        builder.add_string_triple(StringTriple::new_value("a", "a", "b"));
+        builder.add_string_triple(StringTriple::new_value("b", "b", "a"));
+        builder.add_string_triple(StringTriple::new_value("f", "f", "f"));
+        let child3_name = builder.name();
+        builder.commit_boxed().await.unwrap();
+
+        let mut builder = store.create_child_layer(child3_name).await.unwrap();
+        builder.add_string_triple(StringTriple::new_value("b", "b", "c"));
+        builder.add_string_triple(StringTriple::new_value("g", "g", "g"));
+        let child4_name = builder.name();
+        builder.commit_boxed().await.unwrap();
+
+        let mut builder = store.create_child_layer(child4_name).await.unwrap();
+        builder.add_string_triple(StringTriple::new_value("c", "a", "b"));
+        builder.add_string_triple(StringTriple::new_value("h", "h", "h"));
+        let child5_name = builder.name();
+        builder.commit_boxed().await.unwrap();
+
+        vec![
+            base_name,
+            child1_name,
+            child2_name,
+            child3_name,
+            child4_name,
+            child5_name,
+        ]
+    }
+
+    #[tokio::test]
+    async fn imprecise_rollup_is_equivalent_to_normal_rollup_without_intermittent_rollups() {
+        let store = Arc::new(MemoryLayerStore::new());
+
+        let stack = create_layer_stack(&*store).await;
+
+        let layer = store.get_layer(stack[5]).await.unwrap().unwrap();
+
+        store
+            .clone()
+            .rollup_upto(layer.clone(), stack[2])
+            .await
+            .unwrap();
+        let first = Layer::name(
+            store
+                .get_layer(stack[5])
+                .await
+                .unwrap()
+                .unwrap()
+                .immediate_parent()
+                .unwrap(),
+        );
+
+        store
+            .clone()
+            .imprecise_rollup_upto(layer, stack[2])
+            .await
+            .unwrap();
+        let second = Layer::name(
+            store
+                .get_layer(stack[5])
+                .await
+                .unwrap()
+                .unwrap()
+                .immediate_parent()
+                .unwrap(),
+        );
+
+        assert_eq!(first, second);
+        assert_eq!(stack[2], first);
+    }
+
+    #[tokio::test]
+    async fn imprecise_rollup_is_different_from_normal_rollup_with_intermittent_rollups_1() {
+        let store = Arc::new(MemoryLayerStore::new());
+
+        let stack = create_layer_stack(&*store).await;
+        let layer = store.get_layer(stack[3]).await.unwrap().unwrap();
+        store.clone().rollup_upto(layer, stack[0]).await.unwrap();
+
+        let layer = store.get_layer(stack[5]).await.unwrap().unwrap();
+
+        store
+            .clone()
+            .rollup_upto(layer.clone(), stack[2])
+            .await
+            .unwrap();
+        let first = Layer::name(
+            store
+                .get_layer(stack[5])
+                .await
+                .unwrap()
+                .unwrap()
+                .immediate_parent()
+                .unwrap(),
+        );
+
+        store
+            .clone()
+            .imprecise_rollup_upto(layer, stack[2])
+            .await
+            .unwrap();
+        let second = Layer::name(
+            store
+                .get_layer(stack[5])
+                .await
+                .unwrap()
+                .unwrap()
+                .immediate_parent()
+                .unwrap(),
+        );
+
+        assert_eq!(first, second);
+    }
+
+    #[tokio::test]
+    async fn imprecise_rollup_is_different_from_normal_rollup_with_intermittent_rollups_2() {
+        let store = Arc::new(MemoryLayerStore::new());
+
+        let stack = create_layer_stack(&*store).await;
+        let layer = store.get_layer(stack[3]).await.unwrap().unwrap();
+        store.clone().rollup(layer).await.unwrap();
+
+        let layer = store.get_layer(stack[5]).await.unwrap().unwrap();
+
+        store
+            .clone()
+            .rollup_upto(layer.clone(), stack[2])
+            .await
+            .unwrap();
+        let first = Layer::name(
+            store
+                .get_layer(stack[5])
+                .await
+                .unwrap()
+                .unwrap()
+                .immediate_parent()
+                .unwrap(),
+        );
+
+        store
+            .clone()
+            .imprecise_rollup_upto(layer, stack[2])
+            .await
+            .unwrap();
+        let second = Layer::name(
+            store
+                .get_layer(stack[5])
+                .await
+                .unwrap()
+                .unwrap()
+                .immediate_parent()
+                .unwrap(),
+        );
+
+        assert_eq!(first, second);
+    }
+
+    #[tokio::test]
+    async fn rollup_that_loads_from_disk_has_expected_contents() {
+        let store = Arc::new(MemoryLayerStore::new());
+
+        let stack = create_layer_stack(&*store).await;
+        let layer = store.get_layer(stack[3]).await.unwrap().unwrap();
+        store.clone().rollup_upto(layer, stack[0]).await.unwrap();
+
+        let layer = store.get_layer(stack[5]).await.unwrap().unwrap();
+        let original_triples: Vec<_> = layer
+            .triples()
+            .map(|t| layer.id_triple_to_string(&t))
+            .collect();
+        assert_eq!(14, original_triples.len());
+
+        store
+            .clone()
+            .rollup_upto(layer.clone(), stack[2])
+            .await
+            .unwrap();
+        let rollup = store.get_layer(stack[5]).await.unwrap().unwrap();
+
+        let new_triples: Vec<_> = rollup
+            .triples()
+            .map(|t| layer.id_triple_to_string(&t))
+            .collect();
+
+        assert_eq!(original_triples, new_triples);
     }
 }
