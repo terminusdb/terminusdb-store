@@ -1,7 +1,6 @@
 use std::io;
 
 use crate::layer::builder::{build_indexes, TripleFileBuilder};
-use crate::layer::id_map::{construct_idmaps, construct_idmaps_upto};
 use crate::layer::*;
 use crate::storage::*;
 use crate::structure::*;
@@ -243,7 +242,7 @@ pub async fn dictionary_rollup<F: 'static + FileLoad + FileStore>(
     merge_dictionaries(predicate_dicts, files.predicate_dictionary_files.clone()).await?;
     merge_dictionaries(value_dicts, files.value_dictionary_files.clone()).await?;
 
-    construct_idmaps(layer, files.id_map_files.clone()).await
+    memory_construct_idmaps(layer, files.id_map_files.clone()).await
 }
 
 async fn memory_dictionary_rollup_upto<F: 'static + FileLoad + FileStore>(
@@ -268,7 +267,7 @@ async fn memory_dictionary_rollup_upto<F: 'static + FileLoad + FileStore>(
     merge_dictionaries(predicate_dicts, files.predicate_dictionary_files.clone()).await?;
     merge_dictionaries(value_dicts, files.value_dictionary_files.clone()).await?;
 
-    construct_idmaps_upto(layer, upto, files.id_map_files.clone()).await
+    memory_construct_idmaps_upto(layer, upto, files.id_map_files.clone()).await
 }
 
 pub async fn delta_rollup<F: 'static + FileLoad + FileStore>(

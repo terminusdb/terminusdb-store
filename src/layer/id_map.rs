@@ -56,7 +56,7 @@ impl IdMap {
     }
 }
 
-pub async fn construct_idmaps<F: 'static + FileLoad + FileStore>(
+pub async fn memory_construct_idmaps<F: 'static + FileLoad + FileStore>(
     input: &InternalLayer,
     idmap_files: IdMapFiles<F>,
 ) -> io::Result<()> {
@@ -65,7 +65,7 @@ pub async fn construct_idmaps<F: 'static + FileLoad + FileStore>(
     construct_idmaps_from_layers(&layers, idmap_files).await
 }
 
-pub async fn construct_idmaps_upto<F: 'static + FileLoad + FileStore>(
+pub async fn memory_construct_idmaps_upto<F: 'static + FileLoad + FileStore>(
     input: &InternalLayer,
     upto_layer_id: [u32; 5],
     idmap_files: IdMapFiles<F>,
