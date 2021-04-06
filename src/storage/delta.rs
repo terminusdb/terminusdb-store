@@ -106,7 +106,6 @@ async fn get_value_dicts_from_disk<S: LayerStore>(
     Ok(result)
 }
 
-/*
 async fn get_node_value_idmaps_from_disk<S: LayerStore>(
     store: &S,
     name: [u32; 5],
@@ -125,7 +124,25 @@ async fn get_node_value_idmaps_from_disk<S: LayerStore>(
 
     Ok(result)
 }
-*/
+
+async fn get_predicate_idmaps_from_disk<S: LayerStore>(
+    store: &S,
+    name: [u32; 5],
+    upto: [u32; 5],
+) -> io::Result<Vec<IdMap>> {
+    let mut result = Vec::new();
+    walk_backwards_from_disk_upto!(store, name, upto, current, {
+        let dict = store
+            .get_predicate_idmap(current)
+            .await?
+            .expect("expected idmap to be retrievable");
+        result.push(dict);
+    });
+
+    result.reverse();
+
+    Ok(result)
+}
 
 async fn dictionary_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore>(
     store: &S,
@@ -137,30 +154,73 @@ async fn dictionary_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore
     let disk_node_dicts = get_node_dicts_from_disk(store, memory_upto, upto).await?;
     let disk_predicate_dicts = get_predicate_dicts_from_disk(store, memory_upto, upto).await?;
     let disk_value_dicts = get_value_dicts_from_disk(store, memory_upto, upto).await?;
-    let node_dicts = disk_node_dicts.iter().chain(
-        layer
-            .immediate_layers_upto(memory_upto)
-            .into_iter()
-            .map(|l| l.node_dictionary()),
-    );
-    let predicate_dicts = disk_predicate_dicts.iter().chain(
-        layer
-            .immediate_layers_upto(memory_upto)
-            .into_iter()
-            .map(|l| l.predicate_dictionary()),
-    );
-    let value_dicts = disk_value_dicts.iter().chain(
-        layer
-            .immediate_layers_upto(memory_upto)
-            .into_iter()
-            .map(|l| l.value_dictionary()),
-    );
+    let disk_node_value_idmaps = get_node_value_idmaps_from_disk(store, memory_upto, upto).await?;
+    let disk_predicate_idmaps = get_predicate_idmaps_from_disk(store, memory_upto, upto).await?;
+    let node_dicts: Vec<_> = disk_node_dicts
+        .into_iter()
+        .chain(
+            layer
+                .immediate_layers_upto(memory_upto)
+                .into_iter()
+                .map(|l| l.node_dictionary().clone()),
+        )
+        .collect();
+    let predicate_dicts: Vec<_> = disk_predicate_dicts
+        .into_iter()
+        .chain(
+            layer
+                .immediate_layers_upto(memory_upto)
+                .into_iter()
+                .map(|l| l.predicate_dictionary().clone()),
+        )
+        .collect();
+    let value_dicts: Vec<_> = disk_value_dicts
+        .into_iter()
+        .chain(
+            layer
+                .immediate_layers_upto(memory_upto)
+                .into_iter()
+                .map(|l| l.value_dictionary().clone()),
+        )
+        .collect();
 
-    merge_dictionaries(node_dicts, files.node_dictionary_files.clone()).await?;
-    merge_dictionaries(predicate_dicts, files.predicate_dictionary_files.clone()).await?;
-    merge_dictionaries(value_dicts, files.value_dictionary_files.clone()).await?;
+    let node_value_idmaps: Vec<_> = disk_node_value_idmaps
+        .into_iter()
+        .chain(
+            layer
+                .immediate_layers_upto(memory_upto)
+                .into_iter()
+                .map(|l| l.node_value_id_map().clone()),
+        )
+        .collect();
 
-    construct_idmaps_upto(layer, upto, files.id_map_files.clone()).await
+    let predicate_idmaps: Vec<_> = disk_predicate_idmaps
+        .into_iter()
+        .chain(
+            layer
+                .immediate_layers_upto(memory_upto)
+                .into_iter()
+                .map(|l| l.node_value_id_map().clone()),
+        )
+        .collect();
+
+    merge_dictionaries(node_dicts.iter(), files.node_dictionary_files.clone()).await?;
+    merge_dictionaries(
+        predicate_dicts.iter(),
+        files.predicate_dictionary_files.clone(),
+    )
+    .await?;
+    merge_dictionaries(value_dicts.iter(), files.value_dictionary_files.clone()).await?;
+
+    construct_idmaps_from_structures(
+        &node_dicts,
+        &predicate_dicts,
+        &value_dicts,
+        &node_value_idmaps,
+        &predicate_idmaps,
+        files.id_map_files.clone(),
+    )
+    .await
 }
 
 pub async fn dictionary_rollup<F: 'static + FileLoad + FileStore>(

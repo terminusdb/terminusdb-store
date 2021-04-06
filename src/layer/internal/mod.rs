@@ -116,60 +116,6 @@ pub trait InternalLayerImpl {
         self.value_dictionary().get(id)
     }
 
-    fn node_dict_entries_zero_index(&self) -> Box<dyn Iterator<Item = (u64, PfcDictEntry)> + Send> {
-        let parent_node_value_count = self.parent_node_value_count();
-        let node_value_id_map = self.node_value_id_map().clone();
-        Box::new(
-            self.node_dictionary()
-                .entries()
-                .enumerate()
-                .map(move |(i, e)| {
-                    (
-                        node_value_id_map.inner_to_outer(i as u64) + parent_node_value_count as u64,
-                        e,
-                    )
-                }),
-        )
-    }
-
-    fn value_dict_entries_zero_index(
-        &self,
-    ) -> Box<dyn Iterator<Item = (u64, PfcDictEntry)> + Send> {
-        let parent_node_value_count = self.parent_node_value_count();
-        let node_count = self.node_dict_len();
-        let node_value_id_map = self.node_value_id_map().clone();
-        Box::new(
-            self.value_dictionary()
-                .entries()
-                .enumerate()
-                .map(move |(i, e)| {
-                    (
-                        node_value_id_map.inner_to_outer((i + node_count) as u64)
-                            + parent_node_value_count as u64,
-                        e,
-                    )
-                }),
-        )
-    }
-
-    fn predicate_dict_entries_zero_index(
-        &self,
-    ) -> Box<dyn Iterator<Item = (u64, PfcDictEntry)> + Send> {
-        let parent_predicate_count = self.parent_predicate_count();
-        let predicate_id_map = self.predicate_id_map().clone();
-        Box::new(
-            self.predicate_dictionary()
-                .entries()
-                .enumerate()
-                .map(move |(i, e)| {
-                    (
-                        predicate_id_map.inner_to_outer(i as u64) + parent_predicate_count as u64,
-                        e,
-                    )
-                }),
-        )
-    }
-
     fn internal_triple_addition_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
         layer_triple_exists(
             self.pos_subjects(),
