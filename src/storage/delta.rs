@@ -20,7 +20,6 @@ async fn safe_upto_bound<S: LayerStore>(
 
     let mut l = &*layer;
     loop {
-        println!("hi {:?}", Layer::name(l));
         let parent = match l.immediate_parent() {
             None => {
                 // previous was the last found layer and therefore the bound
