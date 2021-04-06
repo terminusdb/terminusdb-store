@@ -62,7 +62,7 @@ pub async fn construct_idmaps<F: 'static + FileLoad + FileStore>(
 ) -> io::Result<()> {
     let layers = input.immediate_layers();
 
-    construct_idmaps_from_slice(&layers, 0, 0, idmap_files).await
+    construct_idmaps_from_layers(&layers, idmap_files).await
 }
 
 pub async fn construct_idmaps_upto<F: 'static + FileLoad + FileStore>(
@@ -71,38 +71,63 @@ pub async fn construct_idmaps_upto<F: 'static + FileLoad + FileStore>(
     idmap_files: IdMapFiles<F>,
 ) -> io::Result<()> {
     let layers = input.immediate_layers_upto(upto_layer_id);
-    let node_value_offset = layers
-        .first()
-        .map(|l| l.parent_node_value_count())
-        .unwrap_or(0);
-    let predicate_offset = layers
-        .first()
-        .map(|l| l.parent_predicate_count())
-        .unwrap_or(0);
 
-    construct_idmaps_from_slice(&layers, node_value_offset, predicate_offset, idmap_files).await
+    construct_idmaps_from_layers(&layers, idmap_files).await
 }
 
-async fn construct_idmaps_from_slice<F: 'static + FileLoad + FileStore>(
-    layers: &[&InternalLayer],
-    node_value_offset: usize,
-    predicate_offset: usize,
+pub async fn construct_idmaps_from_structures<F: 'static + FileLoad + FileStore>(
+    node_dicts: &[PfcDict],
+    predicate_dicts: &[PfcDict],
+    value_dicts: &[PfcDict],
+    node_value_idmaps: &[IdMap],
+    predicate_idmaps: &[IdMap],
     idmap_files: IdMapFiles<F>,
 ) -> io::Result<()> {
-    let node_iters = layers
-        .iter()
-        .map(|layer| layer.node_dict_entries_zero_index())
-        .collect();
+    debug_assert!(node_dicts.len() == predicate_dicts.len());
+    debug_assert!(node_dicts.len() == value_dicts.len());
+    debug_assert!(node_dicts.len() == node_value_idmaps.len());
+    debug_assert!(node_dicts.len() == predicate_idmaps.len());
 
-    let value_iters = layers
-        .iter()
-        .map(|layer| layer.value_dict_entries_zero_index())
-        .collect();
+    let mut node_iters = Vec::with_capacity(node_dicts.len());
+    let mut node_offset = 0;
+    for (ix, dict) in node_dicts.iter().enumerate() {
+        let idmap = node_value_idmaps[ix].clone();
+        node_iters.push(
+            dict.entries()
+                .enumerate()
+                .map(move |(i, e)| (idmap.inner_to_outer(i as u64) + node_offset as u64, e)),
+        );
 
-    let predicate_iters: Vec<_> = layers
-        .iter()
-        .map(|layer| layer.predicate_dict_entries_zero_index())
-        .collect();
+        node_offset += dict.len() + value_dicts[ix].len();
+    }
+
+    let mut value_iters = Vec::with_capacity(node_dicts.len());
+    let mut value_offset = 0;
+    for (ix, dict) in value_dicts.iter().enumerate() {
+        let idmap = node_value_idmaps[ix].clone();
+        let node_count = node_dicts[ix].len();
+        value_iters.push(dict.entries().enumerate().map(move |(i, e)| {
+            (
+                idmap.inner_to_outer(i as u64 + node_count as u64) + value_offset as u64,
+                e,
+            )
+        }));
+
+        value_offset += node_count + dict.len();
+    }
+
+    let mut predicate_iters = Vec::with_capacity(node_dicts.len());
+    let mut predicate_offset = 0;
+    for (ix, dict) in predicate_dicts.iter().enumerate() {
+        let idmap = predicate_idmaps[ix].clone();
+        predicate_iters.push(
+            dict.entries()
+                .enumerate()
+                .map(move |(i, e)| (idmap.inner_to_outer(i as u64) + predicate_offset as u64, e)),
+        );
+
+        predicate_offset += dict.len();
+    }
 
     let entry_comparator = |vals: &[Option<&(u64, PfcDictEntry)>]| {
         vals.iter()
@@ -114,24 +139,22 @@ async fn construct_idmaps_from_slice<F: 'static + FileLoad + FileStore>(
 
     let sorted_node_iter = sorted_iterator(node_iters, entry_comparator);
     let sorted_value_iter = sorted_iterator(value_iters, entry_comparator);
-    let sorted_node_value_iter = sorted_node_iter.chain(sorted_value_iter);
-    let sorted_predicate_iter = sorted_iterator(predicate_iters, entry_comparator);
+    let sorted_node_value_iter = sorted_node_iter.chain(sorted_value_iter).map(|(id, _)| id);
+    let sorted_predicate_iter =
+        sorted_iterator(predicate_iters, entry_comparator).map(|(id, _)| id);
 
-    let node_value_width = util::calculate_width(
-        (layers.last().unwrap().node_and_value_count() - node_value_offset) as u64,
-    );
+    let node_value_width = util::calculate_width(node_offset as u64);
     let node_value_build_task = tokio::spawn(build_wavelet_tree_from_iter(
         node_value_width,
-        sorted_node_value_iter.map(move |(id, _)| id - node_value_offset as u64),
+        sorted_node_value_iter,
         idmap_files.node_value_idmap_files.bits_file,
         idmap_files.node_value_idmap_files.blocks_file,
         idmap_files.node_value_idmap_files.sblocks_file,
     ));
-    let predicate_width =
-        util::calculate_width((layers.last().unwrap().predicate_count() - predicate_offset) as u64);
+    let predicate_width = util::calculate_width(predicate_offset as u64);
     let predicate_build_task = tokio::spawn(build_wavelet_tree_from_iter(
         predicate_width,
-        sorted_predicate_iter.map(move |(id, _)| id - predicate_offset as u64),
+        sorted_predicate_iter,
         idmap_files.predicate_idmap_files.bits_file,
         idmap_files.predicate_idmap_files.blocks_file,
         idmap_files.predicate_idmap_files.sblocks_file,
@@ -139,4 +162,44 @@ async fn construct_idmaps_from_slice<F: 'static + FileLoad + FileStore>(
 
     node_value_build_task.await??;
     predicate_build_task.await?
+}
+
+async fn construct_idmaps_from_layers<F: 'static + FileLoad + FileStore>(
+    layers: &[&InternalLayer],
+    idmap_files: IdMapFiles<F>,
+) -> io::Result<()> {
+    let node_dicts: Vec<_> = layers
+        .iter()
+        .map(|layer| layer.node_dictionary().clone())
+        .collect();
+
+    let predicate_dicts: Vec<_> = layers
+        .iter()
+        .map(|layer| layer.predicate_dictionary().clone())
+        .collect();
+
+    let value_dicts: Vec<_> = layers
+        .iter()
+        .map(|layer| layer.value_dictionary().clone())
+        .collect();
+
+    let node_value_idmaps: Vec<_> = layers
+        .iter()
+        .map(|layer| layer.node_value_id_map().clone())
+        .collect();
+
+    let predicate_idmaps: Vec<_> = layers
+        .iter()
+        .map(|layer| layer.node_value_id_map().clone())
+        .collect();
+
+    construct_idmaps_from_structures(
+        &node_dicts,
+        &predicate_dicts,
+        &value_dicts,
+        &node_value_idmaps,
+        &predicate_idmaps,
+        idmap_files,
+    )
+    .await
 }
