@@ -184,6 +184,81 @@ impl LayerStore for CachedLayerStore {
         self.inner.get_value_dictionary(name)
     }
 
+    fn get_node_count(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<u64>>> + Send>> {
+        // is layer in cache? if so, we can use the cached version
+        if let Some(layer) = self.cache.get_layer_from_cache(name) {
+            // unless it is a rollup
+            if !layer.is_rollup() {
+                return Box::pin(future::ok(Some(layer.node_dictionary().len() as u64)));
+            }
+        }
+
+        self.inner.get_node_count(name)
+    }
+
+    fn get_predicate_count(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<u64>>> + Send>> {
+        // is layer in cache? if so, we can use the cached version
+        if let Some(layer) = self.cache.get_layer_from_cache(name) {
+            // unless it is a rollup
+            if !layer.is_rollup() {
+                return Box::pin(future::ok(Some(layer.predicate_dictionary().len() as u64)));
+            }
+        }
+
+        self.inner.get_value_count(name)
+    }
+
+    fn get_value_count(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<u64>>> + Send>> {
+        // is layer in cache? if so, we can use the cached version
+        if let Some(layer) = self.cache.get_layer_from_cache(name) {
+            // unless it is a rollup
+            if !layer.is_rollup() {
+                return Box::pin(future::ok(Some(layer.value_dictionary().len() as u64)));
+            }
+        }
+
+        self.inner.get_value_count(name)
+    }
+
+    fn get_node_value_idmap(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<IdMap>>> + Send>> {
+        // is layer in cache? if so, we can use the cached version
+        if let Some(layer) = self.cache.get_layer_from_cache(name) {
+            // unless it is a rollup
+            if !layer.is_rollup() {
+                return Box::pin(future::ok(Some(layer.node_value_id_map().clone())));
+            }
+        }
+
+        self.inner.get_node_value_idmap(name)
+    }
+
+    fn get_predicate_idmap(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<IdMap>>> + Send>> {
+        // is layer in cache? if so, we can use the cached version
+        if let Some(layer) = self.cache.get_layer_from_cache(name) {
+            // unless it is a rollup
+            if !layer.is_rollup() {
+                return Box::pin(future::ok(Some(layer.predicate_id_map().clone())));
+            }
+        }
+
+        self.inner.get_predicate_idmap(name)
+    }
+
     fn create_base_layer(
         &self,
     ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn LayerBuilder>>> + Send>> {

@@ -106,6 +106,27 @@ async fn get_value_dicts_from_disk<S: LayerStore>(
     Ok(result)
 }
 
+/*
+async fn get_node_value_idmaps_from_disk<S: LayerStore>(
+    store: &S,
+    name: [u32; 5],
+    upto: [u32; 5],
+) -> io::Result<Vec<IdMap>> {
+    let mut result = Vec::new();
+    walk_backwards_from_disk_upto!(store, name, upto, current, {
+        let dict = store
+            .get_node_value_idmap(current)
+            .await?
+            .expect("expected idmap to be retrievable");
+        result.push(dict);
+    });
+
+    result.reverse();
+
+    Ok(result)
+}
+*/
+
 async fn dictionary_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore>(
     store: &S,
     layer: &InternalLayer,

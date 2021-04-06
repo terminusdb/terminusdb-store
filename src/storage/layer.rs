@@ -3,7 +3,7 @@ use super::consts::FILENAMES;
 use super::delta::*;
 use super::file::*;
 use crate::layer::{
-    layer_triple_exists, BaseLayer, ChildLayer, IdTriple, InternalLayer, InternalLayerImpl,
+    layer_triple_exists, BaseLayer, ChildLayer, IdMap, IdTriple, InternalLayer, InternalLayerImpl,
     InternalLayerTripleObjectIterator, InternalLayerTriplePredicateIterator,
     InternalLayerTripleSubjectIterator, InternalTripleStackIterator, LayerBuilder,
     OptInternalLayerTriplePredicateIterator, OptInternalLayerTripleSubjectIterator, RollupLayer,
@@ -11,7 +11,11 @@ use crate::layer::{
 };
 use crate::structure::bitarray::bitarray_len_from_file;
 use crate::structure::logarray::logarray_file_get_length_and_width;
-use crate::structure::{AdjacencyList, LogArray, MonotonicLogArray, PfcDict, WaveletTree};
+use crate::structure::{
+    dict_file_get_count, util, AdjacencyList, BitIndex, LogArray, MonotonicLogArray, PfcDict,
+    WaveletTree,
+};
+
 use std::convert::TryInto;
 use std::io;
 use std::sync::Arc;
@@ -90,6 +94,31 @@ pub trait LayerStore: 'static + Send + Sync {
         &self,
         name: [u32; 5],
     ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>>;
+
+    fn get_node_count(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<u64>>> + Send>>;
+
+    fn get_predicate_count(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<u64>>> + Send>>;
+
+    fn get_value_count(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<u64>>> + Send>>;
+
+    fn get_node_value_idmap(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<IdMap>>> + Send>>;
+
+    fn get_predicate_idmap(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<IdMap>>> + Send>>;
 
     fn create_base_layer(
         &self,
@@ -881,6 +910,64 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
                 Ok(DictionaryFiles {
                     blocks_file,
                     offsets_file,
+                })
+            } else {
+                Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"))
+            }
+        })
+    }
+
+    fn node_value_idmap_files(
+        &self,
+        layer: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<BitIndexFiles<Self::File>>> + Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            // does layer exist?
+            if self_.directory_exists(layer).await? {
+                let bits_file = self_
+                    .get_file(layer, FILENAMES.node_value_idmap_bits)
+                    .await?;
+                let blocks_file = self_
+                    .get_file(layer, FILENAMES.node_value_idmap_bit_index_blocks)
+                    .await?;
+                let sblocks_file = self_
+                    .get_file(layer, FILENAMES.node_value_idmap_bit_index_sblocks)
+                    .await?;
+
+                Ok(BitIndexFiles {
+                    bits_file,
+                    blocks_file,
+                    sblocks_file,
+                })
+            } else {
+                Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"))
+            }
+        })
+    }
+
+    fn predicate_idmap_files(
+        &self,
+        layer: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<BitIndexFiles<Self::File>>> + Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            // does layer exist?
+            if self_.directory_exists(layer).await? {
+                let bits_file = self_
+                    .get_file(layer, FILENAMES.predicate_idmap_bits)
+                    .await?;
+                let blocks_file = self_
+                    .get_file(layer, FILENAMES.predicate_idmap_bit_index_blocks)
+                    .await?;
+                let sblocks_file = self_
+                    .get_file(layer, FILENAMES.predicate_idmap_bit_index_sblocks)
+                    .await?;
+
+                Ok(BitIndexFiles {
+                    bits_file,
+                    blocks_file,
+                    sblocks_file,
                 })
             } else {
                 Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"))
@@ -1749,6 +1836,106 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                 let maps = files.map_all().await?;
 
                 Ok(Some(PfcDict::parse(maps.blocks_map, maps.offsets_map)?))
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
+    fn get_node_count(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<u64>>> + Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            if self_.directory_exists(name).await? {
+                let file = self_.node_dictionary_files(name).await?.blocks_file;
+                Ok(Some(dict_file_get_count(file).await?))
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
+    fn get_predicate_count(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<u64>>> + Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            if self_.directory_exists(name).await? {
+                let file = self_.predicate_dictionary_files(name).await?.blocks_file;
+                Ok(Some(dict_file_get_count(file).await?))
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
+    fn get_value_count(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<u64>>> + Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            if self_.directory_exists(name).await? {
+                let file = self_.value_dictionary_files(name).await?.blocks_file;
+                Ok(Some(dict_file_get_count(file).await?))
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
+    fn get_node_value_idmap(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<IdMap>>> + Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            if self_.directory_exists(name).await? {
+                let size = self_.get_node_count(name).await?.unwrap()
+                    + self_.get_value_count(name).await?.unwrap();
+                let width = util::calculate_width(size);
+                let files = self_.node_value_idmap_files(name).await?;
+                let maps = files.map_all_if_exists().await?;
+
+                let wtree = maps.map(|m| {
+                    WaveletTree::from_parts(
+                        BitIndex::from_maps(m.bits_map, m.blocks_map, m.sblocks_map),
+                        width,
+                    )
+                });
+                let idmap = IdMap::from_parts(wtree);
+
+                Ok(Some(idmap))
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
+    fn get_predicate_idmap(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<Option<IdMap>>> + Send>> {
+        let self_ = self.clone();
+        Box::pin(async move {
+            if self_.directory_exists(name).await? {
+                let size = self_.get_predicate_count(name).await?.unwrap();
+                let width = util::calculate_width(size);
+                let files = self_.predicate_idmap_files(name).await?;
+                let maps = files.map_all_if_exists().await?;
+
+                let wtree = maps.map(|m| {
+                    WaveletTree::from_parts(
+                        BitIndex::from_maps(m.bits_map, m.blocks_map, m.sblocks_map),
+                        width,
+                    )
+                });
+                let idmap = IdMap::from_parts(wtree);
+
+                Ok(Some(idmap))
             } else {
                 Ok(None)
             }
@@ -3467,7 +3654,7 @@ mod tests {
         child_layer_removals_o(&store, true).await.unwrap();
     }
 
-    async fn create_layer_stack<S:LayerStore>(store: &S) -> Vec<[u32;5]> {
+    async fn create_layer_stack<S: LayerStore>(store: &S) -> Vec<[u32; 5]> {
         let builder = store.create_base_layer().await.unwrap();
         let base_name = builder.name();
         builder.commit_boxed().await.unwrap();
@@ -3492,12 +3679,13 @@ mod tests {
         let child5_name = builder.name();
         builder.commit_boxed().await.unwrap();
 
-        vec![base_name,
-             child1_name,
-             child2_name,
-             child3_name,
-             child4_name,
-             child5_name,
+        vec![
+            base_name,
+            child1_name,
+            child2_name,
+            child3_name,
+            child4_name,
+            child5_name,
         ]
     }
 
@@ -3509,11 +3697,35 @@ mod tests {
 
         let layer = store.get_layer(stack[5]).await.unwrap().unwrap();
 
-        store.clone().rollup_upto(layer.clone(), stack[2]).await.unwrap();
-        let first = Layer::name(store.get_layer(stack[5]).await.unwrap().unwrap().immediate_parent().unwrap());
+        store
+            .clone()
+            .rollup_upto(layer.clone(), stack[2])
+            .await
+            .unwrap();
+        let first = Layer::name(
+            store
+                .get_layer(stack[5])
+                .await
+                .unwrap()
+                .unwrap()
+                .immediate_parent()
+                .unwrap(),
+        );
 
-        store.clone().imprecise_rollup_upto(layer, stack[2]).await.unwrap();
-        let second = Layer::name(store.get_layer(stack[5]).await.unwrap().unwrap().immediate_parent().unwrap());
+        store
+            .clone()
+            .imprecise_rollup_upto(layer, stack[2])
+            .await
+            .unwrap();
+        let second = Layer::name(
+            store
+                .get_layer(stack[5])
+                .await
+                .unwrap()
+                .unwrap()
+                .immediate_parent()
+                .unwrap(),
+        );
 
         assert_eq!(first, second);
         assert_eq!(stack[2], first);
@@ -3529,12 +3741,36 @@ mod tests {
 
         let layer = store.get_layer(stack[5]).await.unwrap().unwrap();
 
-        store.clone().rollup_upto(layer.clone(), stack[2]).await.unwrap();
-        let first = Layer::name(store.get_layer(stack[5]).await.unwrap().unwrap().immediate_parent().unwrap());
+        store
+            .clone()
+            .rollup_upto(layer.clone(), stack[2])
+            .await
+            .unwrap();
+        let first = Layer::name(
+            store
+                .get_layer(stack[5])
+                .await
+                .unwrap()
+                .unwrap()
+                .immediate_parent()
+                .unwrap(),
+        );
         println!("onward to second");
 
-        store.clone().imprecise_rollup_upto(layer, stack[2]).await.unwrap();
-        let second = Layer::name(store.get_layer(stack[5]).await.unwrap().unwrap().immediate_parent().unwrap());
+        store
+            .clone()
+            .imprecise_rollup_upto(layer, stack[2])
+            .await
+            .unwrap();
+        let second = Layer::name(
+            store
+                .get_layer(stack[5])
+                .await
+                .unwrap()
+                .unwrap()
+                .immediate_parent()
+                .unwrap(),
+        );
 
         assert_eq!(first, second);
     }
@@ -3549,12 +3785,36 @@ mod tests {
 
         let layer = store.get_layer(stack[5]).await.unwrap().unwrap();
 
-        store.clone().rollup_upto(layer.clone(), stack[2]).await.unwrap();
-        let first = Layer::name(store.get_layer(stack[5]).await.unwrap().unwrap().immediate_parent().unwrap());
+        store
+            .clone()
+            .rollup_upto(layer.clone(), stack[2])
+            .await
+            .unwrap();
+        let first = Layer::name(
+            store
+                .get_layer(stack[5])
+                .await
+                .unwrap()
+                .unwrap()
+                .immediate_parent()
+                .unwrap(),
+        );
         println!("onward to second");
 
-        store.clone().imprecise_rollup_upto(layer, stack[2]).await.unwrap();
-        let second = Layer::name(store.get_layer(stack[5]).await.unwrap().unwrap().immediate_parent().unwrap());
+        store
+            .clone()
+            .imprecise_rollup_upto(layer, stack[2])
+            .await
+            .unwrap();
+        let second = Layer::name(
+            store
+                .get_layer(stack[5])
+                .await
+                .unwrap()
+                .unwrap()
+                .immediate_parent()
+                .unwrap(),
+        );
 
         assert_eq!(first, second);
     }
