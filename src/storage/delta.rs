@@ -606,27 +606,45 @@ mod tests {
     }
 
     async fn create_layer_stack<S: LayerStore>(store: &S) -> Vec<[u32; 5]> {
-        let builder = store.create_base_layer().await.unwrap();
+        let mut builder = store.create_base_layer().await.unwrap();
         let base_name = builder.name();
+        builder.add_string_triple(StringTriple::new_value("a", "a", "a"));
+        builder.add_string_triple(StringTriple::new_value("a", "b", "c"));
         builder.commit_boxed().await.unwrap();
 
-        let builder = store.create_child_layer(base_name).await.unwrap();
+        let mut builder = store.create_child_layer(base_name).await.unwrap();
         let child1_name = builder.name();
+        builder.add_string_triple(StringTriple::new_value("a", "a", "b"));
+        builder.add_string_triple(StringTriple::new_value("a", "b", "a"));
+        builder.add_string_triple(StringTriple::new_value("b", "a", "a"));
+        builder.add_string_triple(StringTriple::new_value("d", "d", "d"));
+        builder.remove_string_triple(StringTriple::new_value("a", "a", "a"));
         builder.commit_boxed().await.unwrap();
 
-        let builder = store.create_child_layer(child1_name).await.unwrap();
+        let mut builder = store.create_child_layer(child1_name).await.unwrap();
+        builder.add_string_triple(StringTriple::new_value("a", "b", "b"));
+        builder.add_string_triple(StringTriple::new_value("b", "a", "b"));
+        builder.add_string_triple(StringTriple::new_value("e", "e", "e"));
+        builder.remove_string_triple(StringTriple::new_value("a", "a", "b"));
         let child2_name = builder.name();
         builder.commit_boxed().await.unwrap();
 
-        let builder = store.create_child_layer(child2_name).await.unwrap();
+        let mut builder = store.create_child_layer(child2_name).await.unwrap();
+        builder.add_string_triple(StringTriple::new_value("a", "a", "b"));
+        builder.add_string_triple(StringTriple::new_value("b", "b", "a"));
+        builder.add_string_triple(StringTriple::new_value("f", "f", "f"));
         let child3_name = builder.name();
         builder.commit_boxed().await.unwrap();
 
-        let builder = store.create_child_layer(child3_name).await.unwrap();
+        let mut builder = store.create_child_layer(child3_name).await.unwrap();
+        builder.add_string_triple(StringTriple::new_value("b", "b", "c"));
+        builder.add_string_triple(StringTriple::new_value("g", "g", "g"));
         let child4_name = builder.name();
         builder.commit_boxed().await.unwrap();
 
-        let builder = store.create_child_layer(child4_name).await.unwrap();
+        let mut builder = store.create_child_layer(child4_name).await.unwrap();
+        builder.add_string_triple(StringTriple::new_value("c", "a", "b"));
+        builder.add_string_triple(StringTriple::new_value("h", "h", "h"));
         let child5_name = builder.name();
         builder.commit_boxed().await.unwrap();
 
@@ -766,5 +784,35 @@ mod tests {
         );
 
         assert_eq!(first, second);
+    }
+
+    #[tokio::test]
+    async fn rollup_that_loads_from_disk_has_expected_contents() {
+        let store = Arc::new(MemoryLayerStore::new());
+
+        let stack = create_layer_stack(&*store).await;
+        let layer = store.get_layer(stack[3]).await.unwrap().unwrap();
+        store.clone().rollup_upto(layer, stack[0]).await.unwrap();
+
+        let layer = store.get_layer(stack[5]).await.unwrap().unwrap();
+        let original_triples: Vec<_> = layer
+            .triples()
+            .map(|t| layer.id_triple_to_string(&t))
+            .collect();
+        assert_eq!(14, original_triples.len());
+
+        store
+            .clone()
+            .rollup_upto(layer.clone(), stack[2])
+            .await
+            .unwrap();
+        let rollup = store.get_layer(stack[5]).await.unwrap().unwrap();
+
+        let new_triples: Vec<_> = rollup
+            .triples()
+            .map(|t| layer.id_triple_to_string(&t))
+            .collect();
+
+        assert_eq!(original_triples, new_triples);
     }
 }
