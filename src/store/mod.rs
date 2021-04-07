@@ -322,6 +322,20 @@ impl StoreLayer {
         Ok(())
     }
 
+    /// Like rollup_upto, rolls up upto the given layer. However, if
+    /// this layer is a rollup layer, this will roll up upto that
+    /// rollup.
+    pub async fn imprecise_rollup_upto(&self, upto: &StoreLayer) -> io::Result<()> {
+        let store1 = self.store.layer_store.clone();
+        // TODO: This is awkward, we should have a way to get the internal layer
+        let layer_opt = store1.get_layer(self.name()).await?;
+        let layer =
+            layer_opt.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "label not found"))?;
+        let store2 = self.store.layer_store.clone();
+        store2.imprecise_rollup_upto(layer, upto.name()).await?;
+        Ok(())
+    }
+
     /// Returns a future that yields true if this triple has been added in this layer, or false if it doesn't.
     ///
     /// Since this operation will involve io when this layer is a

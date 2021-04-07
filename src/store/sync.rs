@@ -174,6 +174,13 @@ impl SyncStoreLayer {
         task_sync(self.inner.clone().rollup_upto(&upto.inner))
     }
 
+    /// Like rollup_upto, rolls up upto the given layer. However, if
+    /// this layer is a rollup layer, this will roll up upto that
+    /// rollup.
+    pub fn imprecise_rollup_upto(&self, upto: &SyncStoreLayer) -> Result<(), io::Error> {
+        task_sync(self.inner.clone().imprecise_rollup_upto(&upto.inner))
+    }
+
     /// Returns true if this triple has been added in this layer, or false if it doesn't.
     ///
     /// Since this operation will involve io when this layer is a
