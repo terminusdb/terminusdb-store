@@ -2,6 +2,7 @@ use super::cache::*;
 use super::consts::FILENAMES;
 use super::delta::*;
 use super::file::*;
+use super::pack::Packable;
 use crate::layer::{
     layer_triple_exists, BaseLayer, ChildLayer, IdMap, IdTriple, InternalLayer, InternalLayerImpl,
     InternalLayerTripleObjectIterator, InternalLayerTriplePredicateIterator,
@@ -61,7 +62,7 @@ macro_rules! walk_backwards_from_disk_upto {
     }
 }
 
-pub trait LayerStore: 'static + Send + Sync {
+pub trait LayerStore: 'static + Packable + Send + Sync {
     fn layers(&self) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>>;
     fn get_layer_with_cache(
         &self,
@@ -255,20 +256,6 @@ pub trait LayerStore: 'static + Send + Sync {
         self.imprecise_rollup_upto_with_cache(layer, upto, NOCACHE.clone())
     }
 
-    /// Export the given layers by creating a pack, a Vec<u8> that can later be used with `import_layers` on a different store.
-    fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8>;
-
-    /// Import the specified layers from the given pack, a byte slice that was previously generated with `export_layers`, on another store, and possibly even another machine).
-    ///
-    /// After this operation, the specified layers will be retrievable
-    /// from this store, provided they existed in the pack. specified
-    /// layers that are not in the pack are silently ignored.
-    fn import_layers(
-        &self,
-        pack: &[u8],
-        layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
-    ) -> Result<(), io::Error>;
-
     fn layer_is_ancestor_of(
         &self,
         descendant: [u32; 5],
@@ -417,13 +404,14 @@ pub trait LayerStore: 'static + Send + Sync {
 pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
     type File: FileLoad + FileStore + Clone;
     fn directories(&self) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>>;
-    fn create_directory(&self) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>>;
-    fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8>;
-    fn import_layers(
+    fn create_named_directory(
         &self,
-        pack: &[u8],
-        layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
-    ) -> Result<(), io::Error>;
+        id: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>>;
+    fn create_directory(&self) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+        let name = rand::random();
+        self.create_named_directory(name)
+    }
 
     fn directory_exists(
         &self,
@@ -2085,17 +2073,6 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         } else {
             self.write_rollup_file(layer, rollup)
         }
-    }
-
-    fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
-        Self::export_layers(self, layer_ids)
-    }
-    fn import_layers(
-        &self,
-        pack: &[u8],
-        layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
-    ) -> Result<(), io::Error> {
-        Self::import_layers(self, pack, layer_ids)
     }
 
     fn layer_is_ancestor_of(

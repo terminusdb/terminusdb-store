@@ -90,8 +90,8 @@ impl LayerCache for LockingHashMapLayerCache {
 
 #[derive(Clone)]
 pub struct CachedLayerStore {
-    inner: Arc<dyn LayerStore>,
-    cache: Arc<dyn LayerCache>,
+    pub(crate) inner: Arc<dyn LayerStore>,
+    pub(crate) cache: Arc<dyn LayerCache>,
 }
 
 impl CachedLayerStore {
@@ -351,17 +351,6 @@ impl LayerStore for CachedLayerStore {
     ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
         let cache = self.cache.clone();
         self.rollup_upto_with_cache(layer, upto, cache)
-    }
-
-    fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
-        self.inner.export_layers(layer_ids)
-    }
-    fn import_layers(
-        &self,
-        pack: &[u8],
-        layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
-    ) -> Result<(), io::Error> {
-        self.inner.import_layers(pack, layer_ids)
     }
 
     fn layer_is_ancestor_of(

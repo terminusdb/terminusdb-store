@@ -514,8 +514,11 @@ impl SyncStore {
     }
 
     /// Export the given layers by creating a pack, a Vec<u8> that can later be used with `import_layers` on a different store.
-    pub fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
-        self.inner.layer_store.export_layers(layer_ids)
+    pub fn export_layers(
+        &self,
+        layer_ids: Box<dyn Iterator<Item = [u32; 5]> + Send>,
+    ) -> io::Result<Vec<u8>> {
+        task_sync(self.inner.layer_store.export_layers(layer_ids))
     }
 
     /// Import the specified layers from the given pack, a byte slice that was previously generated with `export_layers`, on another store, and possibly even another machine).
@@ -526,9 +529,9 @@ impl SyncStore {
     pub fn import_layers(
         &self,
         pack: &[u8],
-        layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
-    ) -> Result<(), io::Error> {
-        self.inner.layer_store.import_layers(pack, layer_ids)
+        layer_ids: Box<dyn Iterator<Item = [u32; 5]> + Send>,
+    ) -> io::Result<()> {
+        task_sync(self.inner.layer_store.import_layers(pack, layer_ids))
     }
 }
 
@@ -645,7 +648,7 @@ mod tests {
         assert!(builder.committed());
     }
 
-    use crate::storage::directory::pack_layer_parents;
+    use crate::storage::pack::pack_layer_parents;
     #[test]
     fn export_and_import_pack() {
         let dir1 = tempdir().unwrap();
@@ -673,7 +676,9 @@ mod tests {
         let layer3 = builder3.commit().unwrap();
 
         let ids = vec![layer1.name(), layer2.name(), layer3.name()];
-        let pack = store1.export_layers(Box::new(ids.clone().into_iter()));
+        let pack = store1
+            .export_layers(Box::new(ids.clone().into_iter()))
+            .unwrap();
 
         let parents_map = pack_layer_parents(io::Cursor::new(&pack)).unwrap();
 
