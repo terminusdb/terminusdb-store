@@ -1,9 +1,8 @@
 use std::io;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use futures::Future;
+use async_trait::async_trait;
 
 use super::consts::*;
 use super::file::*;
@@ -14,53 +13,54 @@ use tar::*;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 
+#[async_trait]
 pub trait Packable {
     /// Export the given layers by creating a pack, a Vec<u8> that can later be used with `import_layers` on a different store.
-    fn export_layers<'a>(
-        &'a self,
+    async fn export_layers(
+        &self,
         layer_ids: Box<dyn Iterator<Item = [u32; 5]> + Send>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<u8>>> + Send + 'a>>;
+    ) -> io::Result<Vec<u8>>;
 
     /// Import the specified layers from the given pack, a byte slice that was previously generated with `export_layers`, on another store, and possibly even another machine).
     ///
     /// After this operation, the specified layers will be retrievable
     /// from this store, provided they existed in the pack. specified
     /// layers that are not in the pack are silently ignored.
-    fn import_layers<'a>(
-        &'a self,
+    async fn import_layers(
+        &self,
         pack: &[u8],
-        layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + 'a>>;
+        layer_ids: Box<dyn Iterator<Item = [u32; 5]> + Send>,
+    ) -> io::Result<()>;
 }
 
+#[async_trait]
 impl<T: PersistentLayerStore> Packable for T {
-    fn export_layers<'a>(
-        &'a self,
+    async fn export_layers(
+        &self,
         layer_ids: Box<dyn Iterator<Item = [u32; 5]> + Send>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<u8>>> + Send + 'a>> {
+    ) -> io::Result<Vec<u8>> {
         let mtime = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        Box::pin(async move {
-            let mut enc = GzEncoder::new(Vec::new(), Compression::default());
-            {
-                let mut tar = tar::Builder::new(&mut enc);
-                for id in layer_ids {
-                    tar_append_layer(&mut tar, self, id, mtime).await?;
-                }
-                tar.finish().unwrap();
+
+        let mut enc = GzEncoder::new(Vec::new(), Compression::default());
+        {
+            let mut tar = tar::Builder::new(&mut enc);
+            for id in layer_ids {
+                tar_append_layer(&mut tar, self, id, mtime).await?;
             }
-            // TODO: Proper error handling
-            Ok(enc.finish().unwrap())
-        })
+            tar.finish().unwrap();
+        }
+        // TODO: Proper error handling
+        Ok(enc.finish().unwrap())
     }
 
-    fn import_layers<'a>(
-        &'a self,
+    async fn import_layers(
+        &self,
         _pack: &[u8],
-        _layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + 'a>> {
+        _layer_ids: Box<dyn Iterator<Item = [u32; 5]> + Send>,
+    ) -> io::Result<()> {
         todo!();
     }
 }
