@@ -142,7 +142,7 @@ async fn tar_append_file<S: PersistentLayerStore, W: io::Write>(
         header.set_mode(0o644);
         header.set_size(file.size() as u64);
         header.set_mtime(mtime);
-        tar.append_data(&mut header, path, cursor).unwrap();
+        tokio::task::block_in_place(|| tar.append_data(&mut header, path, cursor).unwrap());
 
         Ok(())
     } else {
@@ -172,7 +172,7 @@ async fn tar_append_file_if_exists<S: PersistentLayerStore, W: io::Write>(
         header.set_mode(0o644);
         header.set_size(file.size() as u64);
         header.set_mtime(mtime);
-        tar.append_data(&mut header, path, cursor).unwrap();
+        tokio::task::block_in_place(|| tar.append_data(&mut header, path, cursor).unwrap());
     }
 
     Ok(())
@@ -191,8 +191,10 @@ async fn tar_append_layer<W: io::Write, S: PersistentLayerStore>(
     let layer_name = name_to_string(layer);
     let mut path = PathBuf::new();
     path.push(layer_name);
-    tar.append_data(&mut header, &path, std::io::empty())
-        .unwrap();
+    tokio::task::block_in_place(|| {
+        tar.append_data(&mut header, &path, std::io::empty())
+            .unwrap()
+    });
 
     for f in &SHARED_REQUIRED_FILES {
         tar_append_file(store, tar, layer, &path, f, mtime).await?;
