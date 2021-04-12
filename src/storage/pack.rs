@@ -1,4 +1,5 @@
-use std::io;
+use std::collections::HashSet;
+use std::io::{self, Read};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -8,10 +9,11 @@ use super::consts::*;
 use super::file::*;
 use super::layer::*;
 
-use tar::*;
-//use flate2::read::GzDecoder;
+use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use tar::*;
+use tokio::io::AsyncWriteExt;
 
 #[async_trait]
 pub trait Packable {
@@ -58,10 +60,66 @@ impl<T: PersistentLayerStore> Packable for T {
 
     async fn import_layers(
         &self,
-        _pack: &[u8],
-        _layer_ids: Box<dyn Iterator<Item = [u32; 5]> + Send>,
+        pack: &[u8],
+        layer_ids: Box<dyn Iterator<Item = [u32; 5]> + Send>,
     ) -> io::Result<()> {
-        todo!();
+        let handle = tokio::runtime::Handle::current();
+        tokio::task::block_in_place(|| {
+            let cursor = io::Cursor::new(pack);
+            let tar = GzDecoder::new(cursor);
+            let mut archive = Archive::new(tar);
+
+            let layer_id_set: HashSet<_> = layer_ids.map(name_to_string).collect();
+
+            // TODO we actually need to validate that these layers, when extracted, will make for a valid store.
+            // In terminus-server we are currently already doing this validation. Due to time constraints, we're not implementing it here.
+            //
+            // This should definitely be done in the future though, to make this part of the library independently usable in a safe manner.
+            for e in archive.entries()? {
+                let mut entry = e?;
+                let path = entry.path()?;
+                let os_file_name = path.file_name().unwrap();
+                let file_name = os_file_name
+                    .to_str()
+                    .ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "unexpected non-utf8 directory name",
+                        )
+                    })?
+                    .to_owned();
+
+                // check if entry is prefixed with a layer id we are interested in
+                let layer_id = path.iter().next().and_then(|p| p.to_str()).unwrap_or("");
+
+                if layer_id_set.contains(layer_id) {
+                    // this conversion should always work cause we are
+                    // only able to match things that went through the
+                    // conversion in the opposite direction.
+                    let layer_id_arr = string_to_name(layer_id).unwrap();
+
+                    let header = entry.header();
+                    if !header.entry_type().is_file() {
+                        continue;
+                    }
+
+                    let mut content = Vec::with_capacity(header.size()? as usize);
+                    entry.read_to_end(&mut content)?;
+
+                    handle.block_on(async move {
+                        let file = self.get_file(layer_id_arr, &file_name).await?;
+                        let mut writer = file.open_write();
+                        writer.write_all(&content).await?;
+                        writer.flush().await?;
+                        writer.sync_all().await?;
+
+                        Ok::<_, io::Error>(())
+                    })?;
+                }
+            }
+
+            Ok(())
+        })
     }
 }
 
