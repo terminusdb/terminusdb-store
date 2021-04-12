@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt::Display;
 use std::io::{self, Read};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -240,6 +241,23 @@ pub enum PackError {
     Utf8Error(std::str::Utf8Error),
 }
 
+impl Display for PackError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(formatter, "{:?}", self)
+    }
+}
+
+impl From<io::Error> for PackError {
+    fn from(err: io::Error) -> Self {
+        Self::Io(err)
+    }
+}
+impl From<std::str::Utf8Error> for PackError {
+    fn from(err: std::str::Utf8Error) -> Self {
+        Self::Utf8Error(err)
+    }
+}
+
 pub fn pack_layer_parents<R: io::Read>(
     readable: R,
 ) -> Result<HashMap<[u32; 5], Option<[u32; 5]>>, PackError> {
@@ -303,5 +321,68 @@ impl Packable for CachedLayerStore {
         layer_ids: Box<dyn Iterator<Item = [u32; 5]> + Send>,
     ) -> io::Result<()> {
         self.inner.import_layers(pack, layer_ids).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::layer::*;
+    use crate::storage::directory::*;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn export_import_layer_with_rollup() {
+        let dir1 = tempdir().unwrap();
+        let store1 = Arc::new(DirectoryLayerStore::new(dir1.path()));
+        let dir2 = tempdir().unwrap();
+        let store2 = Arc::new(DirectoryLayerStore::new(dir2.path()));
+
+        let mut builder = store1.create_base_layer().await.unwrap();
+        let base_name = builder.name();
+
+        builder.add_string_triple(StringTriple::new_node("cow", "likes", "duck"));
+        builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
+
+        builder.commit_boxed().await.unwrap();
+
+        let mut builder = store1.create_child_layer(base_name).await.unwrap();
+        let child_name = builder.name();
+
+        builder.remove_string_triple(StringTriple::new_node("duck", "hates", "cow"));
+        builder.add_string_triple(StringTriple::new_node("duck", "likes", "cow"));
+
+        builder.commit_boxed().await.unwrap();
+
+        let unrolled_layer = store1.get_layer(child_name).await.unwrap().unwrap();
+
+        store1.clone().rollup(unrolled_layer).await.unwrap();
+
+        let export =
+            LayerStore::export_layers(&*store1, Box::new(vec![base_name, child_name].into_iter()))
+                .await
+                .unwrap();
+
+        LayerStore::import_layers(
+            &*store2,
+            &export,
+            Box::new(vec![base_name, child_name].into_iter()),
+        )
+        .await
+        .unwrap();
+
+        let imported_layer = store2.get_layer(child_name).await.unwrap().unwrap();
+        let triples: Vec<_> = imported_layer
+            .triples()
+            .map(|t| imported_layer.id_triple_to_string(&t).unwrap())
+            .collect();
+        assert_eq!(
+            vec![
+                StringTriple::new_node("cow", "likes", "duck"),
+                StringTriple::new_node("duck", "likes", "cow")
+            ],
+            triples
+        );
     }
 }
