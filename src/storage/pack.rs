@@ -267,14 +267,9 @@ pub fn pack_layer_parents<R: io::Read>(
     // build a set out of the layer ids for easy retrieval
     let mut result_map = HashMap::new();
 
-    println!("about to go into loop");
     for e in archive.entries()? {
-        println!("a");
         let mut entry = e?;
-        println!("b");
         let path = entry.path()?;
-        println!("c");
-        println!("path: {:?}", path);
 
         let id = string_to_name(
             path.iter()
@@ -285,7 +280,6 @@ pub fn pack_layer_parents<R: io::Read>(
         )?;
 
         if path.file_name().expect("expected path to have a filename") == "parent.hex" {
-            println!("hello a");
             // this is an element we want to know the parent of
             // lets read it
             let mut parent_id_bytes = [0u8; 40];
@@ -295,7 +289,6 @@ pub fn pack_layer_parents<R: io::Read>(
 
             result_map.insert(id, Some(parent_id));
         } else if !result_map.contains_key(&id) {
-            println!("hello b");
             // Ensure that an entry for this layer exists
             // If we encounter the parent file later on, this'll be overwritten with the parent id.
             // If not, it can be assumed to not have a parent.

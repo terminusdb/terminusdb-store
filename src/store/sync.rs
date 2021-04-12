@@ -680,8 +680,6 @@ mod tests {
             .export_layers(Box::new(ids.clone().into_iter()))
             .unwrap();
 
-        println!("pack: {:?}", pack);
-
         let parents_map = pack_layer_parents(io::Cursor::new(&pack)).unwrap();
 
         assert_eq!(3, parents_map.len());
