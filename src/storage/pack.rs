@@ -288,11 +288,11 @@ pub fn pack_layer_parents<R: io::Read>(
             let parent_id = string_to_name(parent_id_str)?;
 
             result_map.insert(id, Some(parent_id));
-        } else if !result_map.contains_key(&id) {
+        } else {
             // Ensure that an entry for this layer exists
             // If we encounter the parent file later on, this'll be overwritten with the parent id.
             // If not, it can be assumed to not have a parent.
-            result_map.insert(id, None);
+            result_map.entry(id).or_insert(None);
         }
     }
 
