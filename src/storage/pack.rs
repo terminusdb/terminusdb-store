@@ -1,10 +1,11 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, Read};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 
+use super::cache::*;
 use super::consts::*;
 use super::file::*;
 use super::layer::*;
@@ -63,13 +64,17 @@ impl<T: PersistentLayerStore> Packable for T {
         pack: &[u8],
         layer_ids: Box<dyn Iterator<Item = [u32; 5]> + Send>,
     ) -> io::Result<()> {
+        let mut layer_id_set = HashSet::new();
+        for id in layer_ids {
+            layer_id_set.insert(name_to_string(id));
+            self.create_named_directory(id).await?;
+        }
+
         let handle = tokio::runtime::Handle::current();
         tokio::task::block_in_place(|| {
             let cursor = io::Cursor::new(pack);
             let tar = GzDecoder::new(cursor);
             let mut archive = Archive::new(tar);
-
-            let layer_id_set: HashSet<_> = layer_ids.map(name_to_string).collect();
 
             // TODO we actually need to validate that these layers, when extracted, will make for a valid store.
             // In terminus-server we are currently already doing this validation. Due to time constraints, we're not implementing it here.
@@ -188,6 +193,7 @@ async fn tar_append_layer<W: io::Write, S: PersistentLayerStore>(
     header.set_mode(0o755);
     header.set_entry_type(EntryType::Directory);
     header.set_mtime(mtime);
+    header.set_size(0);
     let layer_name = name_to_string(layer);
     let mut path = PathBuf::new();
     path.push(layer_name);
@@ -225,4 +231,77 @@ async fn tar_append_layer<W: io::Write, S: PersistentLayerStore>(
     }
 
     Ok(())
+}
+
+#[derive(Debug)]
+pub enum PackError {
+    LayerNotFound,
+    Io(io::Error),
+    Utf8Error(std::str::Utf8Error),
+}
+
+pub fn pack_layer_parents<R: io::Read>(
+    readable: R,
+) -> Result<HashMap<[u32; 5], Option<[u32; 5]>>, PackError> {
+    let tar = GzDecoder::new(readable);
+    let mut archive = Archive::new(tar);
+
+    // build a set out of the layer ids for easy retrieval
+    let mut result_map = HashMap::new();
+
+    println!("about to go into loop");
+    for e in archive.entries()? {
+        println!("a");
+        let mut entry = e?;
+        println!("b");
+        let path = entry.path()?;
+        println!("c");
+        println!("path: {:?}", path);
+
+        let id = string_to_name(
+            path.iter()
+                .next()
+                .expect("expected path to have at least one component")
+                .to_str()
+                .expect("expected proper unicode path"),
+        )?;
+
+        if path.file_name().expect("expected path to have a filename") == "parent.hex" {
+            println!("hello a");
+            // this is an element we want to know the parent of
+            // lets read it
+            let mut parent_id_bytes = [0u8; 40];
+            entry.read_exact(&mut parent_id_bytes)?;
+            let parent_id_str = std::str::from_utf8(&parent_id_bytes)?;
+            let parent_id = string_to_name(parent_id_str)?;
+
+            result_map.insert(id, Some(parent_id));
+        } else if !result_map.contains_key(&id) {
+            println!("hello b");
+            // Ensure that an entry for this layer exists
+            // If we encounter the parent file later on, this'll be overwritten with the parent id.
+            // If not, it can be assumed to not have a parent.
+            result_map.insert(id, None);
+        }
+    }
+
+    Ok(result_map)
+}
+
+#[async_trait]
+impl Packable for CachedLayerStore {
+    async fn export_layers(
+        &self,
+        layer_ids: Box<dyn Iterator<Item = [u32; 5]> + Send>,
+    ) -> io::Result<Vec<u8>> {
+        self.inner.export_layers(layer_ids).await
+    }
+
+    async fn import_layers(
+        &self,
+        pack: &[u8],
+        layer_ids: Box<dyn Iterator<Item = [u32; 5]> + Send>,
+    ) -> io::Result<()> {
+        self.inner.import_layers(pack, layer_ids).await
+    }
 }

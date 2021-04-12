@@ -763,8 +763,11 @@ impl Store {
     }
 
     /// Export the given layers by creating a pack, a Vec<u8> that can later be used with `import_layers` on a different store.
-    pub fn export_layers(&self, layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
-        self.layer_store.export_layers(layer_ids)
+    pub async fn export_layers(
+        &self,
+        layer_ids: Box<dyn Iterator<Item = [u32; 5]> + Send>,
+    ) -> io::Result<Vec<u8>> {
+        self.layer_store.export_layers(layer_ids).await
     }
 
     /// Import the specified layers from the given pack, a byte slice that was previously generated with `export_layers`, on another store, and possibly even another machine).
@@ -772,12 +775,12 @@ impl Store {
     /// After this operation, the specified layers will be retrievable
     /// from this store, provided they existed in the pack. specified
     /// layers that are not in the pack are silently ignored.
-    pub fn import_layers(
-        &self,
-        pack: &[u8],
-        layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
-    ) -> Result<(), io::Error> {
-        self.layer_store.import_layers(pack, layer_ids)
+    pub async fn import_layers<'a>(
+        &'a self,
+        pack: &'a [u8],
+        layer_ids: Box<dyn Iterator<Item = [u32; 5]> + Send>,
+    ) -> io::Result<()> {
+        self.layer_store.import_layers(pack, layer_ids).await
     }
 }
 

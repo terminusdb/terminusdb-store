@@ -193,10 +193,12 @@ impl PersistentLayerStore for MemoryLayerStore {
         Box::pin(async move { Ok(guard.await.keys().cloned().collect()) })
     }
 
-    fn create_directory(&self) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+    fn create_named_directory(
+        &self,
+        name: [u32; 5],
+    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
         let guard = self.layers.write();
         Box::pin(async move {
-            let name: [u32; 5] = rand::random();
             guard.await.insert(name, HashMap::new());
 
             Ok(name)
@@ -256,18 +258,6 @@ impl PersistentLayerStore for MemoryLayerStore {
                 Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"))
             }
         })
-    }
-
-    fn export_layers(&self, _layer_ids: Box<dyn Iterator<Item = [u32; 5]>>) -> Vec<u8> {
-        todo!();
-    }
-
-    fn import_layers(
-        &self,
-        _pack: &[u8],
-        _layer_ids: Box<dyn Iterator<Item = [u32; 5]>>,
-    ) -> Result<(), io::Error> {
-        todo!();
     }
 }
 
