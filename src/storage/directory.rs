@@ -218,14 +218,7 @@ impl DirectoryLabelStore {
     }
 }
 
-async fn get_label_from_file<P: Into<PathBuf>>(path: P) -> io::Result<Label> {
-    let path: PathBuf = path.into();
-    let label = path.file_stem().unwrap().to_str().unwrap().to_owned();
-
-    let mut file = LockedFile::open(path).await?;
-    let mut data = Vec::new();
-    file.read_to_end(&mut data).await?;
-
+fn get_label_from_data(name: String, data: &[u8]) -> io::Result<Label> {
     let s = String::from_utf8_lossy(&data);
     let lines: Vec<&str> = s.lines().collect();
     if lines.len() != 2 {
@@ -254,18 +247,45 @@ async fn get_label_from_file<P: Into<PathBuf>>(path: P) -> io::Result<Label> {
 
     if layer_str.is_empty() {
         Ok(Label {
-            name: label,
+            name,
             layer: None,
             version: version.unwrap(),
         })
     } else {
         let layer = layer::string_to_name(layer_str)?;
         Ok(Label {
-            name: label,
+            name,
             layer: Some(layer),
             version: version.unwrap(),
         })
     }
+}
+
+async fn get_label_from_file<P: Into<PathBuf>>(path: P) -> io::Result<Label> {
+    let path: PathBuf = path.into();
+    let label = path.file_stem().unwrap().to_str().unwrap().to_owned();
+
+    let mut file = LockedFile::open(path).await?;
+    let mut data = Vec::new();
+    file.read_to_end(&mut data).await?;
+
+    get_label_from_data(label, &data)
+}
+
+async fn get_label_from_exclusive_locked_file<P: Into<PathBuf>>(
+    path: P,
+) -> io::Result<(Label, ExclusiveLockedFile)> {
+    let path: PathBuf = path.into();
+    let label = path.file_stem().unwrap().to_str().unwrap().to_owned();
+
+    let mut file = ExclusiveLockedFile::open(path).await?;
+    let mut data = Vec::new();
+    file.read_to_end(&mut data).await?;
+
+    let label = get_label_from_data(label, &data)?;
+    file.seek(SeekFrom::Start(0)).await?;
+
+    Ok((label, file))
 }
 
 impl LabelStore for DirectoryLabelStore {
@@ -344,9 +364,6 @@ impl LabelStore for DirectoryLabelStore {
         label: &Label,
         layer: Option<[u32; 5]>,
     ) -> Pin<Box<dyn Future<Output = io::Result<Option<Label>>> + Send>> {
-        let mut p = self.path.clone();
-        p.push(format!("{}.label", label.name));
-
         let old_label = label.clone();
         let new_label = label.with_updated_layer(layer);
         let contents = match new_label.layer {
@@ -356,14 +373,17 @@ impl LabelStore for DirectoryLabelStore {
             }
         };
 
-        let get_label = self.get_label(&label.name);
+        let mut p = self.path.clone();
+        p.push(format!("{}.label", label.name));
+        let fut = get_label_from_exclusive_locked_file(p);
         Box::pin(async move {
-            let retrieved_label = get_label.await?;
-            if retrieved_label == Some(old_label) {
+            let (retrieved_label, mut file) = fut.await?;
+            if retrieved_label == old_label {
                 // all good, let's a go
-                let mut file = ExclusiveLockedFile::open(p).await?;
+                file.truncate().await?;
                 file.write_all(&contents).await?;
                 file.flush().await?;
+                file.sync_all().await?;
                 Ok(Some(new_label))
             } else {
                 Ok(None)

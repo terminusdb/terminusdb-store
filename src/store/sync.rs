@@ -449,8 +449,15 @@ impl SyncNamedGraph {
         self.inner.name()
     }
 
+    /// Returns the layer this database points at, as well as the label version.
+    pub fn head_version(&self) -> io::Result<(Option<SyncStoreLayer>, u64)> {
+        let inner = task_sync(self.inner.head_version());
+
+        inner.map(|(layer, version)| (layer.map(SyncStoreLayer::wrap), version))
+    }
+
     /// Returns the layer this database points at.
-    pub fn head(&self) -> Result<Option<SyncStoreLayer>, io::Error> {
+    pub fn head(&self) -> io::Result<Option<SyncStoreLayer>> {
         let inner = task_sync(self.inner.head());
 
         inner.map(|i| i.map(SyncStoreLayer::wrap))
@@ -461,9 +468,14 @@ impl SyncNamedGraph {
         task_sync(self.inner.set_head(&layer.inner))
     }
 
-    /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise.
-    pub fn force_set_head(&self, layer: &SyncStoreLayer) -> Result<bool, io::Error> {
+    /// Set the database label to the given layer, even if it is not a valid ancestor.
+    pub fn force_set_head(&self, layer: &SyncStoreLayer) -> Result<(), io::Error> {
         task_sync(self.inner.force_set_head(&layer.inner))
+    }
+
+    /// Set the database label to the given layer, even if it is not a valid ancestor. Also checks given version, and if it doesn't match, the update won't happen and false will be returned.
+    pub fn force_set_head_version(&self, layer: &SyncStoreLayer, version: u64) -> io::Result<bool> {
+        task_sync(self.inner.force_set_head_version(&layer.inner, version))
     }
 }
 

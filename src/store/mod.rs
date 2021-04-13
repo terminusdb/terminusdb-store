@@ -657,8 +657,8 @@ impl NamedGraph {
         &self.label
     }
 
-    /// Returns the layer this database points at.
-    pub async fn head(&self) -> io::Result<Option<StoreLayer>> {
+    /// Returns the layer this database points at, as well as the label version.
+    pub async fn head_version(&self) -> io::Result<(Option<StoreLayer>, u64)> {
         let new_label = self.store.label_store.get_label(&self.label).await?;
 
         match new_label {
@@ -666,20 +666,30 @@ impl NamedGraph {
                 io::ErrorKind::NotFound,
                 "database not found",
             )),
-            Some(new_label) => match new_label.layer {
-                None => Ok(None),
-                Some(layer) => {
-                    let layer = self.store.layer_store.get_layer(layer).await?;
-                    match layer {
-                        None => Err(io::Error::new(
-                            io::ErrorKind::NotFound,
-                            "layer not found even though it is pointed at by a label",
-                        )),
-                        Some(layer) => Ok(Some(StoreLayer::wrap(layer, self.store.clone()))),
+            Some(new_label) => {
+                let layer = match new_label.layer {
+                    None => None,
+                    Some(layer) => {
+                        let layer = self.store.layer_store.get_layer(layer).await?;
+                        match layer {
+                            None => {
+                                return Err(io::Error::new(
+                                    io::ErrorKind::NotFound,
+                                    "layer not found even though it is pointed at by a label",
+                                ))
+                            }
+                            Some(layer) => Some(StoreLayer::wrap(layer, self.store.clone())),
+                        }
                     }
-                }
-            },
+                };
+                Ok((layer, new_label.version))
+            }
         }
+    }
+
+    /// Returns the layer this database points at.
+    pub async fn head(&self) -> io::Result<Option<StoreLayer>> {
+        Ok(self.head_version().await?.0)
     }
 
     /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise.
@@ -708,8 +718,8 @@ impl NamedGraph {
         Ok(set_is_ok)
     }
 
-    /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise.
-    pub async fn force_set_head(&self, layer: &StoreLayer) -> io::Result<bool> {
+    /// Set the database label to the given layer, even if it is not a valid ancestor.
+    pub async fn force_set_head(&self, layer: &StoreLayer) -> io::Result<()> {
         let layer_name = layer.name();
         let label = self.store.label_store.get_label(&self.label).await?;
         match label {
@@ -717,7 +727,29 @@ impl NamedGraph {
             Some(label) => {
                 self.store.label_store.set_label(&label, layer_name).await?;
 
-                Ok(true)
+                Ok(())
+            }
+        }
+    }
+
+    /// Set the database label to the given layer, even if it is not a valid ancestor. Also checks given version, and if it doesn't match, the update won't happen and false will be returned.
+    pub async fn force_set_head_version(
+        &self,
+        layer: &StoreLayer,
+        version: u64,
+    ) -> io::Result<bool> {
+        let layer_name = layer.name();
+        let label = self.store.label_store.get_label(&self.label).await?;
+        match label {
+            None => Err(io::Error::new(io::ErrorKind::NotFound, "label not found")),
+            Some(label) => {
+                if label.version != version {
+                    Ok(false)
+                } else {
+                    self.store.label_store.set_label(&label, layer_name).await?;
+
+                    Ok(true)
+                }
             }
         }
     }
@@ -907,7 +939,7 @@ mod tests {
 
         let layer2 = builder2.commit().await.unwrap();
 
-        assert!(database.force_set_head(&layer2).await.unwrap());
+        database.force_set_head(&layer2).await.unwrap();
 
         let new_layer = database.head().await.unwrap().unwrap();
 
@@ -1080,5 +1112,73 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = open_directory_store(dir.path());
         cached_layer_name_does_not_change_after_rollup_upto(store).await
+    }
+
+    #[tokio::test]
+    async fn force_update_with_matching_0_version_succeeds() {
+        let dir = tempdir().unwrap();
+        let store = open_directory_store(dir.path());
+        let graph = store.create("foo").await.unwrap();
+        let (layer, version) = graph.head_version().await.unwrap();
+        assert!(layer.is_none());
+        assert_eq!(0, version);
+
+        let builder = store.create_base_layer().await.unwrap();
+        let layer = builder.commit().await.unwrap();
+
+        assert!(graph.force_set_head_version(&layer, 0).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn force_update_with_mismatching_0_version_succeeds() {
+        let dir = tempdir().unwrap();
+        let store = open_directory_store(dir.path());
+        let graph = store.create("foo").await.unwrap();
+        let (layer, version) = graph.head_version().await.unwrap();
+        assert!(layer.is_none());
+        assert_eq!(0, version);
+
+        let builder = store.create_base_layer().await.unwrap();
+        let layer = builder.commit().await.unwrap();
+
+        assert!(!graph.force_set_head_version(&layer, 3).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn force_update_with_matching_version_succeeds() {
+        let dir = tempdir().unwrap();
+        let store = open_directory_store(dir.path());
+        let graph = store.create("foo").await.unwrap();
+
+        let builder = store.create_base_layer().await.unwrap();
+        let layer = builder.commit().await.unwrap();
+        assert!(graph.set_head(&layer).await.unwrap());
+
+        let (_, version) = graph.head_version().await.unwrap();
+        assert_eq!(1, version);
+
+        let builder2 = store.create_base_layer().await.unwrap();
+        let layer2 = builder2.commit().await.unwrap();
+
+        assert!(graph.force_set_head_version(&layer2, 1).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn force_update_with_mismatched_version_succeeds() {
+        let dir = tempdir().unwrap();
+        let store = open_directory_store(dir.path());
+        let graph = store.create("foo").await.unwrap();
+
+        let builder = store.create_base_layer().await.unwrap();
+        let layer = builder.commit().await.unwrap();
+        assert!(graph.set_head(&layer).await.unwrap());
+
+        let (_, version) = graph.head_version().await.unwrap();
+        assert_eq!(1, version);
+
+        let builder2 = store.create_base_layer().await.unwrap();
+        let layer2 = builder2.commit().await.unwrap();
+
+        assert!(!graph.force_set_head_version(&layer2, 0).await.unwrap());
     }
 }

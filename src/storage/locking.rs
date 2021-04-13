@@ -198,6 +198,14 @@ impl ExclusiveLockedFile {
         })
     }
 
+    pub async fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        let file = self
+            .file
+            .as_mut()
+            .expect("tried to truncate a dropped file");
+        file.seek(pos).await
+    }
+
     pub async fn truncate(&mut self) -> io::Result<()> {
         let file = self
             .file
