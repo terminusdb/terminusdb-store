@@ -719,7 +719,7 @@ impl NamedGraph {
     }
 
     /// Set the database label to the given layer, even if it is not a valid ancestor.
-    pub async fn force_set_head(&self, layer: &StoreLayer) -> io::Result<bool> {
+    pub async fn force_set_head(&self, layer: &StoreLayer) -> io::Result<()> {
         let layer_name = layer.name();
         let label = self.store.label_store.get_label(&self.label).await?;
         match label {
@@ -727,7 +727,7 @@ impl NamedGraph {
             Some(label) => {
                 self.store.label_store.set_label(&label, layer_name).await?;
 
-                Ok(true)
+                Ok(())
             }
         }
     }
@@ -917,7 +917,7 @@ mod tests {
 
         let layer2 = builder2.commit().await.unwrap();
 
-        assert!(database.force_set_head(&layer2).await.unwrap());
+        database.force_set_head(&layer2).await.unwrap();
 
         let new_layer = database.head().await.unwrap().unwrap();
 
