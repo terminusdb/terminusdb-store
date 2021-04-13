@@ -468,9 +468,14 @@ impl SyncNamedGraph {
         task_sync(self.inner.set_head(&layer.inner))
     }
 
-    /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise.
+    /// Set the database label to the given layer, even if it is not a valid ancestor.
     pub fn force_set_head(&self, layer: &SyncStoreLayer) -> Result<(), io::Error> {
         task_sync(self.inner.force_set_head(&layer.inner))
+    }
+
+    /// Set the database label to the given layer, even if it is not a valid ancestor. Also checks given version, and if it doesn't match, the update won't happen and false will be returned.
+    pub fn force_set_head_version(&self, layer: &SyncStoreLayer, version: u64) -> io::Result<bool> {
+        task_sync(self.inner.force_set_head_version(&layer.inner, version))
     }
 }
 
