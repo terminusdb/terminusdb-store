@@ -449,8 +449,15 @@ impl SyncNamedGraph {
         self.inner.name()
     }
 
+    /// Returns the layer this database points at, as well as the label version.
+    pub fn head_version(&self) -> io::Result<(Option<SyncStoreLayer>, u64)> {
+        let inner = task_sync(self.inner.head_version());
+
+        inner.map(|(layer, version)| (layer.map(SyncStoreLayer::wrap), version))
+    }
+
     /// Returns the layer this database points at.
-    pub fn head(&self) -> Result<Option<SyncStoreLayer>, io::Error> {
+    pub fn head(&self) -> io::Result<Option<SyncStoreLayer>> {
         let inner = task_sync(self.inner.head());
 
         inner.map(|i| i.map(SyncStoreLayer::wrap))

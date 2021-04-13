@@ -657,8 +657,8 @@ impl NamedGraph {
         &self.label
     }
 
-    /// Returns the layer this database points at.
-    pub async fn head(&self) -> io::Result<Option<StoreLayer>> {
+    /// Returns the layer this database points at, as well as the label version.
+    pub async fn head_version(&self) -> io::Result<(Option<StoreLayer>, u64)> {
         let new_label = self.store.label_store.get_label(&self.label).await?;
 
         match new_label {
@@ -666,20 +666,30 @@ impl NamedGraph {
                 io::ErrorKind::NotFound,
                 "database not found",
             )),
-            Some(new_label) => match new_label.layer {
-                None => Ok(None),
-                Some(layer) => {
-                    let layer = self.store.layer_store.get_layer(layer).await?;
-                    match layer {
-                        None => Err(io::Error::new(
-                            io::ErrorKind::NotFound,
-                            "layer not found even though it is pointed at by a label",
-                        )),
-                        Some(layer) => Ok(Some(StoreLayer::wrap(layer, self.store.clone()))),
+            Some(new_label) => {
+                let layer = match new_label.layer {
+                    None => None,
+                    Some(layer) => {
+                        let layer = self.store.layer_store.get_layer(layer).await?;
+                        match layer {
+                            None => {
+                                return Err(io::Error::new(
+                                    io::ErrorKind::NotFound,
+                                    "layer not found even though it is pointed at by a label",
+                                ))
+                            }
+                            Some(layer) => Some(StoreLayer::wrap(layer, self.store.clone())),
+                        }
                     }
-                }
-            },
+                };
+                Ok((layer, new_label.version))
+            }
         }
+    }
+
+    /// Returns the layer this database points at.
+    pub async fn head(&self) -> io::Result<Option<StoreLayer>> {
+        Ok(self.head_version().await?.0)
     }
 
     /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise.
@@ -708,7 +718,7 @@ impl NamedGraph {
         Ok(set_is_ok)
     }
 
-    /// Set the database label to the given layer if it is a valid ancestor, returning false otherwise.
+    /// Set the database label to the given layer, even if it is not a valid ancestor.
     pub async fn force_set_head(&self, layer: &StoreLayer) -> io::Result<bool> {
         let layer_name = layer.name();
         let label = self.store.label_store.get_label(&self.label).await?;
