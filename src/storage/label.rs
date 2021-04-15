@@ -44,6 +44,10 @@ pub trait LabelStore: Send + Sync {
         label: &Label,
         layer: Option<[u32; 5]>,
     ) -> io::Result<Option<Label>>;
+    async fn delete_label(
+        &self,
+        name: &str
+    ) -> io::Result<bool>;
 
     async fn set_label(&self, label: &Label, layer: [u32; 5]) -> io::Result<Option<Label>> {
         self.set_label_option(label, Some(layer)).await

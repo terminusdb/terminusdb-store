@@ -327,6 +327,15 @@ impl LabelStore for MemoryLabelStore {
             }
         }
     }
+
+    async fn delete_label(
+        &self,
+        name: &str
+    ) -> io::Result<bool> {
+        let mut labels = self.labels.write().await;
+
+        Ok(labels.remove(name).is_some())
+    }
 }
 
 #[cfg(test)]

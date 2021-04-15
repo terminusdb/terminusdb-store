@@ -377,6 +377,32 @@ impl LabelStore for DirectoryLabelStore {
             Ok(None)
         }
     }
+
+    async fn delete_label(
+        &self,
+        name: &str
+    ) -> io::Result<bool> {
+        let mut p = self.path.clone();
+        p.push(format!("{}.label", name));
+
+        // We're not locking here to remove the file. The assumption
+        // is that any concurrent operation that is done on the label
+        // file will not matter. If it is a label read, a concurrent
+        // operation will simply get the label contents, which
+        // immediately afterwards become invalid. Similarly if it is
+        // for a write, the write will appear to be succesful even
+        // though the file will be gone afterwards. This is
+        // indistinguishable from the case where the read/write and
+        // the remove happened in reverse order.
+        match tokio::fs::remove_file(p).await {
+            Ok(()) => Ok(true),
+            Err(e) => match e.kind() {
+                // if the file is already gone then we ignore this error to make the operation idempotent
+                io::ErrorKind::NotFound => Ok(true),
+                _ => Err(e)
+            }
+        }
+    }
 }
 
 #[cfg(test)]
