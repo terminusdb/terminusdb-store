@@ -397,8 +397,7 @@ impl LabelStore for DirectoryLabelStore {
         match tokio::fs::remove_file(p).await {
             Ok(()) => Ok(true),
             Err(e) => match e.kind() {
-                // if the file is already gone then we ignore this error to make the operation idempotent
-                io::ErrorKind::NotFound => Ok(true),
+                io::ErrorKind::NotFound => Ok(false),
                 _ => Err(e)
             }
         }
