@@ -477,6 +477,10 @@ impl SyncNamedGraph {
     pub fn force_set_head_version(&self, layer: &SyncStoreLayer, version: u64) -> io::Result<bool> {
         task_sync(self.inner.force_set_head_version(&layer.inner, version))
     }
+
+    pub fn delete(&self) -> io::Result<()> {
+        task_sync(self.inner.delete())
+    }
 }
 
 /// A store, storing a set of layers and database labels pointing to these layers.
