@@ -753,6 +753,14 @@ impl NamedGraph {
             }
         }
     }
+
+    pub async fn delete(&self) -> io::Result<()> {
+        self.store
+            .label_store
+            .delete_label(&self.label)
+            .await
+            .map(|_| ())
+    }
 }
 
 impl Store {
@@ -1180,5 +1188,29 @@ mod tests {
         let layer2 = builder2.commit().await.unwrap();
 
         assert!(!graph.force_set_head_version(&layer2, 0).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn delete_graph() {
+        let dir = tempdir().unwrap();
+        let store = open_directory_store(dir.path());
+        let graph = store.create("foo").await.unwrap();
+        assert!(store.open("foo").await.unwrap().is_some());
+        graph.delete().await.unwrap();
+        assert!(store.open("foo").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn recreate_graph() {
+        let dir = tempdir().unwrap();
+        let store = open_directory_store(dir.path());
+        let graph = store.create("foo").await.unwrap();
+        let builder = store.create_base_layer().await.unwrap();
+        let layer = builder.commit().await.unwrap();
+        graph.set_head(&layer).await.unwrap();
+        assert!(graph.head().await.unwrap().is_some());
+        graph.delete().await.unwrap();
+        store.create("foo").await.unwrap();
+        assert!(graph.head().await.unwrap().is_none());
     }
 }
