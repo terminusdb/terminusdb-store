@@ -9,6 +9,8 @@ use std::pin::Pin;
 use tokio::fs::{self, *};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 
+use async_trait::async_trait;
+
 use super::*;
 
 const PREFIX_DIR_SIZE: usize = 3;
@@ -288,83 +290,71 @@ async fn get_label_from_exclusive_locked_file<P: Into<PathBuf>>(
     Ok((label, file))
 }
 
+#[async_trait]
 impl LabelStore for DirectoryLabelStore {
-    fn labels(&self) -> Pin<Box<dyn Future<Output = io::Result<Vec<Label>>> + Send>> {
-        let path = self.path.clone();
-        Box::pin(async move {
-            let mut stream = fs::read_dir(path).await?;
-            let mut result = Vec::new();
-            while let Some(direntry) = stream.next_entry().await? {
-                if direntry.file_type().await?.is_file() {
-                    let os_name = direntry.file_name();
-                    let name = os_name.to_str().ok_or_else(|| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "unexpected non-utf8 directory name",
-                        )
-                    })?;
-                    if name.ends_with(".label") {
-                        let label = get_label_from_file(name).await?;
-                        result.push(label);
-                    }
+    async fn labels(&self) -> io::Result<Vec<Label>> {
+        let mut stream = fs::read_dir(self.path.clone()).await?;
+        let mut result = Vec::new();
+        while let Some(direntry) = stream.next_entry().await? {
+            if direntry.file_type().await?.is_file() {
+                let os_name = direntry.file_name();
+                let name = os_name.to_str().ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "unexpected non-utf8 directory name",
+                    )
+                })?;
+                if name.ends_with(".label") {
+                    let label = get_label_from_file(name).await?;
+                    result.push(label);
                 }
             }
+        }
 
-            Ok(result)
-        })
+        Ok(result)
     }
 
-    fn create_label(&self, label: &str) -> Pin<Box<dyn Future<Output = io::Result<Label>> + Send>> {
+    async fn create_label(&self, label: &str) -> io::Result<Label> {
         let mut p = self.path.clone();
-        let label = label.to_owned();
         p.push(format!("{}.label", label));
         let contents = "0\n\n".to_string().into_bytes();
-        Box::pin(async move {
-            match fs::metadata(&p).await {
-                Ok(_) => Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "database already exists",
-                )),
-                Err(e) => match e.kind() {
-                    io::ErrorKind::NotFound => {
-                        let mut file = ExclusiveLockedFile::create_and_open(p).await?;
-                        file.write_all(&contents).await?;
-                        file.flush().await?;
-                        file.sync_all().await?;
+        match fs::metadata(&p).await {
+            Ok(_) => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "database already exists",
+            )),
+            Err(e) => match e.kind() {
+                io::ErrorKind::NotFound => {
+                    let mut file = ExclusiveLockedFile::create_and_open(p).await?;
+                    file.write_all(&contents).await?;
+                    file.flush().await?;
+                    file.sync_all().await?;
 
-                        Ok(Label::new_empty(&label))
-                    }
-                    _ => Err(e),
-                },
-            }
-        })
+                    Ok(Label::new_empty(label))
+                }
+                _ => Err(e),
+            },
+        }
     }
 
-    fn get_label(
-        &self,
-        label: &str,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<Label>>> + Send>> {
-        let label = label.to_owned();
+    async fn get_label(&self, label: &str) -> io::Result<Option<Label>> {
         let mut p = self.path.clone();
         p.push(format!("{}.label", label));
 
-        Box::pin(async move {
-            match get_label_from_file(p).await {
-                Ok(label) => Ok(Some(label)),
-                Err(e) => match e.kind() {
-                    io::ErrorKind::NotFound => Ok(None),
-                    _ => Err(e),
-                },
-            }
-        })
+        match get_label_from_file(p).await {
+            Ok(label) => Ok(Some(label)),
+            Err(e) => match e.kind() {
+                io::ErrorKind::NotFound => Ok(None),
+                _ => Err(e),
+            },
+        }
     }
 
-    fn set_label_option(
+    async fn set_label_option(
         &self,
         label: &Label,
         layer: Option<[u32; 5]>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<Label>>> + Send>> {
-        let old_label = label.clone();
+    ) -> io::Result<Option<Label>> {
         let new_label = label.with_updated_layer(layer);
         let contents = match new_label.layer {
             None => format!("{}\n\n", new_label.version).into_bytes(),
@@ -375,20 +365,17 @@ impl LabelStore for DirectoryLabelStore {
 
         let mut p = self.path.clone();
         p.push(format!("{}.label", label.name));
-        let fut = get_label_from_exclusive_locked_file(p);
-        Box::pin(async move {
-            let (retrieved_label, mut file) = fut.await?;
-            if retrieved_label == old_label {
-                // all good, let's a go
-                file.truncate().await?;
-                file.write_all(&contents).await?;
-                file.flush().await?;
-                file.sync_all().await?;
-                Ok(Some(new_label))
-            } else {
-                Ok(None)
-            }
-        })
+        let (retrieved_label, mut file) = get_label_from_exclusive_locked_file(p).await?;
+        if retrieved_label == *label {
+            // all good, let's a go
+            file.truncate().await?;
+            file.write_all(&contents).await?;
+            file.flush().await?;
+            file.sync_all().await?;
+            Ok(Some(new_label))
+        } else {
+            Ok(None)
+        }
     }
 }
 

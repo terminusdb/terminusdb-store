@@ -9,6 +9,8 @@ use futures::task::{Context, Poll};
 use futures::{future, Future};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+use async_trait::async_trait;
+
 use super::file::*;
 use super::label::*;
 use super::layer::*;
@@ -272,72 +274,58 @@ impl MemoryLabelStore {
     }
 }
 
+#[async_trait]
 impl LabelStore for MemoryLabelStore {
-    fn labels(&self) -> Pin<Box<dyn Future<Output = io::Result<Vec<Label>>> + Send>> {
-        let guard = self.labels.read();
-        Box::pin(async move {
-            let labels = guard.await;
-            Ok(labels.values().cloned().collect())
-        })
+    async fn labels(&self) -> io::Result<Vec<Label>> {
+        let labels = self.labels.read().await;
+        Ok(labels.values().cloned().collect())
     }
 
-    fn create_label(&self, name: &str) -> Pin<Box<dyn Future<Output = io::Result<Label>> + Send>> {
+    async fn create_label(&self, name: &str) -> io::Result<Label> {
         let label = Label::new_empty(name);
 
-        let guard = self.labels.write();
-        Box::pin(async move {
-            let mut labels = guard.await;
-            if labels.get(&label.name).is_some() {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "label already exists",
-                ))
-            } else {
-                labels.insert(label.name.clone(), label.clone());
-                Ok(label)
-            }
-        })
+        let mut labels = self.labels.write().await;
+        if labels.get(&label.name).is_some() {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "label already exists",
+            ))
+        } else {
+            labels.insert(label.name.clone(), label.clone());
+            Ok(label)
+        }
     }
 
-    fn get_label(
-        &self,
-        name: &str,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<Label>>> + Send>> {
+    async fn get_label(&self, name: &str) -> io::Result<Option<Label>> {
         let name = name.to_owned();
-        let guard = self.labels.read();
-        Box::pin(async move {
-            let labels = guard.await;
-            Ok(labels.get(&name).cloned())
-        })
+        let labels = self.labels.read().await;
+        Ok(labels.get(&name).cloned())
     }
 
-    fn set_label_option(
+    async fn set_label_option(
         &self,
         label: &Label,
         layer: Option<[u32; 5]>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<Label>>> + Send>> {
+    ) -> io::Result<Option<Label>> {
         let new_label = label.with_updated_layer(layer);
 
-        let guard = self.labels.write();
-        Box::pin(async move {
-            let mut labels = guard.await;
+        let mut labels = self.labels.write().await;
 
-            match labels.get(&new_label.name) {
-                None => Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "label does not exist",
-                )),
-                Some(old_label) => {
-                    if old_label.version + 1 != new_label.version {
-                        Ok(None)
-                    } else {
-                        labels.insert(new_label.name.clone(), new_label.clone());
+        match labels.get(&new_label.name) {
+            None => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "label does not exist",
+            )),
+            Some(old_label) => {
+                if old_label.version + 1 != new_label.version {
+                    Ok(None)
+                } else {
+                    labels.insert(new_label.name.clone(), new_label.clone());
 
-                        Ok(Some(new_label))
-                    }
+                    Ok(Some(new_label))
                 }
             }
-        })
+        }
     }
 }
 
