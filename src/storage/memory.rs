@@ -328,10 +328,7 @@ impl LabelStore for MemoryLabelStore {
         }
     }
 
-    async fn delete_label(
-        &self,
-        name: &str
-    ) -> io::Result<bool> {
+    async fn delete_label(&self, name: &str) -> io::Result<bool> {
         let mut labels = self.labels.write().await;
 
         Ok(labels.remove(name).is_some())
@@ -623,5 +620,22 @@ mod tests {
             .await
             .unwrap()
             .is_some());
+    }
+
+    #[tokio::test]
+    async fn create_and_delete_label() {
+        let store = MemoryLabelStore::new();
+
+        store.create_label("foo").await.unwrap();
+        assert!(store.get_label("foo").await.unwrap().is_some());
+        assert!(store.delete_label("foo").await.unwrap());
+        assert!(store.get_label("foo").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn delete_nonexistent_label() {
+        let store = MemoryLabelStore::new();
+
+        assert!(!store.delete_label("foo").await.unwrap());
     }
 }

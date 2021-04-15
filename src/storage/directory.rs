@@ -378,10 +378,7 @@ impl LabelStore for DirectoryLabelStore {
         }
     }
 
-    async fn delete_label(
-        &self,
-        name: &str
-    ) -> io::Result<bool> {
+    async fn delete_label(&self, name: &str) -> io::Result<bool> {
         let mut p = self.path.clone();
         p.push(format!("{}.label", name));
 
@@ -398,8 +395,8 @@ impl LabelStore for DirectoryLabelStore {
             Ok(()) => Ok(true),
             Err(e) => match e.kind() {
                 io::ErrorKind::NotFound => Ok(false),
-                _ => Err(e)
-            }
+                _ => Err(e),
+            },
         }
     }
 }
@@ -676,5 +673,48 @@ mod tests {
         assert!(
             !rolled_layer.string_triple_exists(&StringTriple::new_value("duck", "says", "quack"))
         );
+    }
+
+    #[tokio::test]
+    async fn create_and_delete_label() {
+        let dir = tempdir().unwrap();
+        let store = DirectoryLabelStore::new(dir.path());
+
+        store.create_label("foo").await.unwrap();
+        assert!(store.get_label("foo").await.unwrap().is_some());
+        assert!(store.delete_label("foo").await.unwrap());
+        assert!(store.get_label("foo").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn delete_nonexistent_label() {
+        let dir = tempdir().unwrap();
+        let store = DirectoryLabelStore::new(dir.path());
+
+        assert!(!store.delete_label("foo").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn delete_shared_locked_label() {
+        let dir = tempdir().unwrap();
+        let store = DirectoryLabelStore::new(dir.path());
+
+        store.create_label("foo").await.unwrap();
+        let label_path = dir.path().join("foo.label");
+        let _f = LockedFile::open(label_path).await.unwrap();
+
+        assert!(store.delete_label("foo").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn delete_exclusive_locked_label() {
+        let dir = tempdir().unwrap();
+        let store = DirectoryLabelStore::new(dir.path());
+
+        store.create_label("foo").await.unwrap();
+        let label_path = dir.path().join("foo.label");
+        let _f = ExclusiveLockedFile::open(label_path).await.unwrap();
+
+        assert!(store.delete_label("foo").await.unwrap());
     }
 }
