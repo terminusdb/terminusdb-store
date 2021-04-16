@@ -274,7 +274,7 @@ pub async fn build_wavelet_tree_from_iter<
     destination_blocks: F,
     destination_sblocks: F,
 ) -> io::Result<()> {
-    let mut bits = BitArrayFileBuilder::new(destination_bits.open_write());
+    let mut bits = BitArrayFileBuilder::new(destination_bits.open_write().await?);
     let mut fragments = create_fragments(width);
 
     for num in source {
@@ -287,9 +287,9 @@ pub async fn build_wavelet_tree_from_iter<
     bits.finalize().await?;
 
     build_bitindex(
-        destination_bits.open_read(),
-        destination_blocks.open_write(),
-        destination_sblocks.open_write(),
+        destination_bits.open_read().await?,
+        destination_blocks.open_write().await?,
+        destination_sblocks.open_write().await?,
     )
     .await?;
 
@@ -358,10 +358,11 @@ mod tests {
         assert_eq!(contents, wavelet_tree.decode().collect::<Vec<_>>());
     }
 
-    #[test]
-    fn generate_and_decode_wavelet_tree_from_logarray() {
+    #[tokio::test]
+    async fn generate_and_decode_wavelet_tree_from_logarray() {
         let logarray_file = MemoryBackedStore::new();
-        let mut logarray_builder = LogArrayFileBuilder::new(logarray_file.open_write(), 5);
+        let mut logarray_builder =
+            LogArrayFileBuilder::new(logarray_file.open_write().await.unwrap(), 5);
         let contents = vec![21, 1, 30, 13, 23, 21, 3, 0, 21, 21, 12, 11];
         let contents_len = contents.len();
         block_on(async {

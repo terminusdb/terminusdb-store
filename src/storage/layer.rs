@@ -716,7 +716,7 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
         let get_file = self.get_file(dir_name, FILENAMES.parent);
         Box::pin(async move {
             let file = get_file.await?;
-            let mut writer = file.open_write();
+            let mut writer = file.open_write().await?;
 
             writer.write_all(parent_string.as_bytes()).await?;
             writer.flush().await?;
@@ -733,7 +733,7 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
         let get_file = self.get_file(dir_name, FILENAMES.parent);
         Box::pin(async move {
             let file = get_file.await?;
-            let mut reader = file.open_read();
+            let mut reader = file.open_read().await?;
 
             let mut buf = [0; 40];
             reader.read_exact(&mut buf).await?;
@@ -753,7 +753,7 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
         let get_file = self.get_file(dir_name, FILENAMES.rollup);
         Box::pin(async move {
             let file = get_file.await?;
-            let mut writer = file.open_write();
+            let mut writer = file.open_write().await?;
 
             let contents = format!("{}\n{}\n", 1, rollup_string);
             writer.write_all(contents.as_bytes()).await?;
@@ -771,7 +771,7 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
         let get_file = self.get_file(dir_name, FILENAMES.rollup);
         Box::pin(async move {
             let file = get_file.await?;
-            let mut reader = file.open_read();
+            let mut reader = file.open_read().await?;
 
             let mut data = Vec::new();
             reader.read_to_end(&mut data).await?;

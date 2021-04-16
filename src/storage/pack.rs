@@ -114,7 +114,7 @@ impl<T: PersistentLayerStore> Packable for T {
 
                     handle.block_on(async move {
                         let file = self.get_file(layer_id_arr, &file_name).await?;
-                        let mut writer = file.open_write();
+                        let mut writer = file.open_write().await?;
                         writer.write_all(&content).await?;
                         writer.flush().await?;
                         writer.sync_all().await?;
@@ -146,7 +146,7 @@ async fn tar_append_file<S: PersistentLayerStore, W: io::Write>(
 
         let mut header = Header::new_gnu();
         header.set_mode(0o644);
-        header.set_size(file.size() as u64);
+        header.set_size(file.size().await? as u64);
         header.set_mtime(mtime);
         tokio::task::block_in_place(|| tar.append_data(&mut header, path, cursor).unwrap());
 
@@ -176,7 +176,7 @@ async fn tar_append_file_if_exists<S: PersistentLayerStore, W: io::Write>(
 
         let mut header = Header::new_gnu();
         header.set_mode(0o644);
-        header.set_size(file.size() as u64);
+        header.set_size(file.size().await? as u64);
         header.set_mtime(mtime);
         tokio::task::block_in_place(|| tar.append_data(&mut header, path, cursor).unwrap());
     }
@@ -352,18 +352,15 @@ mod tests {
 
         store1.clone().rollup(unrolled_layer).await.unwrap();
 
-        let export =
-            LayerStore::export_layers(&*store1, Box::new(vec![base_name, child_name].into_iter()))
-                .await
-                .unwrap();
+        let export = store1
+            .export_layers(Box::new(vec![base_name, child_name].into_iter()))
+            .await
+            .unwrap();
 
-        LayerStore::import_layers(
-            &*store2,
-            &export,
-            Box::new(vec![base_name, child_name].into_iter()),
-        )
-        .await
-        .unwrap();
+        store2
+            .import_layers(&export, Box::new(vec![base_name, child_name].into_iter()))
+            .await
+            .unwrap();
 
         let imported_layer = store2.get_layer(child_name).await.unwrap().unwrap();
         let triples: Vec<_> = imported_layer

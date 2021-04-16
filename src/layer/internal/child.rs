@@ -301,18 +301,22 @@ pub struct ChildLayerFileBuilder<F: 'static + FileLoad + FileStore + Clone + Sen
 
 impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuilder<F> {
     /// Create the builder from the given files.
-    pub fn from_files(parent: Arc<dyn Layer>, files: &ChildLayerFiles<F>) -> Self {
+    pub async fn from_files(
+        parent: Arc<dyn Layer>,
+        files: &ChildLayerFiles<F>,
+    ) -> io::Result<Self> {
         let builder = DictionarySetFileBuilder::from_files(
             files.node_dictionary_files.clone(),
             files.predicate_dictionary_files.clone(),
             files.value_dictionary_files.clone(),
-        );
+        )
+        .await?;
 
-        Self {
+        Ok(Self {
             parent,
             files: files.clone(),
             builder,
-        }
+        })
     }
 
     /// Add a node string.
@@ -447,13 +451,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         let num_predicates = pred_dict.len();
         let num_values = val_dict.len();
 
-        Ok(ChildLayerFileBuilderPhase2::new(
-            parent,
-            files,
-            num_nodes,
-            num_predicates,
-            num_values,
-        ))
+        ChildLayerFileBuilderPhase2::new(parent, files, num_nodes, num_predicates, num_values).await
     }
 }
 
@@ -471,14 +469,14 @@ pub struct ChildLayerFileBuilderPhase2<F: 'static + FileLoad + FileStore + Clone
 }
 
 impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuilderPhase2<F> {
-    fn new(
+    async fn new(
         parent: Arc<dyn Layer>,
         files: ChildLayerFiles<F>,
 
         num_nodes: usize,
         num_predicates: usize,
         num_values: usize,
-    ) -> Self {
+    ) -> io::Result<Self> {
         let parent_counts = parent.all_counts();
         let pos_builder = TripleFileBuilder::new(
             files.pos_s_p_adjacency_list_files.clone(),
@@ -487,7 +485,8 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
             num_predicates + parent_counts.predicate_count,
             num_values + parent_counts.value_count,
             Some(files.pos_subjects_file.clone()),
-        );
+        )
+        .await?;
 
         let neg_builder = TripleFileBuilder::new(
             files.neg_s_p_adjacency_list_files.clone(),
@@ -496,15 +495,16 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
             num_predicates + parent_counts.predicate_count,
             num_values + parent_counts.value_count,
             Some(files.neg_subjects_file.clone()),
-        );
+        )
+        .await?;
 
-        ChildLayerFileBuilderPhase2 {
+        Ok(ChildLayerFileBuilderPhase2 {
             parent,
             files,
 
             pos_builder,
             neg_builder,
-        }
+        })
     }
 
     async fn add_triple_unchecked(
@@ -759,18 +759,24 @@ impl<
     }
 }
 
-pub fn open_child_triple_stream<F: 'static + FileLoad + FileStore>(
+pub async fn open_child_triple_stream<F: 'static + FileLoad + FileStore>(
     subjects_file: F,
     s_p_files: AdjacencyListFiles<F>,
     sp_o_files: AdjacencyListFiles<F>,
-) -> impl Stream<Item = io::Result<(u64, u64, u64)>> + Unpin + Send {
-    let subjects_stream = logarray_stream_entries(subjects_file);
+) -> io::Result<impl Stream<Item = io::Result<(u64, u64, u64)>> + Unpin + Send> {
+    let subjects_stream = logarray_stream_entries(subjects_file).await?;
     let s_p_stream =
-        adjacency_list_stream_pairs(s_p_files.bitindex_files.bits_file, s_p_files.nums_file);
+        adjacency_list_stream_pairs(s_p_files.bitindex_files.bits_file, s_p_files.nums_file)
+            .await?;
     let sp_o_stream =
-        adjacency_list_stream_pairs(sp_o_files.bitindex_files.bits_file, sp_o_files.nums_file);
+        adjacency_list_stream_pairs(sp_o_files.bitindex_files.bits_file, sp_o_files.nums_file)
+            .await?;
 
-    ChildTripleStream::new(subjects_stream, s_p_stream, sp_o_stream)
+    Ok(ChildTripleStream::new(
+        subjects_stream,
+        s_p_stream,
+        sp_o_stream,
+    ))
 }
 
 #[cfg(test)]
@@ -793,15 +799,15 @@ pub mod tests {
 
         let child_files = child_layer_files();
 
-        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = async {
-            let builder = child_builder.into_phase2().await?;
-            builder.finalize().await?;
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files)
+            .await
+            .unwrap();
+        let builder = child_builder.into_phase2().await.unwrap();
+        builder.finalize().await.unwrap();
 
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
-        };
-
-        let child_layer = fut.await.unwrap();
+        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
+            .await
+            .unwrap();
 
         assert!(child_layer.triple_exists(1, 1, 1));
         assert!(child_layer.triple_exists(2, 1, 1));
@@ -822,17 +828,17 @@ pub mod tests {
 
         let child_files = child_layer_files();
 
-        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = async {
-            let mut b = child_builder.into_phase2().await?;
-            b.add_triple(2, 1, 2).await?;
-            b.add_triple(3, 3, 3).await?;
-            b.finalize().await?;
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files)
+            .await
+            .unwrap();
+        let mut b = child_builder.into_phase2().await.unwrap();
+        b.add_triple(2, 1, 2).await.unwrap();
+        b.add_triple(3, 3, 3).await.unwrap();
+        b.finalize().await.unwrap();
 
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
-        };
-
-        let child_layer = fut.await.unwrap();
+        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
+            .await
+            .unwrap();
 
         assert!(child_layer.triple_exists(1, 1, 1));
         assert!(child_layer.triple_exists(2, 1, 1));
@@ -855,17 +861,17 @@ pub mod tests {
 
         let child_files = child_layer_files();
 
-        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = async {
-            let mut b = child_builder.into_phase2().await?;
-            b.remove_triple(2, 1, 1).await?;
-            b.remove_triple(3, 2, 5).await?;
-            b.finalize().await?;
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files)
+            .await
+            .unwrap();
+        let mut b = child_builder.into_phase2().await.unwrap();
+        b.remove_triple(2, 1, 1).await.unwrap();
+        b.remove_triple(3, 2, 5).await.unwrap();
+        b.finalize().await.unwrap();
 
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
-        };
-
-        let child_layer = fut.await.unwrap();
+        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
+            .await
+            .unwrap();
 
         assert!(child_layer.triple_exists(1, 1, 1));
         assert!(!child_layer.triple_exists(2, 1, 1));
@@ -885,18 +891,18 @@ pub mod tests {
 
         let child_files = child_layer_files();
 
-        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = async {
-            let mut b = child_builder.into_phase2().await?;
-            b.add_triple(1, 2, 3).await?;
-            b.add_triple(2, 3, 4).await?;
-            b.remove_triple(3, 2, 5).await?;
-            b.finalize().await?;
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files)
+            .await
+            .unwrap();
+        let mut b = child_builder.into_phase2().await.unwrap();
+        b.add_triple(1, 2, 3).await.unwrap();
+        b.add_triple(2, 3, 4).await.unwrap();
+        b.remove_triple(3, 2, 5).await.unwrap();
+        b.finalize().await.unwrap();
 
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
-        };
-
-        let child_layer = fut.await.unwrap();
+        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
+            .await
+            .unwrap();
 
         assert!(child_layer.triple_exists(1, 1, 1));
         assert!(child_layer.triple_exists(1, 2, 3));
@@ -918,18 +924,18 @@ pub mod tests {
 
         let child_files = child_layer_files();
 
-        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = async {
-            let mut b = child_builder.into_phase2().await?;
-            b.add_triple(1, 2, 3).await?;
-            b.add_triple(2, 3, 4).await?;
-            b.remove_triple(3, 2, 5).await?;
-            b.finalize().await?;
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files)
+            .await
+            .unwrap();
+        let mut b = child_builder.into_phase2().await.unwrap();
+        b.add_triple(1, 2, 3).await.unwrap();
+        b.add_triple(2, 3, 4).await.unwrap();
+        b.remove_triple(3, 2, 5).await.unwrap();
+        b.finalize().await.unwrap();
 
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
-        };
-
-        let child_layer = fut.await.unwrap();
+        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
+            .await
+            .unwrap();
 
         let subjects: Vec<_> = child_layer
             .triples()
@@ -958,18 +964,18 @@ pub mod tests {
 
         let child_files = child_layer_files();
 
-        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = async {
-            let mut b = child_builder.into_phase2().await?;
-            b.add_triple(1, 2, 3).await?;
-            b.add_triple(2, 3, 4).await?;
-            b.remove_triple(3, 2, 5).await?;
-            b.finalize().await?;
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files)
+            .await
+            .unwrap();
+        let mut b = child_builder.into_phase2().await.unwrap();
+        b.add_triple(1, 2, 3).await.unwrap();
+        b.add_triple(2, 3, 4).await.unwrap();
+        b.remove_triple(3, 2, 5).await.unwrap();
+        b.finalize().await.unwrap();
 
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
-        };
-
-        let child_layer = fut.await.unwrap();
+        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
+            .await
+            .unwrap();
 
         let pairs: Vec<_> = child_layer
             .triples_p(1)
@@ -1002,17 +1008,17 @@ pub mod tests {
 
         let child_files = child_layer_files();
 
-        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = async {
-            let mut b = child_builder.into_phase2().await?;
-            b.add_triple(11, 2, 3).await?;
-            b.add_triple(12, 3, 4).await?;
-            b.finalize().await?;
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files)
+            .await
+            .unwrap();
+        let mut b = child_builder.into_phase2().await.unwrap();
+        b.add_triple(11, 2, 3).await.unwrap();
+        b.add_triple(12, 3, 4).await.unwrap();
+        b.finalize().await.unwrap();
 
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
-        };
-
-        let child_layer = fut.await.unwrap();
+        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
+            .await
+            .unwrap();
 
         assert!(child_layer.triple_exists(11, 2, 3));
         assert!(child_layer.triple_exists(12, 3, 4));
@@ -1025,19 +1031,19 @@ pub mod tests {
 
         let child_files = child_layer_files();
 
-        let mut b = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = async {
-            b.add_node("foo").await?;
-            b.add_predicate("bar").await?;
-            b.add_value("baz").await?;
+        let mut b = ChildLayerFileBuilder::from_files(parent.clone(), &child_files)
+            .await
+            .unwrap();
+        b.add_node("foo").await.unwrap();
+        b.add_predicate("bar").await.unwrap();
+        b.add_value("baz").await.unwrap();
 
-            let b = b.into_phase2().await?;
-            b.finalize().await?;
+        let b = b.into_phase2().await.unwrap();
+        b.finalize().await.unwrap();
 
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
-        };
-
-        let child_layer = fut.await.unwrap();
+        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
+            .await
+            .unwrap();
 
         assert_eq!(3, child_layer.subject_id("bbbbb").unwrap());
         assert_eq!(2, child_layer.predicate_id("fghij").unwrap());
@@ -1063,19 +1069,19 @@ pub mod tests {
 
         let child_files = child_layer_files();
 
-        let mut b = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = async {
-            b.add_node("foo").await?;
-            b.add_predicate("bar").await?;
-            b.add_value("baz").await?;
-            let b = b.into_phase2().await?;
+        let mut b = ChildLayerFileBuilder::from_files(parent.clone(), &child_files)
+            .await
+            .unwrap();
+        b.add_node("foo").await.unwrap();
+        b.add_predicate("bar").await.unwrap();
+        b.add_value("baz").await.unwrap();
+        let b = b.into_phase2().await.unwrap();
 
-            b.finalize().await?;
+        b.finalize().await.unwrap();
 
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
-        };
-
-        let child_layer = fut.await.unwrap();
+        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
+            .await
+            .unwrap();
 
         assert_eq!(11, child_layer.subject_id("foo").unwrap());
         assert_eq!(5, child_layer.predicate_id("bar").unwrap());
@@ -1101,19 +1107,19 @@ pub mod tests {
 
         let child_files = child_layer_files();
 
-        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = async {
-            let mut b = child_builder.into_phase2().await?;
-            b.add_triple(1, 3, 4).await?;
-            b.add_triple(2, 2, 2).await?;
-            b.add_triple(3, 4, 5).await?;
-            b.remove_triple(3, 2, 5).await?;
-            b.finalize().await?;
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files)
+            .await
+            .unwrap();
+        let mut b = child_builder.into_phase2().await.unwrap();
+        b.add_triple(1, 3, 4).await.unwrap();
+        b.add_triple(2, 2, 2).await.unwrap();
+        b.add_triple(3, 4, 5).await.unwrap();
+        b.remove_triple(3, 2, 5).await.unwrap();
+        b.finalize().await.unwrap();
 
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
-        };
-
-        let child_layer = fut.await.unwrap();
+        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
+            .await
+            .unwrap();
 
         let result: Vec<_> = child_layer
             .internal_triple_additions()
@@ -1130,19 +1136,19 @@ pub mod tests {
 
         let child_files = child_layer_files();
 
-        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = async {
-            let mut b = child_builder.into_phase2().await?;
-            b.add_triple(1, 3, 4).await?;
-            b.remove_triple(2, 1, 1).await?;
-            b.remove_triple(3, 2, 5).await?;
-            b.remove_triple(4, 3, 6).await?;
-            b.finalize().await?;
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files)
+            .await
+            .unwrap();
+        let mut b = child_builder.into_phase2().await.unwrap();
+        b.add_triple(1, 3, 4).await.unwrap();
+        b.remove_triple(2, 1, 1).await.unwrap();
+        b.remove_triple(3, 2, 5).await.unwrap();
+        b.remove_triple(4, 3, 6).await.unwrap();
+        b.finalize().await.unwrap();
 
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
-        };
-
-        let child_layer = fut.await.unwrap();
+        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
+            .await
+            .unwrap();
 
         let result: Vec<_> = child_layer
             .internal_triple_removals()
@@ -1159,19 +1165,20 @@ pub mod tests {
 
         let child_files = child_layer_files();
 
-        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = async {
-            let mut b = child_builder.into_phase2().await?;
-            b.add_triple(1, 3, 4).await?;
-            b.remove_triple(2, 1, 1).await?;
-            b.remove_triple(2, 3, 6).await?;
-            b.remove_triple(3, 2, 5).await?;
-            b.finalize().await?;
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files)
+            .await
+            .unwrap();
+        let mut b = child_builder.into_phase2().await.unwrap();
+        b.add_triple(1, 3, 4).await.unwrap();
+        b.remove_triple(2, 1, 1).await.unwrap();
+        b.remove_triple(2, 3, 6).await.unwrap();
+        b.remove_triple(3, 2, 5).await.unwrap();
+        b.finalize().await.unwrap();
 
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent.clone(), &child_files).await
-        };
-
-        let child_layer = fut.await.unwrap();
+        let child_layer =
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent.clone(), &child_files)
+                .await
+                .unwrap();
 
         assert_eq!(
             parent.node_and_value_count(),
@@ -1186,34 +1193,36 @@ pub mod tests {
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
-        let builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
+        let builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files)
+            .await
+            .unwrap();
 
-        let fut = async {
-            let mut b = builder.into_phase2().await?;
-            b.add_triple(1, 2, 1).await?;
-            b.add_triple(3, 1, 5).await?;
-            b.add_triple(5, 2, 3).await?;
-            b.add_triple(5, 2, 4).await?;
-            b.add_triple(5, 2, 5).await?;
-            b.add_triple(5, 3, 1).await?;
-            b.remove_triple(2, 1, 1).await?;
-            b.remove_triple(2, 3, 6).await?;
-            b.remove_triple(4, 3, 6).await?;
-            b.finalize().await
-        };
-
-        fut.await.unwrap();
+        let mut b = builder.into_phase2().await.unwrap();
+        b.add_triple(1, 2, 1).await.unwrap();
+        b.add_triple(3, 1, 5).await.unwrap();
+        b.add_triple(5, 2, 3).await.unwrap();
+        b.add_triple(5, 2, 4).await.unwrap();
+        b.add_triple(5, 2, 5).await.unwrap();
+        b.add_triple(5, 3, 1).await.unwrap();
+        b.remove_triple(2, 1, 1).await.unwrap();
+        b.remove_triple(2, 3, 6).await.unwrap();
+        b.remove_triple(4, 3, 6).await.unwrap();
+        b.finalize().await.unwrap();
 
         let addition_stream = open_child_triple_stream(
             child_files.pos_subjects_file,
             child_files.pos_s_p_adjacency_list_files,
             child_files.pos_sp_o_adjacency_list_files,
-        );
+        )
+        .await
+        .unwrap();
         let removal_stream = open_child_triple_stream(
             child_files.neg_subjects_file,
             child_files.neg_s_p_adjacency_list_files,
             child_files.neg_sp_o_adjacency_list_files,
-        );
+        )
+        .await
+        .unwrap();
 
         let addition_triples: Vec<_> = addition_stream.try_collect().await.unwrap();
         let removal_triples: Vec<_> = removal_stream.try_collect().await.unwrap();
@@ -1239,25 +1248,25 @@ pub mod tests {
         let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
 
         let child_files = child_layer_files();
-        let builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
+        let builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files)
+            .await
+            .unwrap();
 
-        let fut = async {
-            let mut b = builder.into_phase2().await?;
-            b.add_triple(1, 2, 1).await?;
-            b.add_triple(3, 1, 5).await?;
-            b.add_triple(5, 2, 3).await?;
-            b.add_triple(5, 2, 4).await?;
-            b.add_triple(5, 2, 5).await?;
-            b.add_triple(5, 3, 1).await?;
-            b.remove_triple(2, 1, 1).await?;
-            b.remove_triple(2, 3, 6).await?;
-            b.remove_triple(4, 3, 6).await?;
-            b.finalize().await?;
+        let mut b = builder.into_phase2().await.unwrap();
+        b.add_triple(1, 2, 1).await.unwrap();
+        b.add_triple(3, 1, 5).await.unwrap();
+        b.add_triple(5, 2, 3).await.unwrap();
+        b.add_triple(5, 2, 4).await.unwrap();
+        b.add_triple(5, 2, 5).await.unwrap();
+        b.add_triple(5, 3, 1).await.unwrap();
+        b.remove_triple(2, 1, 1).await.unwrap();
+        b.remove_triple(2, 3, 6).await.unwrap();
+        b.remove_triple(4, 3, 6).await.unwrap();
+        b.finalize().await.unwrap();
 
-            ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files).await
-        };
-
-        let child_layer = fut.await.unwrap();
+        let child_layer = ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
+            .await
+            .unwrap();
 
         assert_eq!(6, child_layer.internal_triple_layer_addition_count());
         assert_eq!(3, child_layer.internal_triple_layer_removal_count());

@@ -930,23 +930,22 @@ mod tests {
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
 
-        let mut builder = BaseLayerFileBuilder::from_files(&files);
-        let future = async {
-            builder
-                .add_nodes(nodes.into_iter().map(|s| s.to_string()))
-                .await?;
-            builder
-                .add_predicates(predicates.into_iter().map(|s| s.to_string()))
-                .await?;
-            builder
-                .add_values(values.into_iter().map(|s| s.to_string()))
-                .await?;
-            let mut builder = builder.into_phase2().await?;
-            builder.add_triple(3, 3, 3).await?;
-            builder.finalize().await
-        };
-
-        future.await.unwrap();
+        let mut builder = BaseLayerFileBuilder::from_files(&files).await.unwrap();
+        builder
+            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
+            .await
+            .unwrap();
+        builder
+            .add_predicates(predicates.into_iter().map(|s| s.to_string()))
+            .await
+            .unwrap();
+        builder
+            .add_values(values.into_iter().map(|s| s.to_string()))
+            .await
+            .unwrap();
+        let mut builder = builder.into_phase2().await.unwrap();
+        builder.add_triple(3, 3, 3).await.unwrap();
+        builder.finalize().await.unwrap();
 
         let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
             .await

@@ -243,17 +243,18 @@ pub struct BaseLayerFileBuilder<F: 'static + FileLoad + FileStore> {
 
 impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     /// Create the builder from the given files.
-    pub fn from_files(files: &BaseLayerFiles<F>) -> Self {
+    pub async fn from_files(files: &BaseLayerFiles<F>) -> io::Result<Self> {
         let builder = DictionarySetFileBuilder::from_files(
             files.node_dictionary_files.clone(),
             files.predicate_dictionary_files.clone(),
             files.value_dictionary_files.clone(),
-        );
+        )
+        .await?;
 
-        BaseLayerFileBuilder {
+        Ok(BaseLayerFileBuilder {
             files: files.clone(),
             builder,
-        }
+        })
     }
 
     /// Add a node string.
@@ -354,12 +355,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
         let num_predicates = pred_dict.len();
         let num_values = val_dict.len();
 
-        Ok(BaseLayerFileBuilderPhase2::new(
-            files,
-            num_nodes,
-            num_predicates,
-            num_values,
-        ))
+        BaseLayerFileBuilderPhase2::new(files, num_nodes, num_predicates, num_values).await
     }
 }
 
@@ -374,13 +370,13 @@ pub struct BaseLayerFileBuilderPhase2<F: 'static + FileLoad + FileStore> {
 }
 
 impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
-    fn new(
+    async fn new(
         files: BaseLayerFiles<F>,
 
         num_nodes: usize,
         num_predicates: usize,
         num_values: usize,
-    ) -> Self {
+    ) -> io::Result<Self> {
         let builder = TripleFileBuilder::new(
             files.s_p_adjacency_list_files.clone(),
             files.sp_o_adjacency_list_files.clone(),
@@ -388,9 +384,10 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
             num_predicates,
             num_values,
             None,
-        );
+        )
+        .await?;
 
-        BaseLayerFileBuilderPhase2 { files, builder }
+        Ok(BaseLayerFileBuilderPhase2 { files, builder })
     }
 
     /// Add the given subject, predicate and object.
@@ -510,16 +507,18 @@ impl<S: Stream<Item = io::Result<(u64, u64)>> + Unpin + Send> Stream for BaseTri
     }
 }
 
-pub fn open_base_triple_stream<F: 'static + FileLoad + FileStore>(
+pub async fn open_base_triple_stream<F: 'static + FileLoad + FileStore>(
     s_p_files: AdjacencyListFiles<F>,
     sp_o_files: AdjacencyListFiles<F>,
-) -> impl Stream<Item = io::Result<(u64, u64, u64)>> + Unpin + Send {
+) -> io::Result<impl Stream<Item = io::Result<(u64, u64, u64)>> + Unpin + Send> {
     let s_p_stream =
-        adjacency_list_stream_pairs(s_p_files.bitindex_files.bits_file, s_p_files.nums_file);
+        adjacency_list_stream_pairs(s_p_files.bitindex_files.bits_file, s_p_files.nums_file)
+            .await?;
     let sp_o_stream =
-        adjacency_list_stream_pairs(sp_o_files.bitindex_files.bits_file, sp_o_files.nums_file);
+        adjacency_list_stream_pairs(sp_o_files.bitindex_files.bits_file, sp_o_files.nums_file)
+            .await?;
 
-    BaseTripleStream::new(s_p_stream, sp_o_stream)
+    Ok(BaseTripleStream::new(s_p_stream, sp_o_stream))
 }
 
 #[cfg(test)]
@@ -533,46 +532,42 @@ pub mod tests {
         base_layer_memory_files()
     }
 
-    pub async fn example_base_layer_files() -> BaseLayerFiles<MemoryBackedStore> {
+    pub async fn example_base_layer_files() -> io::Result<BaseLayerFiles<MemoryBackedStore>> {
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
 
         let base_layer_files = base_layer_files();
 
-        let mut builder = BaseLayerFileBuilder::from_files(&base_layer_files);
+        let mut builder = BaseLayerFileBuilder::from_files(&base_layer_files).await?;
 
-        async {
-            builder
-                .add_nodes(nodes.into_iter().map(|s| s.to_string()))
-                .await?;
-            builder
-                .add_predicates(predicates.into_iter().map(|s| s.to_string()))
-                .await?;
-            builder
-                .add_values(values.into_iter().map(|s| s.to_string()))
-                .await?;
+        builder
+            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
+            .await?;
+        builder
+            .add_predicates(predicates.into_iter().map(|s| s.to_string()))
+            .await?;
+        builder
+            .add_values(values.into_iter().map(|s| s.to_string()))
+            .await?;
 
-            let mut builder = builder.into_phase2().await?;
+        let mut builder = builder.into_phase2().await?;
 
-            builder.add_triple(1, 1, 1).await?;
-            builder.add_triple(2, 1, 1).await?;
-            builder.add_triple(2, 1, 3).await?;
-            builder.add_triple(2, 3, 6).await?;
-            builder.add_triple(3, 2, 5).await?;
-            builder.add_triple(3, 3, 6).await?;
-            builder.add_triple(4, 3, 6).await?;
+        builder.add_triple(1, 1, 1).await?;
+        builder.add_triple(2, 1, 1).await?;
+        builder.add_triple(2, 1, 3).await?;
+        builder.add_triple(2, 3, 6).await?;
+        builder.add_triple(3, 2, 5).await?;
+        builder.add_triple(3, 3, 6).await?;
+        builder.add_triple(4, 3, 6).await?;
 
-            builder.finalize().await
-        }
-        .await
-        .unwrap();
+        builder.finalize().await?;
 
-        base_layer_files
+        Ok(base_layer_files)
     }
 
     pub async fn example_base_layer() -> BaseLayer {
-        let base_layer_files = example_base_layer_files().await;
+        let base_layer_files = example_base_layer_files().await.unwrap();
 
         BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files)
             .await
@@ -697,16 +692,16 @@ pub mod tests {
     #[tokio::test]
     async fn create_empty_base_layer() {
         let base_layer_files = base_layer_files();
-        let builder = BaseLayerFileBuilder::from_files(&base_layer_files);
+        let builder = BaseLayerFileBuilder::from_files(&base_layer_files)
+            .await
+            .unwrap();
 
-        let future = async {
-            let builder = builder.into_phase2().await?;
-            builder.finalize().await?;
+        let builder = builder.into_phase2().await.unwrap();
+        builder.finalize().await.unwrap();
 
-            BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files).await
-        };
-
-        let layer = future.await.unwrap();
+        let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files)
+            .await
+            .unwrap();
 
         assert_eq!(0, layer.node_and_value_count());
         assert_eq!(0, layer.predicate_count());
@@ -714,12 +709,14 @@ pub mod tests {
 
     #[tokio::test]
     async fn stream_base_triples() {
-        let layer_files = example_base_layer_files().await;
+        let layer_files = example_base_layer_files().await.unwrap();
 
         let stream = open_base_triple_stream(
             layer_files.s_p_adjacency_list_files,
             layer_files.sp_o_adjacency_list_files,
-        );
+        )
+        .await
+        .unwrap();
 
         let triples: Vec<_> = stream.try_collect().await.unwrap();
 
@@ -739,7 +736,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn count_triples() {
-        let layer_files = example_base_layer_files().await;
+        let layer_files = example_base_layer_files().await.unwrap();
         let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &layer_files)
             .await
             .unwrap();

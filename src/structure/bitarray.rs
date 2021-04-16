@@ -35,7 +35,6 @@ use crate::storage::*;
 use crate::structure::bititer::BitIter;
 use byteorder::{BigEndian, ByteOrder};
 use bytes::{Bytes, BytesMut};
-use futures::future::FutureExt;
 use futures::io;
 use futures::stream::{Stream, StreamExt, TryStreamExt};
 use std::{convert::TryFrom, error, fmt};
@@ -319,31 +318,30 @@ pub fn bitarray_stream_blocks<R: AsyncRead + Unpin>(r: R) -> FramedRead<R, BitAr
 
 /// Read the length (number of bits) from a `FileLoad`.
 pub(crate) async fn bitarray_len_from_file<F: FileLoad>(f: F) -> io::Result<u64> {
-    BitArrayError::validate_input_buf_size(f.size())?;
+    BitArrayError::validate_input_buf_size(f.size().await?)?;
     let mut control_word = vec![0; 8];
-    f.open_read_from(f.size() - 8)
+    f.open_read_from(f.size().await? - 8)
+        .await?
         .read_exact(&mut control_word)
         .await?;
-    Ok(read_control_word(&control_word, f.size())?)
+    Ok(read_control_word(&control_word, f.size().await?)?)
 }
 
-pub fn bitarray_stream_bits<F: FileLoad>(f: F) -> impl Stream<Item = io::Result<bool>> + Unpin {
+pub async fn bitarray_stream_bits<F: FileLoad>(
+    f: F,
+) -> io::Result<impl Stream<Item = io::Result<bool>> + Unpin> {
     // Read the length.
-    Box::pin(bitarray_len_from_file(f.clone()))
-        .into_stream()
-        .map_ok(move |len| {
-            // Read the words into a `Stream`.
-            bitarray_stream_blocks(f.open_read())
-                // For each word, read the bits into a `Stream`.
-                .map_ok(|block| util::stream_iter_ok(BitIter::new(block)))
-                // Turn the `Stream` of bit `Stream`s into a bit `Stream`.
-                .try_flatten()
-                .into_stream()
-                // Cut the `Stream` off after the length of bits is reached.
-                .take(len as usize)
-        })
+    let len = bitarray_len_from_file(f.clone()).await?;
+
+    // Read the words into a `Stream`.
+    Ok(bitarray_stream_blocks(f.open_read().await?)
+        // For each word, read the bits into a `Stream`.
+        .map_ok(|block| util::stream_iter_ok(BitIter::new(block)))
         // Turn the `Stream` of bit `Stream`s into a bit `Stream`.
         .try_flatten()
+        .into_stream()
+        // Cut the `Stream` off after the length of bits is reached.
+        .take(len as usize))
 }
 
 #[cfg(test)]
@@ -417,18 +415,18 @@ mod tests {
     }
 
     #[test]
-    pub fn empty() {
+    fn empty() {
         assert!(BitArray::from_bits(Bytes::from([0u8; 8].as_ref()))
             .unwrap()
             .is_empty());
     }
 
-    #[test]
-    pub fn construct_and_parse_small_bitarray() {
+    #[tokio::test]
+    async fn construct_and_parse_small_bitarray() {
         let x = MemoryBackedStore::new();
         let contents = vec![true, true, false, false, true];
 
-        let mut builder = BitArrayFileBuilder::new(x.open_write());
+        let mut builder = BitArrayFileBuilder::new(x.open_write().await.unwrap());
         block_on(async {
             builder.push_all(util::stream_iter_ok(contents)).await?;
             builder.finalize().await?;
@@ -448,12 +446,12 @@ mod tests {
         assert_eq!(true, bitarray.get(4));
     }
 
-    #[test]
-    pub fn construct_and_parse_large_bitarray() {
+    #[tokio::test]
+    async fn construct_and_parse_large_bitarray() {
         let x = MemoryBackedStore::new();
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
 
-        let mut builder = BitArrayFileBuilder::new(x.open_write());
+        let mut builder = BitArrayFileBuilder::new(x.open_write().await.unwrap());
         block_on(async {
             builder.push_all(util::stream_iter_ok(contents)).await?;
             builder.finalize().await?;
@@ -474,7 +472,7 @@ mod tests {
     #[tokio::test]
     async fn bitarray_len_from_file_errors() {
         let store = MemoryBackedStore::new();
-        let mut writer = store.open_write();
+        let mut writer = store.open_write().await.unwrap();
         writer.write_all(&[0, 0, 0]).await.unwrap();
         writer.sync_all().await.unwrap();
         assert_eq!(
@@ -486,7 +484,7 @@ mod tests {
         );
 
         let store = MemoryBackedStore::new();
-        let mut writer = store.open_write();
+        let mut writer = store.open_write().await.unwrap();
         writer.write_all(&[0, 0, 0, 0, 0, 0, 0, 2]).await.unwrap();
         writer.sync_all().await.unwrap();
         assert_eq!(
@@ -498,32 +496,32 @@ mod tests {
         );
     }
 
-    #[test]
-    pub fn stream_blocks() {
+    #[tokio::test]
+    async fn stream_blocks() {
         let x = MemoryBackedStore::new();
         let contents: Vec<bool> = (0..).map(|n| n % 4 == 1).take(256).collect();
 
-        let mut builder = BitArrayFileBuilder::new(x.open_write());
-        block_on(async {
-            builder.push_all(util::stream_iter_ok(contents)).await?;
-            builder.finalize().await?;
+        let mut builder = BitArrayFileBuilder::new(x.open_write().await.unwrap());
+        builder
+            .push_all(util::stream_iter_ok(contents))
+            .await
+            .unwrap();
+        builder.finalize().await.unwrap();
 
-            Ok::<_, io::Error>(())
-        })
-        .unwrap();
+        let stream = bitarray_stream_blocks(x.open_read().await.unwrap());
 
-        let stream = bitarray_stream_blocks(x.open_read());
-
-        block_on(stream.try_for_each(|block| future::ok(assert_eq!(0x4444444444444444, block))))
+        stream
+            .try_for_each(|block| future::ok(assert_eq!(0x4444444444444444, block)))
+            .await
             .unwrap();
     }
 
-    #[test]
-    fn stream_bits() {
+    #[tokio::test]
+    async fn stream_bits() {
         let x = MemoryBackedStore::new();
         let contents: Vec<_> = (0..).map(|n| n % 4 == 1).take(123).collect();
 
-        let mut builder = BitArrayFileBuilder::new(x.open_write());
+        let mut builder = BitArrayFileBuilder::new(x.open_write().await.unwrap());
         block_on(async {
             builder
                 .push_all(util::stream_iter_ok(contents.clone()))
@@ -534,7 +532,8 @@ mod tests {
         })
         .unwrap();
 
-        let result: Vec<_> = block_on(bitarray_stream_bits(x).try_collect()).unwrap();
+        let result: Vec<_> =
+            block_on(bitarray_stream_bits(x).await.unwrap().try_collect()).unwrap();
 
         assert_eq!(contents, result);
     }

@@ -190,7 +190,8 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
             match parent {
                 Some(parent) => {
                     let files = files.into_child();
-                    let mut builder = ChildLayerFileBuilder::from_files(parent.clone(), &files);
+                    let mut builder =
+                        ChildLayerFileBuilder::from_files(parent.clone(), &files).await?;
 
                     let node_ids = builder.add_nodes(unresolved_nodes.clone()).await?;
                     let predicate_ids = builder
@@ -237,7 +238,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                 None => {
                     // TODO almost same as above, should be more generic
                     let files = files.into_base();
-                    let mut builder = BaseLayerFileBuilder::from_files(&files);
+                    let mut builder = BaseLayerFileBuilder::from_files(&files).await?;
 
                     let node_ids = builder.add_nodes(unresolved_nodes.clone()).await?;
                     let predicate_ids = builder

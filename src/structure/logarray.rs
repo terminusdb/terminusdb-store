@@ -53,9 +53,7 @@ use super::util;
 use crate::storage::*;
 use byteorder::{BigEndian, ByteOrder};
 use bytes::{Bytes, BytesMut};
-use futures::future::FutureExt;
-use futures::stream::{self, Stream, StreamExt};
-use std::pin::Pin;
+use futures::stream::{Stream, StreamExt};
 use std::{cmp::Ordering, convert::TryFrom, error, fmt, io};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::codec::{Decoder, FramedRead};
@@ -570,29 +568,24 @@ impl Decoder for LogArrayDecoder {
 }
 
 pub async fn logarray_file_get_length_and_width<F: FileLoad>(f: F) -> io::Result<(u32, u8)> {
-    LogArrayError::validate_input_buf_size(f.size())?;
+    LogArrayError::validate_input_buf_size(f.size().await?)?;
 
     let mut buf = [0; 8];
-    f.open_read_from(f.size() - 8).read_exact(&mut buf).await?;
-    Ok(read_control_word(&buf, f.size())?)
+    f.open_read_from(f.size().await? - 8)
+        .await?
+        .read_exact(&mut buf)
+        .await?;
+    Ok(read_control_word(&buf, f.size().await?)?)
 }
 
-pub fn logarray_stream_entries<F: 'static + FileLoad>(
+pub async fn logarray_stream_entries<F: 'static + FileLoad>(
     f: F,
-) -> impl Stream<Item = io::Result<u64>> + Unpin + Send {
-    Box::pin(
-        logarray_file_get_length_and_width(f.clone())
-            .map(move |result| match result {
-                Ok((len, width)) => Box::pin(FramedRead::new(
-                    f.open_read(),
-                    LogArrayDecoder::new_unchecked(width, len),
-                ))
-                    as Pin<Box<dyn Stream<Item = io::Result<u64>> + Send>>,
-                Err(e) => Box::pin(stream::iter(vec![Err(e)])),
-            })
-            .into_stream()
-            .flatten(),
-    )
+) -> io::Result<impl Stream<Item = io::Result<u64>> + Unpin + Send> {
+    let (len, width) = logarray_file_get_length_and_width(f.clone()).await?;
+    Ok(FramedRead::new(
+        f.open_read().await?,
+        LogArrayDecoder::new_unchecked(width, len),
+    ))
 }
 
 #[derive(Clone)]
@@ -771,18 +764,18 @@ mod tests {
         assert!(MonotonicLogArray::from_logarray(logarray).is_empty());
     }
 
-    #[test]
+    #[tokio::test]
     #[should_panic(expected = "expected value (8) to fit in 3 bits")]
-    fn log_array_file_builder_panic() {
+    async fn log_array_file_builder_panic() {
         let store = MemoryBackedStore::new();
-        let mut builder = LogArrayFileBuilder::new(store.open_write(), 3);
+        let mut builder = LogArrayFileBuilder::new(store.open_write().await.unwrap(), 3);
         block_on(builder.push(8)).unwrap();
     }
 
-    #[test]
-    fn generate_then_parse_works() {
+    #[tokio::test]
+    async fn generate_then_parse_works() {
         let store = MemoryBackedStore::new();
-        let mut builder = LogArrayFileBuilder::new(store.open_write(), 5);
+        let mut builder = LogArrayFileBuilder::new(store.open_write().await.unwrap(), 5);
         block_on(async {
             builder
                 .push_all(stream_iter_ok(vec![1, 3, 2, 5, 12, 31, 18]))
@@ -907,7 +900,7 @@ mod tests {
     #[tokio::test]
     async fn logarray_file_get_length_and_width_errors() {
         let store = MemoryBackedStore::new();
-        let mut writer = store.open_write();
+        let mut writer = store.open_write().await.unwrap();
         writer.write_all(&[0, 0, 0]).await.unwrap();
         writer.sync_all().await.unwrap();
         assert_eq!(
@@ -919,7 +912,7 @@ mod tests {
         );
 
         let store = MemoryBackedStore::new();
-        let mut writer = store.open_write();
+        let mut writer = store.open_write().await.unwrap();
         writer.write_all(&[0, 0, 0, 0, 65, 0, 0, 0]).await.unwrap();
         writer.sync_all().await.unwrap();
         assert_eq!(
@@ -931,7 +924,7 @@ mod tests {
         );
 
         let store = MemoryBackedStore::new();
-        let mut writer = store.open_write();
+        let mut writer = store.open_write().await.unwrap();
         writer.write_all(&[0, 0, 0, 1, 17, 0, 0, 0]).await.unwrap();
         writer.sync_all().await.unwrap();
         assert_eq!(
@@ -943,10 +936,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn generate_then_stream_works() {
+    #[tokio::test]
+    async fn generate_then_stream_works() {
         let store = MemoryBackedStore::new();
-        let mut builder = LogArrayFileBuilder::new(store.open_write(), 5);
+        let mut builder = LogArrayFileBuilder::new(store.open_write().await.unwrap(), 5);
         block_on(async {
             builder.push_all(stream_iter_ok(0..31)).await?;
             builder.finalize().await?;
@@ -955,16 +948,21 @@ mod tests {
         })
         .unwrap();
 
-        let entries: Vec<u64> =
-            block_on(logarray_stream_entries(store).try_collect::<Vec<u64>>()).unwrap();
+        let entries: Vec<u64> = block_on(
+            logarray_stream_entries(store)
+                .await
+                .unwrap()
+                .try_collect::<Vec<u64>>(),
+        )
+        .unwrap();
         let expected: Vec<u64> = (0..31).collect();
         assert_eq!(expected, entries);
     }
 
-    #[test]
-    fn iterate_over_logarray() {
+    #[tokio::test]
+    async fn iterate_over_logarray() {
         let store = MemoryBackedStore::new();
-        let mut builder = LogArrayFileBuilder::new(store.open_write(), 5);
+        let mut builder = LogArrayFileBuilder::new(store.open_write().await.unwrap(), 5);
         let original = vec![1, 3, 2, 5, 12, 31, 18];
         block_on(async {
             builder.push_all(stream_iter_ok(original.clone())).await?;
@@ -983,10 +981,10 @@ mod tests {
         assert_eq!(original, result);
     }
 
-    #[test]
-    fn iterate_over_logarray_slice() {
+    #[tokio::test]
+    async fn iterate_over_logarray_slice() {
         let store = MemoryBackedStore::new();
-        let mut builder = LogArrayFileBuilder::new(store.open_write(), 5);
+        let mut builder = LogArrayFileBuilder::new(store.open_write().await.unwrap(), 5);
         let original: Vec<u64> = vec![1, 3, 2, 5, 12, 31, 18];
         block_on(async {
             builder.push_all(stream_iter_ok(original)).await?;
@@ -1006,10 +1004,10 @@ mod tests {
         assert_eq!([2, 5, 12], result.as_ref());
     }
 
-    #[test]
-    fn monotonic_logarray_index_lookup() {
+    #[tokio::test]
+    async fn monotonic_logarray_index_lookup() {
         let store = MemoryBackedStore::new();
-        let mut builder = LogArrayFileBuilder::new(store.open_write(), 5);
+        let mut builder = LogArrayFileBuilder::new(store.open_write().await.unwrap(), 5);
         let original = vec![1, 3, 5, 6, 7, 10, 11, 15, 16, 18, 20, 25, 31];
         block_on(async {
             builder.push_all(stream_iter_ok(original.clone())).await?;
@@ -1032,10 +1030,10 @@ mod tests {
         assert_eq!(original.len(), monotonic.len());
     }
 
-    #[test]
-    fn monotonic_logarray_near_index_lookup() {
+    #[tokio::test]
+    async fn monotonic_logarray_near_index_lookup() {
         let store = MemoryBackedStore::new();
-        let mut builder = LogArrayFileBuilder::new(store.open_write(), 5);
+        let mut builder = LogArrayFileBuilder::new(store.open_write().await.unwrap(), 5);
         let original = vec![3, 5, 6, 7, 10, 11, 15, 16, 18, 20, 25, 31];
         block_on(async {
             builder.push_all(stream_iter_ok(original.clone())).await?;
@@ -1061,11 +1059,11 @@ mod tests {
         assert_eq!(expected, nearest);
     }
 
-    #[test]
-    fn writing_64_bits_of_data() {
+    #[tokio::test]
+    async fn writing_64_bits_of_data() {
         let store = MemoryBackedStore::new();
         let original = vec![1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8];
-        let mut builder = LogArrayFileBuilder::new(store.open_write(), 4);
+        let mut builder = LogArrayFileBuilder::new(store.open_write().await.unwrap(), 4);
         block_on(async {
             builder.push_all(stream_iter_ok(original.clone())).await?;
             builder.finalize().await?;
