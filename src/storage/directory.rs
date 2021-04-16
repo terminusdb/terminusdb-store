@@ -3,11 +3,11 @@
 use bytes::{Bytes, BytesMut};
 use futures::{future, Future};
 use locking::*;
-use std::io::{self, Seek, SeekFrom};
+use std::io::{self, SeekFrom};
 use std::path::PathBuf;
 use std::pin::Pin;
 use tokio::fs::{self, *};
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufWriter};
 
 use async_trait::async_trait;
 
@@ -20,19 +20,19 @@ pub struct FileBackedStore {
     path: PathBuf,
 }
 
+#[async_trait]
 impl SyncableFile for File {
-    fn sync_all(self) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> {
-        Box::pin(async move { File::sync_all(&self).await })
+    async fn sync_all(self) -> io::Result<()> {
+        File::sync_all(&self).await
     }
 }
 
+#[async_trait]
 impl SyncableFile for BufWriter<File> {
-    fn sync_all(self) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> {
-        Box::pin(async move {
-            let inner = self.into_inner();
+    async fn sync_all(self) -> io::Result<()> {
+        let inner = self.into_inner();
 
-            File::sync_all(&inner).await
-        })
+        File::sync_all(&inner).await
     }
 }
 
@@ -40,71 +40,64 @@ impl FileBackedStore {
     pub fn new<P: Into<PathBuf>>(path: P) -> FileBackedStore {
         FileBackedStore { path: path.into() }
     }
-
-    fn open_read_from_std(&self, offset: usize) -> std::fs::File {
-        let mut options = std::fs::OpenOptions::new();
-        options.read(true);
-        let mut file = options.open(&self.path).unwrap();
-
-        file.seek(SeekFrom::Start(offset as u64)).unwrap();
-
-        file
-    }
 }
 
+#[async_trait]
 impl FileLoad for FileBackedStore {
     type Read = File;
 
-    fn exists(&self) -> bool {
-        let metadata = std::fs::metadata(&self.path);
-        !(metadata.is_err() && metadata.err().unwrap().kind() == io::ErrorKind::NotFound)
+    async fn exists(&self) -> io::Result<bool> {
+        let metadata = tokio::fs::metadata(&self.path).await;
+        Ok(!(metadata.is_err() && metadata.err().unwrap().kind() == io::ErrorKind::NotFound))
     }
 
-    fn size(&self) -> usize {
-        let m = std::fs::metadata(&self.path).unwrap();
-        m.len() as usize
+    async fn size(&self) -> io::Result<usize> {
+        let m = tokio::fs::metadata(&self.path).await?;
+        Ok(m.len() as usize)
     }
 
-    fn open_read_from(&self, offset: usize) -> File {
-        let f = self.open_read_from_std(offset);
+    async fn open_read_from(&self, offset: usize) -> io::Result<File> {
+        let mut options = tokio::fs::OpenOptions::new();
+        options.read(true);
+        let mut file = options.open(&self.path).await?;
 
-        File::from_std(f)
+        file.seek(SeekFrom::Start(offset as u64)).await?;
+
+        Ok(file)
     }
 
-    fn map(&self) -> Pin<Box<dyn Future<Output = io::Result<Bytes>> + Send>> {
-        let file = self.clone();
-        Box::pin(async move {
-            let size = file.size();
-            if size == 0 {
-                Ok(Bytes::new())
-            } else {
-                let mut f = file.open_read();
-                let mut b = BytesMut::with_capacity(file.size());
+    async fn map(&self) -> io::Result<Bytes> {
+        let size = self.size().await?;
+        if size == 0 {
+            Ok(Bytes::new())
+        } else {
+            let mut f = self.open_read().await?;
+            let mut b = BytesMut::with_capacity(size);
 
-                // unsafe justification: We are immediately
-                // overwriting the data in this BytesMut with the file
-                // contents, so it doesn't matter that it is
-                // uninitialized.
-                // Should file reading fail, an error will be
-                // returned, and the BytesMut will be freed, ensuring
-                // nobody ever looks at the initialized data.
-                unsafe { b.set_len(file.size()) };
-                f.read_exact(&mut b[..]).await?;
-                Ok(b.freeze())
-            }
-        })
+            // unsafe justification: We are immediately
+            // overwriting the data in this BytesMut with the file
+            // contents, so it doesn't matter that it is
+            // uninitialized.
+            // Should file reading fail, an error will be
+            // returned, and the BytesMut will be freed, ensuring
+            // nobody ever looks at the initialized data.
+            unsafe { b.set_len(size) };
+            f.read_exact(&mut b[..]).await?;
+            Ok(b.freeze())
+        }
     }
 }
 
+#[async_trait]
 impl FileStore for FileBackedStore {
     type Write = BufWriter<File>;
 
-    fn open_write(&self) -> BufWriter<File> {
-        let mut options = std::fs::OpenOptions::new();
+    async fn open_write(&self) -> io::Result<BufWriter<File>> {
+        let mut options = tokio::fs::OpenOptions::new();
         options.read(true).write(true).create(true);
-        let file = options.open(&self.path).unwrap();
+        let file = options.open(&self.path).await?;
 
-        BufWriter::new(File::from_std(file))
+        Ok(BufWriter::new(file))
     }
 }
 
@@ -414,17 +407,16 @@ mod tests {
         let file_path = dir.path().join("foo");
         let file = FileBackedStore::new(file_path);
 
-        let mut w = file.open_write();
-        let buf = async {
-            w.write_all(&[1, 2, 3]).await?;
-            w.flush().await?;
-            let mut result = Vec::new();
-            file.open_read().read_to_end(&mut result).await?;
-
-            Ok::<_, io::Error>(result)
-        }
-        .await
-        .unwrap();
+        let mut w = file.open_write().await.unwrap();
+        w.write_all(&[1, 2, 3]).await.unwrap();
+        w.flush().await.unwrap();
+        let mut buf = Vec::new();
+        file.open_read()
+            .await
+            .unwrap()
+            .read_to_end(&mut buf)
+            .await
+            .unwrap();
 
         assert_eq!(vec![1, 2, 3], buf);
     }
@@ -435,15 +427,11 @@ mod tests {
         let file_path = dir.path().join("foo");
         let file = FileBackedStore::new(file_path);
 
-        let mut w = file.open_write();
-        let map = async {
-            w.write_all(&[1, 2, 3]).await?;
-            w.flush().await?;
+        let mut w = file.open_write().await.unwrap();
+        w.write_all(&[1, 2, 3]).await.unwrap();
+        w.flush().await.unwrap();
 
-            file.map().await
-        }
-        .await
-        .unwrap();
+        let map = file.map().await.unwrap();
 
         assert_eq!(&vec![1, 2, 3][..], &map.as_ref()[..]);
     }
@@ -454,19 +442,16 @@ mod tests {
         let file_path = dir.path().join("foo");
         let file = FileBackedStore::new(file_path);
 
-        let mut w = file.open_write();
+        let mut w = file.open_write().await.unwrap();
         let mut contents = vec![0u8; 4096 << 4];
         for i in 0..contents.capacity() {
             contents[i] = (i as usize % 256) as u8;
         }
-        let map = async {
-            w.write_all(&contents).await?;
-            w.flush().await?;
 
-            file.map().await
-        }
-        .await
-        .unwrap();
+        w.write_all(&contents).await.unwrap();
+        w.flush().await.unwrap();
+
+        let map = file.map().await.unwrap();
 
         assert_eq!(contents, map.as_ref());
     }
@@ -576,10 +561,10 @@ mod tests {
         assert_eq!(io::ErrorKind::InvalidInput, error.kind());
     }
 
-    #[test]
-    fn nonexistent_file_is_nonexistent() {
+    #[tokio::test]
+    async fn nonexistent_file_is_nonexistent() {
         let file = FileBackedStore::new("asdfasfopivbuzxcvopiuvpoawehkafpouzvxv");
-        assert!(!file.exists());
+        assert!(!file.exists().await.unwrap());
     }
 
     #[tokio::test]

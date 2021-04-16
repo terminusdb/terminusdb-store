@@ -285,7 +285,8 @@ pub async fn delta_rollup<F: 'static + FileLoad + FileStore>(
         counts.predicate_count,
         counts.value_count,
         None,
-    );
+    )
+    .await?;
 
     builder.add_id_triples(layer.triples()).await?;
     builder.finalize().await?;
@@ -318,7 +319,8 @@ pub async fn imprecise_delta_rollup_upto<S: LayerStore, F: 'static + FileLoad + 
         counts.predicate_count,
         counts.value_count,
         Some(files.pos_subjects_file),
-    );
+    )
+    .await?;
 
     let mut neg_builder = TripleFileBuilder::new(
         files.neg_s_p_adjacency_list_files.clone(),
@@ -327,7 +329,8 @@ pub async fn imprecise_delta_rollup_upto<S: LayerStore, F: 'static + FileLoad + 
         counts.predicate_count,
         counts.value_count,
         Some(files.neg_subjects_file),
-    );
+    )
+    .await?;
 
     let additions = InternalTripleStackIterator::from_layer_stack(layer, bound)
         .expect("bound not found")
@@ -382,7 +385,8 @@ pub async fn delta_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore>
         counts.predicate_count,
         counts.value_count,
         Some(files.pos_subjects_file),
-    );
+    )
+    .await?;
 
     let mut neg_builder = TripleFileBuilder::new(
         files.neg_s_p_adjacency_list_files.clone(),
@@ -391,7 +395,8 @@ pub async fn delta_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore>
         counts.predicate_count,
         counts.value_count,
         Some(files.neg_subjects_file),
-    );
+    )
+    .await?;
 
     let disk_changes = store.layer_changes_upto(bound, upto).await?;
     let memory_changes =

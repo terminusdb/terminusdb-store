@@ -15,29 +15,29 @@ pub struct DictionarySetFileBuilder<F: 'static + FileStore> {
 }
 
 impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
-    pub fn from_files(
+    pub async fn from_files(
         node_files: DictionaryFiles<F>,
         predicate_files: DictionaryFiles<F>,
         value_files: DictionaryFiles<F>,
-    ) -> Self {
+    ) -> io::Result<Self> {
         let node_dictionary_builder = PfcDictFileBuilder::new(
-            node_files.blocks_file.open_write(),
-            node_files.offsets_file.open_write(),
+            node_files.blocks_file.open_write().await?,
+            node_files.offsets_file.open_write().await?,
         );
         let predicate_dictionary_builder = PfcDictFileBuilder::new(
-            predicate_files.blocks_file.open_write(),
-            predicate_files.offsets_file.open_write(),
+            predicate_files.blocks_file.open_write().await?,
+            predicate_files.offsets_file.open_write().await?,
         );
         let value_dictionary_builder = PfcDictFileBuilder::new(
-            value_files.blocks_file.open_write(),
-            value_files.offsets_file.open_write(),
+            value_files.blocks_file.open_write().await?,
+            value_files.offsets_file.open_write().await?,
         );
 
-        Self {
+        Ok(Self {
             node_dictionary_builder,
             predicate_dictionary_builder,
             value_dictionary_builder,
-        }
+        })
     }
 
     /// Add a node string.
@@ -144,14 +144,14 @@ pub struct TripleFileBuilder<F: 'static + FileLoad + FileStore> {
 }
 
 impl<F: 'static + FileLoad + FileStore> TripleFileBuilder<F> {
-    pub fn new(
+    pub async fn new(
         s_p_adjacency_list_files: AdjacencyListFiles<F>,
         sp_o_adjacency_list_files: AdjacencyListFiles<F>,
         num_nodes: usize,
         num_predicates: usize,
         num_values: usize,
         subjects_file: Option<F>,
-    ) -> Self {
+    ) -> io::Result<Self> {
         let s_p_width = util::calculate_width(num_predicates as u64);
         let sp_o_width = util::calculate_width((num_nodes + num_values) as u64);
 
@@ -160,42 +160,48 @@ impl<F: 'static + FileLoad + FileStore> TripleFileBuilder<F> {
             s_p_adjacency_list_files
                 .bitindex_files
                 .blocks_file
-                .open_write(),
+                .open_write()
+                .await?,
             s_p_adjacency_list_files
                 .bitindex_files
                 .sblocks_file
-                .open_write(),
-            s_p_adjacency_list_files.nums_file.open_write(),
+                .open_write()
+                .await?,
+            s_p_adjacency_list_files.nums_file.open_write().await?,
             s_p_width,
-        );
+        )
+        .await?;
 
         let sp_o_adjacency_list_builder = AdjacencyListBuilder::new(
             sp_o_adjacency_list_files.bitindex_files.bits_file,
             sp_o_adjacency_list_files
                 .bitindex_files
                 .blocks_file
-                .open_write(),
+                .open_write()
+                .await?,
             sp_o_adjacency_list_files
                 .bitindex_files
                 .sblocks_file
-                .open_write(),
-            sp_o_adjacency_list_files.nums_file.open_write(),
+                .open_write()
+                .await?,
+            sp_o_adjacency_list_files.nums_file.open_write().await?,
             sp_o_width,
-        );
+        )
+        .await?;
 
         let subjects = match subjects_file.is_some() {
             true => Some(Vec::new()),
             false => None,
         };
 
-        Self {
+        Ok(Self {
             subjects,
             subjects_file,
             s_p_adjacency_list_builder,
             sp_o_adjacency_list_builder,
             last_subject: 0,
             last_predicate: 0,
-        }
+        })
     }
 
     /// Add the given subject, predicate and object.
@@ -270,8 +276,10 @@ impl<F: 'static + FileLoad + FileStore> TripleFileBuilder<F> {
             };
 
             let subjects_width = util::calculate_width(max_subject);
-            let mut subjects_logarray_builder =
-                LogArrayFileBuilder::new(self.subjects_file.unwrap().open_write(), subjects_width);
+            let mut subjects_logarray_builder = LogArrayFileBuilder::new(
+                self.subjects_file.unwrap().open_write().await?,
+                subjects_width,
+            );
 
             subjects_logarray_builder.push_vec(subjects).await?;
             subjects_logarray_builder.finalize().await?;
@@ -288,7 +296,8 @@ pub async fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad
 ) -> io::Result<()> {
     let build_sparse_index = objects_file.is_some();
     let mut aj_stream =
-        adjacency_list_stream_pairs(sp_o_files.bitindex_files.bits_file, sp_o_files.nums_file);
+        adjacency_list_stream_pairs(sp_o_files.bitindex_files.bits_file, sp_o_files.nums_file)
+            .await?;
     let mut pairs = Vec::new();
     let mut greatest_sp = 0;
     // gather up pairs
@@ -301,11 +310,12 @@ pub async fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad
     let aj_width = util::calculate_width(greatest_sp);
     let mut o_ps_adjacency_list_builder = AdjacencyListBuilder::new(
         o_ps_files.bitindex_files.bits_file,
-        o_ps_files.bitindex_files.blocks_file.open_write(),
-        o_ps_files.bitindex_files.sblocks_file.open_write(),
-        o_ps_files.nums_file.open_write(),
+        o_ps_files.bitindex_files.blocks_file.open_write().await?,
+        o_ps_files.bitindex_files.sblocks_file.open_write().await?,
+        o_ps_files.nums_file.open_write().await?,
         aj_width,
-    );
+    )
+    .await?;
 
     if build_sparse_index {
         // a sparse index compresses the adjacency list so that all objects in use are remapped to form a continuous range.
@@ -329,7 +339,7 @@ pub async fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad
 
         // write out the object list
         let mut objects_builder =
-            LogArrayFileBuilder::new(objects_file.unwrap().open_write(), objects_width);
+            LogArrayFileBuilder::new(objects_file.unwrap().open_write().await?, objects_width);
         objects_builder.push_vec(objects).await?;
         objects_builder.finalize().await?;
     } else {

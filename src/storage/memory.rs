@@ -6,7 +6,7 @@ use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 
 use futures::task::{Context, Poll};
-use futures::{future, Future};
+use futures::Future;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use async_trait::async_trait;
@@ -39,12 +39,13 @@ pub struct MemoryBackedStoreWriter {
     bytes: BytesMut,
 }
 
+#[async_trait]
 impl SyncableFile for MemoryBackedStoreWriter {
-    fn sync_all(self) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> {
+    async fn sync_all(self) -> io::Result<()> {
         let mut contents = self.file.contents.write().unwrap();
         *contents = MemoryBackedStoreContents::Existent(self.bytes.freeze());
 
-        Box::pin(future::ok(()))
+        Ok(())
     }
 }
 
@@ -78,14 +79,15 @@ impl AsyncWrite for MemoryBackedStoreWriter {
     }
 }
 
+#[async_trait]
 impl FileStore for MemoryBackedStore {
     type Write = MemoryBackedStoreWriter;
 
-    fn open_write(&self) -> Self::Write {
-        MemoryBackedStoreWriter {
+    async fn open_write(&self) -> io::Result<Self::Write> {
+        Ok(MemoryBackedStoreWriter {
             file: self.clone(),
             bytes: BytesMut::new(),
-        }
+        })
     }
 }
 
@@ -134,44 +136,45 @@ impl AsyncRead for MemoryBackedStoreReader {
     }
 }
 
+#[async_trait]
 impl FileLoad for MemoryBackedStore {
     type Read = MemoryBackedStoreReader;
 
-    fn exists(&self) -> bool {
+    async fn exists(&self) -> io::Result<bool> {
         match &*self.contents.read().unwrap() {
-            MemoryBackedStoreContents::Nonexistent => false,
-            _ => true,
+            MemoryBackedStoreContents::Nonexistent => Ok(false),
+            _ => Ok(true),
         }
     }
 
-    fn size(&self) -> usize {
+    async fn size(&self) -> io::Result<usize> {
         match &*self.contents.read().unwrap() {
             MemoryBackedStoreContents::Nonexistent => {
                 panic!("tried to retrieve size of nonexistent memory file")
             }
-            MemoryBackedStoreContents::Existent(bytes) => bytes.len(),
+            MemoryBackedStoreContents::Existent(bytes) => Ok(bytes.len()),
         }
     }
 
-    fn open_read_from(&self, offset: usize) -> MemoryBackedStoreReader {
+    async fn open_read_from(&self, offset: usize) -> io::Result<MemoryBackedStoreReader> {
         match &*self.contents.read().unwrap() {
             MemoryBackedStoreContents::Nonexistent => {
                 panic!("tried to open nonexistent memory file for reading")
             }
-            MemoryBackedStoreContents::Existent(bytes) => MemoryBackedStoreReader {
+            MemoryBackedStoreContents::Existent(bytes) => Ok(MemoryBackedStoreReader {
                 bytes: bytes.clone(),
                 pos: offset,
-            },
+            }),
         }
     }
 
-    fn map(&self) -> Pin<Box<dyn Future<Output = io::Result<Bytes>> + Send>> {
+    async fn map(&self) -> io::Result<Bytes> {
         match &*self.contents.read().unwrap() {
-            MemoryBackedStoreContents::Nonexistent => Box::pin(future::err(io::Error::new(
+            MemoryBackedStoreContents::Nonexistent => Err(io::Error::new(
                 io::ErrorKind::NotFound,
                 "tried to open a nonexistent memory file for reading",
-            ))),
-            MemoryBackedStoreContents::Existent(bytes) => Box::pin(future::ok(bytes.clone())),
+            )),
+            MemoryBackedStoreContents::Existent(bytes) => Ok(bytes.clone()),
         }
     }
 }
@@ -225,7 +228,7 @@ impl PersistentLayerStore for MemoryLayerStore {
         Box::pin(async move {
             if let Some(files) = guard.await.get(&directory) {
                 if let Some(file) = files.get(&file) {
-                    Ok(file.exists())
+                    file.exists().await
                 } else {
                     Ok(false)
                 }
@@ -504,17 +507,16 @@ mod tests {
     async fn write_and_read_memory_backed() {
         let file = MemoryBackedStore::new();
 
-        let mut w = file.open_write();
-        let buf = async {
-            w.write_all(&[1, 2, 3]).await?;
-            w.sync_all().await?;
-            let mut result = Vec::new();
-            file.open_read().read_to_end(&mut result).await?;
-
-            Ok::<_, io::Error>(result)
-        }
-        .await
-        .unwrap();
+        let mut w = file.open_write().await.unwrap();
+        w.write_all(&[1, 2, 3]).await.unwrap();
+        w.sync_all().await.unwrap();
+        let mut buf = Vec::new();
+        file.open_read()
+            .await
+            .unwrap()
+            .read_to_end(&mut buf)
+            .await
+            .unwrap();
 
         assert_eq!(vec![1, 2, 3], buf);
     }
@@ -523,14 +525,10 @@ mod tests {
     async fn write_and_map_memory_backed() {
         let file = MemoryBackedStore::new();
 
-        let mut w = file.open_write();
-        let map = async {
-            w.write_all(&[1, 2, 3]).await?;
-            w.sync_all().await?;
-            file.map().await
-        }
-        .await
-        .unwrap();
+        let mut w = file.open_write().await.unwrap();
+        w.write_all(&[1, 2, 3]).await.unwrap();
+        w.sync_all().await.unwrap();
+        let map = file.map().await.unwrap();
 
         assert_eq!(vec![1, 2, 3], map.as_ref());
     }

@@ -210,20 +210,18 @@ mod tests {
 
         let child_files = child_layer_files();
 
-        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = async {
-            let mut builder = child_builder.into_phase2().await?;
-            builder.add_triple(1, 2, 3).await?;
-            builder.add_triple(3, 3, 4).await?;
-            builder.add_triple(3, 5, 6).await?;
-            builder.remove_triple(1, 1, 1).await?;
-            builder.remove_triple(2, 1, 3).await?;
-            builder.remove_triple(2, 3, 6).await?;
-            builder.remove_triple(4, 3, 6).await?;
-            builder.finalize().await
-        };
-
-        fut.await.unwrap();
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files)
+            .await
+            .unwrap();
+        let mut builder = child_builder.into_phase2().await.unwrap();
+        builder.add_triple(1, 2, 3).await.unwrap();
+        builder.add_triple(3, 3, 4).await.unwrap();
+        builder.add_triple(3, 5, 6).await.unwrap();
+        builder.remove_triple(1, 1, 1).await.unwrap();
+        builder.remove_triple(2, 1, 3).await.unwrap();
+        builder.remove_triple(2, 3, 6).await.unwrap();
+        builder.remove_triple(4, 3, 6).await.unwrap();
+        builder.finalize().await.unwrap();
 
         ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .await

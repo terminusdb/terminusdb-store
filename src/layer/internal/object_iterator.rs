@@ -237,33 +237,34 @@ mod tests {
 
         let base_layer_files = base_layer_files();
 
-        let mut builder = BaseLayerFileBuilder::from_files(&base_layer_files);
+        let mut builder = BaseLayerFileBuilder::from_files(&base_layer_files)
+            .await
+            .unwrap();
 
-        let future = async {
-            builder
-                .add_nodes(nodes.into_iter().map(|s| s.to_string()))
-                .await?;
-            builder
-                .add_predicates(predicates.into_iter().map(|s| s.to_string()))
-                .await?;
-            builder
-                .add_values(values.into_iter().map(|s| s.to_string()))
-                .await?;
-            let mut builder = builder.into_phase2().await?;
+        builder
+            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
+            .await
+            .unwrap();
+        builder
+            .add_predicates(predicates.into_iter().map(|s| s.to_string()))
+            .await
+            .unwrap();
+        builder
+            .add_values(values.into_iter().map(|s| s.to_string()))
+            .await
+            .unwrap();
+        let mut builder = builder.into_phase2().await.unwrap();
 
-            builder.add_triple(1, 1, 2).await?;
-            builder.add_triple(2, 1, 2).await?;
-            builder.add_triple(2, 1, 3).await?;
-            builder.add_triple(2, 1, 5).await?;
-            builder.add_triple(2, 3, 6).await?;
-            builder.add_triple(3, 2, 5).await?;
-            builder.add_triple(3, 3, 6).await?;
-            builder.add_triple(4, 1, 5).await?;
-            builder.add_triple(4, 3, 6).await?;
-            builder.finalize().await
-        };
-
-        future.await.unwrap();
+        builder.add_triple(1, 1, 2).await.unwrap();
+        builder.add_triple(2, 1, 2).await.unwrap();
+        builder.add_triple(2, 1, 3).await.unwrap();
+        builder.add_triple(2, 1, 5).await.unwrap();
+        builder.add_triple(2, 3, 6).await.unwrap();
+        builder.add_triple(3, 2, 5).await.unwrap();
+        builder.add_triple(3, 3, 6).await.unwrap();
+        builder.add_triple(4, 1, 5).await.unwrap();
+        builder.add_triple(4, 3, 6).await.unwrap();
+        builder.finalize().await.unwrap();
 
         base_layer_files
     }

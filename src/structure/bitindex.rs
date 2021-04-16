@@ -365,10 +365,10 @@ mod tests {
     use crate::structure::util::stream_iter_ok;
     use futures::executor::block_on;
 
-    #[test]
-    pub fn rank1_works() {
+    #[tokio::test]
+    async fn rank1_works() {
         let bits = MemoryBackedStore::new();
-        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write());
+        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write().await.unwrap());
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
 
         block_on(async {
@@ -382,9 +382,9 @@ mod tests {
         let index_blocks = MemoryBackedStore::new();
         let index_sblocks = MemoryBackedStore::new();
         block_on(build_bitindex(
-            bits.open_read(),
-            index_blocks.open_write(),
-            index_sblocks.open_write(),
+            bits.open_read().await.unwrap(),
+            index_blocks.open_write().await.unwrap(),
+            index_sblocks.open_write().await.unwrap(),
         ))
         .unwrap();
 
@@ -399,10 +399,10 @@ mod tests {
         }
     }
 
-    #[test]
-    pub fn select1_works() {
+    #[tokio::test]
+    async fn select1_works() {
         let bits = MemoryBackedStore::new();
-        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write());
+        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write().await.unwrap());
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
 
         block_on(async {
@@ -416,9 +416,9 @@ mod tests {
         let index_blocks = MemoryBackedStore::new();
         let index_sblocks = MemoryBackedStore::new();
         block_on(build_bitindex(
-            bits.open_read(),
-            index_blocks.open_write(),
-            index_sblocks.open_write(),
+            bits.open_read().await.unwrap(),
+            index_blocks.open_write().await.unwrap(),
+            index_sblocks.open_write().await.unwrap(),
         ))
         .unwrap();
 
@@ -435,10 +435,10 @@ mod tests {
         assert!(index.select1(123456 * 2 / 3).is_none());
     }
 
-    #[test]
-    pub fn rank1_ranged() {
+    #[tokio::test]
+    async fn rank1_ranged() {
         let bits = MemoryBackedStore::new();
-        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write());
+        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write().await.unwrap());
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
 
         block_on(async {
@@ -452,9 +452,9 @@ mod tests {
         let index_blocks = MemoryBackedStore::new();
         let index_sblocks = MemoryBackedStore::new();
         block_on(build_bitindex(
-            bits.open_read(),
-            index_blocks.open_write(),
-            index_sblocks.open_write(),
+            bits.open_read().await.unwrap(),
+            index_blocks.open_write().await.unwrap(),
+            index_sblocks.open_write().await.unwrap(),
         ))
         .unwrap();
 
@@ -471,10 +471,10 @@ mod tests {
         assert_eq!(2, index.rank1_from_range(4, 12));
     }
 
-    #[test]
-    pub fn select1_ranged() {
+    #[tokio::test]
+    async fn select1_ranged() {
         let bits = MemoryBackedStore::new();
-        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write());
+        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write().await.unwrap());
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
 
         block_on(async {
@@ -488,9 +488,9 @@ mod tests {
         let index_blocks = MemoryBackedStore::new();
         let index_sblocks = MemoryBackedStore::new();
         block_on(build_bitindex(
-            bits.open_read(),
-            index_blocks.open_write(),
-            index_sblocks.open_write(),
+            bits.open_read().await.unwrap(),
+            index_blocks.open_write().await.unwrap(),
+            index_sblocks.open_write().await.unwrap(),
         ))
         .unwrap();
 
@@ -508,10 +508,10 @@ mod tests {
         assert_eq!(None, index.select1_from_range(123456, 5, 10));
     }
 
-    #[test]
-    pub fn rank0_works() {
+    #[tokio::test]
+    async fn rank0_works() {
         let bits = MemoryBackedStore::new();
-        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write());
+        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write().await.unwrap());
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
 
         block_on(async {
@@ -525,9 +525,9 @@ mod tests {
         let index_blocks = MemoryBackedStore::new();
         let index_sblocks = MemoryBackedStore::new();
         block_on(build_bitindex(
-            bits.open_read(),
-            index_blocks.open_write(),
-            index_sblocks.open_write(),
+            bits.open_read().await.unwrap(),
+            index_blocks.open_write().await.unwrap(),
+            index_sblocks.open_write().await.unwrap(),
         ))
         .unwrap();
 
@@ -542,10 +542,10 @@ mod tests {
         }
     }
 
-    #[test]
-    pub fn select0_works() {
+    #[tokio::test]
+    async fn select0_works() {
         let bits = MemoryBackedStore::new();
-        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write());
+        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write().await.unwrap());
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
 
         block_on(async {
@@ -559,9 +559,9 @@ mod tests {
         let index_blocks = MemoryBackedStore::new();
         let index_sblocks = MemoryBackedStore::new();
         block_on(build_bitindex(
-            bits.open_read(),
-            index_blocks.open_write(),
-            index_sblocks.open_write(),
+            bits.open_read().await.unwrap(),
+            index_blocks.open_write().await.unwrap(),
+            index_sblocks.open_write().await.unwrap(),
         ))
         .unwrap();
 
@@ -578,10 +578,10 @@ mod tests {
         assert_eq!(None, index.select0(123456 * 2 / 3 + 1));
     }
 
-    #[test]
-    pub fn rank0_ranged() {
+    #[tokio::test]
+    async fn rank0_ranged() {
         let bits = MemoryBackedStore::new();
-        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write());
+        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write().await.unwrap());
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
 
         block_on(async {
@@ -595,9 +595,9 @@ mod tests {
         let index_blocks = MemoryBackedStore::new();
         let index_sblocks = MemoryBackedStore::new();
         block_on(build_bitindex(
-            bits.open_read(),
-            index_blocks.open_write(),
-            index_sblocks.open_write(),
+            bits.open_read().await.unwrap(),
+            index_blocks.open_write().await.unwrap(),
+            index_sblocks.open_write().await.unwrap(),
         ))
         .unwrap();
 
@@ -615,10 +615,10 @@ mod tests {
         assert_eq!(6, index.rank0_from_range(4, 12));
     }
 
-    #[test]
-    pub fn select0_ranged() {
+    #[tokio::test]
+    async fn select0_ranged() {
         let bits = MemoryBackedStore::new();
-        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write());
+        let mut ba_builder = BitArrayFileBuilder::new(bits.open_write().await.unwrap());
         let contents = (0..).map(|n| n % 3 == 0).take(123456);
 
         block_on(async {
@@ -632,9 +632,9 @@ mod tests {
         let index_blocks = MemoryBackedStore::new();
         let index_sblocks = MemoryBackedStore::new();
         block_on(build_bitindex(
-            bits.open_read(),
-            index_blocks.open_write(),
-            index_sblocks.open_write(),
+            bits.open_read().await.unwrap(),
+            index_blocks.open_write().await.unwrap(),
+            index_sblocks.open_write().await.unwrap(),
         ))
         .unwrap();
 

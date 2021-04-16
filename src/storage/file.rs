@@ -1,42 +1,45 @@
 //! storage traits that the builders and loaders can rely on
 
+use std::io;
+
 use bytes::Bytes;
-use futures::future::{self, Future};
-use futures::io;
-use std::pin::Pin;
 use tokio::io::{AsyncRead, AsyncWrite};
+
+use async_trait::async_trait;
 
 use crate::structure::{AdjacencyList, BitIndex};
 
+#[async_trait]
 pub trait SyncableFile: AsyncWrite + Unpin + Send {
-    fn sync_all(self) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>>;
+    async fn sync_all(self) -> io::Result<()>;
 }
 
+#[async_trait]
 pub trait FileStore: Clone + Send + Sync {
     type Write: SyncableFile;
-    fn open_write(&self) -> Self::Write;
+    async fn open_write(&self) -> io::Result<Self::Write>;
 }
 
+#[async_trait]
 pub trait FileLoad: Clone + Send + Sync {
     type Read: AsyncRead + Unpin + Send;
 
-    // TODO - exists and size should also be future-enabled
-    fn exists(&self) -> bool;
-    fn size(&self) -> usize;
-    fn open_read(&self) -> Self::Read {
-        self.open_read_from(0)
+    async fn exists(&self) -> io::Result<bool>;
+    async fn size(&self) -> io::Result<usize>;
+    async fn open_read(&self) -> io::Result<Self::Read> {
+        self.open_read_from(0).await
     }
-    fn open_read_from(&self, offset: usize) -> Self::Read;
-    fn map(&self) -> Pin<Box<dyn Future<Output = io::Result<Bytes>> + Send>>;
+    async fn open_read_from(&self, offset: usize) -> io::Result<Self::Read>;
+    async fn map(&self) -> io::Result<Bytes>;
 
-    fn map_if_exists(&self) -> Pin<Box<dyn Future<Output = io::Result<Option<Bytes>>> + Send>> {
-        Box::pin(match self.exists() {
-            false => future::Either::Left(future::ok(None)),
+    async fn map_if_exists(&self) -> io::Result<Option<Bytes>> {
+        match self.exists().await? {
+            false => Ok(None),
             true => {
-                let fut = self.map();
-                future::Either::Right(async { Ok(Some(fut.await?)) })
+                let mapped = self.map().await?;
+                Ok(Some(mapped))
             }
-        })
+        }
     }
 }
 
@@ -340,7 +343,7 @@ impl<F: 'static + FileLoad + FileStore> BitIndexFiles<F> {
     }
 
     pub async fn map_all_if_exists(&self) -> io::Result<Option<BitIndexMaps>> {
-        if self.bits_file.exists() {
+        if self.bits_file.exists().await? {
             Ok(Some(self.map_all().await?))
         } else {
             Ok(None)

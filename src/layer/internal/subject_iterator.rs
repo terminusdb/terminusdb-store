@@ -483,30 +483,29 @@ mod tests {
     async fn base_stubs_triple_iterator() {
         let files = base_layer_files();
 
-        let mut builder = BaseLayerFileBuilder::from_files(&files);
+        let mut builder = BaseLayerFileBuilder::from_files(&files).await.unwrap();
 
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
 
-        let future = async {
-            builder
-                .add_nodes(nodes.into_iter().map(|s| s.to_string()))
-                .await?;
-            builder
-                .add_predicates(predicates.into_iter().map(|s| s.to_string()))
-                .await?;
-            builder
-                .add_values(values.into_iter().map(|s| s.to_string()))
-                .await?;
-            let mut builder = builder.into_phase2().await?;
-            builder.add_triple(1, 1, 1).await?;
-            builder.add_triple(3, 2, 5).await?;
-            builder.add_triple(5, 3, 6).await?;
-            builder.finalize().await
-        };
-
-        future.await.unwrap();
+        builder
+            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
+            .await
+            .unwrap();
+        builder
+            .add_predicates(predicates.into_iter().map(|s| s.to_string()))
+            .await
+            .unwrap();
+        builder
+            .add_values(values.into_iter().map(|s| s.to_string()))
+            .await
+            .unwrap();
+        let mut builder = builder.into_phase2().await.unwrap();
+        builder.add_triple(1, 1, 1).await.unwrap();
+        builder.add_triple(3, 2, 5).await.unwrap();
+        builder.add_triple(5, 3, 6).await.unwrap();
+        builder.finalize().await.unwrap();
 
         let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
             .await
@@ -526,31 +525,30 @@ mod tests {
     async fn layer_for_seek_tests() -> BaseLayer {
         let files = base_layer_files();
 
-        let mut builder = BaseLayerFileBuilder::from_files(&files);
+        let mut builder = BaseLayerFileBuilder::from_files(&files).await.unwrap();
 
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
 
-        let future = async {
-            builder
-                .add_nodes(nodes.into_iter().map(|s| s.to_string()))
-                .await?;
-            builder
-                .add_predicates(predicates.into_iter().map(|s| s.to_string()))
-                .await?;
-            builder
-                .add_values(values.into_iter().map(|s| s.to_string()))
-                .await?;
-            let mut builder = builder.into_phase2().await?;
-            builder.add_triple(1, 1, 1).await?;
-            builder.add_triple(3, 2, 5).await?;
-            builder.add_triple(3, 3, 5).await?;
-            builder.add_triple(5, 3, 6).await?;
-            builder.finalize().await
-        };
-
-        future.await.unwrap();
+        builder
+            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
+            .await
+            .unwrap();
+        builder
+            .add_predicates(predicates.into_iter().map(|s| s.to_string()))
+            .await
+            .unwrap();
+        builder
+            .add_values(values.into_iter().map(|s| s.to_string()))
+            .await
+            .unwrap();
+        let mut builder = builder.into_phase2().await.unwrap();
+        builder.add_triple(1, 1, 1).await.unwrap();
+        builder.add_triple(3, 2, 5).await.unwrap();
+        builder.add_triple(3, 3, 5).await.unwrap();
+        builder.add_triple(5, 3, 6).await.unwrap();
+        builder.finalize().await.unwrap();
 
         BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
             .await
@@ -612,30 +610,29 @@ mod tests {
     async fn base_triple_iterator_seek_to_subject_before_begin() {
         let files = base_layer_files();
 
-        let mut builder = BaseLayerFileBuilder::from_files(&files);
+        let mut builder = BaseLayerFileBuilder::from_files(&files).await.unwrap();
 
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
 
-        let future = async {
-            builder
-                .add_nodes(nodes.into_iter().map(|s| s.to_string()))
-                .await?;
-            builder
-                .add_predicates(predicates.into_iter().map(|s| s.to_string()))
-                .await?;
-            builder
-                .add_values(values.into_iter().map(|s| s.to_string()))
-                .await?;
-            let mut builder = builder.into_phase2().await?;
-            builder.add_triple(3, 2, 5).await?;
-            builder.add_triple(3, 3, 5).await?;
-            builder.add_triple(5, 3, 6).await?;
-            builder.finalize().await
-        };
-
-        future.await.unwrap();
+        builder
+            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
+            .await
+            .unwrap();
+        builder
+            .add_predicates(predicates.into_iter().map(|s| s.to_string()))
+            .await
+            .unwrap();
+        builder
+            .add_values(values.into_iter().map(|s| s.to_string()))
+            .await
+            .unwrap();
+        let mut builder = builder.into_phase2().await.unwrap();
+        builder.add_triple(3, 2, 5).await.unwrap();
+        builder.add_triple(3, 3, 5).await.unwrap();
+        builder.add_triple(5, 3, 6).await.unwrap();
+        builder.finalize().await.unwrap();
 
         let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
             .await
@@ -655,34 +652,33 @@ mod tests {
     async fn layer_for_seek_sp_tests() -> BaseLayer {
         let files = base_layer_files();
 
-        let mut builder = BaseLayerFileBuilder::from_files(&files);
+        let mut builder = BaseLayerFileBuilder::from_files(&files).await.unwrap();
 
         let nodes = vec!["aaaaa", "baa", "bbbbb", "ccccc", "mooo"];
         let predicates = vec!["abcde", "fghij", "klmno", "lll", "xyz", "yyy"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
 
-        let future = async {
-            builder
-                .add_nodes(nodes.into_iter().map(|s| s.to_string()))
-                .await?;
-            builder
-                .add_predicates(predicates.into_iter().map(|s| s.to_string()))
-                .await?;
-            builder
-                .add_values(values.into_iter().map(|s| s.to_string()))
-                .await?;
-            let mut builder = builder.into_phase2().await?;
-            builder.add_triple(1, 1, 1).await?;
-            builder.add_triple(3, 2, 4).await?;
-            builder.add_triple(3, 2, 5).await?;
-            builder.add_triple(3, 4, 2).await?;
-            builder.add_triple(3, 4, 3).await?;
-            builder.add_triple(3, 4, 5).await?;
-            builder.add_triple(5, 3, 6).await?;
-            builder.finalize().await
-        };
-
-        future.await.unwrap();
+        builder
+            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
+            .await
+            .unwrap();
+        builder
+            .add_predicates(predicates.into_iter().map(|s| s.to_string()))
+            .await
+            .unwrap();
+        builder
+            .add_values(values.into_iter().map(|s| s.to_string()))
+            .await
+            .unwrap();
+        let mut builder = builder.into_phase2().await.unwrap();
+        builder.add_triple(1, 1, 1).await.unwrap();
+        builder.add_triple(3, 2, 4).await.unwrap();
+        builder.add_triple(3, 2, 5).await.unwrap();
+        builder.add_triple(3, 4, 2).await.unwrap();
+        builder.add_triple(3, 4, 3).await.unwrap();
+        builder.add_triple(3, 4, 5).await.unwrap();
+        builder.add_triple(5, 3, 6).await.unwrap();
+        builder.finalize().await.unwrap();
 
         BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
             .await
@@ -849,19 +845,17 @@ mod tests {
 
         let child_files = child_layer_files();
 
-        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files);
-        let fut = async {
-            let mut builder = child_builder.into_phase2().await?;
-            builder.add_triple(1, 2, 3).await?;
-            builder.add_triple(3, 3, 4).await?;
-            builder.add_triple(3, 5, 6).await?;
-            builder.remove_triple(1, 1, 1).await?;
-            builder.remove_triple(2, 1, 3).await?;
-            builder.remove_triple(4, 3, 6).await?;
-            builder.finalize().await
-        };
-
-        fut.await.unwrap();
+        let child_builder = ChildLayerFileBuilder::from_files(parent.clone(), &child_files)
+            .await
+            .unwrap();
+        let mut builder = child_builder.into_phase2().await.unwrap();
+        builder.add_triple(1, 2, 3).await.unwrap();
+        builder.add_triple(3, 3, 4).await.unwrap();
+        builder.add_triple(3, 5, 6).await.unwrap();
+        builder.remove_triple(1, 1, 1).await.unwrap();
+        builder.remove_triple(2, 1, 3).await.unwrap();
+        builder.remove_triple(4, 3, 6).await.unwrap();
+        builder.finalize().await.unwrap();
 
         ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .await
