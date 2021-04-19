@@ -24,10 +24,10 @@ fn logarray_test(b: &mut Bencher, width: u8, size: usize, as_vec: bool) {
 
     b.iter(move || {
         let file = MemoryBackedStore::new();
-        let w = file.open_write();
-        let mut builder = LogArrayFileBuilder::new(w, width);
         let data = data.clone();
         rt.block_on(async move {
+            let w = file.open_write().await.unwrap();
+            let mut builder = LogArrayFileBuilder::new(w, width);
             if as_vec {
                 builder.push_vec(data).await.unwrap();
             } else {
@@ -52,10 +52,10 @@ fn logarray_test_persistent(b: &mut Bencher, width: u8, size: usize, as_vec: boo
     b.iter(move || {
         let dir = tempdir().unwrap();
         let file = FileBackedStore::new(dir.path().join("file"));
-        let w = file.open_write();
-        let mut builder = LogArrayFileBuilder::new(w, width);
         let data = data.clone();
         rt.block_on(async move {
+            let w = file.open_write().await.unwrap();
+            let mut builder = LogArrayFileBuilder::new(w, width);
             if as_vec {
                 builder.push_vec(data).await.unwrap();
             } else {
