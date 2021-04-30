@@ -34,9 +34,10 @@ pub struct Store {
 /// between threads. Also, rather than consuming itself on commit,
 /// this wrapper will simply mark itself as having committed,
 /// returning errors on further calls.
+#[derive(Clone)]
 pub struct StoreLayerBuilder {
     parent: Option<Arc<dyn Layer>>,
-    builder: RwLock<Option<Box<dyn LayerBuilder>>>,
+    builder: Arc<RwLock<Option<Box<dyn LayerBuilder>>>>,
     name: [u32; 5],
     store: Store,
 }
@@ -48,7 +49,7 @@ impl StoreLayerBuilder {
         Ok(Self {
             parent: builder.parent(),
             name: builder.name(),
-            builder: RwLock::new(Some(builder)),
+            builder: Arc::new(RwLock::new(Some(builder))),
             store,
         })
     }
@@ -57,7 +58,7 @@ impl StoreLayerBuilder {
         StoreLayerBuilder {
             parent: builder.parent(),
             name: builder.name(),
-            builder: RwLock::new(Some(builder)),
+            builder: Arc::new(RwLock::new(Some(builder))),
             store,
         }
     }
@@ -642,6 +643,7 @@ impl Layer for StoreLayer {
 /// getting hold of the layer it points at, as layers are
 /// read-only. Writing to a named graph is just making it point to a
 /// new layer.
+#[derive(Clone)]
 pub struct NamedGraph {
     label: String,
     store: Store,

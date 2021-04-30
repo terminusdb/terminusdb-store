@@ -38,6 +38,7 @@ fn task_sync<T: Send, F: Future<Output = T> + Send>(future: F) -> T {
 /// to synchronize access to it between threads. Also, rather than
 /// consuming itself on commit, this wrapper will simply mark itself
 /// as having committed, returning errors on further calls.
+#[derive(Clone)]
 pub struct SyncStoreLayerBuilder {
     inner: StoreLayerBuilder,
 }
@@ -435,6 +436,7 @@ impl Layer for SyncStoreLayer {
 /// getting hold of the layer it points at, as layers are
 /// read-only. Writing to a named graph is just making it point to a
 /// new layer.
+#[derive(Clone)]
 pub struct SyncNamedGraph {
     inner: NamedGraph,
 }
@@ -484,6 +486,7 @@ impl SyncNamedGraph {
 }
 
 /// A store, storing a set of layers and database labels pointing to these layers.
+#[derive(Clone)]
 pub struct SyncStore {
     inner: Store,
 }
