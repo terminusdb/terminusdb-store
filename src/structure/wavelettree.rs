@@ -156,6 +156,11 @@ impl WaveletTree {
 
     /// Lookup the given entry. This returns a `WaveletLookup` which can then be used to find all positions.
     pub fn lookup(&self, entry: u64) -> Option<WaveletLookup> {
+        if self.num_layers == 0 {
+            // without any layers, there's not going to be any elements
+            return None;
+        }
+
         let width = self.len() as u64;
         let mut slices = Vec::with_capacity(self.num_layers as usize);
         let mut alphabet_start = 0;

@@ -747,4 +747,28 @@ pub mod tests {
         assert_eq!(0, layer.triple_removal_count());
         assert_eq!(7, layer.triple_count());
     }
+
+    #[tokio::test]
+    async fn count_triples_of_empty_base_layer() {
+        let layer_files = base_layer_files();
+        let builder = BaseLayerFileBuilder::from_files(&layer_files)
+            .await
+            .unwrap();
+        builder
+            .into_phase2()
+            .await
+            .unwrap()
+            .finalize()
+            .await
+            .unwrap();
+        let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &layer_files)
+            .await
+            .unwrap();
+
+        assert_eq!(0, layer.internal_triple_layer_addition_count());
+        assert_eq!(0, layer.internal_triple_layer_removal_count());
+        assert_eq!(0, layer.triple_count());
+        assert_eq!(0, layer.triple_addition_count());
+        assert_eq!(0, layer.triple_removal_count());
+    }
 }
