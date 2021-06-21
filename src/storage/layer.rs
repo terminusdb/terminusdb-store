@@ -4,7 +4,7 @@ use super::delta::*;
 use super::file::*;
 use super::pack::Packable;
 use crate::layer::{
-    layer_triple_exists, BaseLayer, ChildLayer, IdMap, IdTriple, InternalLayer, InternalLayerImpl,
+    layer_triple_exists, BaseLayer, ChildLayer, IdMap, IdTriple, InternalLayer,
     InternalLayerTripleObjectIterator, InternalLayerTriplePredicateIterator,
     InternalLayerTripleSubjectIterator, InternalTripleStackIterator, LayerBuilder,
     OptInternalLayerTriplePredicateIterator, OptInternalLayerTripleSubjectIterator, RollupLayer,

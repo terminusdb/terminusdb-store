@@ -122,7 +122,7 @@ pub struct InternalTriplePredicateIterator {
 }
 
 impl InternalTriplePredicateIterator {
-    pub fn from_layer<T: 'static + InternalLayerImpl>(layer: &T, predicate: u64) -> Self {
+    pub fn from_layer(layer: &InternalLayer, predicate: u64) -> Self {
         let mut positives = Vec::new();
         let mut negatives = Vec::new();
         positives.push(layer.internal_triple_additions_p(predicate));

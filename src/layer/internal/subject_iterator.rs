@@ -1,5 +1,4 @@
-use super::super::layer::*;
-use super::InternalLayerImpl;
+use crate::layer::*;
 use crate::structure::*;
 use std::cmp::Ordering;
 use std::convert::TryInto;
@@ -221,7 +220,7 @@ pub struct InternalTripleSubjectIterator {
 }
 
 impl InternalTripleSubjectIterator {
-    pub fn from_layer<T: 'static + InternalLayerImpl>(layer: &T) -> Self {
+    pub fn from_layer(layer: &InternalLayer) -> Self {
         let mut positives = Vec::new();
         let mut negatives = Vec::new();
         positives.push(layer.internal_triple_additions());
@@ -323,8 +322,8 @@ pub enum TripleChange {
 }
 
 impl InternalTripleStackIterator {
-    pub fn from_layer_stack<T: 'static + InternalLayerImpl>(
-        layer: &T,
+    pub fn from_layer_stack(
+        layer: &InternalLayer,
         parent_id: [u32; 5],
     ) -> Result<Self, LayerStackError> {
         let mut positives = Vec::new();
@@ -334,14 +333,14 @@ impl InternalTripleStackIterator {
 
         let mut layer_opt = layer.immediate_parent();
 
-        while layer_opt.is_some() && InternalLayerImpl::name(layer_opt.unwrap()) != parent_id {
+        while layer_opt.is_some() && layer_opt.unwrap().name() != parent_id {
             positives.push(layer_opt.unwrap().internal_triple_additions());
             negatives.push(layer_opt.unwrap().internal_triple_removals());
 
             layer_opt = layer_opt.unwrap().immediate_parent();
         }
 
-        if layer_opt.is_none() || InternalLayerImpl::name(layer_opt.unwrap()) != parent_id {
+        if layer_opt.is_none() || layer_opt.unwrap().name() != parent_id {
             return Err(LayerStackError::ParentNotFound);
         }
 
@@ -522,7 +521,7 @@ mod tests {
         assert_eq!(expected, triples);
     }
 
-    async fn layer_for_seek_tests() -> BaseLayer {
+    async fn layer_for_seek_tests() -> InternalLayer {
         let files = base_layer_files();
 
         let mut builder = BaseLayerFileBuilder::from_files(&files).await.unwrap();
@@ -649,7 +648,7 @@ mod tests {
         assert_eq!(expected, triples);
     }
 
-    async fn layer_for_seek_sp_tests() -> BaseLayer {
+    async fn layer_for_seek_sp_tests() -> InternalLayer {
         let files = base_layer_files();
 
         let mut builder = BaseLayerFileBuilder::from_files(&files).await.unwrap();
