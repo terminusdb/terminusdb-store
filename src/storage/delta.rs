@@ -10,11 +10,11 @@ async fn safe_upto_bound<S: LayerStore>(
     layer: &InternalLayer,
     upto: [u32; 5],
 ) -> io::Result<[u32; 5]> {
-    if InternalLayerImpl::name(&*layer) == upto {
+    if layer.name() == upto {
         return Ok(upto);
     }
     let mut disk_layer_names = store
-        .retrieve_layer_stack_names_upto(InternalLayerImpl::name(&*layer), upto)
+        .retrieve_layer_stack_names_upto(layer.name(), upto)
         .await?;
 
     let mut l = &*layer;
@@ -22,26 +22,23 @@ async fn safe_upto_bound<S: LayerStore>(
         let parent = match l.immediate_parent() {
             None => {
                 // previous was the last found layer and therefore the bound
-                return Ok(InternalLayerImpl::name(&*l));
+                return Ok(l.name());
             }
             Some(p) => p,
         };
 
-        if InternalLayerImpl::name(parent) == upto {
+        if parent.name() == upto {
             // reached our destination and all is swell.
             return Ok(upto);
         } else {
             // is parent in the disk layers?
-            if let Some(ix) = disk_layer_names
-                .iter()
-                .position(|&n| n == InternalLayerImpl::name(parent))
-            {
+            if let Some(ix) = disk_layer_names.iter().position(|&n| n == parent.name()) {
                 // yes, so move further back
                 disk_layer_names.truncate(ix);
                 l = parent;
             } else {
                 // no! safe bound was the last thing
-                return Ok(InternalLayerImpl::name(l));
+                return Ok(l.name());
             }
         }
     }

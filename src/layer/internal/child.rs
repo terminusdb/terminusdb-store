@@ -5,8 +5,7 @@
 //! this layer needs for its additions.
 use super::super::builder::*;
 use super::super::id_map::*;
-use super::super::layer::*;
-use super::*;
+use crate::layer::*;
 use crate::storage::*;
 use crate::structure::*;
 use rayon::prelude::*;
@@ -23,33 +22,33 @@ use futures::task::{Context, Poll};
 /// This layer type has a parent. It stores triple additions and removals.
 #[derive(Clone)]
 pub struct ChildLayer {
-    name: [u32; 5],
-    parent: Arc<InternalLayer>,
+    pub(super) name: [u32; 5],
+    pub(super) parent: Arc<InternalLayer>,
 
-    node_dictionary: PfcDict,
-    predicate_dictionary: PfcDict,
-    value_dictionary: PfcDict,
+    pub(super) node_dictionary: PfcDict,
+    pub(super) predicate_dictionary: PfcDict,
+    pub(super) value_dictionary: PfcDict,
 
-    node_value_idmap: IdMap,
-    predicate_idmap: IdMap,
+    pub(super) node_value_idmap: IdMap,
+    pub(super) predicate_idmap: IdMap,
 
-    parent_node_value_count: usize,
-    parent_predicate_count: usize,
+    pub(super) parent_node_value_count: usize,
+    pub(super) parent_predicate_count: usize,
 
-    pos_subjects: MonotonicLogArray,
-    pos_objects: MonotonicLogArray,
-    pos_s_p_adjacency_list: AdjacencyList,
-    pos_sp_o_adjacency_list: AdjacencyList,
-    pos_o_ps_adjacency_list: AdjacencyList,
+    pub(super) pos_subjects: MonotonicLogArray,
+    pub(super) pos_objects: MonotonicLogArray,
+    pub(super) pos_s_p_adjacency_list: AdjacencyList,
+    pub(super) pos_sp_o_adjacency_list: AdjacencyList,
+    pub(super) pos_o_ps_adjacency_list: AdjacencyList,
 
-    neg_subjects: MonotonicLogArray,
-    neg_objects: MonotonicLogArray,
-    neg_s_p_adjacency_list: AdjacencyList,
-    neg_sp_o_adjacency_list: AdjacencyList,
-    neg_o_ps_adjacency_list: AdjacencyList,
+    pub(super) neg_subjects: MonotonicLogArray,
+    pub(super) neg_objects: MonotonicLogArray,
+    pub(super) neg_s_p_adjacency_list: AdjacencyList,
+    pub(super) neg_sp_o_adjacency_list: AdjacencyList,
+    pub(super) neg_o_ps_adjacency_list: AdjacencyList,
 
-    pos_predicate_wavelet_tree: WaveletTree,
-    neg_predicate_wavelet_tree: WaveletTree,
+    pub(super) pos_predicate_wavelet_tree: WaveletTree,
+    pub(super) neg_predicate_wavelet_tree: WaveletTree,
 }
 
 impl ChildLayer {
@@ -57,12 +56,12 @@ impl ChildLayer {
         name: [u32; 5],
         parent: Arc<InternalLayer>,
         files: &ChildLayerFiles<F>,
-    ) -> io::Result<Self> {
+    ) -> io::Result<InternalLayer> {
         let maps = files.map_all().await?;
         Ok(Self::load(name, parent, maps))
     }
 
-    pub fn load(name: [u32; 5], parent: Arc<InternalLayer>, maps: ChildLayerMaps) -> ChildLayer {
+    pub fn load(name: [u32; 5], parent: Arc<InternalLayer>, maps: ChildLayerMaps) -> InternalLayer {
         let node_dictionary = PfcDict::parse(
             maps.node_dictionary_maps.blocks_map,
             maps.node_dictionary_maps.offsets_map,
@@ -164,7 +163,7 @@ impl ChildLayer {
             neg_predicate_wavelet_tree_width,
         );
 
-        ChildLayer {
+        InternalLayer::Child(ChildLayer {
             name,
             parent,
 
@@ -193,97 +192,7 @@ impl ChildLayer {
 
             pos_predicate_wavelet_tree,
             neg_predicate_wavelet_tree,
-        }
-    }
-}
-
-impl InternalLayerImpl for ChildLayer {
-    fn name(&self) -> [u32; 5] {
-        self.name
-    }
-
-    fn parent_name(&self) -> Option<[u32; 5]> {
-        Some(InternalLayerImpl::name(&*self.parent))
-    }
-
-    fn immediate_parent(&self) -> Option<&InternalLayer> {
-        Some(&*self.parent)
-    }
-
-    fn node_dictionary(&self) -> &PfcDict {
-        &self.node_dictionary
-    }
-
-    fn predicate_dictionary(&self) -> &PfcDict {
-        &self.predicate_dictionary
-    }
-
-    fn value_dictionary(&self) -> &PfcDict {
-        &self.value_dictionary
-    }
-
-    fn node_value_id_map(&self) -> &IdMap {
-        &self.node_value_idmap
-    }
-
-    fn predicate_id_map(&self) -> &IdMap {
-        &self.predicate_idmap
-    }
-
-    fn parent_node_value_count(&self) -> usize {
-        self.parent_node_value_count
-    }
-
-    fn parent_predicate_count(&self) -> usize {
-        self.parent_predicate_count
-    }
-
-    fn pos_s_p_adjacency_list(&self) -> &AdjacencyList {
-        &self.pos_s_p_adjacency_list
-    }
-
-    fn pos_sp_o_adjacency_list(&self) -> &AdjacencyList {
-        &self.pos_sp_o_adjacency_list
-    }
-
-    fn pos_o_ps_adjacency_list(&self) -> &AdjacencyList {
-        &self.pos_o_ps_adjacency_list
-    }
-
-    fn neg_s_p_adjacency_list(&self) -> Option<&AdjacencyList> {
-        Some(&self.neg_s_p_adjacency_list)
-    }
-
-    fn neg_sp_o_adjacency_list(&self) -> Option<&AdjacencyList> {
-        Some(&self.neg_sp_o_adjacency_list)
-    }
-
-    fn neg_o_ps_adjacency_list(&self) -> Option<&AdjacencyList> {
-        Some(&self.neg_o_ps_adjacency_list)
-    }
-
-    fn pos_predicate_wavelet_tree(&self) -> &WaveletTree {
-        &self.pos_predicate_wavelet_tree
-    }
-
-    fn neg_predicate_wavelet_tree(&self) -> Option<&WaveletTree> {
-        Some(&self.neg_predicate_wavelet_tree)
-    }
-
-    fn pos_subjects(&self) -> Option<&MonotonicLogArray> {
-        Some(&self.pos_subjects)
-    }
-
-    fn pos_objects(&self) -> Option<&MonotonicLogArray> {
-        Some(&self.pos_objects)
-    }
-
-    fn neg_subjects(&self) -> Option<&MonotonicLogArray> {
-        Some(&self.neg_subjects)
-    }
-
-    fn neg_objects(&self) -> Option<&MonotonicLogArray> {
-        Some(&self.neg_objects)
+        })
     }
 }
 

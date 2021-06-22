@@ -9,7 +9,6 @@ use super::id_map::*;
 use super::layer::*;
 use crate::structure::*;
 use std::convert::TryInto;
-use std::ops::Deref;
 
 pub use base::*;
 pub use child::*;
@@ -49,74 +48,234 @@ fn id_iter(
 }
 */
 
-pub trait InternalLayerImpl {
-    fn name(&self) -> [u32; 5];
-    fn parent_name(&self) -> Option<[u32; 5]>;
-    fn immediate_parent(&self) -> Option<&InternalLayer>;
+#[derive(Clone)]
+pub enum InternalLayer {
+    Base(BaseLayer),
+    Child(ChildLayer),
+    Rollup(RollupLayer),
+}
 
-    fn node_dictionary(&self) -> &PfcDict;
-    fn predicate_dictionary(&self) -> &PfcDict;
-    fn value_dictionary(&self) -> &PfcDict;
+use InternalLayer::*;
 
-    fn node_value_id_map(&self) -> &IdMap;
-    fn predicate_id_map(&self) -> &IdMap;
+impl InternalLayer {
+    pub fn name(&self) -> [u32; 5] {
+        match self {
+            Base(base) => base.name,
+            Child(child) => child.name,
+            Rollup(rollup) => rollup.original,
+        }
+    }
 
-    fn parent_node_value_count(&self) -> usize;
-    fn parent_predicate_count(&self) -> usize;
+    pub fn parent_name(&self) -> Option<[u32; 5]> {
+        match self {
+            Base(_) => None,
+            Child(child) => Some(child.parent.name()),
+            Rollup(rollup) => rollup.original_parent,
+        }
+    }
 
-    fn pos_s_p_adjacency_list(&self) -> &AdjacencyList;
-    fn pos_sp_o_adjacency_list(&self) -> &AdjacencyList;
-    fn pos_o_ps_adjacency_list(&self) -> &AdjacencyList;
+    pub fn immediate_parent(&self) -> Option<&InternalLayer> {
+        match self {
+            Base(_) => None,
+            Child(child) => Some(&*child.parent),
+            Rollup(rollup) => rollup.internal.immediate_parent(),
+        }
+    }
 
-    fn neg_s_p_adjacency_list(&self) -> Option<&AdjacencyList>;
-    fn neg_sp_o_adjacency_list(&self) -> Option<&AdjacencyList>;
-    fn neg_o_ps_adjacency_list(&self) -> Option<&AdjacencyList>;
+    pub fn node_dictionary(&self) -> &PfcDict {
+        match self {
+            Base(base) => &base.node_dictionary,
+            Child(child) => &child.node_dictionary,
+            Rollup(rollup) => rollup.internal.node_dictionary(),
+        }
+    }
 
-    fn pos_predicate_wavelet_tree(&self) -> &WaveletTree;
-    fn neg_predicate_wavelet_tree(&self) -> Option<&WaveletTree>;
+    pub fn predicate_dictionary(&self) -> &PfcDict {
+        match self {
+            Base(base) => &base.predicate_dictionary,
+            Child(child) => &child.predicate_dictionary,
+            Rollup(rollup) => rollup.internal.predicate_dictionary(),
+        }
+    }
 
-    fn pos_subjects(&self) -> Option<&MonotonicLogArray>;
-    fn pos_objects(&self) -> Option<&MonotonicLogArray>;
-    fn neg_subjects(&self) -> Option<&MonotonicLogArray>;
-    fn neg_objects(&self) -> Option<&MonotonicLogArray>;
+    pub fn value_dictionary(&self) -> &PfcDict {
+        match self {
+            Base(base) => &base.value_dictionary,
+            Child(child) => &child.value_dictionary,
+            Rollup(rollup) => rollup.internal.value_dictionary(),
+        }
+    }
 
-    fn predicate_dict_get(&self, id: usize) -> Option<String> {
+    pub fn node_value_id_map(&self) -> &IdMap {
+        match self {
+            Base(base) => &base.node_value_idmap,
+            Child(child) => &child.node_value_idmap,
+            Rollup(rollup) => rollup.internal.node_value_id_map(),
+        }
+    }
+
+    pub fn predicate_id_map(&self) -> &IdMap {
+        match self {
+            Base(base) => &base.predicate_idmap,
+            Child(child) => &child.predicate_idmap,
+            Rollup(rollup) => rollup.internal.predicate_id_map(),
+        }
+    }
+
+    pub fn parent_node_value_count(&self) -> usize {
+        match self {
+            Base(_) => 0,
+            Child(child) => child.parent_node_value_count,
+            Rollup(rollup) => rollup.internal.parent_node_value_count(),
+        }
+    }
+
+    pub fn parent_predicate_count(&self) -> usize {
+        match self {
+            Base(_) => 0,
+            Child(child) => child.parent_predicate_count,
+            Rollup(rollup) => rollup.internal.parent_predicate_count(),
+        }
+    }
+
+    pub fn pos_s_p_adjacency_list(&self) -> &AdjacencyList {
+        match self {
+            Base(base) => &base.s_p_adjacency_list,
+            Child(child) => &child.pos_s_p_adjacency_list,
+            Rollup(rollup) => rollup.internal.pos_s_p_adjacency_list(),
+        }
+    }
+
+    pub fn pos_sp_o_adjacency_list(&self) -> &AdjacencyList {
+        match self {
+            Base(base) => &base.sp_o_adjacency_list,
+            Child(child) => &child.pos_sp_o_adjacency_list,
+            Rollup(rollup) => rollup.internal.pos_sp_o_adjacency_list(),
+        }
+    }
+
+    pub fn pos_o_ps_adjacency_list(&self) -> &AdjacencyList {
+        match self {
+            Base(base) => &base.o_ps_adjacency_list,
+            Child(child) => &child.pos_o_ps_adjacency_list,
+            Rollup(rollup) => rollup.internal.pos_o_ps_adjacency_list(),
+        }
+    }
+
+    pub fn neg_s_p_adjacency_list(&self) -> Option<&AdjacencyList> {
+        match self {
+            Base(_) => None,
+            Child(child) => Some(&child.neg_s_p_adjacency_list),
+            Rollup(rollup) => rollup.internal.neg_s_p_adjacency_list(),
+        }
+    }
+
+    pub fn neg_sp_o_adjacency_list(&self) -> Option<&AdjacencyList> {
+        match self {
+            Base(_) => None,
+            Child(child) => Some(&child.neg_sp_o_adjacency_list),
+            Rollup(rollup) => rollup.internal.neg_sp_o_adjacency_list(),
+        }
+    }
+
+    pub fn neg_o_ps_adjacency_list(&self) -> Option<&AdjacencyList> {
+        match self {
+            Base(_) => None,
+            Child(child) => Some(&child.neg_o_ps_adjacency_list),
+            Rollup(rollup) => rollup.internal.neg_o_ps_adjacency_list(),
+        }
+    }
+
+    pub fn pos_predicate_wavelet_tree(&self) -> &WaveletTree {
+        match self {
+            Base(base) => &base.predicate_wavelet_tree,
+            Child(child) => &child.pos_predicate_wavelet_tree,
+            Rollup(rollup) => rollup.internal.pos_predicate_wavelet_tree(),
+        }
+    }
+
+    pub fn neg_predicate_wavelet_tree(&self) -> Option<&WaveletTree> {
+        match self {
+            Base(_) => None,
+            Child(child) => Some(&child.neg_predicate_wavelet_tree),
+            Rollup(rollup) => rollup.internal.neg_predicate_wavelet_tree(),
+        }
+    }
+
+    pub fn pos_subjects(&self) -> Option<&MonotonicLogArray> {
+        match self {
+            Base(base) => base.subjects.as_ref(),
+            Child(child) => Some(&child.pos_subjects),
+            Rollup(rollup) => rollup.internal.pos_subjects(),
+        }
+    }
+
+    pub fn pos_objects(&self) -> Option<&MonotonicLogArray> {
+        match self {
+            Base(base) => base.objects.as_ref(),
+            Child(child) => Some(&child.pos_objects),
+            Rollup(rollup) => rollup.internal.pos_objects(),
+        }
+    }
+
+    pub fn neg_subjects(&self) -> Option<&MonotonicLogArray> {
+        match self {
+            Base(_) => None,
+            Child(child) => Some(&child.neg_subjects),
+            Rollup(rollup) => rollup.internal.neg_subjects(),
+        }
+    }
+
+    pub fn neg_objects(&self) -> Option<&MonotonicLogArray> {
+        match self {
+            Base(_) => None,
+            Child(child) => Some(&child.neg_objects),
+            Rollup(rollup) => rollup.internal.neg_objects(),
+        }
+    }
+
+    pub fn predicate_dict_get(&self, id: usize) -> Option<String> {
         self.predicate_dictionary().get(id)
     }
 
-    fn predicate_dict_len(&self) -> usize {
+    pub fn predicate_dict_len(&self) -> usize {
         self.predicate_dictionary().len()
     }
 
-    fn predicate_dict_id(&self, predicate: &str) -> Option<u64> {
+    pub fn predicate_dict_id(&self, predicate: &str) -> Option<u64> {
         self.predicate_dictionary().id(predicate)
     }
 
-    fn node_dict_id(&self, subject: &str) -> Option<u64> {
+    pub fn node_dict_id(&self, subject: &str) -> Option<u64> {
         self.node_dictionary().id(subject)
     }
 
-    fn node_dict_get(&self, id: usize) -> Option<String> {
+    pub fn node_dict_get(&self, id: usize) -> Option<String> {
         self.node_dictionary().get(id)
     }
 
-    fn node_dict_len(&self) -> usize {
+    pub fn node_dict_len(&self) -> usize {
         self.node_dictionary().len()
     }
 
-    fn value_dict_id(&self, value: &str) -> Option<u64> {
+    pub fn value_dict_id(&self, value: &str) -> Option<u64> {
         self.value_dictionary().id(value)
     }
 
-    fn value_dict_len(&self) -> usize {
+    pub fn value_dict_len(&self) -> usize {
         self.value_dictionary().len()
     }
 
-    fn value_dict_get(&self, id: usize) -> Option<String> {
+    pub fn value_dict_get(&self, id: usize) -> Option<String> {
         self.value_dictionary().get(id)
     }
 
-    fn internal_triple_addition_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
+    pub fn internal_triple_addition_exists(
+        &self,
+        subject: u64,
+        predicate: u64,
+        object: u64,
+    ) -> bool {
         layer_triple_exists(
             self.pos_subjects(),
             self.pos_s_p_adjacency_list(),
@@ -127,7 +286,12 @@ pub trait InternalLayerImpl {
         )
     }
 
-    fn internal_triple_removal_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
+    pub fn internal_triple_removal_exists(
+        &self,
+        subject: u64,
+        predicate: u64,
+        object: u64,
+    ) -> bool {
         match (
             self.neg_subjects(),
             self.neg_s_p_adjacency_list(),
@@ -147,7 +311,7 @@ pub trait InternalLayerImpl {
         }
     }
 
-    fn internal_triple_additions(&self) -> OptInternalLayerTripleSubjectIterator {
+    pub fn internal_triple_additions(&self) -> OptInternalLayerTripleSubjectIterator {
         OptInternalLayerTripleSubjectIterator(Some(InternalLayerTripleSubjectIterator::new(
             self.pos_subjects().cloned(),
             self.pos_s_p_adjacency_list().clone(),
@@ -155,7 +319,7 @@ pub trait InternalLayerImpl {
         )))
     }
 
-    fn internal_triple_removals(&self) -> OptInternalLayerTripleSubjectIterator {
+    pub fn internal_triple_removals(&self) -> OptInternalLayerTripleSubjectIterator {
         OptInternalLayerTripleSubjectIterator(
             match (
                 self.neg_subjects(),
@@ -174,7 +338,7 @@ pub trait InternalLayerImpl {
         )
     }
 
-    fn internal_triple_additions_s(
+    pub fn internal_triple_additions_s(
         &self,
         subject: u64,
     ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
@@ -185,7 +349,7 @@ pub trait InternalLayerImpl {
         )
     }
 
-    fn internal_triple_removals_s(
+    pub fn internal_triple_removals_s(
         &self,
         subject: u64,
     ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
@@ -196,7 +360,7 @@ pub trait InternalLayerImpl {
         )
     }
 
-    fn internal_triple_additions_sp(
+    pub fn internal_triple_additions_sp(
         &self,
         subject: u64,
         predicate: u64,
@@ -208,7 +372,7 @@ pub trait InternalLayerImpl {
         )
     }
 
-    fn internal_triple_removals_sp(
+    pub fn internal_triple_removals_sp(
         &self,
         subject: u64,
         predicate: u64,
@@ -220,7 +384,7 @@ pub trait InternalLayerImpl {
         )
     }
 
-    fn internal_triple_additions_p(
+    pub fn internal_triple_additions_p(
         &self,
         predicate: u64,
     ) -> OptInternalLayerTriplePredicateIterator {
@@ -237,7 +401,7 @@ pub trait InternalLayerImpl {
         }
     }
 
-    fn internal_triple_removals_p(
+    pub fn internal_triple_removals_p(
         &self,
         predicate: u64,
     ) -> OptInternalLayerTriplePredicateIterator {
@@ -261,7 +425,7 @@ pub trait InternalLayerImpl {
         }
     }
 
-    fn internal_triple_additions_o(
+    pub fn internal_triple_additions_o(
         &self,
         object: u64,
     ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
@@ -272,7 +436,7 @@ pub trait InternalLayerImpl {
         )
     }
 
-    fn internal_triple_additions_by_object(&self) -> OptInternalLayerTripleObjectIterator {
+    pub fn internal_triple_additions_by_object(&self) -> OptInternalLayerTripleObjectIterator {
         OptInternalLayerTripleObjectIterator(Some(InternalLayerTripleObjectIterator::new(
             self.pos_subjects().cloned(),
             self.pos_objects().cloned(),
@@ -281,7 +445,10 @@ pub trait InternalLayerImpl {
         )))
     }
 
-    fn internal_triple_removals_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+    pub fn internal_triple_removals_o(
+        &self,
+        object: u64,
+    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         Box::new(
             self.internal_triple_removals_by_object()
                 .seek_object(object)
@@ -289,7 +456,7 @@ pub trait InternalLayerImpl {
         )
     }
 
-    fn internal_triple_removals_by_object(&self) -> OptInternalLayerTripleObjectIterator {
+    pub fn internal_triple_removals_by_object(&self) -> OptInternalLayerTripleObjectIterator {
         OptInternalLayerTripleObjectIterator(
             match (
                 self.neg_subjects(),
@@ -313,7 +480,7 @@ pub trait InternalLayerImpl {
         )
     }
 
-    fn internal_triple_layer_addition_count(&self) -> usize {
+    pub fn internal_triple_layer_addition_count(&self) -> usize {
         self.pos_sp_o_adjacency_list().right_count()
             - self
                 .pos_predicate_wavelet_tree()
@@ -322,7 +489,7 @@ pub trait InternalLayerImpl {
                 .unwrap_or(0)
     }
 
-    fn internal_triple_layer_removal_count(&self) -> usize {
+    pub fn internal_triple_layer_removal_count(&self) -> usize {
         match self.neg_sp_o_adjacency_list() {
             None => 0,
             Some(adjacency_list) => adjacency_list.right_count()
@@ -330,15 +497,64 @@ pub trait InternalLayerImpl {
                 .lookup(0).map(|l|l.len()).unwrap_or(0)
         }
     }
+
+    pub fn immediate_layers(&self) -> Vec<&InternalLayer> {
+        let mut layer = Some(self);
+        let mut result = Vec::new();
+
+        while let Some(l) = layer {
+            result.push(l);
+
+            layer = l.immediate_parent();
+        }
+
+        result.reverse();
+
+        result
+    }
+
+    pub fn immediate_layers_upto(&self, upto_layer_id: [u32; 5]) -> Vec<&InternalLayer> {
+        if self.name() == upto_layer_id {
+            panic!("tried to retrieve layers up to a boundary, but boundary was the top layer");
+        }
+
+        let mut layer = Some(self);
+        let mut result = Vec::new();
+
+        while let Some(l) = layer {
+            if l.name() == upto_layer_id {
+                break;
+            }
+            result.push(l);
+
+            layer = l.immediate_parent();
+        }
+
+        if layer.is_none() {
+            // we went through the whole stack and we did not find the boundary.
+            panic!("tried to find all layers up to a boundary, but boundary was not found");
+        }
+
+        result.reverse();
+
+        result
+    }
+
+    pub fn is_rollup(&self) -> bool {
+        match self {
+            Rollup(_) => true,
+            _ => false,
+        }
+    }
 }
 
-impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
+impl Layer for InternalLayer {
     fn name(&self) -> [u32; 5] {
-        Self::name(self)
+        self.name()
     }
 
     fn parent_name(&self) -> Option<[u32; 5]> {
-        Self::parent_name(self)
+        self.parent_name()
     }
 
     fn node_and_value_count(&self) -> usize {
@@ -352,7 +568,7 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
     }
 
     fn subject_id<'a>(&'a self, subject: &str) -> Option<u64> {
-        let to_result = |layer: &'a dyn InternalLayerImpl| {
+        let to_result = |layer: &'a InternalLayer| {
             (
                 layer
                     .node_dict_id(subject)
@@ -369,7 +585,7 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
     }
 
     fn predicate_id<'a>(&'a self, predicate: &str) -> Option<u64> {
-        let to_result = |layer: &'a dyn InternalLayerImpl| {
+        let to_result = |layer: &'a InternalLayer| {
             (
                 layer
                     .predicate_dict_id(predicate)
@@ -386,7 +602,7 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
     }
 
     fn object_node_id<'a>(&'a self, object: &str) -> Option<u64> {
-        let to_result = |layer: &'a dyn InternalLayerImpl| {
+        let to_result = |layer: &'a InternalLayer| {
             (
                 layer
                     .node_dict_id(object)
@@ -403,7 +619,7 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
     }
 
     fn object_value_id<'a>(&'a self, object: &str) -> Option<u64> {
-        let to_result = |layer: &'a dyn InternalLayerImpl| {
+        let to_result = |layer: &'a InternalLayer| {
             (
                 layer.value_dict_id(object).map(|i| {
                     layer
@@ -426,7 +642,7 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
             return None;
         }
         let mut corrected_id = id - 1;
-        let mut current_option: Option<&dyn InternalLayerImpl> = Some(self);
+        let mut current_option: Option<&InternalLayer> = Some(self);
         let mut parent_count = self.node_and_value_count() as u64;
         while let Some(current_layer) = current_option {
             if let Some(parent) = current_layer.immediate_parent() {
@@ -458,7 +674,7 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
         if id == 0 {
             return None;
         }
-        let mut current_option: Option<&dyn InternalLayerImpl> = Some(self);
+        let mut current_option: Option<&InternalLayer> = Some(self);
         let mut parent_count = self.predicate_count() as u64;
         while let Some(current_layer) = current_option {
             let mut corrected_id = id - 1;
@@ -490,7 +706,7 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
             return None;
         }
         let mut corrected_id = id - 1;
-        let mut current_option: Option<&dyn InternalLayerImpl> = Some(self);
+        let mut current_option: Option<&InternalLayer> = Some(self);
         let mut parent_count = self.node_and_value_count() as u64;
         while let Some(current_layer) = current_option {
             if let Some(parent) = current_layer.immediate_parent() {
@@ -638,83 +854,6 @@ impl<T: 'static + InternalLayerImpl + Send + Sync + Clone> Layer for T {
     }
 }
 
-#[derive(Clone)]
-pub enum InternalLayer {
-    Base(BaseLayer),
-    Child(ChildLayer),
-    Rollup(RollupLayer),
-}
-
-impl InternalLayer {
-    pub fn as_layer(&self) -> &dyn Layer {
-        match self {
-            Self::Base(base) => base as &dyn Layer,
-            Self::Child(child) => child as &dyn Layer,
-            Self::Rollup(rollup) => rollup as &dyn Layer,
-        }
-    }
-
-    pub fn immediate_layers(&self) -> Vec<&InternalLayer> {
-        let mut layer = Some(self);
-        let mut result = Vec::new();
-
-        while let Some(l) = layer {
-            result.push(l);
-
-            layer = l.immediate_parent();
-        }
-
-        result.reverse();
-
-        result
-    }
-
-    pub fn immediate_layers_upto(&self, upto_layer_id: [u32; 5]) -> Vec<&InternalLayer> {
-        if InternalLayerImpl::name(self) == upto_layer_id {
-            panic!("tried to retrieve layers up to a boundary, but boundary was the top layer");
-        }
-
-        let mut layer = Some(self);
-        let mut result = Vec::new();
-
-        while let Some(l) = layer {
-            if InternalLayerImpl::name(l) == upto_layer_id {
-                break;
-            }
-            result.push(l);
-
-            layer = l.immediate_parent();
-        }
-
-        if layer.is_none() {
-            // we went through the whole stack and we did not find the boundary.
-            panic!("tried to find all layers up to a boundary, but boundary was not found");
-        }
-
-        result.reverse();
-
-        result
-    }
-
-    pub fn is_rollup(&self) -> bool {
-        match self {
-            Self::Rollup(_) => true,
-            _ => false,
-        }
-    }
-}
-
-impl Deref for InternalLayer {
-    type Target = dyn InternalLayerImpl + Send + Sync;
-    fn deref(&self) -> &Self::Target {
-        match self {
-            Self::Base(base) => base as &Self::Target,
-            Self::Child(child) => child as &Self::Target,
-            Self::Rollup(rollup) => rollup as &Self::Target,
-        }
-    }
-}
-
 impl From<BaseLayer> for InternalLayer {
     fn from(layer: BaseLayer) -> InternalLayer {
         InternalLayer::Base(layer)
@@ -730,84 +869,6 @@ impl From<ChildLayer> for InternalLayer {
 impl From<RollupLayer> for InternalLayer {
     fn from(layer: RollupLayer) -> InternalLayer {
         InternalLayer::Rollup(layer)
-    }
-}
-
-impl InternalLayerImpl for InternalLayer {
-    fn name(&self) -> [u32; 5] {
-        InternalLayerImpl::name(&**self)
-    }
-    fn parent_name(&self) -> Option<[u32; 5]> {
-        (&**self).parent_name()
-    }
-    fn immediate_parent(&self) -> Option<&InternalLayer> {
-        (&**self).immediate_parent()
-    }
-
-    fn node_dictionary(&self) -> &PfcDict {
-        (&**self).node_dictionary()
-    }
-    fn predicate_dictionary(&self) -> &PfcDict {
-        (&**self).predicate_dictionary()
-    }
-    fn value_dictionary(&self) -> &PfcDict {
-        (&**self).value_dictionary()
-    }
-
-    fn node_value_id_map(&self) -> &IdMap {
-        (&**self).node_value_id_map()
-    }
-
-    fn predicate_id_map(&self) -> &IdMap {
-        (&**self).predicate_id_map()
-    }
-
-    fn parent_node_value_count(&self) -> usize {
-        (&**self).parent_node_value_count()
-    }
-
-    fn parent_predicate_count(&self) -> usize {
-        (&**self).parent_predicate_count()
-    }
-
-    fn pos_s_p_adjacency_list(&self) -> &AdjacencyList {
-        (&**self).pos_s_p_adjacency_list()
-    }
-    fn pos_sp_o_adjacency_list(&self) -> &AdjacencyList {
-        (&**self).pos_sp_o_adjacency_list()
-    }
-    fn pos_o_ps_adjacency_list(&self) -> &AdjacencyList {
-        (&**self).pos_o_ps_adjacency_list()
-    }
-
-    fn neg_s_p_adjacency_list(&self) -> Option<&AdjacencyList> {
-        (&**self).neg_s_p_adjacency_list()
-    }
-    fn neg_sp_o_adjacency_list(&self) -> Option<&AdjacencyList> {
-        (&**self).neg_sp_o_adjacency_list()
-    }
-    fn neg_o_ps_adjacency_list(&self) -> Option<&AdjacencyList> {
-        (&**self).neg_o_ps_adjacency_list()
-    }
-
-    fn pos_predicate_wavelet_tree(&self) -> &WaveletTree {
-        (&**self).pos_predicate_wavelet_tree()
-    }
-    fn neg_predicate_wavelet_tree(&self) -> Option<&WaveletTree> {
-        (&**self).neg_predicate_wavelet_tree()
-    }
-
-    fn pos_subjects(&self) -> Option<&MonotonicLogArray> {
-        (&**self).pos_subjects()
-    }
-    fn pos_objects(&self) -> Option<&MonotonicLogArray> {
-        (&**self).pos_objects()
-    }
-    fn neg_subjects(&self) -> Option<&MonotonicLogArray> {
-        (&**self).neg_subjects()
-    }
-    fn neg_objects(&self) -> Option<&MonotonicLogArray> {
-        (&**self).neg_objects()
     }
 }
 
@@ -870,7 +931,6 @@ pub(crate) fn layer_triple_exists(
 
     false
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

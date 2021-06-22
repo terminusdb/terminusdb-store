@@ -74,7 +74,7 @@ impl LayerCache for LockingHashMapLayerCache {
             .cache
             .write()
             .expect("rwlock write should always succeed");
-        cache.insert(InternalLayerImpl::name(&*layer), Arc::downgrade(&layer));
+        cache.insert(layer.name(), Arc::downgrade(&layer));
     }
 
     fn invalidate(&self, name: [u32; 5]) {
@@ -133,7 +133,7 @@ impl LayerStore for CachedLayerStore {
     ) -> Pin<Box<dyn Future<Output = io::Result<Option<[u32; 5]>>> + Send>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
-            Box::pin(future::ok(InternalLayerImpl::parent_name(&*layer)))
+            Box::pin(future::ok(layer.parent_name()))
         } else {
             self.inner.get_layer_parent_name(name)
         }

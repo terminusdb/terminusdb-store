@@ -148,7 +148,7 @@ pub struct InternalTripleObjectIterator {
 }
 
 impl InternalTripleObjectIterator {
-    pub fn from_layer<T: 'static + InternalLayerImpl>(layer: &T) -> Self {
+    pub fn from_layer(layer: &InternalLayer) -> Self {
         let mut positives = Vec::new();
         let mut negatives = Vec::new();
         positives.push(layer.internal_triple_additions_by_object());
@@ -269,7 +269,7 @@ mod tests {
         base_layer_files
     }
 
-    async fn example_base_layer() -> BaseLayer {
+    async fn example_base_layer() -> InternalLayer {
         let base_layer_files = example_base_layer_files().await;
 
         let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files)

@@ -7,7 +7,7 @@ use futures::task::{Context, Poll};
 use super::super::builder::*;
 use super::super::id_map::*;
 use super::super::layer::*;
-use super::*;
+use crate::layer::InternalLayer;
 use crate::storage::*;
 use crate::structure::*;
 
@@ -21,34 +21,34 @@ use std::pin::Pin;
 /// directly.
 #[derive(Clone)]
 pub struct BaseLayer {
-    name: [u32; 5],
-    node_dictionary: PfcDict,
-    predicate_dictionary: PfcDict,
-    value_dictionary: PfcDict,
+    pub(super) name: [u32; 5],
+    pub(super) node_dictionary: PfcDict,
+    pub(super) predicate_dictionary: PfcDict,
+    pub(super) value_dictionary: PfcDict,
 
-    node_value_idmap: IdMap,
-    predicate_idmap: IdMap,
+    pub(super) node_value_idmap: IdMap,
+    pub(super) predicate_idmap: IdMap,
 
-    subjects: Option<MonotonicLogArray>,
-    objects: Option<MonotonicLogArray>,
+    pub(super) subjects: Option<MonotonicLogArray>,
+    pub(super) objects: Option<MonotonicLogArray>,
 
-    s_p_adjacency_list: AdjacencyList,
-    sp_o_adjacency_list: AdjacencyList,
-    o_ps_adjacency_list: AdjacencyList,
+    pub(super) s_p_adjacency_list: AdjacencyList,
+    pub(super) sp_o_adjacency_list: AdjacencyList,
+    pub(super) o_ps_adjacency_list: AdjacencyList,
 
-    predicate_wavelet_tree: WaveletTree,
+    pub(super) predicate_wavelet_tree: WaveletTree,
 }
 
 impl BaseLayer {
     pub async fn load_from_files<F: FileLoad + FileStore>(
         name: [u32; 5],
         files: &BaseLayerFiles<F>,
-    ) -> io::Result<Self> {
+    ) -> io::Result<InternalLayer> {
         let maps = files.map_all().await?;
         Ok(Self::load(name, maps))
     }
 
-    pub fn load(name: [u32; 5], maps: BaseLayerMaps) -> BaseLayer {
+    pub fn load(name: [u32; 5], maps: BaseLayerMaps) -> InternalLayer {
         let node_dictionary = PfcDict::parse(
             maps.node_dictionary_maps.blocks_map,
             maps.node_dictionary_maps.offsets_map,
@@ -117,7 +117,7 @@ impl BaseLayer {
             predicate_wavelet_tree_width,
         );
 
-        BaseLayer {
+        InternalLayer::Base(BaseLayer {
             name,
             node_dictionary,
             predicate_dictionary,
@@ -135,97 +135,7 @@ impl BaseLayer {
             o_ps_adjacency_list,
 
             predicate_wavelet_tree,
-        }
-    }
-}
-
-impl InternalLayerImpl for BaseLayer {
-    fn name(&self) -> [u32; 5] {
-        self.name
-    }
-
-    fn parent_name(&self) -> Option<[u32; 5]> {
-        None
-    }
-
-    fn immediate_parent(&self) -> Option<&InternalLayer> {
-        None
-    }
-
-    fn node_dictionary(&self) -> &PfcDict {
-        &self.node_dictionary
-    }
-
-    fn predicate_dictionary(&self) -> &PfcDict {
-        &self.predicate_dictionary
-    }
-
-    fn value_dictionary(&self) -> &PfcDict {
-        &self.value_dictionary
-    }
-
-    fn node_value_id_map(&self) -> &IdMap {
-        &self.node_value_idmap
-    }
-
-    fn predicate_id_map(&self) -> &IdMap {
-        &self.predicate_idmap
-    }
-
-    fn parent_node_value_count(&self) -> usize {
-        0
-    }
-
-    fn parent_predicate_count(&self) -> usize {
-        0
-    }
-
-    fn pos_s_p_adjacency_list(&self) -> &AdjacencyList {
-        &self.s_p_adjacency_list
-    }
-
-    fn pos_sp_o_adjacency_list(&self) -> &AdjacencyList {
-        &self.sp_o_adjacency_list
-    }
-
-    fn pos_o_ps_adjacency_list(&self) -> &AdjacencyList {
-        &self.o_ps_adjacency_list
-    }
-
-    fn neg_s_p_adjacency_list(&self) -> Option<&AdjacencyList> {
-        None
-    }
-
-    fn neg_sp_o_adjacency_list(&self) -> Option<&AdjacencyList> {
-        None
-    }
-
-    fn neg_o_ps_adjacency_list(&self) -> Option<&AdjacencyList> {
-        None
-    }
-
-    fn pos_predicate_wavelet_tree(&self) -> &WaveletTree {
-        &self.predicate_wavelet_tree
-    }
-
-    fn neg_predicate_wavelet_tree(&self) -> Option<&WaveletTree> {
-        None
-    }
-
-    fn pos_subjects(&self) -> Option<&MonotonicLogArray> {
-        self.subjects.as_ref()
-    }
-
-    fn pos_objects(&self) -> Option<&MonotonicLogArray> {
-        self.objects.as_ref()
-    }
-
-    fn neg_subjects(&self) -> Option<&MonotonicLogArray> {
-        None
-    }
-
-    fn neg_objects(&self) -> Option<&MonotonicLogArray> {
-        None
+        })
     }
 }
 
@@ -566,7 +476,7 @@ pub mod tests {
         Ok(base_layer_files)
     }
 
-    pub async fn example_base_layer() -> BaseLayer {
+    pub async fn example_base_layer() -> InternalLayer {
         let base_layer_files = example_base_layer_files().await.unwrap();
 
         BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files)
