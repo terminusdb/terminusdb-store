@@ -6,7 +6,7 @@ edition = "2018"
 license = "Apache-2.0"
 description = "a triple store library"
 homepage = "https://terminusdb.com"
-repository = "https://github.com/terminusdb/terminus-store/"
+repository = "https://github.com/terminusdb/terminusdb-store"
 documentation = "https://docs.rs/terminus-store/"
 
 [dependencies]
