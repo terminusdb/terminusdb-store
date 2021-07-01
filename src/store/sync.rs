@@ -513,6 +513,12 @@ impl SyncStore {
         inner.map(|i| i.map(SyncNamedGraph::wrap))
     }
 
+    /// Delete an existing database with the given name. Returns true if this database was deleted
+    /// and false otherwise.
+    pub fn delete(&self, label: &str) -> io::Result<bool> {
+        task_sync(self.inner.delete(label))
+    }
+
     /// Retrieve a layer with the given name from the layer store this Store was initialized with.
     pub fn get_layer_from_id(
         &self,

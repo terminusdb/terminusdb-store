@@ -757,11 +757,7 @@ impl NamedGraph {
     }
 
     pub async fn delete(&self) -> io::Result<()> {
-        self.store
-            .label_store
-            .delete_label(&self.label)
-            .await
-            .map(|_| ())
+        self.store.delete(&self.label).await.map(|_| ())
     }
 }
 
@@ -789,6 +785,12 @@ impl Store {
     pub async fn open(&self, label: &str) -> io::Result<Option<NamedGraph>> {
         let label = self.label_store.get_label(label).await?;
         Ok(label.map(|label| NamedGraph::new(label.name, self.clone())))
+    }
+
+    /// Delete an existing database with the given name. Returns true if this database was deleted
+    /// and false otherwise.
+    pub async fn delete(&self, label: &str) -> io::Result<bool> {
+        self.label_store.delete_label(label).await
     }
 
     /// Retrieve a layer with the given name from the layer store this Store was initialized with.
@@ -1190,6 +1192,22 @@ mod tests {
         let layer2 = builder2.commit().await.unwrap();
 
         assert!(!graph.force_set_head_version(&layer2, 0).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn delete_database() {
+        let dir = tempdir().unwrap();
+        let store = open_directory_store(dir.path());
+        let _ = store.create("foo").await.unwrap();
+        assert!(store.delete("foo").await.unwrap());
+        assert!(store.open("foo").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn delete_nonexistent_database() {
+        let dir = tempdir().unwrap();
+        let store = open_directory_store(dir.path());
+        assert!(!store.delete("foo").await.unwrap());
     }
 
     #[tokio::test]
