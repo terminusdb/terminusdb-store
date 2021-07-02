@@ -1,0 +1,46 @@
+# Build and run the benchmarks. The results are published at
+# <https://terminusdb.github.io/terminusdb-store/dev/bench/>.
+name: Benchmark
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Install nightly toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+        components: llvm-tools-preview
+
+    # Always build the benchmarks to make sure they compile.
+    - name: Build benchmarks
+      run: cargo +nightly build --benches
+
+    # Since we only use the results for the website mentioned above, we skip the
+    # following steps if we're not on the source repository. This prevents the
+    # workflow from failing on a fork due to a missing GITHUB_TOKEN.
+
+    - name: Run benchmarks
+      if: github.repository_owner == 'terminusdb'
+      run: cargo +nightly bench --benches | tee output.txt
+
+    - name: Store benchmark result
+      uses: rhysd/github-action-benchmark@v1
+      if: github.repository_owner == 'terminusdb'
+      with:
+        name: Rust Benchmark
+        tool: 'cargo'
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        output-file-path: output.txt
+        auto-push: true
