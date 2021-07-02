@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1625193047609,
+  "lastUpdate": 1625234973879,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -11591,6 +11591,126 @@ window.BENCHMARK_DATA = {
             "name": "logarray_w5_empty",
             "value": 396,
             "range": "± 1",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rrooij@users.noreply.github.com",
+            "name": "Robin de Rooij",
+            "username": "rrooij"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4cd6e3c4b0f38ab3318b8cdb0fb32578ffbe7a0c",
+          "message": "Merge pull request #79 from spl/workflow-separation\n\nWorkflow separation and (hopefully) improvement",
+          "timestamp": "2021-07-02T16:02:55+02:00",
+          "tree_id": "ba9a0e50e248508f7ccdec3440bf883d5c6ef7d5",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/4cd6e3c4b0f38ab3318b8cdb0fb32578ffbe7a0c"
+        },
+        "date": 1625234972931,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 335,
+            "range": "± 42",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 24116647,
+            "range": "± 4812611",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 12021602,
+            "range": "± 3169553",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 17108422,
+            "range": "± 5787867",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 27556604,
+            "range": "± 3499126",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 27730816,
+            "range": "± 3724150",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w10_1000",
+            "value": 11701,
+            "range": "± 155",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1",
+            "value": 461,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10",
+            "value": 536,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_100",
+            "value": 1699,
+            "range": "± 22",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1000",
+            "value": 10621,
+            "range": "± 135",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000",
+            "value": 98998,
+            "range": "± 1210",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_as_stream",
+            "value": 109538,
+            "range": "± 362",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent",
+            "value": 702899,
+            "range": "± 242258",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent_as_stream",
+            "value": 803539,
+            "range": "± 304910",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_empty",
+            "value": 385,
+            "range": "± 2",
             "unit": "ns/iter"
           }
         ]
