@@ -1,0 +1,26 @@
+# Check the code coverage. The results are published at
+# <https://app.codecov.io/gh/terminusdb/terminusdb-store>.
+name: Code coverage
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Install nightly toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+        components: llvm-tools-preview
+
+    - name: Check code coverage
+      run: bash ci/linux_build.sh
