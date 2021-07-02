@@ -6,7 +6,7 @@ Thanks for taking the time to contribute to terminus-store!
 Run `cargo test` before submitting your changes and be sure to make a test for your change as well.
 
 ## Submitting changes
-Please send a [GitHub Pull Request](https://github.com/terminusdb/terminus-store/pull/new/master) to the master branch.
+Please send a [GitHub Pull Request][] to the `main` branch.
 
 Please write clear log messages with your commits. Small changes can be a one
 line message, but big changes should have a descriptive paragraph with a
@@ -37,3 +37,5 @@ merge back patches.
 If you need to pull in any extra dependencies, make sure these are licensed
 under a Apache 2.0-compatible license. Most libraries in the Rust FOSS
 ecosystem should be fine.
+
+[GitHub Pull Request]: https://github.com/terminusdb/terminusdb-store/compare
