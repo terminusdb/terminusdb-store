@@ -43,7 +43,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-terminus-store = "0.16"
+terminus-store = "0.19.2"
 ```
 
 create a directory where you want the store to be, then open that store with
