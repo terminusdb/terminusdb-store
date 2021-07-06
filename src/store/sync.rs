@@ -26,7 +26,7 @@ lazy_static! {
 /// directly on the async api functions resulted in a memory leak in
 /// tokio_threadpool. Spawning the future indirectly appears to work
 /// without memory leak.
-fn task_sync<T: Send, F: Future<Output = T> + Send>(future: F) -> T {
+pub fn task_sync<T: Send, F: Future<Output = T> + Send>(future: F) -> T {
     RUNTIME.block_on(future)
 }
 
