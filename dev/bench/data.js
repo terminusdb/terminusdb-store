@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1625234973879,
+  "lastUpdate": 1625576277448,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -11711,6 +11711,126 @@ window.BENCHMARK_DATA = {
             "name": "logarray_w5_empty",
             "value": 385,
             "range": "± 2",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rderooij685@gmail.com",
+            "name": "Robin de Rooij",
+            "username": "rrooij"
+          },
+          "committer": {
+            "email": "rderooij685@gmail.com",
+            "name": "Robin de Rooij",
+            "username": "rrooij"
+          },
+          "distinct": true,
+          "id": "ab351422a7131893969879a34e60f2745e077e3f",
+          "message": "sync.rs: make task_sync public\n\nRequired if we want terminus-store-prolog to be able\nto use the task_sync function.",
+          "timestamp": "2021-07-06T14:49:46+02:00",
+          "tree_id": "e8971a099e9bd5d3354a66ec3cbbfd36fe707efb",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/ab351422a7131893969879a34e60f2745e077e3f"
+        },
+        "date": 1625576276852,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 389,
+            "range": "± 20",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 24627978,
+            "range": "± 3333238",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 12286829,
+            "range": "± 3147909",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 16938787,
+            "range": "± 2129752",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 28105742,
+            "range": "± 5243614",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 27499570,
+            "range": "± 2568649",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w10_1000",
+            "value": 11588,
+            "range": "± 140",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1",
+            "value": 475,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10",
+            "value": 544,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_100",
+            "value": 1674,
+            "range": "± 25",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1000",
+            "value": 10487,
+            "range": "± 106",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000",
+            "value": 97485,
+            "range": "± 1334",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_as_stream",
+            "value": 110348,
+            "range": "± 541",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent",
+            "value": 645865,
+            "range": "± 120885",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent_as_stream",
+            "value": 661008,
+            "range": "± 162434",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_empty",
+            "value": 394,
+            "range": "± 1",
             "unit": "ns/iter"
           }
         ]
