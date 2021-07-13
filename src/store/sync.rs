@@ -568,8 +568,8 @@ pub fn open_sync_memory_store() -> SyncStore {
 }
 
 /// Open a store that stores its data in the given directory.
-pub fn open_sync_directory_store<P: Into<PathBuf>>(path: P) -> SyncStore {
-    SyncStore::wrap(open_directory_store(path))
+pub fn open_sync_directory_store<P: Into<PathBuf>>(path: P) -> io::Result<SyncStore> {
+    Ok(SyncStore::wrap(open_directory_store(path)?))
 }
 
 #[cfg(test)]
@@ -612,7 +612,7 @@ mod tests {
     #[test]
     fn create_and_manipulate_sync_directory_database() {
         let dir = tempdir().unwrap();
-        let store = open_sync_directory_store(dir.path());
+        let store = open_sync_directory_store(dir.path()).unwrap();
         let database = store.create("foodb").unwrap();
 
         let head = database.head().unwrap();
@@ -677,10 +677,10 @@ mod tests {
     #[test]
     fn export_and_import_pack() {
         let dir1 = tempdir().unwrap();
-        let store1 = open_sync_directory_store(dir1.path());
+        let store1 = open_sync_directory_store(dir1.path()).unwrap();
 
         let dir2 = tempdir().unwrap();
-        let store2 = open_sync_directory_store(dir2.path());
+        let store2 = open_sync_directory_store(dir2.path()).unwrap();
 
         let builder1 = store1.create_base_layer().unwrap();
         builder1

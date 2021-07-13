@@ -839,18 +839,31 @@ pub fn open_memory_store() -> Store {
 }
 
 /// Open a store that stores its data in the given directory.
-pub fn open_directory_store<P: Into<PathBuf>>(path: P) -> Store {
-    let p = path.into();
-    Store::new(
-        DirectoryLabelStore::new(p.clone()),
-        CachedLayerStore::new(DirectoryLayerStore::new(p), LockingHashMapLayerCache::new()),
-    )
+pub fn open_directory_store<P: Into<PathBuf>>(path: P) -> io::Result<Store> {
+    let path = path.into();
+
+    // Return an error if the path cannot be used. `std::fs::metadata` checks for access permission
+    // and existence of the path. Then, we also confirm that it is a directory.
+    if !std::fs::metadata(&path)?.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("path '{:?}' is not a directory", path),
+        ));
+    }
+
+    Ok(Store::new(
+        DirectoryLabelStore::new(path.clone()),
+        CachedLayerStore::new(
+            DirectoryLayerStore::new(path),
+            LockingHashMapLayerCache::new(),
+        ),
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
+    use tempfile::{tempdir, NamedTempFile};
 
     async fn create_and_manipulate_database(store: Store) {
         let database = store.create("foodb").await.unwrap();
@@ -890,9 +903,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn open_directory_store_dir_not_found() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().clone();
+        std::fs::remove_dir(dir.path()).unwrap();
+        let err = open_directory_store(path.clone()).err().unwrap();
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+    }
+
+    #[tokio::test]
+    async fn open_directory_store_dir_is_file() {
+        let file = NamedTempFile::new().unwrap();
+        let path = file.path();
+        let err = open_directory_store(path).err().unwrap();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(
+            err.to_string(),
+            format!("path '{:?}' is not a directory", path)
+        );
+    }
+
+    #[tokio::test]
     async fn create_and_manipulate_directory_database() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path()).unwrap();
 
         create_and_manipulate_database(store).await;
     }
@@ -1076,7 +1110,7 @@ mod tests {
     #[tokio::test]
     async fn dir_cached_layer_name_does_not_change_after_rollup() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path()).unwrap();
 
         cached_layer_name_does_not_change_after_rollup(store).await
     }
@@ -1122,14 +1156,14 @@ mod tests {
     #[tokio::test]
     async fn dir_cached_layer_name_does_not_change_after_rollup_upto() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path()).unwrap();
         cached_layer_name_does_not_change_after_rollup_upto(store).await
     }
 
     #[tokio::test]
     async fn force_update_with_matching_0_version_succeeds() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path()).unwrap();
         let graph = store.create("foo").await.unwrap();
         let (layer, version) = graph.head_version().await.unwrap();
         assert!(layer.is_none());
@@ -1144,7 +1178,7 @@ mod tests {
     #[tokio::test]
     async fn force_update_with_mismatching_0_version_succeeds() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path()).unwrap();
         let graph = store.create("foo").await.unwrap();
         let (layer, version) = graph.head_version().await.unwrap();
         assert!(layer.is_none());
@@ -1159,7 +1193,7 @@ mod tests {
     #[tokio::test]
     async fn force_update_with_matching_version_succeeds() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path()).unwrap();
         let graph = store.create("foo").await.unwrap();
 
         let builder = store.create_base_layer().await.unwrap();
@@ -1178,7 +1212,7 @@ mod tests {
     #[tokio::test]
     async fn force_update_with_mismatched_version_succeeds() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path()).unwrap();
         let graph = store.create("foo").await.unwrap();
 
         let builder = store.create_base_layer().await.unwrap();
@@ -1197,7 +1231,7 @@ mod tests {
     #[tokio::test]
     async fn delete_database() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path()).unwrap();
         let _ = store.create("foo").await.unwrap();
         assert!(store.delete("foo").await.unwrap());
         assert!(store.open("foo").await.unwrap().is_none());
@@ -1206,14 +1240,14 @@ mod tests {
     #[tokio::test]
     async fn delete_nonexistent_database() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path()).unwrap();
         assert!(!store.delete("foo").await.unwrap());
     }
 
     #[tokio::test]
     async fn delete_graph() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path()).unwrap();
         let graph = store.create("foo").await.unwrap();
         assert!(store.open("foo").await.unwrap().is_some());
         graph.delete().await.unwrap();
@@ -1223,7 +1257,7 @@ mod tests {
     #[tokio::test]
     async fn recreate_graph() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path()).unwrap();
         let graph = store.create("foo").await.unwrap();
         let builder = store.create_base_layer().await.unwrap();
         let layer = builder.commit().await.unwrap();
