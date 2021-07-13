@@ -646,10 +646,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn count_triples() {
-        let layer_files = example_base_layer_files().await.unwrap();
-        let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &layer_files)
-            .await
-            .unwrap();
+        let layer = example_base_layer().await;
 
         assert_eq!(7, layer.internal_triple_layer_addition_count());
         assert_eq!(0, layer.internal_triple_layer_removal_count());
