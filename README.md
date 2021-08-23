@@ -58,6 +58,8 @@ let store = terminus_store::open_sync_directory_store("/path/to/store").unwrap()
 
 For more information, [visit the documentation on docs.rs](https://docs.rs/terminus-store/).
 
+See also the `examples/` directory for some basic examples.
+
 ## Roadmap
 
 We are constantly developing terminusdb-store to make it a high quality succinct graph representation versioned datastorage layer. To help facilitate understanding of our aims for this project we have laid out a [Roadmap](./docs/ROADMAP.md). If you would like to assist in the development of terminusdb-store, or you think something should be added to the roadmap please contact us.
