@@ -14,8 +14,8 @@ async fn print_graph(store_path: &str, graph: &str) -> io::Result<()> {
     match graph.head().await? {
         Some(layer) => {
             for id_triple in layer.triples() {
-            // triples are retrieved in their id form. For printing,
-            // we need the string form. The conversion happens here.
+                // triples are retrieved in their id form. For printing,
+                // we need the string form. The conversion happens here.
                 let triple = layer
                     .id_triple_to_string(&id_triple)
                     .expect("expected id triple to be mapable to string");
