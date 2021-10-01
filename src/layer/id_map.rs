@@ -189,7 +189,7 @@ async fn construct_idmaps_from_layers<F: 'static + FileLoad + FileStore>(
 
     let predicate_idmaps: Vec<_> = layers
         .iter()
-        .map(|layer| layer.node_value_id_map().clone())
+        .map(|layer| layer.predicate_id_map().clone())
         .collect();
 
     construct_idmaps_from_structures(
