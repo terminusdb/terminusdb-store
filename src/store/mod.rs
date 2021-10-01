@@ -299,7 +299,7 @@ impl StoreLayer {
         // TODO: This is awkward, we should have a way to get the internal layer
         let layer_opt = store1.get_layer(self.name()).await?;
         let layer =
-            layer_opt.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "label not found"))?;
+            layer_opt.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "layer not found"))?;
         let store2 = self.store.layer_store.clone();
         store2.rollup(layer).await?;
         Ok(())
