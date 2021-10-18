@@ -714,22 +714,41 @@ impl NamedGraph {
         };
 
         if set_is_ok {
-            self.store.label_store.set_label(&label, layer_name).await?;
+            Ok(self
+                .store
+                .label_store
+                .set_label(&label, layer_name)
+                .await?
+                .is_some())
+        } else {
+            Ok(false)
         }
-
-        Ok(set_is_ok)
     }
 
     /// Set the database label to the given layer, even if it is not a valid ancestor.
     pub async fn force_set_head(&self, layer: &StoreLayer) -> io::Result<()> {
         let layer_name = layer.name();
-        let label = self.store.label_store.get_label(&self.label).await?;
-        match label {
-            None => Err(io::Error::new(io::ErrorKind::NotFound, "label not found")),
-            Some(label) => {
-                self.store.label_store.set_label(&label, layer_name).await?;
 
-                Ok(())
+        // We are stomping on the label but `set_label` expects us to
+        // know about the current label, which may have been updated
+        // concurrently.
+        // So keep looping until an update was succesful or an error
+        // was encountered.
+        loop {
+            let label = self.store.label_store.get_label(&self.label).await?;
+            match label {
+                None => return Err(io::Error::new(io::ErrorKind::NotFound, "label not found")),
+                Some(label) => {
+                    if self
+                        .store
+                        .label_store
+                        .set_label(&label, layer_name)
+                        .await?
+                        .is_some()
+                    {
+                        return Ok(());
+                    }
+                }
             }
         }
     }
@@ -748,9 +767,12 @@ impl NamedGraph {
                 if label.version != version {
                     Ok(false)
                 } else {
-                    self.store.label_store.set_label(&label, layer_name).await?;
-
-                    Ok(true)
+                    Ok(self
+                        .store
+                        .label_store
+                        .set_label(&label, layer_name)
+                        .await?
+                        .is_some())
                 }
             }
         }
