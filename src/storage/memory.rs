@@ -6,7 +6,6 @@ use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 
 use futures::task::{Context, Poll};
-use futures::Future;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use async_trait::async_trait;
@@ -190,79 +189,57 @@ impl MemoryLayerStore {
     }
 }
 
+#[async_trait]
 impl PersistentLayerStore for MemoryLayerStore {
     type File = MemoryBackedStore;
 
-    fn directories(&self) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
-        let guard = self.layers.read();
-        Box::pin(async move { Ok(guard.await.keys().cloned().collect()) })
+    async fn directories(&self) -> io::Result<Vec<[u32; 5]>> {
+        let guard = self.layers.read().await;
+        Ok(guard.keys().cloned().collect())
     }
 
-    fn create_named_directory(
-        &self,
-        name: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
-        let guard = self.layers.write();
-        Box::pin(async move {
-            guard.await.insert(name, HashMap::new());
+    async fn create_named_directory(&self, name: [u32; 5]) -> io::Result<[u32; 5]> {
+        let mut guard = self.layers.write().await;
+        guard.insert(name, HashMap::new());
 
-            Ok(name)
-        })
+        Ok(name)
     }
 
-    fn directory_exists(
-        &self,
-        name: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> {
-        let guard = self.layers.read();
-        Box::pin(async move { Ok(guard.await.contains_key(&name)) })
+    async fn directory_exists(&self, name: [u32; 5]) -> io::Result<bool> {
+        let guard = self.layers.read().await;
+        Ok(guard.contains_key(&name))
     }
 
-    fn file_exists(
-        &self,
-        directory: [u32; 5],
-        file: &str,
-    ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> {
-        let guard = self.layers.read();
-        let file = file.to_owned();
-        Box::pin(async move {
-            if let Some(files) = guard.await.get(&directory) {
-                if let Some(file) = files.get(&file) {
-                    file.exists().await
-                } else {
-                    Ok(false)
-                }
+    async fn file_exists(&self, directory: [u32; 5], file: &str) -> io::Result<bool> {
+        let guard = self.layers.read().await;
+        if let Some(files) = guard.get(&directory) {
+            if let Some(file) = files.get(file) {
+                file.exists().await
             } else {
                 Ok(false)
             }
-        })
+        } else {
+            Ok(false)
+        }
     }
 
-    fn get_file(
-        &self,
-        directory: [u32; 5],
-        name: &str,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Self::File>> + Send>> {
-        let layers = self.layers.clone();
-        let name = name.to_owned();
-        Box::pin(async move {
-            let guard = layers.read().await;
-            if let Some(files) = guard.get(&directory) {
-                if let Some(file) = files.get(&name) {
-                    Ok(file.clone())
-                } else {
-                    std::mem::drop(guard); // release read lock cause it is time to write
-                    let mut guard = layers.write().await;
-                    let files = guard.get_mut(&directory).unwrap();
-                    let file = MemoryBackedStore::new();
-                    let result = file.clone();
-                    files.insert(name, file);
-                    Ok(result)
-                }
+    async fn get_file(&self, directory: [u32; 5], name: &str) -> io::Result<Self::File> {
+        let guard = self.layers.read().await;
+        if let Some(files) = guard.get(&directory) {
+            if let Some(file) = files.get(name) {
+                Ok(file.clone())
             } else {
-                Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"))
+                std::mem::drop(guard); // release read lock cause it is time to write
+                let mut guard = self.layers.write().await;
+                let files = guard.get_mut(&directory).unwrap();
+                let file = MemoryBackedStore::new();
+                let result = file.clone();
+                files.insert(name.to_string(), file);
+                Ok(result)
             }
-        })
+        } else {
+            Err(io::Error::new(io::ErrorKind::NotFound, "layer not found"))
+        }
     }
 }
 
