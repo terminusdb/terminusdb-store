@@ -1,11 +1,9 @@
 //! Directory-based implementation of storage traits.
 
 use bytes::{Bytes, BytesMut};
-use futures::{future, Future};
 use locking::*;
 use std::io::{self, SeekFrom};
 use std::path::PathBuf;
-use std::pin::Pin;
 use tokio::fs::{self, *};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufWriter};
 
@@ -112,93 +110,71 @@ impl DirectoryLayerStore {
     }
 }
 
+#[async_trait]
 impl PersistentLayerStore for DirectoryLayerStore {
     type File = FileBackedStore;
-    fn directories(&self) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
-        let path = self.path.clone();
-        Box::pin(async move {
-            let mut stream = fs::read_dir(path).await?;
-            let mut result = Vec::new();
-            while let Some(direntry) = stream.next_entry().await? {
-                if direntry.file_type().await?.is_dir() {
-                    let os_name = direntry.file_name();
-                    let name = os_name.to_str().ok_or_else(|| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "unexpected non-utf8 directory name",
-                        )
-                    })?;
-                    result.push(string_to_name(name)?);
-                }
+    async fn directories(&self) -> io::Result<Vec<[u32; 5]>> {
+        let mut stream = fs::read_dir(&self.path).await?;
+        let mut result = Vec::new();
+        while let Some(direntry) = stream.next_entry().await? {
+            if direntry.file_type().await?.is_dir() {
+                let os_name = direntry.file_name();
+                let name = os_name.to_str().ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "unexpected non-utf8 directory name",
+                    )
+                })?;
+                result.push(string_to_name(name)?);
             }
+        }
 
-            Ok(result)
-        })
+        Ok(result)
     }
 
-    fn create_named_directory(
-        &self,
-        name: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+    async fn create_named_directory(&self, name: [u32; 5]) -> io::Result<[u32; 5]> {
         let mut p = self.path.clone();
         let name_str = name_to_string(name);
         p.push(&name_str[0..PREFIX_DIR_SIZE]);
         p.push(name_str);
 
-        Box::pin(async move {
-            fs::create_dir_all(p).await?;
+        fs::create_dir_all(p).await?;
 
-            Ok(name)
-        })
+        Ok(name)
     }
 
-    fn directory_exists(
-        &self,
-        name: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> {
+    async fn directory_exists(&self, name: [u32; 5]) -> io::Result<bool> {
         let mut p = self.path.clone();
         let name = name_to_string(name);
         p.push(&name[0..PREFIX_DIR_SIZE]);
         p.push(name);
 
-        Box::pin(async move {
-            match fs::metadata(p).await {
-                Ok(m) => Ok(m.is_dir()),
-                Err(_) => Ok(false),
-            }
-        })
+        match fs::metadata(p).await {
+            Ok(m) => Ok(m.is_dir()),
+            Err(_) => Ok(false),
+        }
     }
 
-    fn get_file(
-        &self,
-        directory: [u32; 5],
-        name: &str,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Self::File>> + Send>> {
+    async fn get_file(&self, directory: [u32; 5], name: &str) -> io::Result<Self::File> {
         let mut p = self.path.clone();
         let dir_name = name_to_string(directory);
         p.push(&dir_name[0..PREFIX_DIR_SIZE]);
         p.push(dir_name);
         p.push(name);
-        Box::pin(future::ok(FileBackedStore::new(p)))
+        Ok(FileBackedStore::new(p))
     }
 
-    fn file_exists(
-        &self,
-        directory: [u32; 5],
-        file: &str,
-    ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> {
+    async fn file_exists(&self, directory: [u32; 5], file: &str) -> io::Result<bool> {
         let mut p = self.path.clone();
         let dir_name = name_to_string(directory);
         p.push(&dir_name[0..PREFIX_DIR_SIZE]);
         p.push(dir_name);
         p.push(file);
 
-        Box::pin(async move {
-            match fs::metadata(p).await {
-                Ok(m) => Ok(m.is_file()),
-                Err(_) => Ok(false),
-            }
-        })
+        match fs::metadata(p).await {
+            Ok(m) => Ok(m.is_file()),
+            Err(_) => Ok(false),
+        }
     }
 }
 

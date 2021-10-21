@@ -12,11 +12,8 @@ use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
 use crate::storage::{CachedLayerStore, LabelStore, LayerStore, LockingHashMapLayerCache};
 
 use std::io;
-use std::pin::Pin;
 
 use rayon::prelude::*;
-
-use futures::future::Future;
 
 /// A store, storing a set of layers and database labels pointing to these layers.
 #[derive(Clone)]
@@ -341,208 +338,204 @@ impl StoreLayer {
     ///
     /// Since this operation will involve io when this layer is a
     /// rollup layer, io errors may occur.
-    pub fn triple_addition_exists(
+    pub async fn triple_addition_exists(
         &self,
         subject: u64,
         predicate: u64,
         object: u64,
-    ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> {
+    ) -> io::Result<bool> {
         self.store
             .layer_store
             .triple_addition_exists(self.layer.name(), subject, predicate, object)
+            .await
     }
 
     /// Returns a future that yields true if this triple has been removed in this layer, or false if it doesn't.
     ///
     /// Since this operation will involve io when this layer is a
     /// rollup layer, io errors may occur.
-    pub fn triple_removal_exists(
+    pub async fn triple_removal_exists(
         &self,
         subject: u64,
         predicate: u64,
         object: u64,
-    ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> {
+    ) -> io::Result<bool> {
         self.store
             .layer_store
             .triple_removal_exists(self.layer.name(), subject, predicate, object)
+            .await
     }
 
     /// Returns a future that yields an iterator over all layer additions.
     ///
     /// Since this operation will involve io when this layer is a
     /// rollup layer, io errors may occur.
-    pub fn triple_additions(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
-    {
-        let fut = self.store.layer_store.triple_additions(self.layer.name());
-        Box::pin(async move {
-            let result = fut.await?;
+    pub async fn triple_additions(&self) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+        let result = self
+            .store
+            .layer_store
+            .triple_additions(self.layer.name())
+            .await?;
 
-            Ok(Box::new(result) as Box<dyn Iterator<Item = _> + Send>)
-        })
+        Ok(Box::new(result) as Box<dyn Iterator<Item = _> + Send>)
     }
 
     /// Returns a future that yields an iterator over all layer removals.
     ///
     /// Since this operation will involve io when this layer is a
     /// rollup layer, io errors may occur.
-    pub fn triple_removals(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
-    {
-        let fut = self.store.layer_store.triple_removals(self.layer.name());
-        Box::pin(async move {
-            let result = fut.await?;
+    pub async fn triple_removals(&self) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+        let result = self
+            .store
+            .layer_store
+            .triple_removals(self.layer.name())
+            .await?;
 
-            Ok(Box::new(result) as Box<dyn Iterator<Item = _> + Send>)
-        })
+        Ok(Box::new(result) as Box<dyn Iterator<Item = _> + Send>)
     }
 
     /// Returns a future that yields an iterator over all layer additions that share a particular subject.
     ///
     /// Since this operation will involve io when this layer is a
     /// rollup layer, io errors may occur.
-    pub fn triple_additions_s(
+    pub async fn triple_additions_s(
         &self,
         subject: u64,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
-    {
+    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
         self.store
             .layer_store
             .triple_additions_s(self.layer.name(), subject)
+            .await
     }
 
     /// Returns a future that yields an iterator over all layer removals that share a particular subject.
     ///
     /// Since this operation will involve io when this layer is a
     /// rollup layer, io errors may occur.
-    pub fn triple_removals_s(
+    pub async fn triple_removals_s(
         &self,
         subject: u64,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
-    {
+    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
         self.store
             .layer_store
             .triple_removals_s(self.layer.name(), subject)
+            .await
     }
 
     /// Returns a future that yields an iterator over all layer additions that share a particular subject and predicate.
     ///
     /// Since this operation will involve io when this layer is a
     /// rollup layer, io errors may occur.
-    pub fn triple_additions_sp(
+    pub async fn triple_additions_sp(
         &self,
         subject: u64,
         predicate: u64,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
-    {
+    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
         self.store
             .layer_store
             .triple_additions_sp(self.layer.name(), subject, predicate)
+            .await
     }
 
     /// Returns a future that yields an iterator over all layer removals that share a particular subject and predicate.
     ///
     /// Since this operation will involve io when this layer is a
     /// rollup layer, io errors may occur.
-    pub fn triple_removals_sp(
+    pub async fn triple_removals_sp(
         &self,
         subject: u64,
         predicate: u64,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
-    {
+    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
         self.store
             .layer_store
             .triple_removals_sp(self.layer.name(), subject, predicate)
+            .await
     }
 
     /// Returns a future that yields an iterator over all layer additions that share a particular predicate.
     ///
     /// Since this operation will involve io when this layer is a
     /// rollup layer, io errors may occur.
-    pub fn triple_additions_p(
+    pub async fn triple_additions_p(
         &self,
         predicate: u64,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
-    {
+    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
         self.store
             .layer_store
             .triple_additions_p(self.layer.name(), predicate)
+            .await
     }
 
     /// Returns a future that yields an iterator over all layer removals that share a particular predicate.
     ///
     /// Since this operation will involve io when this layer is a
     /// rollup layer, io errors may occur.
-    pub fn triple_removals_p(
+    pub async fn triple_removals_p(
         &self,
         predicate: u64,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
-    {
+    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
         self.store
             .layer_store
             .triple_removals_p(self.layer.name(), predicate)
+            .await
     }
 
     /// Returns a future that yields an iterator over all layer additions that share a particular object.
     ///
     /// Since this operation will involve io when this layer is a
     /// rollup layer, io errors may occur.
-    pub fn triple_additions_o(
+    pub async fn triple_additions_o(
         &self,
         object: u64,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
-    {
+    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
         self.store
             .layer_store
             .triple_additions_o(self.layer.name(), object)
+            .await
     }
 
     /// Returns a future that yields an iterator over all layer removals that share a particular object.
     ///
     /// Since this operation will involve io when this layer is a
     /// rollup layer, io errors may occur.
-    pub fn triple_removals_o(
+    pub async fn triple_removals_o(
         &self,
         object: u64,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
-    {
+    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
         self.store
             .layer_store
             .triple_removals_o(self.layer.name(), object)
+            .await
     }
 
     /// Returns a future that yields the amount of triples that this layer adds.
     ///
     /// Since this operation will involve io when this layer is a
     /// rollup layer, io errors may occur.
-    pub fn triple_layer_addition_count(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = io::Result<usize>> + Send>> {
+    pub async fn triple_layer_addition_count(&self) -> io::Result<usize> {
         self.store
             .layer_store
             .triple_layer_addition_count(self.layer.name())
+            .await
     }
 
     /// Returns a future that yields the amount of triples that this layer removes.
     ///
     /// Since this operation will involve io when this layer is a
     /// rollup layer, io errors may occur.
-    pub fn triple_layer_removal_count(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = io::Result<usize>> + Send>> {
+    pub async fn triple_layer_removal_count(&self) -> io::Result<usize> {
         self.store
             .layer_store
             .triple_layer_removal_count(self.layer.name())
+            .await
     }
 
     /// Returns a future that yields a vector of layer stack names describing the history of this layer, starting from the base layer up to and including the name of this layer itself.
-    pub fn retrieve_layer_stack_names(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
-        let name = self.name();
-        self.store.layer_store.retrieve_layer_stack_names(name)
+    pub async fn retrieve_layer_stack_names(&self) -> io::Result<Vec<[u32; 5]>> {
+        self.store
+            .layer_store
+            .retrieve_layer_stack_names(self.name())
+            .await
     }
 }
 

@@ -1,10 +1,9 @@
 use super::layer::*;
 use crate::layer::*;
 use crate::structure::PfcDict;
-use futures::future::{self, Future};
+use async_trait::async_trait;
 use std::collections::HashMap;
 use std::io;
-use std::pin::Pin;
 use std::sync::{Arc, RwLock, Weak};
 
 pub trait LayerCache: 'static + Send + Sync {
@@ -107,497 +106,431 @@ impl CachedLayerStore {
     }
 }
 
+#[async_trait]
 impl LayerStore for CachedLayerStore {
-    fn layers(&self) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
-        self.inner.layers()
+    async fn layers(&self) -> io::Result<Vec<[u32; 5]>> {
+        self.inner.layers().await
     }
 
-    fn get_layer(
-        &self,
-        name: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<Arc<InternalLayer>>>> + Send>> {
-        self.inner.get_layer_with_cache(name, self.cache.clone())
+    async fn get_layer(&self, name: [u32; 5]) -> io::Result<Option<Arc<InternalLayer>>> {
+        self.inner
+            .get_layer_with_cache(name, self.cache.clone())
+            .await
     }
 
-    fn get_layer_with_cache(
+    async fn get_layer_with_cache(
         &self,
         name: [u32; 5],
         cache: Arc<dyn LayerCache>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<Arc<InternalLayer>>>> + Send>> {
-        self.inner.get_layer_with_cache(name, cache)
+    ) -> io::Result<Option<Arc<InternalLayer>>> {
+        self.inner.get_layer_with_cache(name, cache).await
     }
 
-    fn get_layer_parent_name(
-        &self,
-        name: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<[u32; 5]>>> + Send>> {
+    async fn get_layer_parent_name(&self, name: [u32; 5]) -> io::Result<Option<[u32; 5]>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
-            Box::pin(future::ok(layer.parent_name()))
+            Ok(layer.parent_name())
         } else {
-            self.inner.get_layer_parent_name(name)
+            self.inner.get_layer_parent_name(name).await
         }
     }
 
-    fn get_node_dictionary(
-        &self,
-        name: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
+    async fn get_node_dictionary(&self, name: [u32; 5]) -> io::Result<Option<PfcDict>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
             if !layer.is_rollup() {
-                return Box::pin(future::ok(Some(layer.node_dictionary().clone())));
+                return Ok(Some(layer.node_dictionary().clone()));
             }
         }
 
-        self.inner.get_node_dictionary(name)
+        self.inner.get_node_dictionary(name).await
     }
 
-    fn get_predicate_dictionary(
-        &self,
-        name: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
+    async fn get_predicate_dictionary(&self, name: [u32; 5]) -> io::Result<Option<PfcDict>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
             if !layer.is_rollup() {
-                return Box::pin(future::ok(Some(layer.predicate_dictionary().clone())));
+                return Ok(Some(layer.predicate_dictionary().clone()));
             }
         }
 
-        self.inner.get_predicate_dictionary(name)
+        self.inner.get_predicate_dictionary(name).await
     }
 
-    fn get_value_dictionary(
-        &self,
-        name: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<PfcDict>>> + Send>> {
+    async fn get_value_dictionary(&self, name: [u32; 5]) -> io::Result<Option<PfcDict>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
             if !layer.is_rollup() {
-                return Box::pin(future::ok(Some(layer.value_dictionary().clone())));
+                return Ok(Some(layer.value_dictionary().clone()));
             }
         }
 
-        self.inner.get_value_dictionary(name)
+        self.inner.get_value_dictionary(name).await
     }
 
-    fn get_node_count(
-        &self,
-        name: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<u64>>> + Send>> {
+    async fn get_node_count(&self, name: [u32; 5]) -> io::Result<Option<u64>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
             if !layer.is_rollup() {
-                return Box::pin(future::ok(Some(layer.node_dictionary().len() as u64)));
+                return Ok(Some(layer.node_dictionary().len() as u64));
             }
         }
 
-        self.inner.get_node_count(name)
+        self.inner.get_node_count(name).await
     }
 
-    fn get_predicate_count(
-        &self,
-        name: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<u64>>> + Send>> {
+    async fn get_predicate_count(&self, name: [u32; 5]) -> io::Result<Option<u64>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
             if !layer.is_rollup() {
-                return Box::pin(future::ok(Some(layer.predicate_dictionary().len() as u64)));
+                return Ok(Some(layer.predicate_dictionary().len() as u64));
             }
         }
 
-        self.inner.get_value_count(name)
+        self.inner.get_value_count(name).await
     }
 
-    fn get_value_count(
-        &self,
-        name: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<u64>>> + Send>> {
+    async fn get_value_count(&self, name: [u32; 5]) -> io::Result<Option<u64>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
             if !layer.is_rollup() {
-                return Box::pin(future::ok(Some(layer.value_dictionary().len() as u64)));
+                return Ok(Some(layer.value_dictionary().len() as u64));
             }
         }
 
-        self.inner.get_value_count(name)
+        self.inner.get_value_count(name).await
     }
 
-    fn get_node_value_idmap(
-        &self,
-        name: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<IdMap>>> + Send>> {
+    async fn get_node_value_idmap(&self, name: [u32; 5]) -> io::Result<Option<IdMap>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
             if !layer.is_rollup() {
-                return Box::pin(future::ok(Some(layer.node_value_id_map().clone())));
+                return Ok(Some(layer.node_value_id_map().clone()));
             }
         }
 
-        self.inner.get_node_value_idmap(name)
+        self.inner.get_node_value_idmap(name).await
     }
 
-    fn get_predicate_idmap(
-        &self,
-        name: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<IdMap>>> + Send>> {
+    async fn get_predicate_idmap(&self, name: [u32; 5]) -> io::Result<Option<IdMap>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
             if !layer.is_rollup() {
-                return Box::pin(future::ok(Some(layer.predicate_id_map().clone())));
+                return Ok(Some(layer.predicate_id_map().clone()));
             }
         }
 
-        self.inner.get_predicate_idmap(name)
+        self.inner.get_predicate_idmap(name).await
     }
 
-    fn create_base_layer(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn LayerBuilder>>> + Send>> {
-        self.inner.create_base_layer()
+    async fn create_base_layer(&self) -> io::Result<Box<dyn LayerBuilder>> {
+        self.inner.create_base_layer().await
     }
 
-    fn create_child_layer(
-        &self,
-        parent: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn LayerBuilder>>> + Send>> {
+    async fn create_child_layer(&self, parent: [u32; 5]) -> io::Result<Box<dyn LayerBuilder>> {
         self.inner
             .create_child_layer_with_cache(parent, self.cache.clone())
+            .await
     }
 
-    fn create_child_layer_with_cache(
+    async fn create_child_layer_with_cache(
         &self,
         parent: [u32; 5],
         cache: Arc<dyn LayerCache>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn LayerBuilder>>> + Send>> {
-        self.inner.create_child_layer_with_cache(parent, cache)
+    ) -> io::Result<Box<dyn LayerBuilder>> {
+        self.inner
+            .create_child_layer_with_cache(parent, cache)
+            .await
     }
 
-    fn perform_rollup(
+    async fn perform_rollup(&self, layer: Arc<InternalLayer>) -> io::Result<[u32; 5]> {
+        self.inner.perform_rollup(layer).await
+    }
+
+    async fn perform_rollup_upto_with_cache(
         &self,
-        layer: Arc<InternalLayer>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
-        self.inner.perform_rollup(layer)
-    }
-
-    fn perform_rollup_upto_with_cache<'a>(
-        &'a self,
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
         cache: Arc<dyn LayerCache>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
+    ) -> io::Result<[u32; 5]> {
         self.inner
             .perform_rollup_upto_with_cache(layer, upto, cache)
+            .await
     }
 
-    fn perform_rollup_upto<'a>(
-        &'a self,
+    async fn perform_rollup_upto(
+        &self,
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
+    ) -> io::Result<[u32; 5]> {
         self.inner
             .perform_rollup_upto_with_cache(layer, upto, self.cache.clone())
+            .await
     }
 
-    fn perform_imprecise_rollup_upto_with_cache<'a>(
-        &'a self,
+    async fn perform_imprecise_rollup_upto_with_cache(
+        &self,
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
         cache: Arc<dyn LayerCache>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
+    ) -> io::Result<[u32; 5]> {
         self.inner
             .perform_imprecise_rollup_upto_with_cache(layer, upto, cache)
+            .await
     }
 
-    fn perform_imprecise_rollup_upto<'a>(
-        &'a self,
+    async fn perform_imprecise_rollup_upto(
+        &self,
         layer: Arc<InternalLayer>,
         upto: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send + 'a>> {
+    ) -> io::Result<[u32; 5]> {
         self.inner
             .perform_imprecise_rollup_upto_with_cache(layer, upto, self.cache.clone())
+            .await
     }
 
-    fn register_rollup(
-        &self,
-        layer: [u32; 5],
-        rollup: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> {
+    async fn register_rollup(&self, layer: [u32; 5], rollup: [u32; 5]) -> io::Result<()> {
         // when registering a rollup layer, we need to make sure that
         // the cached version is updated as well.
-        let cache = self.cache.clone();
-        let register_rollup = self.inner.register_rollup(layer, rollup);
+        self.inner.register_rollup(layer, rollup).await?;
+        self.cache.invalidate(layer);
 
-        Box::pin(async move {
-            register_rollup.await?;
-            cache.invalidate(layer);
-
-            Ok(())
-        })
+        Ok(())
     }
 
-    fn rollup_upto(
-        self: Arc<Self>,
-        layer: Arc<InternalLayer>,
-        upto: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<[u32; 5]>> + Send>> {
+    async fn rollup_upto(&self, layer: Arc<InternalLayer>, upto: [u32; 5]) -> io::Result<[u32; 5]> {
         let cache = self.cache.clone();
-        self.rollup_upto_with_cache(layer, upto, cache)
+        self.rollup_upto_with_cache(layer, upto, cache).await
     }
 
-    fn layer_is_ancestor_of(
+    async fn layer_is_ancestor_of(
         &self,
         descendant: [u32; 5],
         ancestor: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> {
-        self.inner.layer_is_ancestor_of(descendant, ancestor)
+    ) -> io::Result<bool> {
+        self.inner.layer_is_ancestor_of(descendant, ancestor).await
     }
 
-    fn triple_addition_exists(
+    async fn triple_addition_exists(
         &self,
         layer: [u32; 5],
         subject: u64,
         predicate: u64,
         object: u64,
-    ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> {
+    ) -> io::Result<bool> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
-                return Box::pin(future::ok(
-                    cached.internal_triple_addition_exists(subject, predicate, object),
-                ));
+                return Ok(cached.internal_triple_addition_exists(subject, predicate, object));
             }
         }
 
         self.inner
             .triple_addition_exists(layer, subject, predicate, object)
+            .await
     }
 
-    fn triple_removal_exists(
+    async fn triple_removal_exists(
         &self,
         layer: [u32; 5],
         subject: u64,
         predicate: u64,
         object: u64,
-    ) -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> {
+    ) -> io::Result<bool> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
-                return Box::pin(future::ok(
-                    cached.internal_triple_removal_exists(subject, predicate, object),
-                ));
+                return Ok(cached.internal_triple_removal_exists(subject, predicate, object));
             }
         }
 
         self.inner
             .triple_removal_exists(layer, subject, predicate, object)
+            .await
     }
 
-    fn triple_additions(
+    async fn triple_additions(
         &self,
         layer: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<OptInternalLayerTripleSubjectIterator>> + Send>>
-    {
+    ) -> io::Result<OptInternalLayerTripleSubjectIterator> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
-                return Box::pin(future::ok(cached.internal_triple_additions()));
+                return Ok(cached.internal_triple_additions());
             }
         }
 
-        self.inner.triple_additions(layer)
+        self.inner.triple_additions(layer).await
     }
 
-    fn triple_removals(
+    async fn triple_removals(
         &self,
         layer: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<OptInternalLayerTripleSubjectIterator>> + Send>>
-    {
+    ) -> io::Result<OptInternalLayerTripleSubjectIterator> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
-                return Box::pin(future::ok(cached.internal_triple_removals()));
+                return Ok(cached.internal_triple_removals());
             }
         }
 
-        self.inner.triple_removals(layer)
+        self.inner.triple_removals(layer).await
     }
 
-    fn triple_additions_s(
-        &self,
-        layer: [u32; 5],
-        subject: u64,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
-    {
-        if let Some(cached) = self.cache.get_layer_from_cache(layer) {
-            if !cached.is_rollup() {
-                return Box::pin(future::ok(cached.internal_triple_additions_s(subject)));
-            }
-        }
-
-        self.inner.triple_additions_s(layer, subject)
-    }
-
-    fn triple_removals_s(
+    async fn triple_additions_s(
         &self,
         layer: [u32; 5],
         subject: u64,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
-    {
+    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
-                return Box::pin(future::ok(cached.internal_triple_removals_s(subject)));
+                return Ok(cached.internal_triple_additions_s(subject));
             }
         }
 
-        self.inner.triple_removals_s(layer, subject)
+        self.inner.triple_additions_s(layer, subject).await
     }
 
-    fn triple_additions_sp(
+    async fn triple_removals_s(
+        &self,
+        layer: [u32; 5],
+        subject: u64,
+    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+        if let Some(cached) = self.cache.get_layer_from_cache(layer) {
+            if !cached.is_rollup() {
+                return Ok(cached.internal_triple_removals_s(subject));
+            }
+        }
+
+        self.inner.triple_removals_s(layer, subject).await
+    }
+
+    async fn triple_additions_sp(
         &self,
         layer: [u32; 5],
         subject: u64,
         predicate: u64,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
-    {
+    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
-                return Box::pin(future::ok(
-                    cached.internal_triple_additions_sp(subject, predicate),
-                ));
+                return Ok(cached.internal_triple_additions_sp(subject, predicate));
             }
         }
 
-        self.inner.triple_additions_sp(layer, subject, predicate)
+        self.inner
+            .triple_additions_sp(layer, subject, predicate)
+            .await
     }
 
-    fn triple_removals_sp(
+    async fn triple_removals_sp(
         &self,
         layer: [u32; 5],
         subject: u64,
         predicate: u64,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
-    {
+    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
-                return Box::pin(future::ok(
-                    cached.internal_triple_removals_sp(subject, predicate),
-                ));
+                return Ok(cached.internal_triple_removals_sp(subject, predicate));
             }
         }
 
-        self.inner.triple_removals_sp(layer, subject, predicate)
+        self.inner
+            .triple_removals_sp(layer, subject, predicate)
+            .await
     }
 
-    fn triple_additions_p(
+    async fn triple_additions_p(
         &self,
         layer: [u32; 5],
         predicate: u64,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
-    {
+    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
-                return Box::pin(future::ok(
-                    Box::new(cached.internal_triple_additions_p(predicate))
-                        as Box<dyn Iterator<Item = _> + Send>,
-                ));
+                return Ok(Box::new(cached.internal_triple_additions_p(predicate))
+                    as Box<dyn Iterator<Item = _> + Send>);
             }
         }
 
-        self.inner.triple_additions_p(layer, predicate)
+        self.inner.triple_additions_p(layer, predicate).await
     }
 
-    fn triple_removals_p(
+    async fn triple_removals_p(
         &self,
         layer: [u32; 5],
         predicate: u64,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
-    {
+    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
-                return Box::pin(future::ok(
-                    Box::new(cached.internal_triple_removals_p(predicate))
-                        as Box<dyn Iterator<Item = _> + Send>,
-                ));
+                return Ok(Box::new(cached.internal_triple_removals_p(predicate))
+                    as Box<dyn Iterator<Item = _> + Send>);
             }
         }
 
-        self.inner.triple_removals_p(layer, predicate)
+        self.inner.triple_removals_p(layer, predicate).await
     }
 
-    fn triple_additions_o(
+    async fn triple_additions_o(
         &self,
         layer: [u32; 5],
         object: u64,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
-    {
+    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
-                return Box::pin(future::ok(cached.internal_triple_additions_o(object)));
+                return Ok(cached.internal_triple_additions_o(object));
             }
         }
 
-        self.inner.triple_additions_o(layer, object)
+        self.inner.triple_additions_o(layer, object).await
     }
 
-    fn triple_removals_o(
+    async fn triple_removals_o(
         &self,
         layer: [u32; 5],
         object: u64,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>> + Send>>
-    {
+    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
-                return Box::pin(future::ok(cached.internal_triple_removals_o(object)));
+                return Ok(cached.internal_triple_removals_o(object));
             }
         }
 
-        self.inner.triple_removals_o(layer, object)
+        self.inner.triple_removals_o(layer, object).await
     }
 
-    fn triple_layer_addition_count(
-        &self,
-        layer: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<usize>> + Send>> {
+    async fn triple_layer_addition_count(&self, layer: [u32; 5]) -> io::Result<usize> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
-                return Box::pin(future::ok(cached.internal_triple_layer_addition_count()));
+                return Ok(cached.internal_triple_layer_addition_count());
             }
         }
 
-        self.inner.triple_layer_addition_count(layer)
+        self.inner.triple_layer_addition_count(layer).await
     }
 
-    fn triple_layer_removal_count(
-        &self,
-        layer: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<usize>> + Send>> {
+    async fn triple_layer_removal_count(&self, layer: [u32; 5]) -> io::Result<usize> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
-                return Box::pin(future::ok(cached.internal_triple_layer_removal_count()));
+                return Ok(cached.internal_triple_layer_removal_count());
             }
         }
 
-        self.inner.triple_layer_removal_count(layer)
+        self.inner.triple_layer_removal_count(layer).await
     }
 
-    fn retrieve_layer_stack_names(
-        &self,
-        name: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
-        self.inner.retrieve_layer_stack_names(name)
+    async fn retrieve_layer_stack_names(&self, name: [u32; 5]) -> io::Result<Vec<[u32; 5]>> {
+        self.inner.retrieve_layer_stack_names(name).await
     }
 
-    fn retrieve_layer_stack_names_upto(
+    async fn retrieve_layer_stack_names_upto(
         &self,
         name: [u32; 5],
         upto: [u32; 5],
-    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<[u32; 5]>>> + Send>> {
-        self.inner.retrieve_layer_stack_names_upto(name, upto)
+    ) -> io::Result<Vec<[u32; 5]>> {
+        self.inner.retrieve_layer_stack_names_upto(name, upto).await
     }
 }
 
