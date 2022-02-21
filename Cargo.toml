@@ -1,6 +1,6 @@
 [package]
 name = "terminus-store"
-version = "0.19.5"
+version = "0.19.6"
 authors = ["Matthijs van Otterdijk <matthijs@datachemist.com>"]
 edition = "2018"
 license = "Apache-2.0"
