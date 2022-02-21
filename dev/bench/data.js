@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1634817194313,
+  "lastUpdate": 1645454281030,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -13151,6 +13151,126 @@ window.BENCHMARK_DATA = {
             "name": "logarray_w5_empty",
             "value": 383,
             "range": "± 1",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "matthijs@terminusdb.com",
+            "name": "Matthijs van Otterdijk",
+            "username": "matko"
+          },
+          "committer": {
+            "email": "matthijs@terminusdb.com",
+            "name": "Matthijs van Otterdijk",
+            "username": "matko"
+          },
+          "distinct": true,
+          "id": "b6956b20f4b6a28fbbe4f4e4ece8d45203d60a84",
+          "message": "Implement a way to compare layers which fails on delta rollups",
+          "timestamp": "2022-02-21T15:28:52+01:00",
+          "tree_id": "3ba007203d69f2f64ed8fdb5ce5a2fec34db82be",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/b6956b20f4b6a28fbbe4f4e4ece8d45203d60a84"
+        },
+        "date": 1645454280375,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 439,
+            "range": "± 46",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 41797910,
+            "range": "± 9317477",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 24285030,
+            "range": "± 7579274",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 29519604,
+            "range": "± 7978242",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 41397289,
+            "range": "± 7066213",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 42466335,
+            "range": "± 8268785",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w10_1000",
+            "value": 13691,
+            "range": "± 84",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1",
+            "value": 558,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10",
+            "value": 653,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_100",
+            "value": 1985,
+            "range": "± 15",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1000",
+            "value": 12296,
+            "range": "± 52",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000",
+            "value": 110037,
+            "range": "± 506",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_as_stream",
+            "value": 116775,
+            "range": "± 576",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent",
+            "value": 1257066,
+            "range": "± 500553",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent_as_stream",
+            "value": 1601400,
+            "range": "± 738710",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_empty",
+            "value": 479,
+            "range": "± 2",
             "unit": "ns/iter"
           }
         ]
