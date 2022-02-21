@@ -539,6 +539,14 @@ impl StoreLayer {
     }
 }
 
+impl PartialEq for StoreLayer {
+    fn eq(&self, other: &StoreLayer) -> bool {
+        Arc::ptr_eq(&self.layer, &other.layer)
+    }
+}
+
+impl Eq for StoreLayer {}
+
 impl Layer for StoreLayer {
     fn name(&self) -> [u32; 5] {
         self.layer.name()

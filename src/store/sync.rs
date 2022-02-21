@@ -339,6 +339,14 @@ impl SyncStoreLayer {
     }
 }
 
+impl PartialEq for SyncStoreLayer {
+    fn eq(&self, other: &SyncStoreLayer) -> bool {
+        self.inner.eq(&other.inner)
+    }
+}
+
+impl Eq for SyncStoreLayer {}
+
 impl Layer for SyncStoreLayer {
     fn name(&self) -> [u32; 5] {
         self.inner.name()
