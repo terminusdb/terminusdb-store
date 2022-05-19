@@ -85,16 +85,18 @@ pub struct LockedFile {
 
 impl LockedFile {
     pub async fn open<P: 'static + AsRef<Path> + Send>(path: P) -> io::Result<Self> {
-        let file = fs::OpenOptions::new()
+        let mut file = fs::OpenOptions::new()
             .read(true)
             .open(path)
             .await?
             .into_std()
             .await;
-        let file = match file.try_lock_shared() {
-            Ok(()) => file,
-            Err(_) => LockedFileLockFuture::new_shared(file).await?,
-        };
+        if !cfg!(feature = "noreadlock") {
+            file = match file.try_lock_shared() {
+                Ok(()) => file,
+                Err(_) => LockedFileLockFuture::new_shared(file).await?,
+            };
+        }
 
         Ok(LockedFile {
             file: Some(fs::File::from_std(file)),
