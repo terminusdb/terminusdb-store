@@ -328,6 +328,22 @@ pub enum ObjectType {
     Value(String),
 }
 
+impl ObjectType {
+    pub fn node(self) -> String {
+        match self {
+            ObjectType::Node(s) => s,
+            ObjectType::Value(_) => panic!("Expected ObjectType to be node but got a value")
+        }
+    }
+
+    pub fn value(self) -> String {
+        match self {
+            ObjectType::Node(_) => panic!("Expected ObjectType to be node but got a value"),
+            ObjectType::Value(s) => s,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
