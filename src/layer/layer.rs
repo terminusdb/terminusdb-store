@@ -47,6 +47,13 @@ pub trait Layer: Send + Sync {
             .map(|o|o.value())
     }
 
+    fn id_object_is_node(&self, id: u64) -> Option<bool>;
+
+    fn id_object_is_value(&self, id: u64) -> Option<bool> {
+        self.id_object_is_node(id)
+            .map(|v|!v)
+    }
+
     /// Create a struct with all the counts
     fn all_counts(&self) -> LayerCounts;
 

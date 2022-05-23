@@ -392,6 +392,10 @@ impl Layer for SyncStoreLayer {
         self.inner.id_object(id)
     }
 
+    fn id_object_is_node(&self, id: u64) -> Option<bool> {
+        self.inner.id_object_is_node(id)
+    }
+
     fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
         self.inner.triple_exists(subject, predicate, object)
     }
