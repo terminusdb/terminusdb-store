@@ -29,10 +29,23 @@ pub trait Layer: Send + Sync {
     fn object_value_id(&self, object: &str) -> Option<u64>;
     /// The subject corresponding to a numerical id, or None if it cannot be found.
     fn id_subject(&self, id: u64) -> Option<String>;
+
     /// The predicate corresponding to a numerical id, or None if it cannot be found.
     fn id_predicate(&self, id: u64) -> Option<String>;
     /// The object corresponding to a numerical id, or None if it cannot be found.
     fn id_object(&self, id: u64) -> Option<ObjectType>;
+
+    /// The object node corresponding to a numerical id, or None if it cannot be found. Panics if the object is actually a value.
+    fn id_object_node(&self, id: u64) -> Option<String> {
+        self.id_object(id)
+            .map(|o|o.node())
+    }
+
+    /// The object value corresponding to a numerical id, or None if it cannot be found. Panics if the object is actually a node.
+    fn id_object_value(&self, id: u64) -> Option<String> {
+        self.id_object(id)
+            .map(|o|o.value())
+    }
 
     /// Create a struct with all the counts
     fn all_counts(&self) -> LayerCounts;
