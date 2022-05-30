@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1652969850087,
+  "lastUpdate": 1653904352554,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -13631,6 +13631,126 @@ window.BENCHMARK_DATA = {
             "name": "logarray_w5_empty",
             "value": 290,
             "range": "± 2",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "matthijs@terminusdb.com",
+            "name": "Matthijs van Otterdijk",
+            "username": "matko"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4eed43adc2cffdd8c8d3963e7697c8a4276559fd",
+          "message": "Speed improvement in LogArray::entry for non-boundary cases (#95)\n\nIn a logarray, an entry may be entirely within one aligned u64, or it may span\r\ntwo. In the existing code, we always retrieve two u64's, but will only use one\r\nif the entry doesn't span both. This change will only retrieve that second u64\r\nwhen it is actually needed.\r\n\r\nIt's a small change, and the speed improvement isn't huge, but LogArray::entry\r\nappears to be the most called function in TerminusDB by a large margin, so even\r\nsmall improvements matter a little.",
+          "timestamp": "2022-05-30T11:45:09+02:00",
+          "tree_id": "796e98e613754af1bcaa2457451a2a1cfefa26e5",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/4eed43adc2cffdd8c8d3963e7697c8a4276559fd"
+        },
+        "date": 1653904351980,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 333,
+            "range": "± 43",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 25686068,
+            "range": "± 4400328",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 12039369,
+            "range": "± 2749435",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 19345804,
+            "range": "± 10689541",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 31147560,
+            "range": "± 9961022",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 28945936,
+            "range": "± 7477590",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w10_1000",
+            "value": 10665,
+            "range": "± 67",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1",
+            "value": 341,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10",
+            "value": 415,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_100",
+            "value": 1447,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1000",
+            "value": 9284,
+            "range": "± 52",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000",
+            "value": 86568,
+            "range": "± 320",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_as_stream",
+            "value": 93324,
+            "range": "± 182",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent",
+            "value": 711597,
+            "range": "± 169583",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent_as_stream",
+            "value": 709323,
+            "range": "± 129505",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_empty",
+            "value": 275,
+            "range": "± 1",
             "unit": "ns/iter"
           }
         ]
