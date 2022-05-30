@@ -16,7 +16,6 @@ use tokio::io::AsyncRead;
 
 /// The amount of 64-bit blocks that go into a superblock.
 const SBLOCK_SIZE: usize = 52;
-const BITS_LINEAR_SCAN_THRESHOLD: usize = 100;
 
 /// Calculate if it is a good idea to use a linear bitscan instead of the bitindex.
 /// We are assuming that this is the case if the start and end indexes are on the same cache line.
@@ -215,7 +214,6 @@ impl BitIndex {
         None
     }
 
-    #[inline(never)]
     fn select_from_range_opt_linear(
         &self,
         mut subrank: u64,
