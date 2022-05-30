@@ -186,7 +186,7 @@ impl BitArray {
     /// Panics if `index` is >= the length of the bit array.
     pub fn get(&self, index: usize) -> bool {
         let len = self.len();
-        assert!(index < len, "expected index ({}) < length ({})", index, len);
+        debug_assert!(index < len, "expected index ({}) < length ({})", index, len);
 
         let byte = self.buf[index / 8];
         let mask = 0b1000_0000 >> index % 8;
