@@ -222,7 +222,6 @@ impl LogArray {
     /// Reads the data buffer and returns the element at the `index`.
     ///
     /// Panics if `index` is >= the length of the log array.
-    #[inline(always)]
     pub fn entry(&self, index: usize) -> u64 {
         assert!(
             index < self.len(),
