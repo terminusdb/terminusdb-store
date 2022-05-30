@@ -37,12 +37,18 @@ pub trait Layer: Send + Sync {
 
     /// The object node corresponding to a numerical id, or None if it cannot be found. Panics if the object is actually a value.
     fn id_object_node(&self, id: u64) -> Option<String> {
-        self.id_object(id).map(|o| o.node().expect("Expected ObjectType to be node but got a value"))
+        self.id_object(id).map(|o| {
+            o.node()
+                .expect("Expected ObjectType to be node but got a value")
+        })
     }
 
     /// The object value corresponding to a numerical id, or None if it cannot be found. Panics if the object is actually a node.
     fn id_object_value(&self, id: u64) -> Option<String> {
-        self.id_object(id).map(|o| o.value().expect("Expected ObjectType to be value but got a node"))
+        self.id_object(id).map(|o| {
+            o.value()
+                .expect("Expected ObjectType to be value but got a node")
+        })
     }
 
     /// Check if the given id refers to a node.
