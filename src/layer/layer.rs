@@ -47,8 +47,14 @@ pub trait Layer: Send + Sync {
             .map(|o|o.value())
     }
 
+    /// Check if the given id refers to an object.
+    ///
+    /// This will return None if the id doesn't refer to anything.
     fn id_object_is_node(&self, id: u64) -> Option<bool>;
 
+    /// Check if the given id refers to a value.
+    ///
+    /// This will return None if the id doesn't refer to anything.
     fn id_object_is_value(&self, id: u64) -> Option<bool> {
         self.id_object_is_node(id)
             .map(|v|!v)
