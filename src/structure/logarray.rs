@@ -233,24 +233,13 @@ impl LogArray {
         // `usize::try_from` succeeds if `std::mem::size_of::<usize>()` >= 4.
         let bit_index = usize::from(self.width) * (usize::try_from(self.first).unwrap() + index);
 
-        // Read the words that contain the element.
-        let (first_word, second_word) = {
-            // Calculate the byte index from the bit index.
-            let byte_index = bit_index >> 6 << 3;
+        // Calculate the byte index from the bit index.
+        let byte_index = bit_index >> 6 << 3;
 
-            let buf = &self.input_buf;
+        let buf = &self.input_buf;
 
-            // Read the first word.
-            let first_word = BigEndian::read_u64(&buf[byte_index..]);
-
-            // Read the second word (optimistically).
-            //
-            // This relies on the buffer having the control word at the end. If that is not there,
-            // this may panic.
-            let second_word = BigEndian::read_u64(&buf[byte_index + 8..]);
-
-            (first_word, second_word)
-        };
+        // Read the first word.
+        let first_word = BigEndian::read_u64(&buf[byte_index..]);
 
         // This is the minimum number of leading zeros that a decoded value should have.
         let leading_zeros = 64 - self.width;
@@ -267,6 +256,9 @@ impl LogArray {
         // At this point, we have an element split over `first_word` and `second_word`. The bottom
         // bits of `first_word` become the upper bits of the decoded value, and the top bits of
         // `second_word` become the lower bits of the decoded value.
+
+        // Read the second word
+        let second_word = BigEndian::read_u64(&buf[byte_index + 8..]);
 
         // These are the bit widths of the important parts in `first_word` and `second_word`.
         let first_width = 64 - offset;
