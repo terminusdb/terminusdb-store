@@ -16,6 +16,14 @@ use tokio::io::AsyncRead;
 
 /// The amount of 64-bit blocks that go into a superblock.
 const SBLOCK_SIZE: usize = 52;
+const BITS_LINEAR_SCAN_THRESHOLD: usize = 100;
+
+/// Calculate if it is a good idea to use a linear bitscan instead of the bitindex.
+/// We are assuming that this is the case if the start and end indexes are on the same cache line.
+#[inline(always)]
+fn use_linear_bitscan(start: usize, end: usize) -> bool {
+    start / (8 * 64) == end / (8 * 64)
+}
 
 /// A bitarray with an index, supporting rank and select queries.
 #[derive(Clone)]
@@ -157,6 +165,13 @@ impl BitIndex {
     }
 
     fn select1_from_range_opt(&self, subrank: u64, start: u64, end: Option<u64>) -> Option<u64> {
+        if use_linear_bitscan(
+            start as usize,
+            end.unwrap_or(self.array.len() as u64) as usize,
+        ) {
+            return self.select_from_range_opt_linear(subrank, start, end, true);
+        }
+
         let rank = match start {
             0 => subrank,
             n => self.rank1(n - 1) + subrank,
@@ -195,6 +210,44 @@ impl BitIndex {
             }
 
             bits_num <<= 1;
+        }
+
+        None
+    }
+
+    #[inline(never)]
+    fn select_from_range_opt_linear(
+        &self,
+        mut subrank: u64,
+        start: u64,
+        end: Option<u64>,
+        find: bool,
+    ) -> Option<u64> {
+        if end.is_some() && start >= end.unwrap() {
+            return None;
+        }
+
+        if subrank == 0 {
+            if self.array.get(start as usize) == find {
+                return None;
+            } else {
+                return Some(start);
+            }
+        }
+
+        let end = match end {
+            Some(end) => end as usize,
+            None => self.array.len(),
+        };
+
+        for i in start as usize..end {
+            if self.array.get(i) == find {
+                subrank -= 1;
+
+                if subrank == 0 {
+                    return Some(i as u64);
+                }
+            }
         }
 
         None
@@ -291,6 +344,13 @@ impl BitIndex {
         start: u64,
         end: Option<u64>,
     ) -> Option<u64> {
+        if use_linear_bitscan(
+            start as usize,
+            end.unwrap_or(self.array.len() as u64) as usize,
+        ) {
+            return self.select_from_range_opt_linear(subrank, start, end, false);
+        }
+
         let rank = match start {
             0 => subrank,
             n => self.rank0(n - 1) + subrank,
