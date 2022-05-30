@@ -592,6 +592,10 @@ impl Layer for StoreLayer {
         self.layer.id_object(id)
     }
 
+    fn id_object_is_node(&self, id: u64) -> Option<bool> {
+        self.layer.id_object_is_node(id)
+    }
+
     fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
         self.layer.triple_exists(subject, predicate, object)
     }

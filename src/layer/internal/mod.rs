@@ -743,6 +743,39 @@ impl Layer for InternalLayer {
         None
     }
 
+    fn id_object_is_node(&self, id: u64) -> Option<bool> {
+        if id == 0 {
+            return None;
+        }
+
+        let mut corrected_id = id - 1;
+        let mut current_option: Option<&InternalLayer> = Some(self);
+        let mut parent_count = self.node_and_value_count() as u64;
+        while let Some(current_layer) = current_option {
+            if let Some(parent) = current_layer.immediate_parent() {
+                parent_count = parent_count
+                    - current_layer.node_dict_len() as u64
+                    - current_layer.value_dict_len() as u64;
+
+                if corrected_id >= parent_count {
+                    // object, if it exists, is in this layer
+                    corrected_id -= parent_count;
+                } else {
+                    current_option = Some(parent);
+                    continue;
+                }
+            }
+
+            corrected_id = current_layer
+                .node_value_id_map()
+                .outer_to_inner(corrected_id);
+
+            return Some(corrected_id < current_layer.node_dict_len() as u64);
+        }
+
+        None
+    }
+
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())
     }
