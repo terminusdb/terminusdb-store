@@ -17,6 +17,13 @@ use tokio::io::AsyncRead;
 /// The amount of 64-bit blocks that go into a superblock.
 const SBLOCK_SIZE: usize = 52;
 
+/// Calculate if it is a good idea to use a linear bitscan instead of the bitindex.
+/// We are assuming that this is the case if the start and end indexes are on the same cache line.
+#[inline(always)]
+fn use_linear_bitscan(start: u64, end: u64) -> bool {
+    start / (8 * 64) == end / (8 * 64)
+}
+
 /// A bitarray with an index, supporting rank and select queries.
 #[derive(Clone)]
 pub struct BitIndex {
@@ -91,9 +98,12 @@ impl BitIndex {
         rank
     }
 
-    fn select1_sblock(&self, rank: u64) -> usize {
-        let mut start = 0;
-        let mut end = self.sblocks.len() - 1;
+    fn select1_sblock_from_range(&self, rank: u64, start: u64, end: Option<u64>) -> usize {
+        let mut start = start as usize / (64 * SBLOCK_SIZE);
+        let mut end = match end {
+            Some(end) => end as usize / (64 * SBLOCK_SIZE),
+            None => self.sblocks.len() - 1,
+        };
         let mut mid;
 
         loop {
@@ -146,7 +156,23 @@ impl BitIndex {
 
     /// Returns the index of the 1-bit in the bitarray corresponding with the given rank.
     pub fn select1(&self, rank: u64) -> Option<u64> {
-        let sblock = self.select1_sblock(rank);
+        self.select1_from_range_opt(rank, 0, None)
+    }
+
+    pub fn select1_from_range(&self, subrank: u64, start: u64, end: u64) -> Option<u64> {
+        self.select1_from_range_opt(subrank, start, Some(end))
+    }
+
+    fn select1_from_range_opt(&self, subrank: u64, start: u64, end: Option<u64>) -> Option<u64> {
+        if use_linear_bitscan(start, end.unwrap_or(self.len() as u64)) {
+            return self.select_from_range_opt_linear(subrank, start, end, true);
+        }
+
+        let rank = match start {
+            0 => subrank,
+            n => self.rank1(n - 1) + subrank,
+        };
+        let sblock = self.select1_sblock_from_range(rank, start, end);
         let sblock_rank = self.sblocks.entry(sblock);
         if sblock_rank < rank {
             return None;
@@ -165,7 +191,17 @@ impl BitIndex {
                 tally -= 1;
 
                 if tally == 0 {
-                    return Some(block as u64 * 64 + i);
+                    let result = block as u64 * 64 + i;
+                    if result < start
+                        && (end.is_none() || start < end.unwrap())
+                        && subrank == 0
+                        && !self.get(start)
+                    {
+                        return Some(start);
+                    } else if result < start || (end.is_some() && result >= end.unwrap()) {
+                        return None;
+                    }
+                    return Some(result);
                 }
             }
 
@@ -175,19 +211,41 @@ impl BitIndex {
         None
     }
 
-    pub fn select1_from_range(&self, subrank: u64, start: u64, end: u64) -> Option<u64> {
-        // todo this is a dumb implementation. we can actually do a much faster select by making sblock/block lookup ranged. for now this will work.
-        let rank_offset = if start == 0 { 0 } else { self.rank1(start - 1) };
-
-        let result = self.select1(rank_offset + subrank)?;
-
-        if result < start && start < end && subrank == 0 && !self.get(start) {
-            Some(start)
-        } else if result < start || result >= end {
-            None
-        } else {
-            Some(result)
+    fn select_from_range_opt_linear(
+        &self,
+        mut subrank: u64,
+        start: u64,
+        end: Option<u64>,
+        find: bool,
+    ) -> Option<u64> {
+        if end.is_some() && start >= end.unwrap() {
+            return None;
         }
+
+        if subrank == 0 {
+            if self.get(start) == find {
+                return None;
+            } else {
+                return Some(start);
+            }
+        }
+
+        let end = match end {
+            Some(end) => end,
+            None => self.len() as u64,
+        };
+
+        for i in start..end {
+            if self.get(i) == find {
+                subrank -= 1;
+
+                if subrank == 0 {
+                    return Some(i as u64);
+                }
+            }
+        }
+
+        None
     }
 
     /// Returns the amount of 0-bits in the bitarray up to and including the given index.
@@ -209,9 +267,12 @@ impl BitIndex {
         rank
     }
 
-    fn select0_sblock(&self, rank: u64) -> usize {
-        let mut start = 0;
-        let mut end = self.sblocks.len() - 1;
+    fn select0_sblock_from_range(&self, rank: u64, start: u64, end: Option<u64>) -> usize {
+        let mut start = start as usize / (64 * SBLOCK_SIZE);
+        let mut end = match end {
+            Some(end) => end as usize / (64 * SBLOCK_SIZE),
+            None => self.sblocks.len() - 1,
+        };
         let mut mid;
 
         loop {
@@ -265,7 +326,28 @@ impl BitIndex {
 
     /// Returns the index of the 0-bit in the bitarray corresponding with the given rank.
     pub fn select0(&self, rank: u64) -> Option<u64> {
-        let sblock = self.select0_sblock(rank);
+        self.select0_from_range_opt(rank, 0, None)
+    }
+
+    pub fn select0_from_range(&self, subrank: u64, start: u64, end: u64) -> Option<u64> {
+        self.select0_from_range_opt(subrank, start, Some(end))
+    }
+
+    pub fn select0_from_range_opt(
+        &self,
+        subrank: u64,
+        start: u64,
+        end: Option<u64>,
+    ) -> Option<u64> {
+        if use_linear_bitscan(start, end.unwrap_or(self.len() as u64)) {
+            return self.select_from_range_opt_linear(subrank, start, end, false);
+        }
+
+        let rank = match start {
+            0 => subrank,
+            n => self.rank0(n - 1) + subrank,
+        };
+        let sblock = self.select0_sblock_from_range(rank, start, end);
         let sblock_rank = ((1 + sblock) * SBLOCK_SIZE * 64) as u64 - self.sblocks.entry(sblock);
 
         if sblock_rank < rank {
@@ -286,7 +368,17 @@ impl BitIndex {
                 tally -= 1;
 
                 if tally == 0 {
-                    return Some(block as u64 * 64 + i);
+                    let result = block as u64 * 64 + i;
+                    if result < start
+                        && (end.is_none() || start < end.unwrap())
+                        && subrank == 0
+                        && self.get(start)
+                    {
+                        return Some(start);
+                    } else if result < start || (end.is_some() && result >= end.unwrap()) {
+                        return None;
+                    }
+                    return Some(result);
                 }
             }
 
@@ -294,21 +386,6 @@ impl BitIndex {
         }
 
         None
-    }
-
-    pub fn select0_from_range(&self, subrank: u64, start: u64, end: u64) -> Option<u64> {
-        // todo this is a dumb implementation. we can actually do a much faster select by making sblock/block lookup ranged. for now this will work.
-        let rank_offset = if start == 0 { 0 } else { self.rank0(start - 1) };
-
-        let result = self.select0(rank_offset + subrank)?;
-
-        if result < start && start < end && subrank == 0 && self.get(start) {
-            Some(start)
-        } else if result < start || result >= end {
-            None
-        } else {
-            Some(result)
-        }
     }
 
     pub fn iter(&self) -> impl Iterator<Item = bool> {

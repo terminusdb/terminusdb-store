@@ -223,7 +223,7 @@ impl LogArray {
     ///
     /// Panics if `index` is >= the length of the log array.
     pub fn entry(&self, index: usize) -> u64 {
-        assert!(
+        debug_assert!(
             index < self.len(),
             "expected index ({}) < length ({})",
             index,
