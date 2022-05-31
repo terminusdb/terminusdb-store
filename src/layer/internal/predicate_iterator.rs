@@ -114,17 +114,17 @@ impl Iterator for OptInternalLayerTriplePredicateIterator {
     }
 }
 
-#[derive(Clone)]
+//#[derive(Clone)]
 pub struct InternalTriplePredicateIterator {
-    predicate: u64,
     positives: Vec<OptInternalLayerTriplePredicateIterator>,
     negatives: Vec<OptInternalLayerTriplePredicateIterator>,
 }
 
 impl InternalTriplePredicateIterator {
     pub fn from_layer(layer: &InternalLayer, predicate: u64) -> Self {
-        let mut positives = Vec::new();
-        let mut negatives = Vec::new();
+        let stack_size = layer.layer_stack_size();
+        let mut positives = Vec::with_capacity(stack_size);
+        let mut negatives = Vec::with_capacity(stack_size);
         positives.push(layer.internal_triple_additions_p(predicate));
         negatives.push(layer.internal_triple_removals_p(predicate));
 
@@ -138,7 +138,6 @@ impl InternalTriplePredicateIterator {
         }
 
         Self {
-            predicate,
             positives,
             negatives,
         }

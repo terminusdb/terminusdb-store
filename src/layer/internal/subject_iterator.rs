@@ -221,8 +221,10 @@ pub struct InternalTripleSubjectIterator {
 
 impl InternalTripleSubjectIterator {
     pub fn from_layer(layer: &InternalLayer) -> Self {
-        let mut positives = Vec::new();
-        let mut negatives = Vec::new();
+        let stack_size = layer.layer_stack_size();
+        let mut positives = Vec::with_capacity(stack_size);
+        let mut negatives = Vec::with_capacity(stack_size);
+
         positives.push(layer.internal_triple_additions());
         negatives.push(layer.internal_triple_removals());
 
@@ -326,8 +328,9 @@ impl InternalTripleStackIterator {
         layer: &InternalLayer,
         parent_id: [u32; 5],
     ) -> Result<Self, LayerStackError> {
-        let mut positives = Vec::new();
-        let mut negatives = Vec::new();
+        let stack_size = layer.layer_stack_size();
+        let mut positives = Vec::with_capacity(stack_size);
+        let mut negatives = Vec::with_capacity(stack_size);
         positives.push(layer.internal_triple_additions());
         negatives.push(layer.internal_triple_removals());
 
@@ -343,6 +346,9 @@ impl InternalTripleStackIterator {
         if layer_opt.is_none() || layer_opt.unwrap().name() != parent_id {
             return Err(LayerStackError::ParentNotFound);
         }
+
+        positives.shrink_to_fit();
+        negatives.shrink_to_fit();
 
         Ok(Self {
             positives,

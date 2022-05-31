@@ -17,37 +17,6 @@ pub use predicate_iterator::*;
 pub use rollup::*;
 pub use subject_iterator::*;
 
-/*
-fn external_id_to_internal(array_option: Option<&MonotonicLogArray>, id: u64) -> Option<u64> {
-    if id == 0 {
-        return None;
-    }
-
-    match array_option {
-        Some(array) => array.index_of(id).map(|mapped| mapped as u64 + 1),
-        None => Some(id),
-    }
-}
-
-fn internal_id_to_external(array_option: Option<&MonotonicLogArray>, id: u64) -> u64 {
-    match array_option {
-        Some(array) => array.entry((id - 1).try_into().unwrap()),
-        None => id,
-    }
-}
-
-fn id_iter(
-    array_option: Option<&MonotonicLogArray>,
-    adjacency_list_option: Option<&AdjacencyList>,
-) -> Box<dyn Iterator<Item = u64>> {
-    match (array_option, adjacency_list_option) {
-        (Some(array), _) => Box::new(array.iter()),
-        (_, Some(adjacency_list)) => Box::new(1..(adjacency_list.left_count() as u64 + 1)),
-        _ => Box::new(std::iter::empty()),
-    }
-}
-*/
-
 #[derive(Clone)]
 pub enum InternalLayer {
     Base(BaseLayer),
@@ -80,6 +49,17 @@ impl InternalLayer {
             Child(child) => Some(&*child.parent),
             Rollup(rollup) => rollup.internal.immediate_parent(),
         }
+    }
+
+    pub fn layer_stack_size(&self) -> usize {
+        let mut count = 1;
+        let mut l = self;
+        while let Some(p) = l.immediate_parent() {
+            l = p;
+            count += 1;
+        }
+
+        count
     }
 
     pub fn node_dictionary(&self) -> &PfcDict {
