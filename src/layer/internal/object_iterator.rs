@@ -149,8 +149,9 @@ pub struct InternalTripleObjectIterator {
 
 impl InternalTripleObjectIterator {
     pub fn from_layer(layer: &InternalLayer) -> Self {
-        let mut positives = Vec::new();
-        let mut negatives = Vec::new();
+        let stack_size = layer.layer_stack_size();
+        let mut positives = Vec::with_capacity(stack_size);
+        let mut negatives = Vec::with_capacity(stack_size);
         positives.push(layer.internal_triple_additions_by_object());
         negatives.push(layer.internal_triple_removals_by_object());
 
