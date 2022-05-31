@@ -639,6 +639,10 @@ impl Layer for StoreLayer {
     fn all_counts(&self) -> LayerCounts {
         self.layer.all_counts()
     }
+
+    fn single_triple_sp(&self, subject: u64, predicate: u64) -> Option<IdTriple> {
+        self.layer.single_triple_sp(subject, predicate)
+    }
 }
 
 /// A named graph in terminus-store.
