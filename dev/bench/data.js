@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1653995814682,
+  "lastUpdate": 1653996865536,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -13985,6 +13985,126 @@ window.BENCHMARK_DATA = {
             "name": "logarray_w5_10000_persistent_as_stream",
             "value": 1009317,
             "range": "± 349517",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_empty",
+            "value": 276,
+            "range": "± 0",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "matthijs@terminusdb.com",
+            "name": "Matthijs van Otterdijk",
+            "username": "matko"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "20af2f9e8623ea8ed2af453a3501e1e1e74ddfb9",
+          "message": "Pre-allocate vectors instead of growing them dynamically (#97)\n\nVarious places in the code were allocating vectors that'd have to be grown at a\r\nlater point, which could incur a full move of the existing array data to a new\r\nlocation in memory, incurring quite some overhead. This is now avoided by\r\nensuring vectors are pre-allocated with the right size.",
+          "timestamp": "2022-05-31T13:27:31+02:00",
+          "tree_id": "2b659d7bb98cbf3b0b50f0b7b2a43fd26b518d17",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/20af2f9e8623ea8ed2af453a3501e1e1e74ddfb9"
+        },
+        "date": 1653996864828,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 296,
+            "range": "± 19",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 29842493,
+            "range": "± 9168771",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 15852523,
+            "range": "± 10048037",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 21187771,
+            "range": "± 5630308",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 35043570,
+            "range": "± 10071820",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 33336691,
+            "range": "± 9068433",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w10_1000",
+            "value": 10483,
+            "range": "± 67",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1",
+            "value": 343,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10",
+            "value": 414,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_100",
+            "value": 1422,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1000",
+            "value": 8962,
+            "range": "± 35",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000",
+            "value": 83987,
+            "range": "± 385",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_as_stream",
+            "value": 90867,
+            "range": "± 336",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent",
+            "value": 964572,
+            "range": "± 384433",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent_as_stream",
+            "value": 1080083,
+            "range": "± 636867",
             "unit": "ns/iter"
           },
           {
