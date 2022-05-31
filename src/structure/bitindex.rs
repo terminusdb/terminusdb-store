@@ -20,7 +20,7 @@ const SBLOCK_SIZE: usize = 52;
 /// Calculate if it is a good idea to use a linear bitscan instead of the bitindex.
 /// We are assuming that this is the case if the start and end indexes are on the same cache line.
 #[inline(always)]
-fn use_linear_bitscan(start: usize, end: usize) -> bool {
+fn use_linear_bitscan(start: u64, end: u64) -> bool {
     start / (8 * 64) == end / (8 * 64)
 }
 
@@ -164,10 +164,7 @@ impl BitIndex {
     }
 
     fn select1_from_range_opt(&self, subrank: u64, start: u64, end: Option<u64>) -> Option<u64> {
-        if use_linear_bitscan(
-            start as usize,
-            end.unwrap_or(self.array.len() as u64) as usize,
-        ) {
+        if use_linear_bitscan(start, end.unwrap_or(self.len() as u64)) {
             return self.select_from_range_opt_linear(subrank, start, end, true);
         }
 
@@ -226,7 +223,7 @@ impl BitIndex {
         }
 
         if subrank == 0 {
-            if self.array.get(start as usize) == find {
+            if self.get(start) == find {
                 return None;
             } else {
                 return Some(start);
@@ -234,12 +231,12 @@ impl BitIndex {
         }
 
         let end = match end {
-            Some(end) => end as usize,
-            None => self.array.len(),
+            Some(end) => end,
+            None => self.len() as u64,
         };
 
-        for i in start as usize..end {
-            if self.array.get(i) == find {
+        for i in start..end {
+            if self.get(i) == find {
                 subrank -= 1;
 
                 if subrank == 0 {
@@ -342,10 +339,7 @@ impl BitIndex {
         start: u64,
         end: Option<u64>,
     ) -> Option<u64> {
-        if use_linear_bitscan(
-            start as usize,
-            end.unwrap_or(self.array.len() as u64) as usize,
-        ) {
+        if use_linear_bitscan(start, end.unwrap_or(self.len() as u64)) {
             return self.select_from_range_opt_linear(subrank, start, end, false);
         }
 
