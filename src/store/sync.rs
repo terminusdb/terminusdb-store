@@ -439,6 +439,10 @@ impl Layer for SyncStoreLayer {
     fn all_counts(&self) -> LayerCounts {
         self.inner.all_counts()
     }
+
+    fn single_triple_sp(&self, subject: u64, predicate: u64) -> Option<IdTriple> {
+        self.inner.single_triple_sp(subject, predicate)
+    }
 }
 
 /// A named graph in terminus-store.

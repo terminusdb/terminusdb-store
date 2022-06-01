@@ -8,6 +8,8 @@ mod subject_iterator;
 use super::id_map::*;
 use super::layer::*;
 use crate::structure::*;
+
+use std::collections::HashSet;
 use std::convert::TryInto;
 
 pub use base::*;
@@ -865,6 +867,78 @@ impl Layer for InternalLayer {
                 .take_while(move |t| t.object == object),
         )
     }
+
+    fn single_triple_sp(&self, subject: u64, predicate: u64) -> Option<IdTriple> {
+        // is subject/predicate in the positives? we're in luck
+        if let Some(pos) = sp_o_position(
+            self.pos_subjects(),
+            self.pos_s_p_adjacency_list(),
+            self.pos_sp_o_adjacency_list(),
+            subject,
+            predicate,
+        ) {
+            return Some(IdTriple {
+                subject,
+                predicate,
+                object: self.pos_sp_o_adjacency_list().num_at_pos(pos),
+            });
+        }
+
+        // alas, it's not in there.
+        let mut exclude = HashSet::new();
+        let mut l = self;
+        loop {
+            if let Some(parent) = l.immediate_parent() {
+                if let Some(neg_sp_o_adjacency_list) = l.neg_sp_o_adjacency_list() {
+                    if let Some(mut pos) = sp_o_position(
+                        l.neg_subjects(),
+                        l.neg_s_p_adjacency_list().unwrap(),
+                        neg_sp_o_adjacency_list,
+                        subject,
+                        predicate,
+                    ) {
+                        loop {
+                            exclude.insert(neg_sp_o_adjacency_list.num_at_pos(pos));
+                            if neg_sp_o_adjacency_list.bit_at_pos(pos) {
+                                break;
+                            }
+                            pos += 1;
+                        }
+                    }
+                }
+
+                let pos_sp_o_adjacency_list = parent.pos_sp_o_adjacency_list();
+                if let Some(mut pos) = sp_o_position(
+                    parent.pos_subjects(),
+                    parent.pos_s_p_adjacency_list(),
+                    pos_sp_o_adjacency_list,
+                    subject,
+                    predicate,
+                ) {
+                    // we need to iterate through the positives until we find an element that is not excluded
+                    loop {
+                        let num = pos_sp_o_adjacency_list.num_at_pos(pos);
+                        if !exclude.contains(&num) {
+                            return Some(IdTriple {
+                                subject,
+                                predicate,
+                                object: num,
+                            });
+                        }
+
+                        if pos_sp_o_adjacency_list.bit_at_pos(pos) {
+                            break;
+                        }
+                        pos += 1;
+                    }
+                }
+
+                l = parent;
+            } else {
+                return None;
+            }
+        }
+    }
 }
 
 impl From<BaseLayer> for InternalLayer {
@@ -885,29 +959,28 @@ impl From<RollupLayer> for InternalLayer {
     }
 }
 
-pub(crate) fn layer_triple_exists(
+fn sp_o_position(
     subjects: Option<&MonotonicLogArray>,
     s_p_adjacency_list: &AdjacencyList,
     sp_o_adjacency_list: &AdjacencyList,
     subject: u64,
     predicate: u64,
-    object: u64,
-) -> bool {
-    if subject == 0 || predicate == 0 || object == 0 {
-        return false;
+) -> Option<u64> {
+    if subject == 0 || predicate == 0 {
+        return None;
     }
 
-    let s_position = match subjects.as_ref() {
+    let s_position = match subjects {
         None => {
             if subject > s_p_adjacency_list.left_count() as u64 {
-                return false;
+                return None;
+            } else {
+                subject - 1
             }
-
-            subject - 1
         }
         Some(subjects) => match subjects.index_of(subject) {
             Some(pos) => pos as u64,
-            None => return false,
+            None => return None,
         },
     };
 
@@ -920,13 +993,38 @@ pub(crate) fn layer_triple_exists(
 
         if bit {
             // moved past the end for this subject. triple isn't here.
-            return false;
+            return None;
         }
 
         s_p_position += 1;
     }
 
-    let mut sp_o_position = sp_o_adjacency_list.offset_for(s_p_position + 1);
+    Some(sp_o_adjacency_list.offset_for(s_p_position + 1))
+}
+
+pub(crate) fn layer_triple_exists(
+    subjects: Option<&MonotonicLogArray>,
+    s_p_adjacency_list: &AdjacencyList,
+    sp_o_adjacency_list: &AdjacencyList,
+    subject: u64,
+    predicate: u64,
+    object: u64,
+) -> bool {
+    if object == 0 {
+        return false;
+    }
+
+    let mut sp_o_position = match sp_o_position(
+        subjects,
+        s_p_adjacency_list,
+        sp_o_adjacency_list,
+        subject,
+        predicate,
+    ) {
+        Some(p) => p,
+        None => return false,
+    };
+
     loop {
         let bit = sp_o_adjacency_list.bit_at_pos(sp_o_position);
         if sp_o_adjacency_list.num_at_pos(sp_o_position) == object {
@@ -935,7 +1033,7 @@ pub(crate) fn layer_triple_exists(
         }
 
         if bit {
-            // moved past the end for this subject. triple isn't here.
+            // moved past the end for this subject-predicate pair. triple isn't here.
             break;
         }
 
@@ -944,6 +1042,7 @@ pub(crate) fn layer_triple_exists(
 
     false
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

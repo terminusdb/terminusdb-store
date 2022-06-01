@@ -159,6 +159,8 @@ pub trait Layer: Send + Sync {
     fn triple_count(&self) -> usize {
         self.triple_addition_count() - self.triple_removal_count()
     }
+
+    fn single_triple_sp(&self, subject: u64, predicate: u64) -> Option<IdTriple>;
 }
 
 pub struct LayerCounts {
@@ -365,7 +367,21 @@ impl ObjectType {
         }
     }
 
+    pub fn node_ref(&self) -> Option<&str> {
+        match self {
+            ObjectType::Node(s) => Some(s),
+            ObjectType::Value(_) => None,
+        }
+    }
+
     pub fn value(self) -> Option<String> {
+        match self {
+            ObjectType::Node(_) => None,
+            ObjectType::Value(s) => Some(s),
+        }
+    }
+
+    pub fn value_ref(&self) -> Option<&str> {
         match self {
             ObjectType::Node(_) => None,
             ObjectType::Value(s) => Some(s),
@@ -489,5 +505,68 @@ mod tests {
             .collect();
 
         assert_eq!(vec![StringTriple::new_value("cow", "says", "moo")], triples);
+    }
+
+    #[tokio::test]
+    async fn find_single_triple_sp() {
+        let files = base_layer_files();
+        let mut builder = SimpleLayerBuilder::new([1, 2, 3, 4, 5], files.clone());
+
+        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
+        builder.add_string_triple(StringTriple::new_value("duck", "says", "neigh"));
+
+        builder.commit().await.unwrap();
+
+        let base: Arc<InternalLayer> = Arc::new(
+            BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
+                .await
+                .unwrap()
+                .into(),
+        );
+
+        let files = child_layer_files();
+        let mut builder =
+            SimpleLayerBuilder::from_parent([5, 4, 3, 2, 1], base.clone(), files.clone());
+        builder.remove_string_triple(StringTriple::new_value("duck", "says", "neigh"));
+        builder.commit().await.unwrap();
+
+        let child: Arc<InternalLayer> = Arc::new(
+            ChildLayer::load_from_files([5, 4, 3, 2, 1], base, &files)
+                .await
+                .unwrap()
+                .into(),
+        );
+
+        let files = child_layer_files();
+        let mut builder =
+            SimpleLayerBuilder::from_parent([5, 4, 3, 2, 2], child.clone(), files.clone());
+        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.commit().await.unwrap();
+
+        let child: Arc<InternalLayer> = Arc::new(
+            ChildLayer::load_from_files([5, 4, 3, 2, 2], child, &files)
+                .await
+                .unwrap()
+                .into(),
+        );
+
+        let id_triple_1 = child
+            .single_triple_sp(
+                child.subject_id("cow").unwrap(),
+                child.predicate_id("says").unwrap(),
+            )
+            .unwrap();
+        let triple_1 = child.id_triple_to_string(&id_triple_1).unwrap();
+
+        let id_triple_2 = child
+            .single_triple_sp(
+                child.subject_id("duck").unwrap(),
+                child.predicate_id("says").unwrap(),
+            )
+            .unwrap();
+        let triple_2 = child.id_triple_to_string(&id_triple_2).unwrap();
+
+        assert_eq!(StringTriple::new_value("cow", "says", "moo"), triple_1);
+        assert_eq!(StringTriple::new_value("duck", "says", "quack"), triple_2);
     }
 }
