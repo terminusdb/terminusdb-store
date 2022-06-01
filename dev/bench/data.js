@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1653996865536,
+  "lastUpdate": 1654083037163,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -14111,6 +14111,126 @@ window.BENCHMARK_DATA = {
             "name": "logarray_w5_empty",
             "value": 276,
             "range": "± 0",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "matthijs@terminusdb.com",
+            "name": "Matthijs van Otterdijk",
+            "username": "matko"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3daa90361c48afcc31c621234dfbd0a01aa0ad70",
+          "message": "Introduce method for quickly looking up a single triple when subject and predicate are known (#98)\n\nThere are some cases where we very quickly want to look up a single triple based\r\non a subject and a predicate. A major place where this comes up is when type\r\nchecking, as we always expect just a single triple to match `t(id, rdf:type,\r\nType)`. Other examples are list cells where we always expect a single\r\n`rdf:first` and `rdf:rest`, or arrays where we always expect a single\r\n`sys:index` and `sys:value`.\r\n\r\nAvoiding setting up a full iterator in those cases makes code go faster. So even\r\nthough it's a bit of a special case, having a function just for this makes\r\nsense.",
+          "timestamp": "2022-06-01T13:20:36+02:00",
+          "tree_id": "f35cc583c1bb1bf4a83dea7e5164f142eaea7d63",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/3daa90361c48afcc31c621234dfbd0a01aa0ad70"
+        },
+        "date": 1654083036508,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 376,
+            "range": "± 65",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 42713843,
+            "range": "± 5519852",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 24424755,
+            "range": "± 7078058",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 32658910,
+            "range": "± 10759506",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 47873907,
+            "range": "± 12543002",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 43596120,
+            "range": "± 8076537",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w10_1000",
+            "value": 13119,
+            "range": "± 1962",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1",
+            "value": 434,
+            "range": "± 65",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10",
+            "value": 538,
+            "range": "± 182",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_100",
+            "value": 1794,
+            "range": "± 250",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1000",
+            "value": 12479,
+            "range": "± 1998",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000",
+            "value": 111923,
+            "range": "± 21542",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_as_stream",
+            "value": 114342,
+            "range": "± 18678",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent",
+            "value": 1468678,
+            "range": "± 632695",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent_as_stream",
+            "value": 1560404,
+            "range": "± 586295",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_empty",
+            "value": 346,
+            "range": "± 40",
             "unit": "ns/iter"
           }
         ]
