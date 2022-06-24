@@ -21,6 +21,36 @@ use futures::future::Future;
 
 use rayon::prelude::*;
 
+pub enum InputObjectType<T: From<String> + Into<String>> {
+    Node(T),
+    Value(T),
+}
+
+impl<T: From<String> + Into<String>> From<ObjectType> for InputObjectType<T> {
+    fn from(x: ObjectType) -> InputObjectType<T> {
+        match x {
+            ObjectType::Node(n) => InputObjectType::Node(n.into()),
+            ObjectType::Value(v) => InputObjectType::Value(v.into()),
+        }
+    }
+}
+
+pub struct InputTriple<T: From<String> + Into<String>> {
+    pub subject: T,
+    pub predicate: T,
+    pub object: InputObjectType<T>,
+}
+
+impl<T: From<String> + Into<String>> From<StringTriple> for InputTriple<T> {
+    fn from(x: StringTriple) -> InputTriple<T> {
+        InputTriple {
+            subject: x.subject.into(),
+            predicate: x.predicate.into(),
+            object: x.object.into(),
+        }
+    }
+}
+
 /// A layer builder trait with no generic typing.
 ///
 /// Lack of generic types allows layer builders with different storage
