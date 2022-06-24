@@ -13,6 +13,7 @@ use super::internal::*;
 use super::layer::*;
 use crate::storage::*;
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -21,12 +22,17 @@ use futures::future::Future;
 
 use rayon::prelude::*;
 
-pub enum InputObjectType<T: From<String> + Into<String>> {
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum InputObjectType<
+    T: From<String> + Into<String> + PartialOrd + Ord + PartialEq + Eq + Ord + Hash,
+> {
     Node(T),
     Value(T),
 }
 
-impl<T: From<String> + Into<String>> From<ObjectType> for InputObjectType<T> {
+impl<T: From<String> + Into<String> + PartialEq + Eq + PartialOrd + Ord + Hash> From<ObjectType>
+    for InputObjectType<T>
+{
     fn from(x: ObjectType) -> InputObjectType<T> {
         match x {
             ObjectType::Node(n) => InputObjectType::Node(n.into()),
@@ -35,13 +41,15 @@ impl<T: From<String> + Into<String>> From<ObjectType> for InputObjectType<T> {
     }
 }
 
-pub struct InputTriple<T: From<String> + Into<String>> {
+pub struct InputTriple<T: From<String> + Into<String> + PartialEq + Eq + PartialOrd + Ord + Hash> {
     pub subject: T,
     pub predicate: T,
     pub object: InputObjectType<T>,
 }
 
-impl<T: From<String> + Into<String>> From<StringTriple> for InputTriple<T> {
+impl<T: From<String> + Into<String> + PartialEq + Eq + PartialOrd + Ord + Hash> From<StringTriple>
+    for InputTriple<T>
+{
     fn from(x: StringTriple) -> InputTriple<T> {
         InputTriple {
             subject: x.subject.into(),
