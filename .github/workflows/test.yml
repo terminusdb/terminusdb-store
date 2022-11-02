@@ -44,7 +44,7 @@ jobs:
             --volume "${PWD}:/app"
         run: |
           apt-get update -q -y
-          apt install curl
+          apt install curl -q -y
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           export PATH="${PATH}:/root/.cargo/bin"
           cd /app
