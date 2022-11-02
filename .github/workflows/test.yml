@@ -46,6 +46,6 @@ jobs:
           apt-get update -q -y
           apt install curl -q -y
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-          export PATH="${PATH}:/root/.cargo/bin"
+          source "$HOME/.cargo/env"
           cd /app
           cargo test --verbose
