@@ -13,7 +13,8 @@ jobs:
   build-and-test:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          os:ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2
@@ -29,3 +30,24 @@ jobs:
     - name: Check code format
       if: matrix.os == 'ubuntu-latest' # No need to do this on every OS.
       run: cargo fmt -- --check
+
+  build-and-test-arm64:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: uraimo/run-on-arch-action@v2
+      name: Run tests on arm64
+      id: build
+      with:
+        arch: aarch64
+        distro: ubuntu_latest
+        dockerRunArgs: |
+            --volume "${PWD}:/app"
+        run: |
+          apt-get update -q -y
+          apt install curl
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          export PATH="${PATH}:/root/.cargo/bin"
+          cd /app
+          cargo package --verbose
+          cargo test --verbose
