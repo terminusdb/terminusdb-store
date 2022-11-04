@@ -35,24 +35,23 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    - run: which cargo
+    - name: Update the cargo index (because it crashes on arm64)
+      run: cargo install empty-library || true
 
-#    - name: Update the cargo index (because it crashes on arm64)
-#      run: cargo install empty-library || true
-
-#    - uses: uraimo/run-on-arch-action@v2
-#      name: Run tests on arm64
-#      id: build
-#      with:
-#        arch: aarch64
-#        distro: bullseye
-#        dockerRunArgs: |
-#            --volume "${PWD}:/app" --volume "${HOME}/.cargo/registry":/root/.cargo/registry
-#        run: |
-#          echo "THIS IS THE HOME DIR: $HOME"
-#          apt-get update -q -y
-#          apt install curl git -q -y
-#          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-#          source "$HOME/.cargo/env"
-#          cd /app
-#          cargo test --verbose
+    - uses: uraimo/run-on-arch-action@v2
+      name: Run tests on arm64
+      id: build
+      with:
+        arch: aarch64
+        distro: bullseye
+        dockerRunArgs: |
+            --volume "${PWD}:/app" --volume "${HOME}/.cargo/registry":/root/.cargo/registry
+        run: |
+          echo "THIS IS THE HOME DIR: $HOME"
+          ls /root/.cargo/registry
+          apt-get update -q -y
+          apt install curl git -q -y
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          source "$HOME/.cargo/env"
+          cd /app
+          cargo test --verbose
