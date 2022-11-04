@@ -34,6 +34,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+
+    - name: Update the cargo index (because it crashes on arm64)
+      run: cargo install empty-library
+
     - uses: uraimo/run-on-arch-action@v2
       name: Run tests on arm64
       id: build
@@ -41,7 +45,7 @@ jobs:
         arch: aarch64
         distro: bullseye
         dockerRunArgs: |
-            --volume "${PWD}:/app"
+            --volume "${PWD}:/app" --volume "${HOME}/.cargo/registry":/root/.cargo/registry
         run: |
           apt-get update -q -y
           apt install curl git -q -y
