@@ -35,9 +35,6 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    - name: Update the cargo index (because it crashes on arm64)
-      run: cargo install empty-library || true
-
     - uses: uraimo/run-on-arch-action@v2
       name: Run tests on arm64
       id: build
@@ -48,7 +45,7 @@ jobs:
             --volume "${PWD}:/app" --volume "${HOME}/.cargo/registry":/root/.cargo/registry
         run: |
           apt-get update -q -y
-          apt install curl git -q -y
+          apt install curl git build-essential -q -y
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           source "$HOME/.cargo/env"
           cd /app
