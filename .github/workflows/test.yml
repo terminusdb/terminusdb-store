@@ -39,9 +39,9 @@ jobs:
       id: build
       with:
         arch: aarch64
-        distro: ubuntu_latest
+        distro: bullseye
         dockerRunArgs: |
-            --volume "${PWD}:/app" -m 4G
+            --volume "${PWD}:/app"
         run: |
           apt-get update -q -y
           apt install curl -q -y
