@@ -47,11 +47,10 @@ jobs:
         dockerRunArgs: |
             --volume "${PWD}:/app" --volume "${HOME}/.cargo/registry":/root/.cargo/registry
         run: |
-          echo "THIS IS THE HOME DIR: $HOME"
-          ls /root/.cargo/registry
           apt-get update -q -y
           apt install curl git -q -y
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           source "$HOME/.cargo/env"
           cd /app
+          export CARGO_NET_GIT_FETCH_WITH_CLI=true
           cargo test --verbose
