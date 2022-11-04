@@ -41,7 +41,7 @@ jobs:
         arch: aarch64
         distro: ubuntu_latest
         dockerRunArgs: |
-            --volume "${PWD}:/app"
+            --volume "${PWD}:/app" -m 4G
         run: |
           apt-get update -q -y
           apt install curl -q -y
