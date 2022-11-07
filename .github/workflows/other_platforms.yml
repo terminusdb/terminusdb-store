@@ -1,0 +1,33 @@
+name: Run tests on other platforms
+
+on:
+  schedule:
+    - cron:  '45 1 * * *'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-and-test-arm64:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - uses: uraimo/run-on-arch-action@v2
+      name: Run tests on arm64
+      id: build
+      with:
+        arch: aarch64
+        distro: bullseye
+        dockerRunArgs: |
+            --volume "${PWD}:/app"
+        run: |
+          apt-get update -q -y
+          apt install curl git build-essential -q -y
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          source "$HOME/.cargo/env"
+          cd /app
+          export CARGO_NET_GIT_FETCH_WITH_CLI=true
+          cargo test --verbose
