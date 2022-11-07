@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1655118844368,
+  "lastUpdate": 1667813559551,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -14470,6 +14470,126 @@ window.BENCHMARK_DATA = {
           {
             "name": "logarray_w5_empty",
             "value": 278,
+            "range": "± 1",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rrooij@users.noreply.github.com",
+            "name": "Robin de Rooij",
+            "username": "rrooij"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a3ee5f3541ea57c214a4f2e36e4ec5326336461a",
+          "message": "Enable arm64 testing in CI (#100)\n\n* Try to run tests on arm64\r\n\r\n* Woops\r\n\r\n* Run apt non-interactively\r\n\r\n* Remove cargo package\r\n\r\n* Set env source in current shell\r\n\r\n* Use 4g at max\r\n\r\n* ci: try bullseye\r\n\r\n* Install git\r\n\r\n* Initialize cargo registry\r\n\r\n* Ignore error\r\n\r\n* Just want to know the home dir\r\n\r\n* ci: check where cargo is installed\r\n\r\n* ci: check if the volume is mounted correctly\r\n\r\n* Trying the git cli instead\r\n\r\n* ci: update with stuff\r\n\r\n* Remove arm64 on every commit but do it nightly\r\n\r\n* Actually commit the YAML\r\n\r\n* Fix weird indentation",
+          "timestamp": "2022-11-07T10:25:46+01:00",
+          "tree_id": "30e003292ac6aa6cec7537571f15cf964906099e",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/a3ee5f3541ea57c214a4f2e36e4ec5326336461a"
+        },
+        "date": 1667813558896,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 296,
+            "range": "± 15",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 21736541,
+            "range": "± 769352",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 10520391,
+            "range": "± 2165539",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 14457341,
+            "range": "± 5180415",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 25404217,
+            "range": "± 1262324",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 26318496,
+            "range": "± 1877089",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w10_1000",
+            "value": 9788,
+            "range": "± 264",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1",
+            "value": 319,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10",
+            "value": 385,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_100",
+            "value": 1382,
+            "range": "± 13",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1000",
+            "value": 9175,
+            "range": "± 173",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000",
+            "value": 88656,
+            "range": "± 2915",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_as_stream",
+            "value": 107902,
+            "range": "± 7286",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent",
+            "value": 534665,
+            "range": "± 108870",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent_as_stream",
+            "value": 548425,
+            "range": "± 88788",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_empty",
+            "value": 261,
             "range": "± 1",
             "unit": "ns/iter"
           }
