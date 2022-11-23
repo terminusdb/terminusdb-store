@@ -1,3 +1,6 @@
+use std::cmp::Ordering;
+use std::hash::{Hash, Hasher};
+
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
 use crate::structure::{
@@ -59,11 +62,34 @@ impl TfcBlockHeader {
 }
 
 #[derive(Clone, Debug)]
-pub struct TfcEntry<'a>(Vec<&'a [u8]>);
+pub struct TfcDictEntry(Vec<Bytes>);
 
-impl<'a> TfcEntry<'a> {
-    fn as_vec(&self) -> Vec<u8> {
-        let mut v = Vec::with_capacity(self.0.iter().map(|s| s.len()).sum());
+impl TfcDictEntry {
+    pub fn new(parts: Vec<Bytes>) -> Self {
+        Self(parts)
+    }
+
+    pub fn new_optimized(parts: Vec<Bytes>) -> Self {
+        let mut entry = Self::new(parts);
+        entry.optimize();
+
+        entry
+    }
+
+    fn to_bytes(&self) -> Bytes {
+        if self.0.len() == 1 {
+            self.0[0].clone()
+        } else {
+            let mut buf = BytesMut::with_capacity(self.len());
+            for slice in self.0.iter() {
+                buf.extend_from_slice(&slice[..]);
+            }
+
+            buf.freeze()
+        }
+    }
+    fn to_vec(&self) -> Vec<u8> {
+        let mut v = Vec::with_capacity(self.len());
 
         for slice in self.0.iter() {
             v.extend_from_slice(slice);
@@ -76,58 +102,216 @@ impl<'a> TfcEntry<'a> {
         TfcEntryBuf {
             entry: self,
             slice_ix: 0,
-            pos_in_slice: 0
+            pos_in_slice: 0,
         }
     }
 
-    fn into_buf(self) -> OwnedTfcEntryBuf<'a> {
+    fn into_buf(self) -> OwnedTfcEntryBuf {
         OwnedTfcEntryBuf {
             entry: self,
             slice_ix: 0,
-            pos_in_slice: 0
+            pos_in_slice: 0,
         }
     }
 
     fn len(&self) -> usize {
-        self.0.iter().map(|s|s.len()).sum()
+        self.0.iter().map(|s| s.len()).sum()
+    }
+
+    /// optimize size
+    ///
+    /// For short strings, a list of pointers may be much less
+    /// efficient than a copy of the string.  This will copy the
+    /// underlying string if that is the case.
+    pub fn optimize(&mut self) {
+        let overhead_size = std::mem::size_of::<Bytes>() * self.0.len();
+
+        if std::mem::size_of::<Bytes>() + self.len() < overhead_size {
+            let mut bytes = BytesMut::with_capacity(self.len());
+            for part in self.0.iter() {
+                bytes.extend(part);
+            }
+
+            self.0 = vec![bytes.freeze()];
+        }
+    }
+
+    pub fn buf_eq<B: Buf>(&self, mut b: B) -> bool {
+        if self.len() != b.remaining() {
+            false
+        } else if self.len() == 0 {
+            true
+        } else {
+            let mut it = self.0.iter();
+            let mut part = it.next().unwrap();
+            loop {
+                let slice = b.chunk();
+
+                match part.len().cmp(&slice.len()) {
+                    Ordering::Less => {
+                        if part.as_ref() != &slice[..part.len()] {
+                            return false;
+                        }
+                    }
+                    Ordering::Equal => {
+                        if part != slice {
+                            return false;
+                        }
+
+                        assert!(it.next().is_none());
+                        return true;
+                    }
+                    Ordering::Greater => {
+                        panic!("This should never happen because it'd mean our entry is larger than the buffer passed in, but we already checked to make sure that is not the case");
+                    }
+                }
+
+                b.advance(part.len());
+                part = it.next().unwrap();
+            }
+        }
     }
 }
 
-pub struct TfcEntryBuf<'a>{
-    entry: &'a TfcEntry<'a>,
-    slice_ix: usize,
-    pos_in_slice: usize
+impl PartialEq for TfcDictEntry {
+    fn eq(&self, other: &Self) -> bool {
+        // unequal length, so can't be equal
+        if self.len() != other.len() {
+            return false;
+        }
+
+        self.cmp(other) == Ordering::Equal
+    }
 }
 
-fn calculate_remaining<'a>(entry: &TfcEntry<'a>, slice_ix: usize, pos_in_slice: usize) -> usize {
-    let total: usize = entry.0.iter().skip(slice_ix).map(|s|s.len()).sum();
+impl Eq for TfcDictEntry {}
+
+impl Hash for TfcDictEntry {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        for part in self.0.iter() {
+            state.write(part);
+        }
+    }
+}
+
+impl Ord for TfcDictEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // both are empty, so equal
+        if self.len() == 0 && other.len() == 0 {
+            return Ordering::Equal;
+        }
+
+        let mut it1 = self.0.iter();
+        let mut it2 = other.0.iter();
+        let mut part1 = it1.next().unwrap().clone();
+        let mut part2 = it2.next().unwrap().clone();
+
+        loop {
+            match part1.len().cmp(&part2.len()) {
+                Ordering::Equal => {
+                    match part1.cmp(&part2) {
+                        Ordering::Less => return Ordering::Less,
+                        Ordering::Greater => return Ordering::Greater,
+                        Ordering::Equal => {}
+                    }
+
+                    let p1_next = it1.next();
+                    let p2_next = it2.next();
+
+                    if let (Some(p1), Some(p2)) = (p1_next, p2_next) {
+                        part1 = p1.clone();
+                        part2 = p2.clone();
+                    } else if p1_next.is_none() && p2_next.is_none() {
+                        // done! everything has been compared equally and nothign remains.
+                        return Ordering::Equal;
+                    } else if p1_next.is_none() {
+                        // the left side is a prefix of the right side
+
+                        return Ordering::Less;
+                    } else {
+                        return Ordering::Greater;
+                    }
+                }
+                Ordering::Less => {
+                    let part2_slice = part2.slice(0..part1.len());
+                    match part1.cmp(&part2_slice) {
+                        Ordering::Less => return Ordering::Less,
+                        Ordering::Greater => return Ordering::Greater,
+                        Ordering::Equal => {}
+                    }
+
+                    part2 = part2.slice(part1.len()..);
+                    let part1_option = it1.next();
+                    if part1_option.is_none() {
+                        return Ordering::Less;
+                    }
+                    part1 = part1_option.unwrap().clone();
+                }
+                Ordering::Greater => {
+                    let part1_slice = part1.slice(0..part2.len());
+                    match part1_slice.cmp(&part2) {
+                        Ordering::Less => return Ordering::Less,
+                        Ordering::Greater => return Ordering::Greater,
+                        Ordering::Equal => {}
+                    }
+
+                    part1 = part1.slice(part2.len()..);
+                    let part2_option = it2.next();
+                    if part2_option.is_none() {
+                        return Ordering::Greater;
+                    }
+                    part2 = part2_option.unwrap().clone();
+                }
+            }
+        }
+    }
+}
+
+impl PartialOrd for TfcDictEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[derive(Clone)]
+pub struct TfcEntryBuf<'a> {
+    entry: &'a TfcDictEntry,
+    slice_ix: usize,
+    pos_in_slice: usize,
+}
+
+fn calculate_remaining<'a>(entry: &TfcDictEntry, slice_ix: usize, pos_in_slice: usize) -> usize {
+    let total: usize = entry.0.iter().skip(slice_ix).map(|s| s.len()).sum();
     total - pos_in_slice
 }
 
-fn calculate_chunk<'a>(entry: &'a TfcEntry<'a>, slice_ix: usize, pos_in_slice: usize) -> &[u8] {
+fn calculate_chunk<'a>(entry: &'a TfcDictEntry, slice_ix: usize, pos_in_slice: usize) -> &[u8] {
     if slice_ix >= entry.0.len() {
         &[]
-    }
-    else {
-        let slice = entry.0[slice_ix];
+    } else {
+        let slice = &entry.0[slice_ix];
         &slice[pos_in_slice..]
     }
 }
 
-fn calculate_advance<'a>(entry: &'a TfcEntry<'a>, slice_ix: &mut usize, pos_in_slice: &mut usize, mut cnt: usize) {
+fn calculate_advance<'a>(
+    entry: &'a TfcDictEntry,
+    slice_ix: &mut usize,
+    pos_in_slice: &mut usize,
+    mut cnt: usize,
+) {
     if *slice_ix < entry.0.len() {
-        let slice = entry.0[*slice_ix];
+        let slice = &entry.0[*slice_ix];
         let remaining_in_slice = slice.len() - *pos_in_slice;
 
         if remaining_in_slice > cnt {
-            // we remain in the slice we're at. 
+            // we remain in the slice we're at.
             *pos_in_slice += cnt;
-        }
-        else {
+        } else {
             // we are starting at the next slice
             cnt -= remaining_in_slice;
             *slice_ix += 1;
-            
+
             loop {
                 if entry.0.len() >= *slice_ix {
                     // past the end
@@ -165,13 +349,13 @@ impl<'a> Buf for TfcEntryBuf<'a> {
     }
 }
 
-pub struct OwnedTfcEntryBuf<'a>{
-    entry: TfcEntry<'a>,
+pub struct OwnedTfcEntryBuf {
+    entry: TfcDictEntry,
     slice_ix: usize,
-    pos_in_slice: usize
+    pos_in_slice: usize,
 }
 
-impl<'a> Buf for OwnedTfcEntryBuf<'a> {
+impl Buf for OwnedTfcEntryBuf {
     fn remaining(&self) -> usize {
         calculate_remaining(&self.entry, self.slice_ix, self.pos_in_slice)
     }
@@ -206,9 +390,10 @@ impl TfcBlock {
         self.header.num_entries != BLOCK_SIZE as u8
     }
 
-    pub fn entry(&self, index: usize) -> TfcEntry {
+    pub fn entry(&self, index: usize) -> TfcDictEntry {
         if index == 0 {
-            return TfcEntry(vec![&self.data[..self.header.sizes[0]]]);
+            let b = self.data.slice(..self.header.sizes[0]);
+            return TfcDictEntry(vec![b]);
         }
 
         let mut v = Vec::with_capacity(7);
@@ -237,7 +422,7 @@ impl TfcBlock {
         let mut taken = 0;
         let mut slices = Vec::with_capacity(v.len() + 1);
 
-        let mut offset = self.header.sizes.iter().take(start).sum();
+        let mut offset: usize = self.header.sizes.iter().take(start).sum();
         for (ix, shared) in v.iter().rev().enumerate() {
             let have_to_take = shared - taken;
             let cur_offset = offset;
@@ -245,15 +430,15 @@ impl TfcBlock {
             if have_to_take == 0 {
                 continue;
             }
-            let slice = &self.data[cur_offset..cur_offset + have_to_take];
+            let slice = self.data.slice(cur_offset..cur_offset + have_to_take);
             slices.push(slice);
             taken += have_to_take;
         }
 
         let suffix_size = self.header.sizes[index];
-        slices.push(&self.data[offset..offset + suffix_size]);
+        slices.push(self.data.slice(offset..offset + suffix_size));
 
-        TfcEntry(slices)
+        TfcDictEntry(slices)
     }
 }
 
@@ -327,7 +512,7 @@ mod tests {
         let block = build_incomplete_block(&strings);
 
         for (ix, string) in strings.iter().enumerate() {
-            assert_eq!(*string, &block.entry(ix).as_vec()[..]);
+            assert_eq!(*string, &block.entry(ix).to_vec()[..]);
         }
     }
 
@@ -346,7 +531,7 @@ mod tests {
         let block = build_incomplete_block(&strings);
 
         for (ix, string) in strings.iter().enumerate() {
-            assert_eq!(*string, &block.entry(ix).as_vec()[..]);
+            assert_eq!(*string, &block.entry(ix).to_vec()[..]);
         }
     }
 
