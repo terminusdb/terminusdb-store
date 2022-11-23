@@ -292,15 +292,6 @@ fn build_block_unchecked<B: BufMut>(buf: &mut B, slices: &[&[u8]]) {
 mod tests {
     use super::*;
     use bytes::Buf;
-    #[test]
-    fn blah() {
-        let slice = b"asdfasfd";
-        let mut argh = slice as &[u8];
-        let first = argh.get_u8();
-        let second = argh.get_u8();
-
-        panic!("{} {} {:?}", first, second, argh);
-    }
 
     fn build_incomplete_block(strings: &[&[u8]]) -> TfcBlock {
         let mut buf = BytesMut::new();
