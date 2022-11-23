@@ -393,7 +393,7 @@ impl TfcBlock {
     pub fn entry(&self, index: usize) -> TfcDictEntry {
         if index == 0 {
             let b = self.data.slice(..self.header.sizes[0]);
-            return TfcDictEntry(vec![b]);
+            return TfcDictEntry::new(vec![b]);
         }
 
         let mut v = Vec::with_capacity(7);
@@ -438,7 +438,7 @@ impl TfcBlock {
         let suffix_size = self.header.sizes[index];
         slices.push(self.data.slice(offset..offset + suffix_size));
 
-        TfcDictEntry(slices)
+        TfcDictEntry::new_optimized(slices)
     }
 }
 
