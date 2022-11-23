@@ -58,7 +58,7 @@ impl TfcBlockHeader {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TfcEntry<'a>(Vec<&'a [u8]>);
 
 impl<'a> TfcEntry<'a> {
@@ -70,6 +70,118 @@ impl<'a> TfcEntry<'a> {
         }
 
         v
+    }
+
+    fn as_buf(&self) -> TfcEntryBuf {
+        TfcEntryBuf {
+            entry: self,
+            slice_ix: 0,
+            pos_in_slice: 0
+        }
+    }
+
+    fn into_buf(self) -> OwnedTfcEntryBuf<'a> {
+        OwnedTfcEntryBuf {
+            entry: self,
+            slice_ix: 0,
+            pos_in_slice: 0
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.0.iter().map(|s|s.len()).sum()
+    }
+}
+
+pub struct TfcEntryBuf<'a>{
+    entry: &'a TfcEntry<'a>,
+    slice_ix: usize,
+    pos_in_slice: usize
+}
+
+fn calculate_remaining<'a>(entry: &TfcEntry<'a>, slice_ix: usize, pos_in_slice: usize) -> usize {
+    let total: usize = entry.0.iter().skip(slice_ix).map(|s|s.len()).sum();
+    total - pos_in_slice
+}
+
+fn calculate_chunk<'a>(entry: &'a TfcEntry<'a>, slice_ix: usize, pos_in_slice: usize) -> &[u8] {
+    if slice_ix >= entry.0.len() {
+        &[]
+    }
+    else {
+        let slice = entry.0[slice_ix];
+        &slice[pos_in_slice..]
+    }
+}
+
+fn calculate_advance<'a>(entry: &'a TfcEntry<'a>, slice_ix: &mut usize, pos_in_slice: &mut usize, mut cnt: usize) {
+    if *slice_ix < entry.0.len() {
+        let slice = entry.0[*slice_ix];
+        let remaining_in_slice = slice.len() - *pos_in_slice;
+
+        if remaining_in_slice > cnt {
+            // we remain in the slice we're at. 
+            *pos_in_slice += cnt;
+        }
+        else {
+            // we are starting at the next slice
+            cnt -= remaining_in_slice;
+            *slice_ix += 1;
+            
+            loop {
+                if entry.0.len() >= *slice_ix {
+                    // past the end
+                    *pos_in_slice = 0;
+                    break;
+                }
+
+                let slice_len = entry.0[*slice_ix].len();
+
+                if cnt < slice_len {
+                    // this is our slice
+                    *pos_in_slice = cnt;
+                    break;
+                }
+
+                // not our slice, so advance to next
+                cnt -= entry.0.len();
+                *slice_ix += 1;
+            }
+        }
+    }
+}
+
+impl<'a> Buf for TfcEntryBuf<'a> {
+    fn remaining(&self) -> usize {
+        calculate_remaining(self.entry, self.slice_ix, self.pos_in_slice)
+    }
+
+    fn chunk(&self) -> &[u8] {
+        calculate_chunk(self.entry, self.slice_ix, self.pos_in_slice)
+    }
+
+    fn advance(&mut self, cnt: usize) {
+        calculate_advance(self.entry, &mut self.slice_ix, &mut self.pos_in_slice, cnt)
+    }
+}
+
+pub struct OwnedTfcEntryBuf<'a>{
+    entry: TfcEntry<'a>,
+    slice_ix: usize,
+    pos_in_slice: usize
+}
+
+impl<'a> Buf for OwnedTfcEntryBuf<'a> {
+    fn remaining(&self) -> usize {
+        calculate_remaining(&self.entry, self.slice_ix, self.pos_in_slice)
+    }
+
+    fn chunk(&self) -> &[u8] {
+        calculate_chunk(&self.entry, self.slice_ix, self.pos_in_slice)
+    }
+
+    fn advance(&mut self, cnt: usize) {
+        calculate_advance(&self.entry, &mut self.slice_ix, &mut self.pos_in_slice, cnt)
     }
 }
 
@@ -244,6 +356,51 @@ mod tests {
 
         for (ix, string) in strings.iter().enumerate() {
             assert_eq!(*string, &block.entry(ix).as_vec()[..]);
+        }
+    }
+
+    #[test]
+    fn entry_buf_in_complete_block() {
+        let strings: [&[u8]; 8] = [
+            b"aaaaaa",
+            b"aabb",
+            b"cccc",
+            b"cdef",
+            b"cdff",
+            b"cdffasdf",
+            b"cdffeeee",
+            b"ceeeeeeeeeeeeeee",
+        ];
+        let block = build_incomplete_block(&strings);
+
+        for (ix, string) in strings.iter().enumerate() {
+            let entry = block.entry(ix);
+            let mut buf = entry.as_buf();
+            let len = buf.remaining();
+            let bytes = buf.copy_to_bytes(len);
+            assert_eq!(*string, &bytes[..]);
+        }
+    }
+
+    #[test]
+    fn entry_owned_buf_in_complete_block() {
+        let strings: [&[u8]; 8] = [
+            b"aaaaaa",
+            b"aabb",
+            b"cccc",
+            b"cdef",
+            b"cdff",
+            b"cdffasdf",
+            b"cdffeeee",
+            b"ceeeeeeeeeeeeeee",
+        ];
+        let block = build_incomplete_block(&strings);
+
+        for (ix, string) in strings.iter().enumerate() {
+            let mut buf = block.entry(ix).into_buf();
+            let len = buf.remaining();
+            let bytes = buf.copy_to_bytes(len);
+            assert_eq!(*string, &bytes[..]);
         }
     }
 }
