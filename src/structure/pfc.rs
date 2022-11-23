@@ -805,8 +805,7 @@ impl Decoder for PfcDecoder {
                 false => {
                     // This is in the middle of some block. we expect a vbyte followed by some 0-delimited cstring
                     let last = self.last.as_ref().unwrap();
-                    let (prefix_len, vbyte_len) = vbyte::decode(&bytes).expect("expected vbyte");
-                    bytes.advance(vbyte_len);
+                    let (prefix_len, vbyte_len) = vbyte::decode_buf(bytes).expect("expected vbyte");
                     let b = bytes.split_to(pos - vbyte_len);
                     bytes.advance(1);
                     let mut full = BytesMut::with_capacity(prefix_len as usize + b.len());

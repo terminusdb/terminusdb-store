@@ -9,6 +9,7 @@ pub mod bititer;
 pub mod logarray;
 //pub mod mapped_dict;
 pub mod pfc;
+pub mod tfc;
 pub mod util;
 pub mod vbyte;
 pub mod wavelettree;
