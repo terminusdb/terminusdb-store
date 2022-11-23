@@ -91,7 +91,7 @@ pub fn decode(mut buf: &[u8]) -> Result<(u64, usize), DecodeError> {
 /// This function expects the encoded value to start at the beginning of the slice; and the slice
 /// must be large enough to include all of the encoded bytes of one value. Decoding stops at the
 /// end of the encoded value, so it doesn't matter if the slice is longer.
-pub fn decode_buf<B:Buf>(buf: &mut B) -> Result<(u64, usize), DecodeError> {
+pub fn decode_buf<B: Buf>(buf: &mut B) -> Result<(u64, usize), DecodeError> {
     // This will be the decoded result.
     let mut num: u64 = 0;
     // This is how many bits we shift `num` by on each iteration in increments of 7.
@@ -105,7 +105,7 @@ pub fn decode_buf<B:Buf>(buf: &mut B) -> Result<(u64, usize), DecodeError> {
 
         let b = buf.get_u8();
         count += 1;
-        
+
         if is_last_encoded_byte(b) {
             return if max_byte_too_large(shift, b) {
                 Err(DecodeError::EncodedValueTooLarge)
@@ -189,9 +189,9 @@ pub fn encode_vec(num: u64) -> Vec<u8> {
 /// Encodes a `u64` with a variable-byte encoding in an array.
 ///
 /// The array is always length 10. Additinally, the actual size of the vbyte is returned.
-pub fn encode_array(num: u64) -> ([u8;10],usize) {
+pub fn encode_array(num: u64) -> ([u8; 10], usize) {
     // Allocate a `Vec` of the right size.
-    let mut buf = [0;10];
+    let mut buf = [0; 10];
     // Safety: We have created `vec` with the length of the encoded bytes of `num`.
     let size = unsafe { encode_unchecked(&mut buf, num) };
     (buf, size)
