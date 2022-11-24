@@ -52,7 +52,7 @@
 use super::util;
 use crate::storage::*;
 use byteorder::{BigEndian, ByteOrder};
-use bytes::{Bytes, BytesMut, BufMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use futures::stream::{Stream, StreamExt};
 use std::{cmp::Ordering, convert::TryFrom, error, fmt, io};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

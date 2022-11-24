@@ -521,6 +521,29 @@ pub enum IdLookupResult {
     NotFound,
 }
 
+impl IdLookupResult {
+    pub fn offset(self, offset: u64) -> Self {
+        match self {
+            Self::Found(i) => Self::Found(i + offset),
+            Self::Closest(i) => Self::Closest(i + offset),
+            Self::NotFound => Self::NotFound,
+        }
+    }
+
+    pub fn default(self, previous_block_num: usize, mut previous_block: Bytes) -> Self {
+        match self {
+            Self::NotFound => {
+                // we should move num elements to start of block so we don't hae to parse a full header
+                let previous_header = TfcBlockHeader::parse(&mut previous_block).unwrap();
+                let id = previous_header.num_entries as u64 - 1 + previous_block_num as u64;
+
+                Self::Closest(id)
+            }
+            _ => self,
+        }
+    }
+}
+
 pub(crate) fn build_block_unchecked<B: BufMut>(buf: &mut B, slices: &[&[u8]]) -> usize {
     let mut size = 0;
     let slices_len = slices.len();
@@ -552,7 +575,7 @@ pub(crate) fn build_block_unchecked<B: BufMut>(buf: &mut B, slices: &[&[u8]]) ->
         let (vbyte, vbyte_len) = encode_array(suffix_len as u64);
         buf.put_slice(&vbyte[..vbyte_len]);
         size += vbyte_len;
-        
+
         suffixes.push(&cur[common_prefix..]);
         last = cur;
     }
@@ -770,17 +793,12 @@ mod tests {
         ];
         let block = build_block(&strings);
 
-        assert_eq!(IdLookupResult::NotFound,
-                   block.id(b"aa"));
+        assert_eq!(IdLookupResult::NotFound, block.id(b"aa"));
 
-        assert_eq!(IdLookupResult::Closest(0),
-                   block.id(b"aaab"));
+        assert_eq!(IdLookupResult::Closest(0), block.id(b"aaab"));
 
-        assert_eq!(IdLookupResult::Closest(1),
-                   block.id(b"aabba"));
+        assert_eq!(IdLookupResult::Closest(1), block.id(b"aabba"));
 
-        assert_eq!(IdLookupResult::Closest(7),
-                   block.id(b"f"));
-
+        assert_eq!(IdLookupResult::Closest(7), block.id(b"f"));
     }
 }

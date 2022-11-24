@@ -1,10 +1,16 @@
-use itertools::Itertools;
+use std::cmp::Ordering;
+
+use crate::structure::{util::calculate_width, LogArray, LogArrayBufBuilder};
 use bytes::{BufMut, Bytes};
-use crate::structure::{util::calculate_width, LogArrayBufBuilder, LogArray};
+use itertools::Itertools;
 
 use super::block::*;
 
-fn build_dict_unchecked<'a, B1:BufMut, B2:BufMut,I:Iterator<Item=&'a [u8]>>(array_buf: &mut B1, data_buf: &mut B2, iter: I) {
+fn build_dict_unchecked<'a, B1: BufMut, B2: BufMut, I: Iterator<Item = &'a [u8]>>(
+    array_buf: &mut B1,
+    data_buf: &mut B2,
+    iter: I,
+) {
     let chunk_iter = iter.chunks(BLOCK_SIZE);
     let mut offsets = Vec::new();
 
@@ -28,31 +34,27 @@ fn build_dict_unchecked<'a, B1:BufMut, B2:BufMut,I:Iterator<Item=&'a [u8]>>(arra
 
 pub struct TfcDict {
     offsets: LogArray,
-    data: Bytes
+    data: Bytes,
 }
 
 impl TfcDict {
     pub fn from_parts(offsets: Bytes, data: Bytes) -> Self {
         let offsets = LogArray::parse(offsets).unwrap();
-        Self {
-            offsets, data
-        }
+        Self { offsets, data }
     }
 
-    pub fn block_bytes(&self, block_index:usize) -> Bytes {
+    pub fn block_bytes(&self, block_index: usize) -> Bytes {
         let offset: usize;
         if block_index == 0 {
             offset = 0;
-        }
-        else {
-            offset = self.offsets.entry(block_index-1) as usize;
+        } else {
+            offset = self.offsets.entry(block_index - 1) as usize;
         }
 
         let block_bytes;
         if block_index == self.offsets.len() {
             block_bytes = self.data.slice(offset..);
-        }
-        else {
+        } else {
             let end = self.offsets.entry(block_index) as usize;
             block_bytes = self.data.slice(offset..end);
         }
@@ -78,6 +80,48 @@ impl TfcDict {
         let block = self.block((index / 8) as usize);
         block.entry((index % 8) as usize)
     }
+
+    pub fn id(&self, slice: &[u8]) -> IdLookupResult {
+        // let's binary search
+        let mut min = 0;
+        let mut max = self.offsets.len();
+        let mut mid: usize;
+
+        while min <= max {
+            mid = (min + max) / 2;
+
+            let head_slice = self.block_head(mid);
+
+            match slice.cmp(&head_slice[..]) {
+                Ordering::Less => {
+                    if mid == 0 {
+                        // we checked the first block and determined that the string should be in the previous block, if it exists.
+                        // but since this is the first block, the string doesn't exist.
+                        return IdLookupResult::NotFound;
+                    }
+                    max = mid - 1;
+                }
+                Ordering::Greater => min = mid + 1,
+                Ordering::Equal => return IdLookupResult::Found((mid * BLOCK_SIZE) as u64), // what luck! turns out the string we were looking for was the block head
+            }
+        }
+
+        let found = max;
+
+        // we found the block the string should be part of.
+        let block = self.block(found);
+        let block_id = block.id(slice);
+        let result = block_id.offset((found * BLOCK_SIZE) as u64);
+        if found != 0 {
+            // the default value will fill in the last index of the
+            // previous block if the entry was not found in the
+            // current block. This is only possible if the block as
+            // not the very first one.
+            result.default(found - 1, self.block_bytes(found - 1))
+        } else {
+            result
+        }
+    }
 }
 
 #[cfg(test)]
@@ -96,14 +140,12 @@ mod tests {
             b"gafovp",
             b"gdfasfa",
             b"gdfbbbbbb",
-            
             b"hello",
             b"iguana",
             b"illusion",
             b"illustrated",
             b"jetengine",
             b"jetplane",
-            
         ];
 
         let mut array_buf = BytesMut::new();
@@ -112,7 +154,7 @@ mod tests {
 
         let array_bytes = array_buf.freeze();
         let data_bytes = data_buf.freeze();
-        let dict =TfcDict::from_parts(array_bytes, data_bytes);
+        let dict = TfcDict::from_parts(array_bytes, data_bytes);
 
         assert_eq!(2, dict.num_blocks());
         assert_eq!(b"aaaaaaaa", &dict.block_head(0)[..]);
@@ -127,5 +169,71 @@ mod tests {
         for (ix, s) in strings.into_iter().enumerate() {
             assert_eq!(s, &dict.entry(ix as u64).to_bytes()[..]);
         }
+    }
+
+    #[test]
+    fn lookup_entries_by_slice() {
+        let strings: Vec<&[u8]> = vec![
+            b"aaaaaaaa",
+            b"bbbbbbbb",
+            b"bbbcccdaaaa",
+            b"f",
+            b"fafasdfas",
+            b"gafovp",
+            b"gdfasfa",
+            b"gdfbbbbbb",
+            b"hello",
+            b"iguana",
+            b"illusion",
+            b"illustrated",
+            b"jetengine",
+            b"jetplane",
+        ];
+
+        let mut array_buf = BytesMut::new();
+        let mut data_buf = BytesMut::new();
+        build_dict_unchecked(&mut array_buf, &mut data_buf, strings.clone().into_iter());
+
+        let array_bytes = array_buf.freeze();
+        let data_bytes = data_buf.freeze();
+        let dict = TfcDict::from_parts(array_bytes, data_bytes);
+
+        for (ix, s) in strings.into_iter().enumerate() {
+            assert_eq!(IdLookupResult::Found(ix as u64), dict.id(s));
+        }
+    }
+
+    #[test]
+    fn lookup_nonmatching_entries_by_slice() {
+        let strings: Vec<&[u8]> = vec![
+            b"aaaaaaaa",
+            b"bbbbbbbb",
+            b"bbbcccdaaaa",
+            b"f",
+            b"fafasdfas",
+            b"gafovp",
+            b"gdfasfa",
+            b"gdfbbbbbb",
+            b"hello",
+            b"iguana",
+            b"illusion",
+            b"illustrated",
+            b"jetengine",
+            b"jetplane",
+        ];
+
+        let mut array_buf = BytesMut::new();
+        let mut data_buf = BytesMut::new();
+        build_dict_unchecked(&mut array_buf, &mut data_buf, strings.clone().into_iter());
+
+        let array_bytes = array_buf.freeze();
+        let data_bytes = data_buf.freeze();
+        let dict = TfcDict::from_parts(array_bytes, data_bytes);
+
+        assert_eq!(IdLookupResult::NotFound, dict.id(b"a"));
+        assert_eq!(IdLookupResult::Closest(0), dict.id(b"ab"));
+        assert_eq!(IdLookupResult::Closest(7), dict.id(b"hallo"));
+        assert_eq!(IdLookupResult::Closest(8), dict.id(b"hello!"));
+        assert_eq!(IdLookupResult::Closest(13), dict.id(b"zebra"));
     }
 }

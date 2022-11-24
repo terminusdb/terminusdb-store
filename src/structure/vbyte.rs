@@ -17,8 +17,6 @@
 use futures::io;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
-use std::io::Write;
-
 use bytes::Buf;
 
 /// The maximum number of bytes required for any `u64` in a variable-byte encoding.
