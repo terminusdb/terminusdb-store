@@ -52,7 +52,7 @@
 use super::util;
 use crate::storage::*;
 use byteorder::{BigEndian, ByteOrder};
-use bytes::{Bytes, BytesMut};
+use bytes::{Bytes, BytesMut, BufMut};
 use futures::stream::{Stream, StreamExt};
 use std::{cmp::Ordering, convert::TryFrom, error, fmt, io};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -308,6 +308,104 @@ impl LogArray {
             width: self.width,
             input_buf: self.input_buf.clone(),
         }
+    }
+}
+
+/// write a logarray directly to an AsyncWrite
+pub struct LogArrayBufBuilder<'a, B: BufMut> {
+    /// Destination of the log array data
+    buf: &'a mut B,
+    /// Bit width of an element
+    width: u8,
+    /// Storage for the next word to be written to the buffer
+    current: u64,
+    /// Bit offset in `current` for the msb of the next encoded element
+    offset: u8,
+    /// Number of elements written to the buffer
+    count: u32,
+}
+
+impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
+    pub fn new(buf: &'a mut B, width: u8) -> Self {
+        Self {
+            buf,
+            width,
+            // Zero is needed for bitwise OR-ing new values.
+            current: 0,
+            // Start at the beginning of `current`.
+            offset: 0,
+            // No elements have been written.
+            count: 0,
+        }
+    }
+
+    pub fn count(&self) -> u32 {
+        self.count
+    }
+
+    pub fn push(&mut self, val: u64) {
+        // This is the minimum number of leading zeros that a decoded value should have.
+        let leading_zeros = 64 - self.width;
+
+        // If `val` does not fit in the `width`, return an error.
+        if val.leading_zeros() < u32::from(leading_zeros) {
+            panic!("expected value ({}) to fit in {} bits", val, self.width);
+        }
+
+        // Otherwise, push `val` onto the log array.
+        // Advance the element count since we know we're going to write `val`.
+        self.count += 1;
+
+        // Write the first part of `val` to `current`, putting the msb of `val` at the `offset`
+        // bit. This may be either the upper bits of `val` only or all of it. We check later.
+        self.current |= val << leading_zeros >> self.offset;
+
+        // Increment `offset` past `val`.
+        self.offset += self.width;
+
+        // Check if the new `offset` is larger than 64.
+        if self.offset >= 64 {
+            // We have filled `current`, so write it to the destination.
+            //util::write_u64(&mut self.file, self.current).await?;
+            self.buf.put_u64(self.current);
+            // Wrap the offset with the word size.
+            self.offset -= 64;
+
+            // Initialize the new `current`.
+            self.current = if self.offset == 0 {
+                // Zero is needed for bitwise OR-ing new values.
+                0
+            } else {
+                // This is the second part of `val`: the lower bits.
+                val << 64 - self.offset
+            };
+        }
+    }
+
+    pub fn push_vec(&mut self, vals: Vec<u64>) {
+        for val in vals {
+            self.push(val);
+        }
+    }
+
+    fn finalize_data(&mut self) {
+        if u64::from(self.count) * u64::from(self.width) & 0b11_1111 != 0 {
+            self.buf.put_u64(self.current);
+        }
+    }
+
+    pub fn finalize(mut self) {
+        let len = self.count;
+        let width = self.width;
+
+        // Write the final data word.
+        self.finalize_data();
+
+        // Write the control word.
+        let mut buf = [0; 8];
+        BigEndian::write_u32(&mut buf, len);
+        buf[4] = width;
+        self.buf.put_slice(&buf);
     }
 }
 

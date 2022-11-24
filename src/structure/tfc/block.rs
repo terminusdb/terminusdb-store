@@ -4,13 +4,11 @@ use std::hash::{Hash, Hasher};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
 use crate::structure::{
-    util::find_common_prefix,
+    util::{find_common_prefix, find_common_prefix_ord},
     vbyte::{self, encode_array},
 };
 
-use super::util::find_common_prefix_ord;
-
-const BLOCK_SIZE: usize = 8;
+pub const BLOCK_SIZE: usize = 8;
 
 #[derive(Debug)]
 pub enum TfcError {
@@ -81,7 +79,7 @@ impl TfcDictEntry {
         entry
     }
 
-    fn to_bytes(&self) -> Bytes {
+    pub fn to_bytes(&self) -> Bytes {
         if self.0.len() == 1 {
             self.0[0].clone()
         } else {
@@ -93,7 +91,7 @@ impl TfcDictEntry {
             buf.freeze()
         }
     }
-    fn to_vec(&self) -> Vec<u8> {
+    pub fn to_vec(&self) -> Vec<u8> {
         let mut v = Vec::with_capacity(self.len());
 
         for slice in self.0.iter() {
@@ -103,7 +101,7 @@ impl TfcDictEntry {
         v
     }
 
-    fn as_buf(&self) -> TfcEntryBuf {
+    pub fn as_buf(&self) -> TfcEntryBuf {
         TfcEntryBuf {
             entry: self,
             slice_ix: 0,
@@ -111,7 +109,7 @@ impl TfcDictEntry {
         }
     }
 
-    fn into_buf(self) -> OwnedTfcEntryBuf {
+    pub fn into_buf(self) -> OwnedTfcEntryBuf {
         OwnedTfcEntryBuf {
             entry: self,
             slice_ix: 0,
@@ -119,7 +117,7 @@ impl TfcDictEntry {
         }
     }
 
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.0.iter().map(|s| s.len()).sum()
     }
 
@@ -391,6 +389,10 @@ impl TfcBlock {
         Ok(Self { header, data })
     }
 
+    pub fn num_entries(&self) -> u8 {
+        self.header.num_entries
+    }
+
     pub fn is_incomplete(&self) -> bool {
         self.header.num_entries != BLOCK_SIZE as u8
     }
@@ -519,7 +521,8 @@ pub enum IdLookupResult {
     NotFound,
 }
 
-fn build_block_unchecked<B: BufMut>(buf: &mut B, slices: &[&[u8]]) {
+pub(crate) fn build_block_unchecked<B: BufMut>(buf: &mut B, slices: &[&[u8]]) -> usize {
+    let mut size = 0;
     let slices_len = slices.len();
     debug_assert!(slices_len <= BLOCK_SIZE && slices_len != 0);
 
@@ -529,8 +532,10 @@ fn build_block_unchecked<B: BufMut>(buf: &mut B, slices: &[&[u8]]) {
     // write the head first
     buf.put_slice(&vbyte[..vbyte_len]);
     buf.put_slice(slices[0]);
+    size += vbyte_len + slices[0].len();
 
     buf.put_u8(slices_len as u8);
+    size += 1;
 
     let mut last = first;
 
@@ -541,10 +546,13 @@ fn build_block_unchecked<B: BufMut>(buf: &mut B, slices: &[&[u8]]) {
         let common_prefix = find_common_prefix(last, cur);
         let (vbyte, vbyte_len) = encode_array(common_prefix as u64);
         buf.put_slice(&vbyte[..vbyte_len]);
+        size += vbyte_len;
 
         let suffix_len = cur.len() - common_prefix;
         let (vbyte, vbyte_len) = encode_array(suffix_len as u64);
         buf.put_slice(&vbyte[..vbyte_len]);
+        size += vbyte_len;
+        
         suffixes.push(&cur[common_prefix..]);
         last = cur;
     }
@@ -552,7 +560,10 @@ fn build_block_unchecked<B: BufMut>(buf: &mut B, slices: &[&[u8]]) {
     // write the rest of the slices
     for suffix in suffixes.into_iter().skip(1) {
         buf.put_slice(suffix);
+        size += suffix.len();
     }
+
+    size
 }
 
 pub fn block_head(mut block: Bytes) -> Result<Bytes, TfcError> {
