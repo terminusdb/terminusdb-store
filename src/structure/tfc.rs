@@ -18,9 +18,10 @@ pub enum TfcError {
 
 #[derive(Debug, PartialEq)]
 pub struct TfcBlockHeader {
+    head: Bytes,
     num_entries: u8,
     buffer_length: usize,
-    sizes: [usize; BLOCK_SIZE],
+    sizes: [usize; BLOCK_SIZE - 1],
     shareds: [usize; BLOCK_SIZE - 1],
 }
 
@@ -34,25 +35,27 @@ impl From<vbyte::DecodeError> for TfcError {
 }
 
 impl TfcBlockHeader {
-    fn parse<B: Buf>(buf: &mut B) -> Result<Self, TfcError> {
-        let num_entries = buf.get_u8();
-        let mut sizes = [0_usize; BLOCK_SIZE];
+    fn parse(buf: &mut Bytes) -> Result<Self, TfcError> {
+        let mut sizes = [0_usize; BLOCK_SIZE - 1];
         let mut shareds = [0_usize; BLOCK_SIZE - 1];
-
         let (first_size, _) = vbyte::decode_buf(buf)?;
-        sizes[0] = first_size as usize;
+
+        let head = buf.split_to(first_size as usize);
+
+        let num_entries = buf.get_u8();
 
         for i in 0..(num_entries - 1) as usize {
             let (shared, _) = vbyte::decode_buf(buf)?;
             let (size, _) = vbyte::decode_buf(buf)?;
 
-            sizes[i + 1] = size as usize;
+            sizes[i] = size as usize;
             shareds[i] = shared as usize;
         }
 
         let buffer_length = sizes.iter().sum();
 
         Ok(Self {
+            head,
             num_entries,
             buffer_length,
             sizes,
@@ -392,8 +395,7 @@ impl TfcBlock {
 
     pub fn entry(&self, index: usize) -> TfcDictEntry {
         if index == 0 {
-            let b = self.data.slice(..self.header.sizes[0]);
-            return TfcDictEntry::new(vec![b]);
+            return TfcDictEntry::new(vec![self.header.head.clone()]);
         }
 
         let mut v = Vec::with_capacity(7);
@@ -417,25 +419,45 @@ impl TfcBlock {
             }
         }
 
+
         let start = index - v.len();
 
         let mut taken = 0;
         let mut slices = Vec::with_capacity(v.len() + 1);
 
-        let mut offset: usize = self.header.sizes.iter().take(start).sum();
+        let mut offset: usize;
+        if start == 0 {
+            offset = 0;
+        }
+        else {
+            offset = self.header.sizes.iter().take(start - 1).sum();
+        }
         for (ix, shared) in v.iter().rev().enumerate() {
             let have_to_take = shared - taken;
             let cur_offset = offset;
-            offset += self.header.sizes[start + ix];
+
+            if !(ix == 0 && start == 0) {
+                // the head slice does not contribute to the offset
+                offset += self.header.sizes[start + ix - 1];
+            }
+
             if have_to_take == 0 {
                 continue;
             }
-            let slice = self.data.slice(cur_offset..cur_offset + have_to_take);
+
+            let slice;
+            if ix == 0 && start == 0 {
+                // the slice has to come out of the header
+                slice = self.header.head.slice(..have_to_take);
+            }
+            else {
+                slice = self.data.slice(cur_offset..cur_offset + have_to_take);
+            }
             slices.push(slice);
             taken += have_to_take;
         }
 
-        let suffix_size = self.header.sizes[index];
+        let suffix_size = self.header.sizes[index-1];
         slices.push(self.data.slice(offset..offset + suffix_size));
 
         TfcDictEntry::new_optimized(slices)
@@ -445,11 +467,15 @@ impl TfcBlock {
 fn build_block_unchecked<B: BufMut>(buf: &mut B, slices: &[&[u8]]) {
     let slices_len = slices.len();
     debug_assert!(slices_len <= BLOCK_SIZE && slices_len != 0);
-    buf.put_u8(slices_len as u8);
 
     let first = slices[0];
     let (vbyte, vbyte_len) = encode_array(first.len() as u64);
+
+    // write the head first
     buf.put_slice(&vbyte[..vbyte_len]);
+    buf.put_slice(slices[0]);
+
+    buf.put_u8(slices_len as u8);
 
     let mut last = first;
 
@@ -468,7 +494,8 @@ fn build_block_unchecked<B: BufMut>(buf: &mut B, slices: &[&[u8]]) {
         last = cur;
     }
 
-    for suffix in suffixes {
+    // write the rest of the slices
+    for suffix in suffixes.into_iter().skip(1) {
         buf.put_slice(suffix);
     }
 }
@@ -494,15 +521,16 @@ mod tests {
         let block = build_incomplete_block(&strings);
 
         let expected_header = TfcBlockHeader {
+            head: Bytes::copy_from_slice(b"aaaaaa"),
             num_entries: 5,
-            buffer_length: 17,
-            sizes: [6, 2, 4, 3, 2, 0, 0, 0],
+            buffer_length: 11,
+            sizes: [2, 4, 3, 2, 0, 0, 0],
             shareds: [2, 0, 1, 2, 0, 0, 0],
         };
 
         assert_eq!(expected_header, block.header);
 
-        let expected_bytes = b"aaaaaabbccccdefff";
+        let expected_bytes = b"bbccccdefff";
         assert_eq!(expected_bytes, &block.data[..]);
     }
 
