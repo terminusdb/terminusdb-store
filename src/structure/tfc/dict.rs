@@ -6,7 +6,7 @@ use itertools::Itertools;
 
 use super::block::*;
 
-fn build_dict_unchecked<'a, B1: BufMut, B2: BufMut, I: Iterator<Item = &'a [u8]>>(
+pub fn build_dict_unchecked<B1: BufMut, B2: BufMut, R: AsRef<[u8]>, I: Iterator<Item = R>>(
     array_buf: &mut B1,
     data_buf: &mut B2,
     iter: I,
@@ -16,8 +16,9 @@ fn build_dict_unchecked<'a, B1: BufMut, B2: BufMut, I: Iterator<Item = &'a [u8]>
 
     let mut offset = 0;
     for chunk in &chunk_iter {
-        let slices: Vec<&[u8]> = chunk.collect();
-        let size = build_block_unchecked(data_buf, &slices);
+        let slices: Vec<R> = chunk.collect();
+        let borrows: Vec<&[u8]> = slices.iter().map(|s| s.as_ref()).collect();
+        let size = build_block_unchecked(data_buf, &borrows);
         offset += size;
         offsets.push(offset as u64);
     }
@@ -129,7 +130,7 @@ impl SizedDict {
             // previous block if the entry was not found in the
             // current block. This is only possible if the block as
             // not the very first one.
-            result.default(self.block_num_elements(found-1) as u64 + offset - 1)
+            result.default(self.block_num_elements(found - 1) as u64 + offset - 1)
         } else {
             result
         }

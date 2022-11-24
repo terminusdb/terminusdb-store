@@ -532,9 +532,7 @@ impl IdLookupResult {
 
     pub fn default(self, default: u64) -> Self {
         match self {
-            Self::NotFound => {
-                Self::Closest(default)
-            }
+            Self::NotFound => Self::Closest(default),
             _ => self,
         }
     }
