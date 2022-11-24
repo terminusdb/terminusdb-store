@@ -43,7 +43,7 @@ impl TfcDict {
         Self { offsets, data }
     }
 
-    pub fn block_bytes(&self, block_index: usize) -> Bytes {
+    fn block_offset(&self, block_index: usize) -> usize {
         let offset: usize;
         if block_index == 0 {
             offset = 0;
@@ -51,6 +51,11 @@ impl TfcDict {
             offset = self.offsets.entry(block_index - 1) as usize;
         }
 
+        offset
+    }
+
+    pub fn block_bytes(&self, block_index: usize) -> Bytes {
+        let offset = self.block_offset(block_index);
         let block_bytes;
         if block_index == self.offsets.len() {
             block_bytes = self.data.slice(offset..);
@@ -70,6 +75,12 @@ impl TfcDict {
     pub fn block_head(&self, block_index: usize) -> Bytes {
         let block_bytes = self.block_bytes(block_index);
         block_head(block_bytes).unwrap()
+    }
+
+    pub fn block_num_elements(&self, block_index: usize) -> u8 {
+        let offset = self.block_offset(block_index);
+
+        self.data[offset]
     }
 
     pub fn num_blocks(&self) -> usize {
@@ -111,13 +122,14 @@ impl TfcDict {
         // we found the block the string should be part of.
         let block = self.block(found);
         let block_id = block.id(slice);
-        let result = block_id.offset((found * BLOCK_SIZE) as u64);
+        let offset = (found * BLOCK_SIZE) as u64;
+        let result = block_id.offset(offset);
         if found != 0 {
             // the default value will fill in the last index of the
             // previous block if the entry was not found in the
             // current block. This is only possible if the block as
             // not the very first one.
-            result.default(found - 1, self.block_bytes(found - 1))
+            result.default(self.block_num_elements(found-1) as u64 + offset - 1)
         } else {
             result
         }

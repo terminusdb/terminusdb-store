@@ -36,13 +36,13 @@ impl From<vbyte::DecodeError> for TfcError {
 
 impl TfcBlockHeader {
     fn parse(buf: &mut Bytes) -> Result<Self, TfcError> {
+        let num_entries = buf.get_u8();
+
         let mut sizes = [0_usize; BLOCK_SIZE - 1];
         let mut shareds = [0_usize; BLOCK_SIZE - 1];
         let (first_size, _) = vbyte::decode_buf(buf)?;
 
         let head = buf.split_to(first_size as usize);
-
-        let num_entries = buf.get_u8();
 
         for i in 0..(num_entries - 1) as usize {
             let (shared, _) = vbyte::decode_buf(buf)?;
@@ -530,14 +530,10 @@ impl IdLookupResult {
         }
     }
 
-    pub fn default(self, previous_block_num: usize, mut previous_block: Bytes) -> Self {
+    pub fn default(self, default: u64) -> Self {
         match self {
             Self::NotFound => {
-                // we should move num elements to start of block so we don't hae to parse a full header
-                let previous_header = TfcBlockHeader::parse(&mut previous_block).unwrap();
-                let id = previous_header.num_entries as u64 - 1 + previous_block_num as u64;
-
-                Self::Closest(id)
+                Self::Closest(default)
             }
             _ => self,
         }
@@ -549,6 +545,9 @@ pub(crate) fn build_block_unchecked<B: BufMut>(buf: &mut B, slices: &[&[u8]]) ->
     let slices_len = slices.len();
     debug_assert!(slices_len <= BLOCK_SIZE && slices_len != 0);
 
+    buf.put_u8(slices_len as u8);
+    size += 1;
+
     let first = slices[0];
     let (vbyte, vbyte_len) = encode_array(first.len() as u64);
 
@@ -557,13 +556,9 @@ pub(crate) fn build_block_unchecked<B: BufMut>(buf: &mut B, slices: &[&[u8]]) ->
     buf.put_slice(slices[0]);
     size += vbyte_len + slices[0].len();
 
-    buf.put_u8(slices_len as u8);
-    size += 1;
-
     let mut last = first;
 
     let mut suffixes: Vec<&[u8]> = Vec::with_capacity(slices.len());
-    suffixes.push(last);
     for i in 1..slices.len() {
         let cur = slices[i];
         let common_prefix = find_common_prefix(last, cur);
@@ -581,7 +576,7 @@ pub(crate) fn build_block_unchecked<B: BufMut>(buf: &mut B, slices: &[&[u8]]) ->
     }
 
     // write the rest of the slices
-    for suffix in suffixes.into_iter().skip(1) {
+    for suffix in suffixes.into_iter() {
         buf.put_slice(suffix);
         size += suffix.len();
     }
@@ -590,6 +585,7 @@ pub(crate) fn build_block_unchecked<B: BufMut>(buf: &mut B, slices: &[&[u8]]) ->
 }
 
 pub fn block_head(mut block: Bytes) -> Result<Bytes, TfcError> {
+    block.advance(1);
     let (size, _) = vbyte::decode_buf(&mut block)?;
     Ok(block.split_to(size as usize))
 }
