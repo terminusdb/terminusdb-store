@@ -32,12 +32,12 @@ fn build_dict_unchecked<'a, B1: BufMut, B2: BufMut, I: Iterator<Item = &'a [u8]>
     array_builder.finalize();
 }
 
-pub struct TfcDict {
+pub struct SizedDict {
     offsets: LogArray,
     data: Bytes,
 }
 
-impl TfcDict {
+impl SizedDict {
     pub fn from_parts(offsets: Bytes, data: Bytes) -> Self {
         let offsets = LogArray::parse(offsets).unwrap();
         Self { offsets, data }
@@ -67,9 +67,9 @@ impl TfcDict {
         block_bytes
     }
 
-    pub fn block(&self, block_index: usize) -> TfcBlock {
+    pub fn block(&self, block_index: usize) -> SizedDictBlock {
         let mut block_bytes = self.block_bytes(block_index);
-        TfcBlock::parse(&mut block_bytes).unwrap()
+        SizedDictBlock::parse(&mut block_bytes).unwrap()
     }
 
     pub fn block_head(&self, block_index: usize) -> Bytes {
@@ -87,7 +87,7 @@ impl TfcDict {
         self.offsets.len() + 1
     }
 
-    pub fn entry(&self, index: u64) -> TfcDictEntry {
+    pub fn entry(&self, index: u64) -> SizedDictEntry {
         let block = self.block((index / 8) as usize);
         block.entry((index % 8) as usize)
     }
@@ -166,7 +166,7 @@ mod tests {
 
         let array_bytes = array_buf.freeze();
         let data_bytes = data_buf.freeze();
-        let dict = TfcDict::from_parts(array_bytes, data_bytes);
+        let dict = SizedDict::from_parts(array_bytes, data_bytes);
 
         assert_eq!(2, dict.num_blocks());
         assert_eq!(b"aaaaaaaa", &dict.block_head(0)[..]);
@@ -208,7 +208,7 @@ mod tests {
 
         let array_bytes = array_buf.freeze();
         let data_bytes = data_buf.freeze();
-        let dict = TfcDict::from_parts(array_bytes, data_bytes);
+        let dict = SizedDict::from_parts(array_bytes, data_bytes);
 
         for (ix, s) in strings.into_iter().enumerate() {
             assert_eq!(IdLookupResult::Found(ix as u64), dict.id(s));
@@ -240,7 +240,7 @@ mod tests {
 
         let array_bytes = array_buf.freeze();
         let data_bytes = data_buf.freeze();
-        let dict = TfcDict::from_parts(array_bytes, data_bytes);
+        let dict = SizedDict::from_parts(array_bytes, data_bytes);
 
         assert_eq!(IdLookupResult::NotFound, dict.id(b"a"));
         assert_eq!(IdLookupResult::Closest(0), dict.id(b"ab"));

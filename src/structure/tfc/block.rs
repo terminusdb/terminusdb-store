@@ -11,13 +11,13 @@ use crate::structure::{
 pub const BLOCK_SIZE: usize = 8;
 
 #[derive(Debug)]
-pub enum TfcError {
+pub enum SizedDictError {
     InvalidCoding,
     NotEnoughData,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct TfcBlockHeader {
+pub struct SizedBlockHeader {
     head: Bytes,
     num_entries: u8,
     buffer_length: usize,
@@ -25,7 +25,7 @@ pub struct TfcBlockHeader {
     shareds: [usize; BLOCK_SIZE - 1],
 }
 
-impl From<vbyte::DecodeError> for TfcError {
+impl From<vbyte::DecodeError> for SizedDictError {
     fn from(e: vbyte::DecodeError) -> Self {
         match e {
             vbyte::DecodeError::UnexpectedEndOfBuffer => Self::NotEnoughData,
@@ -34,8 +34,8 @@ impl From<vbyte::DecodeError> for TfcError {
     }
 }
 
-impl TfcBlockHeader {
-    fn parse(buf: &mut Bytes) -> Result<Self, TfcError> {
+impl SizedBlockHeader {
+    fn parse(buf: &mut Bytes) -> Result<Self, SizedDictError> {
         let num_entries = buf.get_u8();
 
         let mut sizes = [0_usize; BLOCK_SIZE - 1];
@@ -65,9 +65,9 @@ impl TfcBlockHeader {
 }
 
 #[derive(Clone, Debug)]
-pub struct TfcDictEntry(Vec<Bytes>);
+pub struct SizedDictEntry(Vec<Bytes>);
 
-impl TfcDictEntry {
+impl SizedDictEntry {
     pub fn new(parts: Vec<Bytes>) -> Self {
         Self(parts)
     }
@@ -101,16 +101,16 @@ impl TfcDictEntry {
         v
     }
 
-    pub fn as_buf(&self) -> TfcEntryBuf {
-        TfcEntryBuf {
+    pub fn as_buf(&self) -> SizedDictEntryBuf {
+        SizedDictEntryBuf {
             entry: self,
             slice_ix: 0,
             pos_in_slice: 0,
         }
     }
 
-    pub fn into_buf(self) -> OwnedTfcEntryBuf {
-        OwnedTfcEntryBuf {
+    pub fn into_buf(self) -> OwnedSizedDictEntryBuf {
+        OwnedSizedDictEntryBuf {
             entry: self,
             slice_ix: 0,
             pos_in_slice: 0,
@@ -176,7 +176,7 @@ impl TfcDictEntry {
     }
 }
 
-impl PartialEq for TfcDictEntry {
+impl PartialEq for SizedDictEntry {
     fn eq(&self, other: &Self) -> bool {
         // unequal length, so can't be equal
         if self.len() != other.len() {
@@ -187,9 +187,9 @@ impl PartialEq for TfcDictEntry {
     }
 }
 
-impl Eq for TfcDictEntry {}
+impl Eq for SizedDictEntry {}
 
-impl Hash for TfcDictEntry {
+impl Hash for SizedDictEntry {
     fn hash<H: Hasher>(&self, state: &mut H) {
         for part in self.0.iter() {
             state.write(part);
@@ -197,7 +197,7 @@ impl Hash for TfcDictEntry {
     }
 }
 
-impl Ord for TfcDictEntry {
+impl Ord for SizedDictEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         // both are empty, so equal
         if self.len() == 0 && other.len() == 0 {
@@ -270,25 +270,25 @@ impl Ord for TfcDictEntry {
     }
 }
 
-impl PartialOrd for TfcDictEntry {
+impl PartialOrd for SizedDictEntry {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
 #[derive(Clone)]
-pub struct TfcEntryBuf<'a> {
-    entry: &'a TfcDictEntry,
+pub struct SizedDictEntryBuf<'a> {
+    entry: &'a SizedDictEntry,
     slice_ix: usize,
     pos_in_slice: usize,
 }
 
-fn calculate_remaining<'a>(entry: &TfcDictEntry, slice_ix: usize, pos_in_slice: usize) -> usize {
+fn calculate_remaining<'a>(entry: &SizedDictEntry, slice_ix: usize, pos_in_slice: usize) -> usize {
     let total: usize = entry.0.iter().skip(slice_ix).map(|s| s.len()).sum();
     total - pos_in_slice
 }
 
-fn calculate_chunk<'a>(entry: &'a TfcDictEntry, slice_ix: usize, pos_in_slice: usize) -> &[u8] {
+fn calculate_chunk<'a>(entry: &'a SizedDictEntry, slice_ix: usize, pos_in_slice: usize) -> &[u8] {
     if slice_ix >= entry.0.len() {
         &[]
     } else {
@@ -298,7 +298,7 @@ fn calculate_chunk<'a>(entry: &'a TfcDictEntry, slice_ix: usize, pos_in_slice: u
 }
 
 fn calculate_advance<'a>(
-    entry: &'a TfcDictEntry,
+    entry: &'a SizedDictEntry,
     slice_ix: &mut usize,
     pos_in_slice: &mut usize,
     mut cnt: usize,
@@ -338,7 +338,7 @@ fn calculate_advance<'a>(
     }
 }
 
-impl<'a> Buf for TfcEntryBuf<'a> {
+impl<'a> Buf for SizedDictEntryBuf<'a> {
     fn remaining(&self) -> usize {
         calculate_remaining(self.entry, self.slice_ix, self.pos_in_slice)
     }
@@ -352,13 +352,13 @@ impl<'a> Buf for TfcEntryBuf<'a> {
     }
 }
 
-pub struct OwnedTfcEntryBuf {
-    entry: TfcDictEntry,
+pub struct OwnedSizedDictEntryBuf {
+    entry: SizedDictEntry,
     slice_ix: usize,
     pos_in_slice: usize,
 }
 
-impl Buf for OwnedTfcEntryBuf {
+impl Buf for OwnedSizedDictEntryBuf {
     fn remaining(&self) -> usize {
         calculate_remaining(&self.entry, self.slice_ix, self.pos_in_slice)
     }
@@ -372,16 +372,16 @@ impl Buf for OwnedTfcEntryBuf {
     }
 }
 
-pub struct TfcBlock {
-    header: TfcBlockHeader,
+pub struct SizedDictBlock {
+    header: SizedBlockHeader,
     data: Bytes,
 }
 
-impl TfcBlock {
-    pub fn parse(bytes: &mut Bytes) -> Result<Self, TfcError> {
-        let header = TfcBlockHeader::parse(bytes)?;
+impl SizedDictBlock {
+    pub fn parse(bytes: &mut Bytes) -> Result<Self, SizedDictError> {
+        let header = SizedBlockHeader::parse(bytes)?;
         if bytes.remaining() < header.buffer_length {
-            return Err(TfcError::NotEnoughData);
+            return Err(SizedDictError::NotEnoughData);
         }
 
         let data = bytes.split_to(header.buffer_length);
@@ -397,9 +397,9 @@ impl TfcBlock {
         self.header.num_entries != BLOCK_SIZE as u8
     }
 
-    pub fn entry(&self, index: usize) -> TfcDictEntry {
+    pub fn entry(&self, index: usize) -> SizedDictEntry {
         if index == 0 {
-            return TfcDictEntry::new(vec![self.header.head.clone()]);
+            return SizedDictEntry::new(vec![self.header.head.clone()]);
         }
 
         let mut v = Vec::with_capacity(7);
@@ -461,7 +461,7 @@ impl TfcBlock {
         let suffix_size = self.header.sizes[index - 1];
         slices.push(self.data.slice(offset..offset + suffix_size));
 
-        TfcDictEntry::new_optimized(slices)
+        SizedDictEntry::new_optimized(slices)
     }
 
     fn suffixes<'a>(&'a self) -> impl Iterator<Item = Bytes> + 'a {
@@ -584,7 +584,7 @@ pub(crate) fn build_block_unchecked<B: BufMut>(buf: &mut B, slices: &[&[u8]]) ->
     size
 }
 
-pub fn block_head(mut block: Bytes) -> Result<Bytes, TfcError> {
+pub fn block_head(mut block: Bytes) -> Result<Bytes, SizedDictError> {
     block.advance(1);
     let (size, _) = vbyte::decode_buf(&mut block)?;
     Ok(block.split_to(size as usize))
@@ -602,10 +602,10 @@ mod tests {
         buf.freeze()
     }
 
-    fn build_block(strings: &[&[u8]]) -> TfcBlock {
+    fn build_block(strings: &[&[u8]]) -> SizedDictBlock {
         let mut bytes = build_block_bytes(strings);
 
-        TfcBlock::parse(&mut bytes).unwrap()
+        SizedDictBlock::parse(&mut bytes).unwrap()
     }
 
     #[test]
@@ -614,7 +614,7 @@ mod tests {
 
         let block = build_block(&strings);
 
-        let expected_header = TfcBlockHeader {
+        let expected_header = SizedBlockHeader {
             head: Bytes::copy_from_slice(b"aaaaaa"),
             num_entries: 5,
             buffer_length: 11,
