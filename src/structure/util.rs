@@ -1,6 +1,7 @@
 use futures::io::Result;
 use futures::stream::{Peekable, Stream, StreamExt};
 use futures::task::{Context, Poll};
+use std::cmp::Ordering;
 use std::marker::Unpin;
 use std::pin::Pin;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
@@ -16,6 +17,20 @@ pub fn find_common_prefix(b1: &[u8], b2: &[u8]) -> usize {
     }
 
     common
+}
+
+pub fn find_common_prefix_ord(b1: &[u8], b2: &[u8]) -> (usize, Ordering) {
+    let common_prefix = find_common_prefix(b1, b2);
+
+    if common_prefix == b1.len() && b1.len() == b2.len() {
+        (common_prefix, Ordering::Equal)
+    } else if b1.len() == common_prefix {
+        (common_prefix, Ordering::Less)
+    } else if b2.len() == common_prefix {
+        (common_prefix, Ordering::Greater)
+    } else {
+        (common_prefix, b1[common_prefix].cmp(&b2[common_prefix]))
+    }
 }
 
 pub async fn write_nul_terminated_bytes<W: AsyncWrite + Unpin>(

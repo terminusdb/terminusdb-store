@@ -8,6 +8,8 @@ use crate::structure::{
     vbyte::{self, encode_array},
 };
 
+use super::util::find_common_prefix_ord;
+
 const BLOCK_SIZE: usize = 8;
 
 #[derive(Debug)]
@@ -419,7 +421,6 @@ impl TfcBlock {
             }
         }
 
-
         let start = index - v.len();
 
         let mut taken = 0;
@@ -428,8 +429,7 @@ impl TfcBlock {
         let mut offset: usize;
         if start == 0 {
             offset = 0;
-        }
-        else {
+        } else {
             offset = self.header.sizes.iter().take(start - 1).sum();
         }
         for (ix, shared) in v.iter().rev().enumerate() {
@@ -449,19 +449,74 @@ impl TfcBlock {
             if ix == 0 && start == 0 {
                 // the slice has to come out of the header
                 slice = self.header.head.slice(..have_to_take);
-            }
-            else {
+            } else {
                 slice = self.data.slice(cur_offset..cur_offset + have_to_take);
             }
             slices.push(slice);
             taken += have_to_take;
         }
 
-        let suffix_size = self.header.sizes[index-1];
+        let suffix_size = self.header.sizes[index - 1];
         slices.push(self.data.slice(offset..offset + suffix_size));
 
         TfcDictEntry::new_optimized(slices)
     }
+
+    fn suffixes<'a>(&'a self) -> impl Iterator<Item = Bytes> + 'a {
+        let head = Some(self.header.head.clone());
+        let mut offset = 0;
+        let tail = self.header.sizes.iter().map(move |s| {
+            let slice = self.data.slice(offset..*s + offset);
+            offset += s;
+
+            slice
+        });
+
+        head.into_iter().chain(tail)
+    }
+
+    pub fn id(&self, slice: &[u8]) -> IdLookupResult {
+        let (mut common_prefix, ordering) = find_common_prefix_ord(slice, &self.header.head);
+        match ordering {
+            Ordering::Equal => return IdLookupResult::Found(0),
+            Ordering::Less => return IdLookupResult::NotFound,
+            // We have to traverse the block
+            Ordering::Greater => {}
+        }
+
+        for (ix, (shared, suffix)) in self
+            .header
+            .shareds
+            .iter()
+            .zip(self.suffixes().skip(1))
+            .enumerate()
+        {
+            if *shared < common_prefix {
+                return IdLookupResult::Closest(ix as u64);
+            } else if *shared > common_prefix {
+                continue;
+            }
+
+            let (new_common_prefix, ordering) =
+                find_common_prefix_ord(&slice[common_prefix..], &suffix[..]);
+            match ordering {
+                Ordering::Equal => return IdLookupResult::Found(ix as u64 + 1),
+                Ordering::Less => return IdLookupResult::Closest(ix as u64),
+                Ordering::Greater => {
+                    common_prefix += new_common_prefix;
+                }
+            }
+        }
+
+        IdLookupResult::Closest(self.header.num_entries as u64 - 1)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IdLookupResult {
+    Found(u64),
+    Closest(u64),
+    NotFound,
 }
 
 fn build_block_unchecked<B: BufMut>(buf: &mut B, slices: &[&[u8]]) {
@@ -500,16 +555,25 @@ fn build_block_unchecked<B: BufMut>(buf: &mut B, slices: &[&[u8]]) {
     }
 }
 
+pub fn block_head(mut block: Bytes) -> Result<Bytes, TfcError> {
+    let (size, _) = vbyte::decode_buf(&mut block)?;
+    Ok(block.split_to(size as usize))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use bytes::Buf;
 
-    fn build_incomplete_block(strings: &[&[u8]]) -> TfcBlock {
+    fn build_block_bytes(strings: &[&[u8]]) -> Bytes {
         let mut buf = BytesMut::new();
         build_block_unchecked(&mut buf, &strings);
 
-        let mut bytes: Bytes = buf.freeze();
+        buf.freeze()
+    }
+
+    fn build_block(strings: &[&[u8]]) -> TfcBlock {
+        let mut bytes = build_block_bytes(strings);
 
         TfcBlock::parse(&mut bytes).unwrap()
     }
@@ -518,7 +582,7 @@ mod tests {
     fn build_and_parse_block() {
         let strings: [&[u8]; 5] = [b"aaaaaa", b"aabb", b"cccc", b"cdef", b"cdff"];
 
-        let block = build_incomplete_block(&strings);
+        let block = build_block(&strings);
 
         let expected_header = TfcBlockHeader {
             head: Bytes::copy_from_slice(b"aaaaaa"),
@@ -537,7 +601,7 @@ mod tests {
     #[test]
     fn entry_in_block() {
         let strings: [&[u8]; 5] = [b"aaaaaa", b"aabb", b"cccc", b"cdef", b"cdff"];
-        let block = build_incomplete_block(&strings);
+        let block = build_block(&strings);
 
         for (ix, string) in strings.iter().enumerate() {
             assert_eq!(*string, &block.entry(ix).to_vec()[..]);
@@ -556,7 +620,7 @@ mod tests {
             b"cdffeeee",
             b"ceeeeeeeeeeeeeee",
         ];
-        let block = build_incomplete_block(&strings);
+        let block = build_block(&strings);
 
         for (ix, string) in strings.iter().enumerate() {
             assert_eq!(*string, &block.entry(ix).to_vec()[..]);
@@ -575,7 +639,7 @@ mod tests {
             b"cdffeeee",
             b"ceeeeeeeeeeeeeee",
         ];
-        let block = build_incomplete_block(&strings);
+        let block = build_block(&strings);
 
         for (ix, string) in strings.iter().enumerate() {
             let entry = block.entry(ix);
@@ -598,13 +662,86 @@ mod tests {
             b"cdffeeee",
             b"ceeeeeeeeeeeeeee",
         ];
-        let block = build_incomplete_block(&strings);
+        let block = build_block(&strings);
 
         for (ix, string) in strings.iter().enumerate() {
             let mut buf = block.entry(ix).into_buf();
             let len = buf.remaining();
             let bytes = buf.copy_to_bytes(len);
             assert_eq!(*string, &bytes[..]);
+        }
+    }
+
+    #[test]
+    fn head_from_complete_block() {
+        let strings: [&[u8]; 8] = [
+            b"aaaaaa",
+            b"aabb",
+            b"cccc",
+            b"cdef",
+            b"cdff",
+            b"cdffasdf",
+            b"cdffeeee",
+            b"ceeeeeeeeeeeeeee",
+        ];
+        let block = build_block_bytes(&strings);
+        let head = block_head(block).unwrap();
+
+        assert_eq!(b"aaaaaa", &head[..]);
+    }
+
+    #[test]
+    fn slices_iter() {
+        let strings: [&[u8]; 8] = [
+            b"aaaaaa",
+            b"aabb",
+            b"cccc",
+            b"cdef",
+            b"cdff",
+            b"cdffasdf",
+            b"cdffeeee",
+            b"ceeeeeeeeeeeeeee",
+        ];
+        let block = build_block(&strings);
+
+        let expected_slices: Vec<&[u8]> = vec![
+            b"aaaaaa",
+            b"bb",
+            b"cccc",
+            b"def",
+            b"ff",
+            b"asdf",
+            b"eeee",
+            b"eeeeeeeeeeeeeee",
+        ];
+
+        let expected_bytes: Vec<_> = expected_slices
+            .into_iter()
+            .map(|b| Bytes::from(b))
+            .collect();
+
+        let actual: Vec<_> = block.suffixes().collect();
+
+        assert_eq!(expected_bytes, actual);
+    }
+
+    #[test]
+    fn block_id_lookup() {
+        let strings: [&[u8]; 8] = [
+            b"aaaaaa",
+            b"aabb",
+            b"cccc",
+            b"cdef",
+            b"cdff",
+            b"cdffasdf",
+            b"cdffeeee",
+            b"ceeeeeeeeeeeeeee",
+        ];
+        let block = build_block(&strings);
+
+        for (ix, string) in strings.iter().enumerate() {
+            let index = block.id(string);
+            assert_eq!(IdLookupResult::Found(ix as u64), index);
         }
     }
 }
