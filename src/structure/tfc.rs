@@ -744,4 +744,32 @@ mod tests {
             assert_eq!(IdLookupResult::Found(ix as u64), index);
         }
     }
+
+    #[test]
+    fn block_id_lookup_nonmatches() {
+        let strings: [&[u8]; 8] = [
+            b"aaaaaa",
+            b"aabb",
+            b"cccc",
+            b"cdef",
+            b"cdff",
+            b"cdffasdf",
+            b"cdffeeee",
+            b"ceeeeeeeeeeeeeee",
+        ];
+        let block = build_block(&strings);
+
+        assert_eq!(IdLookupResult::NotFound,
+                   block.id(b"aa"));
+
+        assert_eq!(IdLookupResult::Closest(0),
+                   block.id(b"aaab"));
+
+        assert_eq!(IdLookupResult::Closest(1),
+                   block.id(b"aabba"));
+
+        assert_eq!(IdLookupResult::Closest(7),
+                   block.id(b"f"));
+
+    }
 }
