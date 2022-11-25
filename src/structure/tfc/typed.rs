@@ -1,13 +1,14 @@
-use crate::structure::MonotonicLogArray;
+use crate::structure::{MonotonicLogArray, util::calculate_width, LogArrayBufBuilder};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use rug::Integer;
 use std::marker::PhantomData;
+use itertools::*;
 
 use super::{
     block::IdLookupResult,
     decimal::{decimal_to_storage, storage_to_decimal},
-    dict::{build_dict_unchecked, SizedDict},
+    dict::{build_dict_unchecked, SizedDict, build_offset_logarray},
     integer::{bigint_to_storage, storage_to_bigint},
 };
 
@@ -42,8 +43,9 @@ impl<T: TdbDataType> TypedDictSegment<T> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Datatype {
-    String,
+    String = 0,
     UInt64,
     UInt32,
     Int64,
@@ -232,6 +234,34 @@ pub fn build_segment<B: BufMut, T: TdbDataType, I: Iterator<Item = T>>(
     let slices = iter.map(|val| val.to_lexical());
 
     build_dict_unchecked(offsets, data_buf, slices);
+}
+
+pub fn build_multiple_segments<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut, R: AsRef<[u8]>, I: Iterator<Item=(Datatype, R)>>(used_types: &mut B1, type_offsets: &mut B2, block_offsets: &mut B3, data: &mut B4, iter: I) {
+    let mut types: Vec<(Datatype, u64)> = Vec::new();
+    let mut offsets = Vec::with_capacity(iter.size_hint().0);
+    for (key, group) in iter.group_by(|v|v.0).into_iter() {
+        let start_offset = offsets.len();
+        types.push((key, start_offset as u64));
+        build_dict_unchecked(&mut offsets, data, group.map(|v|v.1));
+    }
+    offsets.pop();
+    build_offset_logarray(block_offsets, offsets);
+
+    let largest = types.last().unwrap();
+
+    let types_width = calculate_width(largest.0 as u64);
+    let type_offsets_width = calculate_width(largest.1);
+
+    let mut types_builder = LogArrayBufBuilder::new(used_types, types_width);
+    let mut type_offsets_builder = LogArrayBufBuilder::new(type_offsets, type_offsets_width);
+    
+    for (t,o) in types {
+        types_builder.push(t as u64);
+        type_offsets_builder.push(o);
+    }
+
+    types_builder.finalize();
+    type_offsets_builder.finalize();
 }
 
 #[cfg(test)]
