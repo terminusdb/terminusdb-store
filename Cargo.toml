@@ -26,6 +26,7 @@ rayon = "1.4"
 thiserror = "1.0"
 async-trait = "0.1"
 itertools = "0.10"
+rug = "1.16"
 
 [dev-dependencies]
 tempfile = "3.1"
