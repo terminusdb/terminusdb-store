@@ -224,19 +224,31 @@ impl TdbDataType for Decimal {
     }
 }
 
-pub fn build_segment<B1: BufMut, B2: BufMut, T: TdbDataType, I: Iterator<Item = T>>(
-    array_buf: &mut B1,
-    data_buf: &mut B2,
+pub fn build_segment<B: BufMut, T: TdbDataType, I: Iterator<Item = T>>(
+    offsets: &mut Vec<u64>,
+    data_buf: &mut B,
     iter: I,
 ) {
     let slices = iter.map(|val| val.to_lexical());
 
-    build_dict_unchecked(array_buf, data_buf, slices);
+    build_dict_unchecked(offsets, data_buf, slices);
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::structure::tfc::dict::build_offset_logarray;
+
     use super::*;
+
+    fn build_segment_and_offsets<B1: BufMut, B2: BufMut, T: TdbDataType, I: Iterator<Item = T>>(
+        array_buf: &mut B1,
+        data_buf: &mut B2,
+        iter: I,
+    ) {
+        let mut offsets = Vec::new();
+        build_segment(&mut offsets, data_buf, iter);
+        build_offset_logarray(array_buf, offsets);
+    }
 
     #[test]
     fn build_and_parse_string_dictionary() {
@@ -263,7 +275,7 @@ mod tests {
         let mut offsets = BytesMut::new();
         let mut data = BytesMut::new();
 
-        build_segment(&mut offsets, &mut data, strings.clone().into_iter());
+        build_segment_and_offsets(&mut offsets, &mut data, strings.clone().into_iter());
 
         let segment = TypedDictSegment::from_parts(offsets.freeze(), data.freeze());
 
@@ -282,7 +294,7 @@ mod tests {
         let mut offsets = BytesMut::new();
         let mut data = BytesMut::new();
 
-        build_segment(&mut offsets, &mut data, nums.clone().into_iter());
+        build_segment_and_offsets(&mut offsets, &mut data, nums.clone().into_iter());
 
         let segment = TypedDictSegment::from_parts(offsets.freeze(), data.freeze());
 

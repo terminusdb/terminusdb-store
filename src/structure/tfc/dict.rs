@@ -6,13 +6,12 @@ use itertools::Itertools;
 
 use super::block::*;
 
-pub fn build_dict_unchecked<B1: BufMut, B2: BufMut, R: AsRef<[u8]>, I: Iterator<Item = R>>(
-    array_buf: &mut B1,
-    data_buf: &mut B2,
+pub fn build_dict_unchecked<B: BufMut, R: AsRef<[u8]>, I: Iterator<Item = R>>(
+    offsets: &mut Vec<u64>,
+    data_buf: &mut B,
     iter: I,
 ) {
     let chunk_iter = iter.chunks(BLOCK_SIZE);
-    let mut offsets = Vec::new();
 
     let mut offset = 0;
     for chunk in &chunk_iter {
@@ -22,12 +21,14 @@ pub fn build_dict_unchecked<B1: BufMut, B2: BufMut, R: AsRef<[u8]>, I: Iterator<
         offset += size;
         offsets.push(offset as u64);
     }
-
+}
+pub fn build_offset_logarray<B: BufMut>(buf: &mut B, mut offsets: Vec<u64>) {
+    // the last offset doesn't matter as it's implied by the total size
     offsets.pop();
 
     let largest_element = offsets.last().cloned().unwrap_or(0);
     let width = calculate_width(largest_element);
-    let mut array_builder = LogArrayBufBuilder::new(array_buf, width);
+    let mut array_builder = LogArrayBufBuilder::new(buf, width);
 
     array_builder.push_vec(offsets);
     array_builder.finalize();
@@ -142,6 +143,12 @@ mod tests {
     use super::*;
     use bytes::BytesMut;
 
+    fn build_dict_and_offsets<B1: BufMut, B2: BufMut, R: AsRef<[u8]>, I: Iterator<Item=R>>(array_buf: &mut B1, data_buf: &mut B2, vals: I) {
+        let mut offsets = Vec::new();
+        build_dict_unchecked(&mut offsets, data_buf, vals);
+        build_offset_logarray(array_buf, offsets);
+    }
+
     #[test]
     fn build_dict_of_two_blocks() {
         let strings: Vec<&[u8]> = vec![
@@ -163,7 +170,7 @@ mod tests {
 
         let mut array_buf = BytesMut::new();
         let mut data_buf = BytesMut::new();
-        build_dict_unchecked(&mut array_buf, &mut data_buf, strings.clone().into_iter());
+        build_dict_and_offsets(&mut array_buf, &mut data_buf, strings.clone().into_iter());
 
         let array_bytes = array_buf.freeze();
         let data_bytes = data_buf.freeze();
@@ -205,7 +212,7 @@ mod tests {
 
         let mut array_buf = BytesMut::new();
         let mut data_buf = BytesMut::new();
-        build_dict_unchecked(&mut array_buf, &mut data_buf, strings.clone().into_iter());
+        build_dict_and_offsets(&mut array_buf, &mut data_buf, strings.clone().into_iter());
 
         let array_bytes = array_buf.freeze();
         let data_bytes = data_buf.freeze();
@@ -237,7 +244,7 @@ mod tests {
 
         let mut array_buf = BytesMut::new();
         let mut data_buf = BytesMut::new();
-        build_dict_unchecked(&mut array_buf, &mut data_buf, strings.clone().into_iter());
+        build_dict_and_offsets(&mut array_buf, &mut data_buf, strings.clone().into_iter());
 
         let array_bytes = array_buf.freeze();
         let data_bytes = data_buf.freeze();
