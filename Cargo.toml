@@ -26,7 +26,7 @@ rayon = "1.4"
 thiserror = "1.0"
 async-trait = "0.1"
 itertools = "0.10"
-rug = "1.16"
+rug = {version="1.16", default-features=false, features=["integer","rational"]}
 
 [dev-dependencies]
 tempfile = "3.1"
