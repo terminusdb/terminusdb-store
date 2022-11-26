@@ -38,7 +38,6 @@ impl TypedDict {
 
         let mut tally: u64 = 0;
         let mut type_id_offsets = Vec::with_capacity(types_present.len() - 1);
-        dbg!(&type_offsets);
         for type_offset in type_offsets.iter() {
             let last_block_len;
             if type_offset == 0 {
@@ -46,17 +45,12 @@ impl TypedDict {
             } else {
                 let last_block_offset_of_previous_type =
                     block_offsets.entry(type_offset as usize - 1);
-                dbg!(last_block_offset_of_previous_type);
                 last_block_len = data[last_block_offset_of_previous_type as usize];
             }
             let gap = BLOCK_SIZE as u8 - last_block_len;
-            dbg!(gap);
             tally += gap as u64;
-            dbg!(tally);
             type_id_offsets.push((type_offset + 1) * 8 - tally);
         }
-
-        dbg!(&type_id_offsets);
 
         Self {
             types_present,
@@ -74,13 +68,11 @@ impl TypedDict {
     }
 
     pub fn get<T: TdbDataType>(&self, id: u64) -> T {
-        eprintln!("id: {id}");
         let (datatype, slice) = self.entry(id);
         datatype.cast(slice.into_buf())
     }
 
     fn inner_type_segment(&self, i: usize) -> (SizedDict, u64) {
-        dbg!(i);
         let type_offset;
         let block_offset;
         let id_offset;
@@ -90,15 +82,12 @@ impl TypedDict {
             id_offset = 0;
         } else {
             type_offset = self.type_offsets.entry(i - 1) as usize;
-            id_offset = dbg!(self.type_id_offsets[i - 1]);
+            id_offset = self.type_id_offsets[i - 1];
             block_offset = self.block_offsets.entry(type_offset as usize) as usize;
         }
-        dbg!(type_offset);
-        dbg!(block_offset);
 
         let len;
         if i == self.types_present.len() - 1 {
-            eprintln!("last type");
             if i == 0 {
                 len = self.block_offsets.len() - type_offset;
             } else {
@@ -112,12 +101,9 @@ impl TypedDict {
                 len = next_offset - type_offset - 1;
             }
         }
-        dbg!(len);
-        dbg!(self.data.len());
 
         let logarray_slice = self.block_offsets.slice(type_offset + 1, len);
         let data_slice = self.data.slice(block_offset..);
-        dbg!(data_slice.len());
 
         (
             SizedDict::from_parts(logarray_slice, data_slice, block_offset as u64),
@@ -135,7 +121,6 @@ impl TypedDict {
 
     pub fn id_slice(&self, dt: Datatype, slice: &[u8]) -> IdLookupResult {
         if let Some((dict, offset)) = self.type_segment(dt) {
-            dbg!(&dict.data);
             let result = dict.id(slice).offset(offset);
 
             if offset != 0 {
@@ -163,11 +148,10 @@ impl TypedDict {
     }
 
     pub fn entry(&self, id: u64) -> (Datatype, SizedDictEntry) {
-        eprintln!("entry(id): {id}");
         let type_index = self.type_index_for_id(id);
 
-        let (dict, offset) = dbg!(self.inner_type_segment(type_index));
-        let dt = dbg!(self.type_for_type_index(type_index));
+        let (dict, offset) = self.inner_type_segment(type_index);
+        let dt = self.type_for_type_index(type_index);
         (dt, dict.entry(id - offset))
     }
 }
@@ -671,7 +655,6 @@ mod tests {
             block_offsets.freeze(),
             data.freeze(),
         );
-        eprintln!("{dict:?}");
 
         let id = dict.id(&"Batty".to_string());
         assert_eq!(IdLookupResult::Found(2), id);
@@ -679,12 +662,11 @@ mod tests {
         assert_eq!(IdLookupResult::Found(7), dict.id(&(-500_i32)));
 
         for i in 1..vec.len() + 1 {
-            eprintln!("!!!!!!!!!!!! {i} {:?}", dict.entry(i as u64));
+            let (t, s) = dict.entry(i as u64);
+            assert_eq!(vec[i - 1], (t, s.0.into_iter().flatten().collect()));
         }
 
         assert_eq!(Decimal("-12342343.2348973".to_string()), dict.get(11));
-
-        panic!();
     }
 
     #[test]
@@ -740,15 +722,30 @@ mod tests {
             block_offsets.freeze(),
             data.freeze(),
         );
-        eprintln!("{dict:?}");
 
         for i in 1..vec.len() + 1 {
-            eprintln!("!!!!!!!!!!!! {i} {:?}", dict.entry(i as u64));
+            let (t, s) = dict.entry(i as u64);
+            assert_eq!(vec[i - 1], (t, s.0.into_iter().flatten().collect()));
         }
 
         assert_eq!("Batman".to_string(), dict.get::<String>(1));
         assert_eq!("fdsa".to_string(), dict.get::<String>(7));
         assert_eq!(26_u32, dict.get::<u32>(14));
         assert_eq!(Decimal("234.8973".to_string()), dict.get(29));
+
+        assert_eq!(IdLookupResult::NotFound, dict.id(&"AAAA".to_string()));
+        assert_eq!(IdLookupResult::Closest(2), dict.id(&"Baz".to_string()));
+        assert_eq!(IdLookupResult::Found(17), dict.id(&3000_u32));
+        assert_eq!(
+            IdLookupResult::Found(23),
+            dict.id(&Decimal("-0.001".to_string()))
+        );
+        assert_eq!(
+            IdLookupResult::Closest(23),
+            dict.id(&Decimal("-0.0001".to_string()))
+        );
+        assert_eq!(IdLookupResult::Found(16), dict.id(&28_u32));
+        assert_eq!(IdLookupResult::Closest(16), dict.id(&29_u32));
+        assert_eq!(IdLookupResult::Closest(17), dict.id(&3001_u32));
     }
 }

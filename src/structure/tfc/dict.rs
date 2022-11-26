@@ -68,19 +68,9 @@ impl SizedDict {
     }
 
     pub fn block_bytes(&self, block_index: usize) -> Bytes {
-        dbg!(block_index);
         let offset = self.block_offset(block_index);
         let block_bytes;
-        dbg!(block_index);
-        dbg!(self.offsets.len());
-        //if block_index == self.offsets.len() {
-        dbg!(offset..);
-        block_bytes = dbg!(self.data.slice(offset..));
-        //} else {
-        //    let end = self.block_offset(block_index+1);
-        //    dbg!(offset..end);
-        //    block_bytes = self.data.slice(offset..end);
-        //}
+        block_bytes = self.data.slice(offset..);
 
         block_bytes
     }

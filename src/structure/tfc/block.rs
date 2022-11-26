@@ -65,7 +65,7 @@ impl SizedBlockHeader {
 }
 
 #[derive(Clone, Debug)]
-pub struct SizedDictEntry(Vec<Bytes>);
+pub struct SizedDictEntry(pub Vec<Bytes>);
 
 impl SizedDictEntry {
     pub fn new(parts: Vec<Bytes>) -> Self {
