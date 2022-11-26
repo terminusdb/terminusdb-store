@@ -1,14 +1,14 @@
-use crate::structure::{MonotonicLogArray, util::calculate_width, LogArrayBufBuilder};
+use crate::structure::{util::calculate_width, LogArrayBufBuilder, MonotonicLogArray};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use itertools::*;
 use rug::Integer;
 use std::marker::PhantomData;
-use itertools::*;
 
 use super::{
     block::IdLookupResult,
     decimal::{decimal_to_storage, storage_to_decimal},
-    dict::{build_dict_unchecked, SizedDict, build_offset_logarray},
+    dict::{build_dict_unchecked, build_offset_logarray, SizedDict},
     integer::{bigint_to_storage, storage_to_bigint},
 };
 
@@ -17,6 +17,17 @@ pub struct TypedDict {
     type_offsets: Option<MonotonicLogArray>,
     data: Bytes,
 }
+/*
+impl TypedDict {
+    pub fn id(&self, slice: &[u8], dt: Datatype) -> IdLookupResult {
+        if let Some(i) = self.types_present.index_of(dt as u64) {
+            let offset = types_offsets[i];
+
+        } else {
+            IdLookupResult::NotFound
+        }
+    }
+}*/
 
 pub struct TypedDictSegment<T: TdbDataType> {
     dict: SizedDict,
@@ -46,10 +57,10 @@ impl<T: TdbDataType> TypedDictSegment<T> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Datatype {
     String = 0,
-    UInt64,
     UInt32,
-    Int64,
     Int32,
+    UInt64,
+    Int64,
     Float32,
     Float64,
     Decimal,
@@ -77,6 +88,42 @@ impl TdbDataType for String {
         let mut vec = vec![0; b.remaining()];
         b.copy_to_slice(&mut vec);
         String::from_utf8(vec).unwrap()
+    }
+}
+
+impl TdbDataType for u32 {
+    fn datatype() -> Datatype {
+        Datatype::UInt64
+    }
+
+    fn to_lexical(&self) -> Bytes {
+        let mut buf = BytesMut::new().writer();
+        buf.write_u32::<BigEndian>(*self).unwrap();
+
+        buf.into_inner().freeze()
+    }
+
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        b.reader().read_u32::<BigEndian>().unwrap()
+    }
+}
+
+const I32_BYTE_MASK: u32 = 0b1000_0000 << (3 * 8);
+impl TdbDataType for i32 {
+    fn datatype() -> Datatype {
+        Datatype::Int32
+    }
+
+    fn to_lexical(&self) -> Bytes {
+        let sign_flip = I32_BYTE_MASK ^ (*self as u32);
+        let mut buf = BytesMut::new().writer();
+        buf.write_u32::<BigEndian>(sign_flip).unwrap();
+        buf.into_inner().freeze()
+    }
+
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        let i = b.reader().read_u32::<BigEndian>().unwrap();
+        (I32_BYTE_MASK ^ i) as i32
     }
 }
 
@@ -113,25 +160,6 @@ impl TdbDataType for i64 {
     fn from_lexical<B: Buf>(b: B) -> Self {
         let i = b.reader().read_u64::<BigEndian>().unwrap();
         (I64_BYTE_MASK ^ i) as i64
-    }
-}
-
-const I32_BYTE_MASK: u32 = 0b1000_0000 << (3 * 8);
-impl TdbDataType for i32 {
-    fn datatype() -> Datatype {
-        Datatype::Int32
-    }
-
-    fn to_lexical(&self) -> Bytes {
-        let sign_flip = I32_BYTE_MASK ^ (*self as u32);
-        let mut buf = BytesMut::new().writer();
-        buf.write_u32::<BigEndian>(sign_flip).unwrap();
-        buf.into_inner().freeze()
-    }
-
-    fn from_lexical<B: Buf>(b: B) -> Self {
-        let i = b.reader().read_u32::<BigEndian>().unwrap();
-        (I32_BYTE_MASK ^ i) as i32
     }
 }
 
@@ -233,20 +261,33 @@ pub fn build_segment<B: BufMut, T: TdbDataType, I: Iterator<Item = T>>(
 ) {
     let slices = iter.map(|val| val.to_lexical());
 
-    build_dict_unchecked(offsets, data_buf, slices);
+    build_dict_unchecked(0, offsets, data_buf, slices);
 }
 
-pub fn build_multiple_segments<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut, R: AsRef<[u8]>, I: Iterator<Item=(Datatype, R)>>(used_types: &mut B1, type_offsets: &mut B2, block_offsets: &mut B3, data: &mut B4, iter: I) {
+pub fn build_multiple_segments<
+    B1: BufMut,
+    B2: BufMut,
+    B3: BufMut,
+    B4: BufMut,
+    R: AsRef<[u8]>,
+    I: Iterator<Item = (Datatype, R)>,
+>(
+    used_types: &mut B1,
+    type_offsets: &mut B2,
+    block_offsets: &mut B3,
+    data: &mut B4,
+    iter: I,
+) {
     let mut types: Vec<(Datatype, u64)> = Vec::new();
     let mut offsets = Vec::with_capacity(iter.size_hint().0);
-    for (key, group) in iter.group_by(|v|v.0).into_iter() {
-        let start_offset = offsets.len();
+    for (key, group) in iter.group_by(|v| v.0).into_iter() {
+        let start_offset = offsets.last().map(|t| *t).unwrap_or(0_u64);
         types.push((key, start_offset as u64));
-        build_dict_unchecked(&mut offsets, data, group.map(|v|v.1));
+        build_dict_unchecked(start_offset, &mut offsets, data, group.map(|v| v.1));
     }
     offsets.pop();
     build_offset_logarray(block_offsets, offsets);
-
+    eprintln!("types: {types:?}");
     let largest = types.last().unwrap();
 
     let types_width = calculate_width(largest.0 as u64);
@@ -254,8 +295,8 @@ pub fn build_multiple_segments<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut, R
 
     let mut types_builder = LogArrayBufBuilder::new(used_types, types_width);
     let mut type_offsets_builder = LogArrayBufBuilder::new(type_offsets, type_offsets_width);
-    
-    for (t,o) in types {
+
+    for (t, o) in types {
         types_builder.push(t as u64);
         type_offsets_builder.push(o);
     }
@@ -266,7 +307,7 @@ pub fn build_multiple_segments<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut, R
 
 #[cfg(test)]
 mod tests {
-    use crate::structure::tfc::dict::build_offset_logarray;
+    use crate::structure::{tfc::dict::build_offset_logarray, LogArray};
 
     use super::*;
 
@@ -424,5 +465,56 @@ mod tests {
         cycle(Decimal("234239847938724.23423421".to_string()));
         cycle(Decimal("983423984793872423423423432312698".to_string()));
         cycle(Decimal("-983423984793872423423423432312698".to_string()));
+    }
+
+    fn make_entry<T: TdbDataType>(t: T) -> (Datatype, Bytes) {
+        (T::datatype(), t.to_lexical())
+    }
+
+    #[test]
+    fn test_multi_segment() {
+        let mut vec: Vec<(Datatype, Bytes)> = vec![
+            make_entry(Decimal("-1".to_string())),
+            make_entry("asdf".to_string()),
+            make_entry(Decimal("-12342343.2348973".to_string())),
+            make_entry("Batty".to_string()),
+            make_entry("Batman".to_string()),
+            make_entry(-3_i64),
+            make_entry(Decimal("2348973".to_string())),
+            make_entry(4.389832_f32),
+            make_entry("apple".to_string()),
+            make_entry(23434.389832_f32),
+            make_entry("apply".to_string()),
+            make_entry(-500_i32),
+            make_entry(20_u32),
+        ];
+        vec.sort();
+        let mut used_types = Vec::new();
+        let mut type_offsets = Vec::new();
+        let mut block_offsets = Vec::new();
+        let mut data = BytesMut::new();
+        build_multiple_segments(
+            &mut used_types,
+            &mut type_offsets,
+            &mut block_offsets,
+            &mut data,
+            vec.clone().into_iter(),
+        );
+        eprintln!("used_types : {used_types:?}");
+        eprintln!("type_offsets : {type_offsets:?}");
+        eprintln!("block_offsets : {block_offsets:?}");
+        eprintln!("data : {data:?}");
+
+        let used_types_vec: Vec<u64> = LogArray::parse(Bytes::from(used_types))
+            .unwrap()
+            .iter()
+            .collect();
+
+        let expected_types_vec: Vec<u64> = vec.iter().map(|x| x.0 as u64).dedup().collect();
+        assert_eq!(used_types_vec, expected_types_vec);
+
+        eprintln!("expected_types_vec: {expected_types_vec:?}");
+
+        panic!();
     }
 }

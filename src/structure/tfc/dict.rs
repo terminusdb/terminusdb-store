@@ -7,19 +7,20 @@ use itertools::Itertools;
 use super::block::*;
 
 pub fn build_dict_unchecked<B: BufMut, R: AsRef<[u8]>, I: Iterator<Item = R>>(
+    start_offset: u64,
     offsets: &mut Vec<u64>,
     data_buf: &mut B,
     iter: I,
 ) {
     let chunk_iter = iter.chunks(BLOCK_SIZE);
 
-    let mut offset = 0;
+    let mut offset = start_offset;
     for chunk in &chunk_iter {
         let slices: Vec<R> = chunk.collect();
         let borrows: Vec<&[u8]> = slices.iter().map(|s| s.as_ref()).collect();
         let size = build_block_unchecked(data_buf, &borrows);
-        offset += size;
-        offsets.push(offset as u64);
+        offset += size as u64;
+        offsets.push(offset);
     }
 }
 pub fn build_offset_logarray<B: BufMut>(buf: &mut B, mut offsets: Vec<u64>) {
@@ -143,9 +144,13 @@ mod tests {
     use super::*;
     use bytes::BytesMut;
 
-    fn build_dict_and_offsets<B1: BufMut, B2: BufMut, R: AsRef<[u8]>, I: Iterator<Item=R>>(array_buf: &mut B1, data_buf: &mut B2, vals: I) {
+    fn build_dict_and_offsets<B1: BufMut, B2: BufMut, R: AsRef<[u8]>, I: Iterator<Item = R>>(
+        array_buf: &mut B1,
+        data_buf: &mut B2,
+        vals: I,
+    ) {
         let mut offsets = Vec::new();
-        build_dict_unchecked(&mut offsets, data_buf, vals);
+        build_dict_unchecked(0, &mut offsets, data_buf, vals);
         build_offset_logarray(array_buf, offsets);
     }
 
