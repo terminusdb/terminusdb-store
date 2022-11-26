@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use crate::structure::{util::calculate_width, LogArray, LogArrayBufBuilder};
+use crate::structure::{util::calculate_width, LogArrayBufBuilder, MonotonicLogArray};
 use bytes::{BufMut, Bytes};
 use itertools::Itertools;
 
@@ -35,15 +35,21 @@ pub fn build_offset_logarray<B: BufMut>(buf: &mut B, mut offsets: Vec<u64>) {
     array_builder.finalize();
 }
 
+#[derive(Debug)]
 pub struct SizedDict {
-    offsets: LogArray,
-    data: Bytes,
+    offsets: MonotonicLogArray,
+    pub(crate) data: Bytes,
+    dict_offset: u64,
 }
 
 impl SizedDict {
-    pub fn from_parts(offsets: Bytes, data: Bytes) -> Self {
-        let offsets = LogArray::parse(offsets).unwrap();
-        Self { offsets, data }
+    pub fn parse(offsets: Bytes, data: Bytes, dict_offset: u64) -> Self {
+        let offsets = MonotonicLogArray::parse(offsets).unwrap();
+        Self::from_parts(offsets, data, dict_offset)
+    }
+
+    pub fn from_parts(offsets: MonotonicLogArray, data: Bytes, dict_offset: u64) -> Self {
+        Self { offsets, data, dict_offset }
     }
 
     fn block_offset(&self, block_index: usize) -> usize {
@@ -51,21 +57,26 @@ impl SizedDict {
         if block_index == 0 {
             offset = 0;
         } else {
-            offset = self.offsets.entry(block_index - 1) as usize;
+            offset = (self.offsets.entry(block_index - 1) - self.dict_offset) as usize;
         }
 
         offset
     }
 
     pub fn block_bytes(&self, block_index: usize) -> Bytes {
+        dbg!(block_index);
         let offset = self.block_offset(block_index);
         let block_bytes;
-        if block_index == self.offsets.len() {
+        dbg!(block_index);
+        dbg!(self.offsets.len());
+        //if block_index == self.offsets.len() {
+            dbg!(offset..);
             block_bytes = self.data.slice(offset..);
-        } else {
-            let end = self.offsets.entry(block_index) as usize;
-            block_bytes = self.data.slice(offset..end);
-        }
+        //} else {
+        //    let end = self.block_offset(block_index+1);
+        //    dbg!(offset..end);
+        //    block_bytes = self.data.slice(offset..end);
+        //}
 
         block_bytes
     }
@@ -91,8 +102,8 @@ impl SizedDict {
     }
 
     pub fn entry(&self, index: u64) -> SizedDictEntry {
-        let block = self.block((index / 8) as usize);
-        block.entry((index % 8) as usize)
+        let block = self.block(((index - 1) / 8) as usize);
+        block.entry(((index-1) % 8) as usize)
     }
 
     pub fn id(&self, slice: &[u8]) -> IdLookupResult {
@@ -116,7 +127,7 @@ impl SizedDict {
                     max = mid - 1;
                 }
                 Ordering::Greater => min = mid + 1,
-                Ordering::Equal => return IdLookupResult::Found((mid * BLOCK_SIZE) as u64), // what luck! turns out the string we were looking for was the block head
+                Ordering::Equal => return IdLookupResult::Found((mid * BLOCK_SIZE + 1) as u64), // what luck! turns out the string we were looking for was the block head
             }
         }
 
@@ -125,8 +136,9 @@ impl SizedDict {
         // we found the block the string should be part of.
         let block = self.block(found);
         let block_id = block.id(slice);
-        let offset = (found * BLOCK_SIZE) as u64;
-        let result = block_id.offset(offset);
+        let offset = (found * BLOCK_SIZE) as u64 + 1;
+        let result = block_id.offset(offset).default(offset-1);
+        /*
         if found != 0 {
             // the default value will fill in the last index of the
             // previous block if the entry was not found in the
@@ -136,6 +148,9 @@ impl SizedDict {
         } else {
             result
         }
+         */
+
+        result
     }
 }
 
@@ -179,7 +194,7 @@ mod tests {
 
         let array_bytes = array_buf.freeze();
         let data_bytes = data_buf.freeze();
-        let dict = SizedDict::from_parts(array_bytes, data_bytes);
+        let dict = SizedDict::parse(array_bytes, data_bytes, 0);
 
         assert_eq!(2, dict.num_blocks());
         assert_eq!(b"aaaaaaaa", &dict.block_head(0)[..]);
@@ -192,7 +207,7 @@ mod tests {
         assert_eq!(6, block1.num_entries());
 
         for (ix, s) in strings.into_iter().enumerate() {
-            assert_eq!(s, &dict.entry(ix as u64).to_bytes()[..]);
+            assert_eq!(s, &dict.entry((ix+1) as u64).to_bytes()[..]);
         }
     }
 
@@ -221,10 +236,10 @@ mod tests {
 
         let array_bytes = array_buf.freeze();
         let data_bytes = data_buf.freeze();
-        let dict = SizedDict::from_parts(array_bytes, data_bytes);
+        let dict = SizedDict::parse(array_bytes, data_bytes, 0);
 
         for (ix, s) in strings.into_iter().enumerate() {
-            assert_eq!(IdLookupResult::Found(ix as u64), dict.id(s));
+            assert_eq!(IdLookupResult::Found((ix+1) as u64), dict.id(s));
         }
     }
 
@@ -253,12 +268,12 @@ mod tests {
 
         let array_bytes = array_buf.freeze();
         let data_bytes = data_buf.freeze();
-        let dict = SizedDict::from_parts(array_bytes, data_bytes);
+        let dict = SizedDict::parse(array_bytes, data_bytes, 0);
 
         assert_eq!(IdLookupResult::NotFound, dict.id(b"a"));
-        assert_eq!(IdLookupResult::Closest(0), dict.id(b"ab"));
-        assert_eq!(IdLookupResult::Closest(7), dict.id(b"hallo"));
-        assert_eq!(IdLookupResult::Closest(8), dict.id(b"hello!"));
-        assert_eq!(IdLookupResult::Closest(13), dict.id(b"zebra"));
+        assert_eq!(IdLookupResult::Closest(1), dict.id(b"ab"));
+        assert_eq!(IdLookupResult::Closest(8), dict.id(b"hallo"));
+        assert_eq!(IdLookupResult::Closest(9), dict.id(b"hello!"));
+        assert_eq!(IdLookupResult::Closest(14), dict.id(b"zebra"));
     }
 }

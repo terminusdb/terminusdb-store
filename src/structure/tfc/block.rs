@@ -372,6 +372,7 @@ impl Buf for OwnedSizedDictEntryBuf {
     }
 }
 
+#[derive(Debug)]
 pub struct SizedDictBlock {
     header: SizedBlockHeader,
     data: Bytes,

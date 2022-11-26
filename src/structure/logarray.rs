@@ -58,6 +58,8 @@ use std::{cmp::Ordering, convert::TryFrom, error, fmt, io};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::codec::{Decoder, FramedRead};
 
+use itertools::Itertools;
+
 // Static assertion: We expect the system architecture bus width to be >= 32 bits. If it is not,
 // the following line will cause a compiler error. (Ignore the unrelated error message itself.)
 const _: usize = 0 - !(std::mem::size_of::<usize>() >= 32 >> 3) as usize;
@@ -84,6 +86,12 @@ pub struct LogArray {
     ///
     /// Index 0 points to the first byte of the first element. The last word is the control word.
     input_buf: Bytes,
+}
+
+impl std::fmt::Debug for LogArray {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "LogArray([{}])", self.iter().format(", "))
+    }
 }
 
 /// An error that occurred during a log array operation.
@@ -681,6 +689,12 @@ pub async fn logarray_stream_entries<F: 'static + FileLoad>(
 #[derive(Clone)]
 pub struct MonotonicLogArray(LogArray);
 
+impl std::fmt::Debug for MonotonicLogArray {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MonotonicLogArray([{}])", self.iter().format(", "))
+    }
+}
+
 impl MonotonicLogArray {
     pub fn from_logarray(logarray: LogArray) -> MonotonicLogArray {
         if cfg!(debug_assertions) {
@@ -700,6 +714,12 @@ impl MonotonicLogArray {
         }
 
         MonotonicLogArray(logarray)
+    }
+
+    pub fn parse(bytes: Bytes) -> Result<MonotonicLogArray, LogArrayError>  {
+        let logarray = LogArray::parse(bytes)?;
+
+        Ok(Self::from_logarray(logarray))
     }
 
     pub fn len(&self) -> usize {
@@ -749,6 +769,10 @@ impl MonotonicLogArray {
         }
 
         (min + max) / 2 + 1
+    }
+
+    pub fn slice(&self, offset: usize, len: usize) -> MonotonicLogArray {
+        Self(self.0.slice(offset, len))
     }
 }
 
