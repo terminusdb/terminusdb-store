@@ -282,7 +282,8 @@ pub fn build_multiple_segments<
     let mut offsets = Vec::with_capacity(iter.size_hint().0);
     for (key, group) in iter.group_by(|v| v.0).into_iter() {
         let start_offset = offsets.last().map(|t| *t).unwrap_or(0_u64);
-        types.push((key, start_offset as u64));
+        let start_type_offset = offsets.len();
+        types.push((key, start_type_offset as u64));
         build_dict_unchecked(start_offset, &mut offsets, data, group.map(|v| v.1));
     }
     offsets.pop();
