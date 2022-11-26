@@ -49,7 +49,11 @@ impl SizedDict {
     }
 
     pub fn from_parts(offsets: MonotonicLogArray, data: Bytes, dict_offset: u64) -> Self {
-        Self { offsets, data, dict_offset }
+        Self {
+            offsets,
+            data,
+            dict_offset,
+        }
     }
 
     fn block_offset(&self, block_index: usize) -> usize {
@@ -70,8 +74,8 @@ impl SizedDict {
         dbg!(block_index);
         dbg!(self.offsets.len());
         //if block_index == self.offsets.len() {
-            dbg!(offset..);
-            block_bytes = self.data.slice(offset..);
+        dbg!(offset..);
+        block_bytes = dbg!(self.data.slice(offset..));
         //} else {
         //    let end = self.block_offset(block_index+1);
         //    dbg!(offset..end);
@@ -103,7 +107,7 @@ impl SizedDict {
 
     pub fn entry(&self, index: u64) -> SizedDictEntry {
         let block = self.block(((index - 1) / 8) as usize);
-        block.entry(((index-1) % 8) as usize)
+        block.entry(((index - 1) % 8) as usize)
     }
 
     pub fn id(&self, slice: &[u8]) -> IdLookupResult {
@@ -137,7 +141,7 @@ impl SizedDict {
         let block = self.block(found);
         let block_id = block.id(slice);
         let offset = (found * BLOCK_SIZE) as u64 + 1;
-        let result = block_id.offset(offset).default(offset-1);
+        let result = block_id.offset(offset).default(offset - 1);
         /*
         if found != 0 {
             // the default value will fill in the last index of the
@@ -207,7 +211,7 @@ mod tests {
         assert_eq!(6, block1.num_entries());
 
         for (ix, s) in strings.into_iter().enumerate() {
-            assert_eq!(s, &dict.entry((ix+1) as u64).to_bytes()[..]);
+            assert_eq!(s, &dict.entry((ix + 1) as u64).to_bytes()[..]);
         }
     }
 
@@ -239,7 +243,7 @@ mod tests {
         let dict = SizedDict::parse(array_bytes, data_bytes, 0);
 
         for (ix, s) in strings.into_iter().enumerate() {
-            assert_eq!(IdLookupResult::Found((ix+1) as u64), dict.id(s));
+            assert_eq!(IdLookupResult::Found((ix + 1) as u64), dict.id(s));
         }
     }
 
