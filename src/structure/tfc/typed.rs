@@ -366,7 +366,7 @@ impl TdbDataType for f64 {
 
 impl TdbDataType for Integer {
     fn datatype() -> Datatype {
-        Datatype::Float64
+        Datatype::BigInt
     }
 
     fn to_lexical(&self) -> Bytes {
@@ -644,10 +644,6 @@ mod tests {
             &mut data,
             vec.clone().into_iter(),
         );
-        eprintln!("used_types : {used_types:?}");
-        eprintln!("type_offsets : {type_offsets:?}");
-        eprintln!("block_offsets : {block_offsets:?}");
-        eprintln!("data : {data:?}");
 
         let dict = TypedDict::from_parts(
             used_types.freeze(),
@@ -702,6 +698,7 @@ mod tests {
             Decimal("0".to_string()).make_entry(),
             4.389832_f32.make_entry(),
             23434.389832_f32.make_entry(),
+            int("239487329872343987").make_entry(),
         ];
         vec.sort();
         let mut used_types = BytesMut::new();
@@ -735,7 +732,9 @@ mod tests {
 
         assert_eq!(IdLookupResult::NotFound, dict.id(&"AAAA".to_string()));
         assert_eq!(IdLookupResult::Closest(2), dict.id(&"Baz".to_string()));
+
         assert_eq!(IdLookupResult::Found(17), dict.id(&3000_u32));
+
         assert_eq!(
             IdLookupResult::Found(23),
             dict.id(&Decimal("-0.001".to_string()))
@@ -744,8 +743,21 @@ mod tests {
             IdLookupResult::Closest(23),
             dict.id(&Decimal("-0.0001".to_string()))
         );
+
         assert_eq!(IdLookupResult::Found(16), dict.id(&28_u32));
         assert_eq!(IdLookupResult::Closest(16), dict.id(&29_u32));
         assert_eq!(IdLookupResult::Closest(17), dict.id(&3001_u32));
+
+        assert_eq!(IdLookupResult::Closest(17), dict.id(&3001_u32));
+
+        assert_eq!(IdLookupResult::Closest(30), dict.id(&int("0")));
+        assert_eq!(
+            IdLookupResult::Found(31),
+            dict.id(&int("239487329872343987"))
+        );
+        assert_eq!(
+            IdLookupResult::Closest(31),
+            dict.id(&int("99999999999999999999999999"))
+        );
     }
 }
