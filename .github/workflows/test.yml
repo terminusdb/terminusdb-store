@@ -26,6 +26,12 @@ jobs:
     - name: Build and run tests
       run: cargo test --verbose
 
+    - uses: actions-rs/clippy-check@v1
+      continue-on-error: true
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        args: --all-features
+
     - name: Check code format
       if: matrix.os == 'ubuntu-latest' # No need to do this on every OS.
       run: cargo fmt -- --check
