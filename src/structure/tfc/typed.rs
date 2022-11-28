@@ -22,6 +22,7 @@ pub struct TypedDict {
     type_offsets: MonotonicLogArray,
     block_offsets: MonotonicLogArray,
     type_id_offsets: Vec<u64>,
+    num_entries: usize,
     data: Bytes,
 }
 
@@ -52,11 +53,16 @@ impl TypedDict {
             type_id_offsets.push((type_offset + 1) * 8 - tally);
         }
 
+        let last_gap =
+            BLOCK_SIZE - data[block_offsets.entry(block_offsets.len() - 1) as usize] as usize;
+        let num_entries = (block_offsets.len() + 1) * BLOCK_SIZE - tally as usize - last_gap;
+
         Self {
             types_present,
             type_offsets,
             block_offsets,
             type_id_offsets,
+            num_entries,
             data,
         }
     }
@@ -153,6 +159,10 @@ impl TypedDict {
         let (dict, offset) = self.inner_type_segment(type_index);
         let dt = self.type_for_type_index(type_index);
         (dt, dict.entry(id - offset))
+    }
+
+    pub fn num_entries(&self) -> usize {
+        self.num_entries
     }
 }
 
@@ -652,6 +662,8 @@ mod tests {
             data.freeze(),
         );
 
+        assert_eq!(13, dict.num_entries());
+
         let id = dict.id(&"Batty".to_string());
         assert_eq!(IdLookupResult::Found(2), id);
         assert_eq!(IdLookupResult::Found(6), dict.id(&20_u32));
@@ -719,6 +731,8 @@ mod tests {
             block_offsets.freeze(),
             data.freeze(),
         );
+
+        assert_eq!(31, dict.num_entries());
 
         for i in 1..vec.len() + 1 {
             let (t, s) = dict.entry(i as u64);

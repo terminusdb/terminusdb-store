@@ -716,7 +716,7 @@ impl MonotonicLogArray {
         MonotonicLogArray(logarray)
     }
 
-    pub fn parse(bytes: Bytes) -> Result<MonotonicLogArray, LogArrayError>  {
+    pub fn parse(bytes: Bytes) -> Result<MonotonicLogArray, LogArrayError> {
         let logarray = LogArray::parse(bytes)?;
 
         Ok(Self::from_logarray(logarray))
