@@ -571,8 +571,10 @@ impl<'a> Iterator for SizedBlockIterator<'a> {
 
             Some(SizedDictEntry::new(last.clone()))
         } else {
-            let result = vec![self.header.head.clone()];
-            self.last = Some(result.clone());
+            let mut last = Vec::with_capacity(BLOCK_SIZE);
+            last.push(self.header.head.clone());
+            let result = last.clone();
+            self.last = Some(last);
             Some(SizedDictEntry::new(result))
         }
     }
