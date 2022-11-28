@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::{cmp::Ordering, borrow::Cow};
 
 use crate::structure::{util::calculate_width, LogArrayBufBuilder, MonotonicLogArray};
 use bytes::{BufMut, Bytes};
@@ -35,7 +35,7 @@ pub fn build_offset_logarray<B: BufMut>(buf: &mut B, mut offsets: Vec<u64>) {
     array_builder.finalize();
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SizedDict {
     offsets: MonotonicLogArray,
     pub(crate) data: Bytes,
@@ -146,7 +146,85 @@ impl SizedDict {
 
         result
     }
+
+    pub fn block_iter<'a>(&'a self) -> SizedDictBlockIterator<'a> {
+        SizedDictBlockIterator {
+            dict: Cow::Borrowed(self),
+            index: 0
+        }
+    }
+
+    pub fn into_block_iter(self) -> OwnedSizedDictBlockIterator {
+        SizedDictBlockIterator {
+            dict: Cow::Owned(self),
+            index: 0
+        }
+    }
+
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item=SizedDictEntry>+'a+Clone {
+        self.block_iter()
+            .flat_map(|b|b.into_iter())
+    }
+
+    pub fn into_iter(self) -> impl Iterator<Item=SizedDictEntry>+Clone {
+        self.into_block_iter()
+            .flat_map(|b|b.into_iter())
+    }
 }
+
+type OwnedSizedDictBlockIterator = SizedDictBlockIterator<'static>;
+
+#[derive(Clone)]
+pub struct SizedDictBlockIterator<'a> {
+    dict: Cow<'a, SizedDict>,
+    index: usize,
+}
+
+impl<'a> Iterator for SizedDictBlockIterator<'a> {
+    type Item = SizedDictBlock;
+
+    fn next(&mut self) -> Option<SizedDictBlock> {
+        if self.index >= self.dict.num_blocks() {
+            return None;
+        }
+
+        let block = self.dict.block(self.index);
+        self.index += 1;
+
+        Some(block)
+    }
+}
+
+/*
+pub struct SizedDictIterator<'a> {
+    dict: SizedDictBlockIterator<'a>,
+    block: Option<SizedBlockIterator<'a>>,
+}
+
+impl<'a> Iterator for SizedDictIterator<'a> {
+    type Item = SizedDictEntry;
+
+    fn next(&mut self) -> Option<SizedDictEntry> {
+        if let Some(entry) = self.block.as_ref().and_then(|b|b.next()) {
+            Some(entry)
+        }
+        else {
+            let next_block = self.dict.next();
+            if next_block.is_none() {
+                return None;
+            }
+            let next_block = next_block.unwrap();
+            let next_block_iter = next_block.iter();
+
+            let result = next_block_iter.next();
+
+            self.block = Some(next_block_iter);
+
+            result
+        }
+    }
+}
+*/
 
 #[cfg(test)]
 mod tests {

@@ -7,16 +7,16 @@ use itertools::*;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 use rug::Integer;
-use std::marker::PhantomData;
+use std::{marker::PhantomData, borrow::Cow};
 
 use super::{
-    block::{IdLookupResult, SizedDictEntry},
+    block::{IdLookupResult, SizedDictEntry, SizedDictBlock},
     decimal::{decimal_to_storage, storage_to_decimal},
     dict::{build_dict_unchecked, build_offset_logarray, SizedDict},
     integer::{bigint_to_storage, storage_to_bigint},
 };
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TypedDict {
     types_present: MonotonicLogArray,
     type_offsets: MonotonicLogArray,
@@ -164,7 +164,70 @@ impl TypedDict {
     pub fn num_entries(&self) -> usize {
         self.num_entries
     }
+
+    pub fn segment_iter<'a>(&'a self) -> DictSegmentIterator<'a> {
+        DictSegmentIterator {
+            dict: Cow::Borrowed(&self),
+            type_index: 0
+        }
+    }
+
+    pub fn into_segment_iter(self) -> OwnedDictSegmentIterator {
+        DictSegmentIterator {
+            dict: Cow::Owned(self),
+            type_index: 0
+        }
+    }
+
+    pub fn block_iter<'a>(&'a self) -> impl Iterator<Item=(Datatype, SizedDictBlock)>+'a+Clone {
+        self.segment_iter()
+            .flat_map(|(datatype, segment)| segment.into_block_iter()
+                .map(move |block| (datatype, block)))
+    }
+
+    pub fn into_block_iter(self) -> impl Iterator<Item=(Datatype, SizedDictBlock)>+Clone {
+        self.into_segment_iter()
+            .flat_map(|(datatype, segment)| segment.into_block_iter()
+                .map(move |block| (datatype, block)))
+    }
+
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item=(Datatype, SizedDictEntry)>+'a+Clone {
+        self.block_iter()
+            .flat_map(|(datatype, segment)| segment.into_iter()
+                .map(move |entry| (datatype, entry)))
+    }
+
+    pub fn into_iter(self) -> impl Iterator<Item=(Datatype, SizedDictEntry)>+Clone {
+        self.into_block_iter()
+            .flat_map(|(datatype, segment)| segment.into_iter()
+                .map(move |entry| (datatype, entry)))
+    }
 }
+
+type OwnedDictSegmentIterator = DictSegmentIterator<'static>;
+
+#[derive(Clone)]
+pub struct DictSegmentIterator<'a> {
+    dict: Cow<'a, TypedDict>,
+    type_index: usize,
+}
+
+impl<'a> Iterator for DictSegmentIterator<'a> {
+    type Item = (Datatype, SizedDict);
+
+    fn next(&mut self) -> Option<(Datatype, SizedDict)> {
+        if self.type_index >= self.dict.types_present.len() {
+            return None;
+        }
+
+        let (segment, _) = self.dict.inner_type_segment(self.type_index);
+        let datatype = self.dict.type_for_type_index(self.type_index);
+        self.type_index += 1;
+
+        Some((datatype, segment))
+    }
+}
+
 
 pub struct TypedDictSegment<T: TdbDataType> {
     dict: SizedDict,
@@ -773,5 +836,65 @@ mod tests {
             IdLookupResult::Closest(31),
             dict.id(&int("99999999999999999999999999"))
         );
+    }
+
+    #[test]
+    fn iterate_full_blocks() {
+        let mut vec: Vec<(Datatype, Bytes)> = vec![
+            "fdsa".to_string().make_entry(),
+            "a".to_string().make_entry(),
+            "bc".to_string().make_entry(),
+            "bcd".to_string().make_entry(),
+            "z".to_string().make_entry(),
+            "Batty".to_string().make_entry(),
+            "Batman".to_string().make_entry(),
+            "apple".to_string().make_entry(),
+            (-500_i32).make_entry(),
+            20_u32.make_entry(),
+            22_u32.make_entry(),
+            23_u32.make_entry(),
+            24_u32.make_entry(),
+            25_u32.make_entry(),
+            26_u32.make_entry(),
+            27_u32.make_entry(),
+            28_u32.make_entry(),
+            3000_u32.make_entry(),
+            (-3_i64).make_entry(),
+            Decimal("-12342343.2348973".to_string()).make_entry(),
+            Decimal("234.8973".to_string()).make_entry(),
+            Decimal("0.2348973".to_string()).make_entry(),
+            Decimal("23423423.8973".to_string()).make_entry(),
+            Decimal("3.3".to_string()).make_entry(),
+            Decimal("0.001".to_string()).make_entry(),
+            Decimal("-0.001".to_string()).make_entry(),
+            Decimal("2".to_string()).make_entry(),
+            Decimal("0".to_string()).make_entry(),
+            4.389832_f32.make_entry(),
+            23434.389832_f32.make_entry(),
+            int("239487329872343987").make_entry(),
+        ];
+        vec.sort();
+        let mut used_types = BytesMut::new();
+        let mut type_offsets = BytesMut::new();
+        let mut block_offsets = BytesMut::new();
+        let mut data = BytesMut::new();
+        build_multiple_segments(
+            &mut used_types,
+            &mut type_offsets,
+            &mut block_offsets,
+            &mut data,
+            vec.clone().into_iter(),
+        );
+
+        let dict = TypedDict::from_parts(
+            used_types.freeze(),
+            type_offsets.freeze(),
+            block_offsets.freeze(),
+            data.freeze(),
+        );
+
+        let actual: Vec<_> = dict.iter().map(|(dt,e)|(dt, e.to_bytes())).collect();
+
+        assert_eq!(vec, actual);
     }
 }

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 
@@ -514,9 +515,18 @@ impl SizedDictBlock {
         IdLookupResult::Closest(self.header.num_entries as u64 - 1)
     }
 
-    pub fn iter<'a>(&'a self) -> SizedDictBlockIterator<'a> {
-        SizedDictBlockIterator {
-            header: &self.header,
+    pub fn iter<'a>(&'a self) -> SizedBlockIterator<'a> {
+        SizedBlockIterator {
+            header: Cow::Borrowed(&self.header),
+            data: self.data.clone(),
+            ix: 0,
+            last: None,
+        }
+    }
+
+    pub fn into_iter(self) -> OwnedSizedBlockIterator {
+        SizedBlockIterator {
+            header: Cow::Owned(self.header),
             data: self.data.clone(),
             ix: 0,
             last: None,
@@ -524,14 +534,17 @@ impl SizedDictBlock {
     }
 }
 
-pub struct SizedDictBlockIterator<'a> {
-    header: &'a SizedBlockHeader,
+type OwnedSizedBlockIterator = SizedBlockIterator<'static>;
+
+#[derive(Clone)]
+pub struct SizedBlockIterator<'a> {
+    header: Cow<'a, SizedBlockHeader>,
     data: Bytes,
     ix: usize,
     last: Option<Vec<Bytes>>,
 }
 
-impl<'a> Iterator for SizedDictBlockIterator<'a> {
+impl<'a> Iterator for SizedBlockIterator<'a> {
     type Item = SizedDictEntry;
 
     fn next(&mut self) -> Option<SizedDictEntry> {
