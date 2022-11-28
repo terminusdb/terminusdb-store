@@ -104,15 +104,15 @@ impl SizedDictEntry {
 
     pub fn as_buf(&self) -> SizedDictEntryBuf {
         SizedDictEntryBuf {
-            entry: self,
+            entry: Cow::Borrowed(self),
             slice_ix: 0,
             pos_in_slice: 0,
         }
     }
 
     pub fn into_buf(self) -> OwnedSizedDictEntryBuf {
-        OwnedSizedDictEntryBuf {
-            entry: self,
+        SizedDictEntryBuf {
+            entry: Cow::Owned(self),
             slice_ix: 0,
             pos_in_slice: 0,
         }
@@ -279,99 +279,80 @@ impl PartialOrd for SizedDictEntry {
 
 #[derive(Clone)]
 pub struct SizedDictEntryBuf<'a> {
-    entry: &'a SizedDictEntry,
+    entry: Cow<'a, SizedDictEntry>,
     slice_ix: usize,
     pos_in_slice: usize,
 }
 
-fn calculate_remaining<'a>(entry: &SizedDictEntry, slice_ix: usize, pos_in_slice: usize) -> usize {
-    let total: usize = entry.0.iter().skip(slice_ix).map(|s| s.len()).sum();
-    total - pos_in_slice
-}
-
-fn calculate_chunk<'a>(entry: &'a SizedDictEntry, slice_ix: usize, pos_in_slice: usize) -> &[u8] {
-    if slice_ix >= entry.0.len() {
-        &[]
-    } else {
-        let slice = &entry.0[slice_ix];
-        &slice[pos_in_slice..]
+impl<'a> Buf for SizedDictEntryBuf<'a> {
+    fn remaining(&self) -> usize {
+        {
+            let pos_in_slice = self.pos_in_slice;
+            let total: usize = self
+                .entry
+                .0
+                .iter()
+                .skip(self.slice_ix)
+                .map(|s| s.len())
+                .sum();
+            total - pos_in_slice
+        }
     }
-}
 
-fn calculate_advance<'a>(
-    entry: &'a SizedDictEntry,
-    slice_ix: &mut usize,
-    pos_in_slice: &mut usize,
-    mut cnt: usize,
-) {
-    if *slice_ix < entry.0.len() {
-        let slice = &entry.0[*slice_ix];
-        let remaining_in_slice = slice.len() - *pos_in_slice;
+    fn chunk(&self) -> &[u8] {
+        {
+            let pos_in_slice = self.pos_in_slice;
+            if self.slice_ix >= self.entry.0.len() {
+                &[]
+            } else {
+                let slice = &self.entry.0[self.slice_ix];
+                &slice[pos_in_slice..]
+            }
+        }
+    }
 
-        if remaining_in_slice > cnt {
-            // we remain in the slice we're at.
-            *pos_in_slice += cnt;
-        } else {
-            // we are starting at the next slice
-            cnt -= remaining_in_slice;
-            *slice_ix += 1;
+    fn advance(&mut self, cnt: usize) {
+        {
+            let pos_in_slice: &mut usize = &mut self.pos_in_slice;
+            let mut cnt = cnt;
+            if self.slice_ix < self.entry.0.len() {
+                let slice = &self.entry.0[self.slice_ix];
+                let remaining_in_slice = slice.len() - *pos_in_slice;
 
-            loop {
-                if entry.0.len() >= *slice_ix {
-                    // past the end
-                    *pos_in_slice = 0;
-                    break;
+                if remaining_in_slice > cnt {
+                    // we remain in the slice we're at.
+                    *pos_in_slice += cnt;
+                } else {
+                    // we are starting at the next slice
+                    cnt -= remaining_in_slice;
+                    self.slice_ix += 1;
+
+                    loop {
+                        if self.entry.0.len() >= self.slice_ix {
+                            // past the end
+                            *pos_in_slice = 0;
+                            break;
+                        }
+
+                        let slice_len = self.entry.0[self.slice_ix].len();
+
+                        if cnt < slice_len {
+                            // this is our slice
+                            *pos_in_slice = cnt;
+                            break;
+                        }
+
+                        // not our slice, so advance to next
+                        cnt -= self.entry.0.len();
+                        self.slice_ix += 1;
+                    }
                 }
-
-                let slice_len = entry.0[*slice_ix].len();
-
-                if cnt < slice_len {
-                    // this is our slice
-                    *pos_in_slice = cnt;
-                    break;
-                }
-
-                // not our slice, so advance to next
-                cnt -= entry.0.len();
-                *slice_ix += 1;
             }
         }
     }
 }
 
-impl<'a> Buf for SizedDictEntryBuf<'a> {
-    fn remaining(&self) -> usize {
-        calculate_remaining(self.entry, self.slice_ix, self.pos_in_slice)
-    }
-
-    fn chunk(&self) -> &[u8] {
-        calculate_chunk(self.entry, self.slice_ix, self.pos_in_slice)
-    }
-
-    fn advance(&mut self, cnt: usize) {
-        calculate_advance(self.entry, &mut self.slice_ix, &mut self.pos_in_slice, cnt)
-    }
-}
-
-pub struct OwnedSizedDictEntryBuf {
-    entry: SizedDictEntry,
-    slice_ix: usize,
-    pos_in_slice: usize,
-}
-
-impl Buf for OwnedSizedDictEntryBuf {
-    fn remaining(&self) -> usize {
-        calculate_remaining(&self.entry, self.slice_ix, self.pos_in_slice)
-    }
-
-    fn chunk(&self) -> &[u8] {
-        calculate_chunk(&self.entry, self.slice_ix, self.pos_in_slice)
-    }
-
-    fn advance(&mut self, cnt: usize) {
-        calculate_advance(&self.entry, &mut self.slice_ix, &mut self.pos_in_slice, cnt)
-    }
-}
+type OwnedSizedDictEntryBuf = SizedDictEntryBuf<'static>;
 
 #[derive(Debug)]
 pub struct SizedDictBlock {
