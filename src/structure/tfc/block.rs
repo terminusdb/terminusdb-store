@@ -16,7 +16,7 @@ pub enum SizedDictError {
     NotEnoughData,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SizedBlockHeader {
     head: Bytes,
     num_entries: u8,
@@ -513,6 +513,56 @@ impl SizedDictBlock {
 
         IdLookupResult::Closest(self.header.num_entries as u64 - 1)
     }
+
+    pub fn iter<'a>(&'a self) -> SizedDictBlockIterator<'a> {
+        SizedDictBlockIterator {
+            header: &self.header,
+            data: self.data.clone(),
+            ix: 0,
+            last: None,
+        }
+    }
+}
+
+pub struct SizedDictBlockIterator<'a> {
+    header: &'a SizedBlockHeader,
+    data: Bytes,
+    ix: usize,
+    last: Option<Vec<Bytes>>,
+}
+
+impl<'a> Iterator for SizedDictBlockIterator<'a> {
+    type Item = SizedDictEntry;
+
+    fn next(&mut self) -> Option<SizedDictEntry> {
+        if let Some(last) = self.last.as_mut() {
+            if self.ix >= self.header.num_entries as usize - 1 {
+                return None;
+            }
+            let size = self.header.sizes[self.ix];
+            let mut shared = self.header.shareds[self.ix];
+            for rope_index in 0..last.len() {
+                let x = &mut last[rope_index];
+                if x.len() < shared {
+                    shared -= x.len();
+                    continue;
+                }
+
+                x.truncate(shared);
+                last.truncate(rope_index + 1);
+                break;
+            }
+
+            last.push(self.data.split_to(size));
+            self.ix += 1;
+
+            Some(SizedDictEntry::new(last.clone()))
+        } else {
+            let result = vec![self.header.head.clone()];
+            self.last = Some(result.clone());
+            Some(SizedDictEntry::new(result))
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -795,5 +845,46 @@ mod tests {
         assert_eq!(IdLookupResult::Closest(1), block.id(b"aabba"));
 
         assert_eq!(IdLookupResult::Closest(7), block.id(b"f"));
+    }
+
+    #[test]
+    fn enumerate_complete_block() {
+        let strings: [&[u8]; 8] = [
+            b"aaaaaa",
+            b"aabb",
+            b"cccc",
+            b"cdef",
+            b"cdff",
+            b"cdffasdf",
+            b"cdffeeee",
+            b"ceeeeeeeeeeeeeee",
+        ];
+        let block = build_block(&strings);
+
+        let result: Vec<Bytes> = block.iter().map(|e| e.to_bytes()).collect();
+        assert_eq!(
+            strings
+                .iter()
+                .cloned()
+                .map(Bytes::from_static)
+                .collect::<Vec<_>>(),
+            result
+        );
+    }
+
+    #[test]
+    fn enumerate_incomplete_block() {
+        let strings: [&[u8]; 6] = [b"aaaaaa", b"aabb", b"cccc", b"cdef", b"cdff", b"cdffasdf"];
+        let block = build_block(&strings);
+
+        let result: Vec<Bytes> = block.iter().map(|e| e.to_bytes()).collect();
+        assert_eq!(
+            strings
+                .iter()
+                .cloned()
+                .map(Bytes::from_static)
+                .collect::<Vec<_>>(),
+            result
+        );
     }
 }
