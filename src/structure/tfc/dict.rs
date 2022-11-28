@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, borrow::Cow};
+use std::{borrow::Cow, cmp::Ordering};
 
 use crate::structure::{util::calculate_width, LogArrayBufBuilder, MonotonicLogArray};
 use bytes::{BufMut, Bytes};
@@ -150,25 +150,23 @@ impl SizedDict {
     pub fn block_iter<'a>(&'a self) -> SizedDictBlockIterator<'a> {
         SizedDictBlockIterator {
             dict: Cow::Borrowed(self),
-            index: 0
+            index: 0,
         }
     }
 
     pub fn into_block_iter(self) -> OwnedSizedDictBlockIterator {
         SizedDictBlockIterator {
             dict: Cow::Owned(self),
-            index: 0
+            index: 0,
         }
     }
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item=SizedDictEntry>+'a+Clone {
-        self.block_iter()
-            .flat_map(|b|b.into_iter())
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = SizedDictEntry> + 'a + Clone {
+        self.block_iter().flat_map(|b| b.into_iter())
     }
 
-    pub fn into_iter(self) -> impl Iterator<Item=SizedDictEntry>+Clone {
-        self.into_block_iter()
-            .flat_map(|b|b.into_iter())
+    pub fn into_iter(self) -> impl Iterator<Item = SizedDictEntry> + Clone {
+        self.into_block_iter().flat_map(|b| b.into_iter())
     }
 }
 

@@ -7,10 +7,10 @@ use itertools::*;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 use rug::Integer;
-use std::{marker::PhantomData, borrow::Cow};
+use std::{borrow::Cow, marker::PhantomData};
 
 use super::{
-    block::{IdLookupResult, SizedDictEntry, SizedDictBlock},
+    block::{IdLookupResult, SizedDictBlock, SizedDictEntry},
     decimal::{decimal_to_storage, storage_to_decimal},
     dict::{build_dict_unchecked, build_offset_logarray, SizedDict},
     integer::{bigint_to_storage, storage_to_bigint},
@@ -168,39 +168,43 @@ impl TypedDict {
     pub fn segment_iter<'a>(&'a self) -> DictSegmentIterator<'a> {
         DictSegmentIterator {
             dict: Cow::Borrowed(&self),
-            type_index: 0
+            type_index: 0,
         }
     }
 
     pub fn into_segment_iter(self) -> OwnedDictSegmentIterator {
         DictSegmentIterator {
             dict: Cow::Owned(self),
-            type_index: 0
+            type_index: 0,
         }
     }
 
-    pub fn block_iter<'a>(&'a self) -> impl Iterator<Item=(Datatype, SizedDictBlock)>+'a+Clone {
-        self.segment_iter()
-            .flat_map(|(datatype, segment)| segment.into_block_iter()
-                .map(move |block| (datatype, block)))
+    pub fn block_iter<'a>(
+        &'a self,
+    ) -> impl Iterator<Item = (Datatype, SizedDictBlock)> + 'a + Clone {
+        self.segment_iter().flat_map(|(datatype, segment)| {
+            segment
+                .into_block_iter()
+                .map(move |block| (datatype, block))
+        })
     }
 
-    pub fn into_block_iter(self) -> impl Iterator<Item=(Datatype, SizedDictBlock)>+Clone {
-        self.into_segment_iter()
-            .flat_map(|(datatype, segment)| segment.into_block_iter()
-                .map(move |block| (datatype, block)))
+    pub fn into_block_iter(self) -> impl Iterator<Item = (Datatype, SizedDictBlock)> + Clone {
+        self.into_segment_iter().flat_map(|(datatype, segment)| {
+            segment
+                .into_block_iter()
+                .map(move |block| (datatype, block))
+        })
     }
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item=(Datatype, SizedDictEntry)>+'a+Clone {
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = (Datatype, SizedDictEntry)> + 'a + Clone {
         self.block_iter()
-            .flat_map(|(datatype, segment)| segment.into_iter()
-                .map(move |entry| (datatype, entry)))
+            .flat_map(|(datatype, segment)| segment.into_iter().map(move |entry| (datatype, entry)))
     }
 
-    pub fn into_iter(self) -> impl Iterator<Item=(Datatype, SizedDictEntry)>+Clone {
+    pub fn into_iter(self) -> impl Iterator<Item = (Datatype, SizedDictEntry)> + Clone {
         self.into_block_iter()
-            .flat_map(|(datatype, segment)| segment.into_iter()
-                .map(move |entry| (datatype, entry)))
+            .flat_map(|(datatype, segment)| segment.into_iter().map(move |entry| (datatype, entry)))
     }
 }
 
@@ -227,7 +231,6 @@ impl<'a> Iterator for DictSegmentIterator<'a> {
         Some((datatype, segment))
     }
 }
-
 
 pub struct TypedDictSegment<T: TdbDataType> {
     dict: SizedDict,
@@ -893,7 +896,7 @@ mod tests {
             data.freeze(),
         );
 
-        let actual: Vec<_> = dict.iter().map(|(dt,e)|(dt, e.to_bytes())).collect();
+        let actual: Vec<_> = dict.iter().map(|(dt, e)| (dt, e.to_bytes())).collect();
 
         assert_eq!(vec, actual);
     }
