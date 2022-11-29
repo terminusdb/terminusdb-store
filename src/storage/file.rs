@@ -91,7 +91,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerFiles<F> {
 pub struct BaseLayerFiles<F: 'static + FileLoad + FileStore> {
     pub node_dictionary_files: DictionaryFiles<F>,
     pub predicate_dictionary_files: DictionaryFiles<F>,
-    pub value_dictionary_files: DictionaryFiles<F>,
+    pub value_dictionary_files: TypedDictionaryFiles<F>,
 
     pub id_map_files: IdMapFiles<F>,
 
@@ -110,7 +110,7 @@ pub struct BaseLayerFiles<F: 'static + FileLoad + FileStore> {
 pub struct BaseLayerMaps {
     pub node_dictionary_maps: DictionaryMaps,
     pub predicate_dictionary_maps: DictionaryMaps,
-    pub value_dictionary_maps: DictionaryMaps,
+    pub value_dictionary_maps: TypedDictionaryMaps,
 
     pub id_map_maps: IdMapMaps,
 
@@ -165,7 +165,7 @@ impl<F: FileLoad + FileStore> BaseLayerFiles<F> {
 pub struct ChildLayerFiles<F: 'static + FileLoad + FileStore + Clone + Send + Sync> {
     pub node_dictionary_files: DictionaryFiles<F>,
     pub predicate_dictionary_files: DictionaryFiles<F>,
-    pub value_dictionary_files: DictionaryFiles<F>,
+    pub value_dictionary_files: TypedDictionaryFiles<F>,
 
     pub id_map_files: IdMapFiles<F>,
 
@@ -189,7 +189,7 @@ pub struct ChildLayerFiles<F: 'static + FileLoad + FileStore + Clone + Send + Sy
 pub struct ChildLayerMaps {
     pub node_dictionary_maps: DictionaryMaps,
     pub predicate_dictionary_maps: DictionaryMaps,
-    pub value_dictionary_maps: DictionaryMaps,
+    pub value_dictionary_maps: TypedDictionaryMaps,
 
     pub id_map_maps: IdMapMaps,
 

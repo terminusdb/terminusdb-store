@@ -123,7 +123,7 @@ pub fn sorted_stream<
 
 struct SortedIterator<
     T,
-    I: 'static + Iterator<Item = T> + Send,
+    I: Iterator<Item = T> + Send,
     F: 'static + Fn(&[Option<&T>]) -> Option<usize>,
 > {
     iters: Vec<std::iter::Peekable<I>>,
@@ -131,8 +131,9 @@ struct SortedIterator<
 }
 
 impl<
+        'a,
         T,
-        I: 'static + Iterator<Item = T> + Send,
+        I: 'a + Iterator<Item = T> + Send,
         F: 'static + Fn(&[Option<&T>]) -> Option<usize>,
     > Iterator for SortedIterator<T, I, F>
 {
@@ -154,13 +155,14 @@ impl<
 }
 
 pub fn sorted_iterator<
-    T,
-    I: 'static + Iterator<Item = T> + Send,
+        'a,
+    T: 'a,
+    I: 'a + Iterator<Item = T> + Send,
     F: 'static + Fn(&[Option<&T>]) -> Option<usize>,
 >(
     iters: Vec<I>,
     pick_fn: F,
-) -> impl Iterator<Item = T> {
+) -> impl Iterator<Item = T>+'a {
     let peekable_iters = iters
         .into_iter()
         .map(std::iter::Iterator::peekable)
