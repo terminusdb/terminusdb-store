@@ -1,6 +1,6 @@
 use std::{borrow::Cow, cmp::Ordering};
 
-use crate::structure::{util::calculate_width, LogArrayBufBuilder, MonotonicLogArray};
+use crate::structure::{util::calculate_width, LogArrayBufBuilder, MonotonicLogArray, LateLogArrayBufBuilder};
 use bytes::{BufMut, Bytes};
 use itertools::Itertools;
 
@@ -23,6 +23,58 @@ pub fn build_dict_unchecked<B: BufMut, R: AsRef<[u8]>, I: Iterator<Item = R>>(
         offsets.push(offset);
     }
 }
+
+struct SizedDictBufBuilder<'a, B1:BufMut, B2:BufMut> {
+    block_offset: u64,
+    id_offset: u64,
+    offsets: LateLogArrayBufBuilder<'a, B2>,
+    data_buf: &'a mut B1,
+    current_block: Vec<Bytes>,
+}
+
+impl<'a, B1:BufMut, B2:BufMut> SizedDictBufBuilder<'a, B1, B2> {
+    pub fn new(block_offset: u64, id_offset: u64, offsets: LateLogArrayBufBuilder<'a, B2>, data_buf: &'a mut B1) -> Self {
+        Self {
+            block_offset,
+            id_offset, offsets, data_buf,
+            current_block: Vec::with_capacity(8)
+        }
+    }
+
+    pub fn add(&mut self, value: Bytes) -> u64 {
+        self.current_block.push(value);
+        self.id_offset += 1;
+        if self.current_block.len() == BLOCK_SIZE {
+            let current_block: Vec<&[u8]> = self.current_block.iter().map(|e|e.as_ref()).collect();
+            let size = build_block_unchecked(self.data_buf, &current_block);
+            self.block_offset += size as u64;
+            self.offsets.push(self.block_offset);
+
+            self.current_block.truncate(0);
+        }
+
+        self.id_offset
+    }
+
+    pub fn add_entry(&mut self, e: &SizedDictEntry) -> u64 {
+        self.add(e.to_bytes())
+    }
+
+    pub fn add_all<I: Iterator<Item = Bytes>>(&mut self, it: I) -> Vec<u64> {
+        it.map(|val| self.add(val)).collect()
+    }
+
+    pub fn finalize(mut self) -> LateLogArrayBufBuilder<'a, B2> {
+        if self.current_block.len() > 0 {
+            let current_block: Vec<&[u8]> = self.current_block.iter().map(|e|e.as_ref()).collect();
+            let size = build_block_unchecked(self.data_buf, &current_block);
+            self.offsets.push(self.block_offset + size as u64);
+        }
+
+        self.offsets
+    }
+}
+
 pub fn build_offset_logarray<B: BufMut>(buf: &mut B, mut offsets: Vec<u64>) {
     // the last offset doesn't matter as it's implied by the total size
     offsets.pop();
@@ -261,6 +313,55 @@ mod tests {
         let mut array_buf = BytesMut::new();
         let mut data_buf = BytesMut::new();
         build_dict_and_offsets(&mut array_buf, &mut data_buf, strings.clone().into_iter());
+
+        let array_bytes = array_buf.freeze();
+        let data_bytes = data_buf.freeze();
+        let dict = SizedDict::parse(array_bytes, data_bytes, 0);
+
+        assert_eq!(2, dict.num_blocks());
+        assert_eq!(b"aaaaaaaa", &dict.block_head(0)[..]);
+        assert_eq!(b"hello", &dict.block_head(1)[..]);
+
+        let block0 = dict.block(0);
+        let block1 = dict.block(1);
+
+        assert_eq!(8, block0.num_entries());
+        assert_eq!(6, block1.num_entries());
+
+        for (ix, s) in strings.into_iter().enumerate() {
+            assert_eq!(s, &dict.entry((ix + 1) as u64).to_bytes()[..]);
+        }
+    }
+
+    #[test]
+    fn build_dict_of_two_blocks_with_builder() {
+        let strings: Vec<&[u8]> = vec![
+            b"aaaaaaaa",
+            b"bbbbbbbb",
+            b"bbbcccdaaaa",
+            b"f",
+            b"fafasdfas",
+            b"gafovp",
+            b"gdfasfa",
+            b"gdfbbbbbb",
+            b"hello",
+            b"iguana",
+            b"illusion",
+            b"illustrated",
+            b"jetengine",
+            b"jetplane",
+        ];
+
+        let mut array_buf = BytesMut::new();
+        let mut data_buf = BytesMut::new();
+
+        let logarray_builder = LateLogArrayBufBuilder::new(&mut array_buf);
+
+        let mut builder = SizedDictBufBuilder::new(0, 0, logarray_builder, &mut data_buf);
+        builder.add_all(strings.clone().into_iter().map(|v|Bytes::from_static(v)));
+        let mut logarray_builder = builder.finalize();
+        logarray_builder.pop();
+        logarray_builder.finalize();
 
         let array_bytes = array_buf.freeze();
         let data_bytes = data_buf.freeze();

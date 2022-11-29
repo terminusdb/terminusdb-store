@@ -49,7 +49,7 @@
 //!
 //! * length: the number of elements in the log array
 
-use super::util;
+use super::util::{self, calculate_width};
 use crate::storage::*;
 use byteorder::{BigEndian, ByteOrder};
 use bytes::{BufMut, Bytes, BytesMut};
@@ -414,6 +414,51 @@ impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
         BigEndian::write_u32(&mut buf, len);
         buf[4] = width;
         self.buf.put_slice(&buf);
+    }
+}
+
+pub struct LateLogArrayBufBuilder<'a, B: BufMut> {
+    /// Destination of the log array data
+    buf: &'a mut B,
+    vals: Vec<u64>,
+    width: u8
+}
+
+impl<'a, B: BufMut> LateLogArrayBufBuilder<'a, B> {
+    pub fn new(buf: &'a mut B) -> Self {
+        Self {
+            buf,
+            vals: Vec::new(),
+            width: 0
+        }
+    }
+
+    pub fn count(&self) -> u32 {
+        self.vals.len() as u32
+    }
+
+    pub fn push(&mut self, val: u64) {
+        self.vals.push(val);
+        let width = calculate_width(val);
+        if self.width < width {
+            self.width = width;
+        }
+    }
+
+    pub fn push_vec(&mut self, vals: Vec<u64>) {
+        for val in vals {
+            self.push(val)
+        }
+    }
+
+    pub fn pop(&mut self) -> Option<u64> {
+        self.vals.pop()
+    }
+
+    pub fn finalize(self) {
+        let mut builder = LogArrayBufBuilder::new(self.buf, self.width);
+        builder.push_vec(self.vals);
+        builder.finalize();
     }
 }
 
