@@ -451,6 +451,10 @@ impl<'a, B: BufMut> LateLogArrayBufBuilder<'a, B> {
         }
     }
 
+    pub fn last(&mut self) -> Option<u64> {
+        self.vals.last().copied()
+    }
+
     pub fn pop(&mut self) -> Option<u64> {
         self.vals.pop()
     }
