@@ -75,9 +75,9 @@ pub async fn memory_construct_idmaps_upto<F: 'static + FileLoad + FileStore>(
 }
 
 pub async fn construct_idmaps_from_structures<F: 'static + FileLoad + FileStore>(
-    node_dicts: &[PfcDict],
-    predicate_dicts: &[PfcDict],
-    value_dicts: &[PfcDict],
+    node_dicts: Vec<StringDict>,
+    predicate_dicts: Vec<StringDict>,
+    value_dicts: Vec<TypedDict>,
     node_value_idmaps: &[IdMap],
     predicate_idmaps: &[IdMap],
     idmap_files: IdMapFiles<F>,
@@ -86,49 +86,54 @@ pub async fn construct_idmaps_from_structures<F: 'static + FileLoad + FileStore>
     debug_assert!(node_dicts.len() == value_dicts.len());
     debug_assert!(node_dicts.len() == node_value_idmaps.len());
     debug_assert!(node_dicts.len() == predicate_idmaps.len());
+    let len = node_dicts.len();
 
-    let mut node_iters = Vec::with_capacity(node_dicts.len());
+    let mut node_iters = Vec::with_capacity(len);
     let mut node_offset = 0;
-    for (ix, dict) in node_dicts.iter().enumerate() {
+    let node_entries_len: Vec<_> = node_dicts.iter().map(|d|d.num_entries()).collect();
+    for (ix, dict) in node_dicts.into_iter().enumerate() {
         let idmap = node_value_idmaps[ix].clone();
+        let num_entries = dict.num_entries();
         node_iters.push(
-            dict.entries()
+            dict.into_iter()
                 .enumerate()
                 .map(move |(i, e)| (idmap.inner_to_outer(i as u64) + node_offset as u64, e)),
         );
 
-        node_offset += dict.len() + value_dicts[ix].len();
+        node_offset += num_entries + value_dicts[ix].num_entries();
     }
 
-    let mut value_iters = Vec::with_capacity(node_dicts.len());
+    let mut value_iters = Vec::with_capacity(len);
     let mut value_offset = 0;
-    for (ix, dict) in value_dicts.iter().enumerate() {
+    for (ix, dict) in value_dicts.into_iter().enumerate() {
         let idmap = node_value_idmaps[ix].clone();
-        let node_count = node_dicts[ix].len();
-        value_iters.push(dict.entries().enumerate().map(move |(i, e)| {
+        let node_count = node_entries_len[ix];
+        let num_entries = dict.num_entries();
+        value_iters.push(dict.into_iter().enumerate().map(move |(i, e)| {
             (
                 idmap.inner_to_outer(i as u64 + node_count as u64) + value_offset as u64,
                 e,
             )
         }));
 
-        value_offset += node_count + dict.len();
+        value_offset += node_count + num_entries;
     }
 
-    let mut predicate_iters = Vec::with_capacity(node_dicts.len());
+    let mut predicate_iters = Vec::with_capacity(len);
     let mut predicate_offset = 0;
-    for (ix, dict) in predicate_dicts.iter().enumerate() {
+    for (ix, dict) in predicate_dicts.into_iter().enumerate() {
         let idmap = predicate_idmaps[ix].clone();
+        let num_entries = dict.num_entries();
         predicate_iters.push(
-            dict.entries()
+            dict.into_iter()
                 .enumerate()
                 .map(move |(i, e)| (idmap.inner_to_outer(i as u64) + predicate_offset as u64, e)),
         );
 
-        predicate_offset += dict.len();
+        predicate_offset += num_entries;
     }
 
-    let entry_comparator = |vals: &[Option<&(u64, PfcDictEntry)>]| {
+    let entry_comparator = |vals: &[Option<&(u64, SizedDictEntry)>]| {
         vals.iter()
             .enumerate()
             .filter(|(_, x)| x.is_some())
@@ -136,8 +141,16 @@ pub async fn construct_idmaps_from_structures<F: 'static + FileLoad + FileStore>
             .map(|x| x.0)
     };
 
-    let sorted_node_iter = sorted_iterator(node_iters, entry_comparator);
-    let sorted_value_iter = sorted_iterator(value_iters, entry_comparator);
+    let typed_entry_comparator = |vals: &[Option<&(u64, (Datatype, SizedDictEntry))>]| {
+        vals.iter()
+            .enumerate()
+            .filter(|(_, x)| x.is_some())
+            .min_by(|(_, x), (_, y)| x.unwrap().1.cmp(&y.unwrap().1))
+            .map(|x| x.0)
+    };
+
+    let sorted_node_iter = sorted_iterator(node_iters, entry_comparator).map(|(i,s)|(i, (Datatype::String, s)));
+    let sorted_value_iter = sorted_iterator(value_iters, typed_entry_comparator);
     let sorted_node_value_iter = sorted_node_iter.chain(sorted_value_iter).map(|(id, _)| id);
     let sorted_predicate_iter =
         sorted_iterator(predicate_iters, entry_comparator).map(|(id, _)| id);
@@ -193,9 +206,9 @@ async fn construct_idmaps_from_layers<F: 'static + FileLoad + FileStore>(
         .collect();
 
     construct_idmaps_from_structures(
-        &node_dicts,
-        &predicate_dicts,
-        &value_dicts,
+        node_dicts,
+        predicate_dicts,
+        value_dicts,
         &node_value_idmaps,
         &predicate_idmaps,
         idmap_files,

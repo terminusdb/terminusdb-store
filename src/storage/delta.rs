@@ -48,7 +48,7 @@ async fn get_node_dicts_from_disk<S: LayerStore>(
     store: &S,
     name: [u32; 5],
     upto: [u32; 5],
-) -> io::Result<Vec<PfcDict>> {
+) -> io::Result<Vec<StringDict>> {
     let mut result = Vec::new();
     walk_backwards_from_disk_upto!(store, name, upto, current, {
         let dict = store
@@ -67,7 +67,7 @@ async fn get_predicate_dicts_from_disk<S: LayerStore>(
     store: &S,
     name: [u32; 5],
     upto: [u32; 5],
-) -> io::Result<Vec<PfcDict>> {
+) -> io::Result<Vec<StringDict>> {
     let mut result = Vec::new();
     walk_backwards_from_disk_upto!(store, name, upto, current, {
         let dict = store
@@ -86,7 +86,7 @@ async fn get_value_dicts_from_disk<S: LayerStore>(
     store: &S,
     name: [u32; 5],
     upto: [u32; 5],
-) -> io::Result<Vec<PfcDict>> {
+) -> io::Result<Vec<TypedDict>> {
     let mut result = Vec::new();
     walk_backwards_from_disk_upto!(store, name, upto, current, {
         let dict = store
@@ -208,9 +208,9 @@ async fn dictionary_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore
     merge_dictionaries(value_dicts.iter(), files.value_dictionary_files.clone()).await?;
 
     construct_idmaps_from_structures(
-        &node_dicts,
-        &predicate_dicts,
-        &value_dicts,
+        node_dicts,
+        predicate_dicts,
+        value_dicts,
         &node_value_idmaps,
         &predicate_idmaps,
         files.id_map_files.clone(),

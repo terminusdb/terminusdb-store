@@ -25,9 +25,9 @@ pub struct ChildLayer {
     pub(super) name: [u32; 5],
     pub(super) parent: Arc<InternalLayer>,
 
-    pub(super) node_dictionary: PfcDict,
-    pub(super) predicate_dictionary: PfcDict,
-    pub(super) value_dictionary: PfcDict,
+    pub(super) node_dictionary: StringDict,
+    pub(super) predicate_dictionary: StringDict,
+    pub(super) value_dictionary: TypedDict,
 
     pub(super) node_value_idmap: IdMap,
     pub(super) predicate_idmap: IdMap,

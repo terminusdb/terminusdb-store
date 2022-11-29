@@ -64,7 +64,7 @@ impl InternalLayer {
         count
     }
 
-    pub fn node_dictionary(&self) -> &PfcDict {
+    pub fn node_dictionary(&self) -> &StringDict {
         match self {
             Base(base) => &base.node_dictionary,
             Child(child) => &child.node_dictionary,
@@ -72,7 +72,7 @@ impl InternalLayer {
         }
     }
 
-    pub fn predicate_dictionary(&self) -> &PfcDict {
+    pub fn predicate_dictionary(&self) -> &StringDict {
         match self {
             Base(base) => &base.predicate_dictionary,
             Child(child) => &child.predicate_dictionary,
@@ -80,7 +80,7 @@ impl InternalLayer {
         }
     }
 
-    pub fn value_dictionary(&self) -> &PfcDict {
+    pub fn value_dictionary(&self) -> &TypedDict {
         match self {
             Base(base) => &base.value_dictionary,
             Child(child) => &child.value_dictionary,

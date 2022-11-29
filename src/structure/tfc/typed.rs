@@ -232,6 +232,7 @@ impl<'a> Iterator for DictSegmentIterator<'a> {
     }
 }
 
+#[derive(Clone)]
 pub struct TypedDictSegment<T: TdbDataType> {
     dict: SizedDict,
     _x: PhantomData<T>,
@@ -255,7 +256,21 @@ impl<T: TdbDataType> TypedDictSegment<T> {
         let slice = val.to_lexical();
         self.dict.id(&slice[..])
     }
+
+    pub fn num_entries(&self) -> usize {
+        self.dict.num_entries()
+    }
+
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item=SizedDictEntry>+'a+Clone {
+        self.dict.iter()
+    }
+
+    pub fn into_iter(self) -> impl Iterator<Item=SizedDictEntry>+Clone {
+        self.dict.into_iter()
+    }
 }
+
+pub type StringDict = TypedDictSegment<String>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 pub enum Datatype {

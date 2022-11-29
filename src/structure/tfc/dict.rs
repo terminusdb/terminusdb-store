@@ -168,6 +168,13 @@ impl SizedDict {
     pub fn into_iter(self) -> impl Iterator<Item = SizedDictEntry> + Clone {
         self.into_block_iter().flat_map(|b| b.into_iter())
     }
+
+    pub fn num_entries(&self) -> usize {
+        let num_blocks = self.num_blocks();
+        let last_block_size = self.block_num_elements(num_blocks - 1);
+
+        (num_blocks-1) * BLOCK_SIZE + last_block_size as usize
+    }
 }
 
 type OwnedSizedDictBlockIterator = SizedDictBlockIterator<'static>;

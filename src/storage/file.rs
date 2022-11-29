@@ -261,6 +261,38 @@ impl<F: FileLoad + FileStore + Clone> ChildLayerFiles<F> {
 }
 
 #[derive(Clone)]
+pub struct TypedDictionaryMaps {
+    pub types_present_map: Bytes,
+    pub type_offsets_map: Bytes,
+    pub blocks_map: Bytes,
+    pub offsets_map: Bytes,
+}
+
+#[derive(Clone)]
+pub struct TypedDictionaryFiles<F: 'static + FileLoad + FileStore> {
+    pub types_present_file: F,
+    pub type_offsets_file: F,
+    pub blocks_file: F,
+    pub offsets_file: F,
+}
+
+impl<F: 'static + FileLoad + FileStore> TypedDictionaryFiles<F> {
+    pub async fn map_all(&self) -> io::Result<TypedDictionaryMaps> {
+        let types_present_map = self.types_present_file.map().await?;
+        let type_offsets_map = self.type_offsets_file.map().await?;
+        let blocks_map = self.blocks_file.map().await?;
+        let offsets_map = self.offsets_file.map().await?;
+
+        Ok(TypedDictionaryMaps {
+            types_present_map,
+            type_offsets_map,
+            blocks_map,
+            offsets_map,
+        })
+    }
+}
+
+#[derive(Clone)]
 pub struct DictionaryMaps {
     pub blocks_map: Bytes,
     pub offsets_map: Bytes,

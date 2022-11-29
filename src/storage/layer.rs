@@ -10,10 +10,12 @@ use crate::layer::{
     OptInternalLayerTriplePredicateIterator, OptInternalLayerTripleSubjectIterator, RollupLayer,
     SimpleLayerBuilder,
 };
+use crate::structure::StringDict;
+use crate::structure::TypedDict;
 use crate::structure::bitarray::bitarray_len_from_file;
 use crate::structure::logarray::logarray_file_get_length_and_width;
 use crate::structure::{
-    dict_file_get_count, util, AdjacencyList, BitIndex, LogArray, MonotonicLogArray, PfcDict,
+    dict_file_get_count, util, AdjacencyList, BitIndex, LogArray, MonotonicLogArray,
     WaveletTree,
 };
 
@@ -75,11 +77,11 @@ pub trait LayerStore: 'static + Packable + Send + Sync {
 
     async fn get_layer_parent_name(&self, name: [u32; 5]) -> io::Result<Option<[u32; 5]>>;
 
-    async fn get_node_dictionary(&self, name: [u32; 5]) -> io::Result<Option<PfcDict>>;
+    async fn get_node_dictionary(&self, name: [u32; 5]) -> io::Result<Option<StringDict>>;
 
-    async fn get_predicate_dictionary(&self, name: [u32; 5]) -> io::Result<Option<PfcDict>>;
+    async fn get_predicate_dictionary(&self, name: [u32; 5]) -> io::Result<Option<StringDict>>;
 
-    async fn get_value_dictionary(&self, name: [u32; 5]) -> io::Result<Option<PfcDict>>;
+    async fn get_value_dictionary(&self, name: [u32; 5]) -> io::Result<Option<TypedDict>>;
 
     async fn get_node_count(&self, name: [u32; 5]) -> io::Result<Option<u64>>;
 
@@ -738,9 +740,15 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
     async fn value_dictionary_files(
         &self,
         layer: [u32; 5],
-    ) -> io::Result<DictionaryFiles<Self::File>> {
+    ) -> io::Result<TypedDictionaryFiles<Self::File>> {
         // does layer exist?
         if self.directory_exists(layer).await? {
+            let types_present_file = self
+                .get_file(layer, FILENAMES.value_dictionary_types_present)
+                .await?;
+            let type_offsets_file = self
+                .get_file(layer, FILENAMES.value_dictionary_type_offsets)
+                .await?;
             let blocks_file = self
                 .get_file(layer, FILENAMES.value_dictionary_blocks)
                 .await?;
@@ -748,7 +756,9 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
                 .get_file(layer, FILENAMES.value_dictionary_offsets)
                 .await?;
 
-            Ok(DictionaryFiles {
+            Ok(TypedDictionaryFiles {
+                types_present_file,
+                type_offsets_file,
                 blocks_file,
                 offsets_file,
             })
@@ -1546,34 +1556,34 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         }
     }
 
-    async fn get_node_dictionary(&self, name: [u32; 5]) -> io::Result<Option<PfcDict>> {
+    async fn get_node_dictionary(&self, name: [u32; 5]) -> io::Result<Option<StringDict>> {
         if self.directory_exists(name).await? {
             let files = self.node_dictionary_files(name).await?;
             let maps = files.map_all().await?;
 
-            Ok(Some(PfcDict::parse(maps.blocks_map, maps.offsets_map)?))
+            Ok(Some(StringDict::parse(maps.blocks_map, maps.offsets_map)?))
         } else {
             Ok(None)
         }
     }
 
-    async fn get_predicate_dictionary(&self, name: [u32; 5]) -> io::Result<Option<PfcDict>> {
+    async fn get_predicate_dictionary(&self, name: [u32; 5]) -> io::Result<Option<StringDict>> {
         if self.directory_exists(name).await? {
             let files = self.predicate_dictionary_files(name).await?;
             let maps = files.map_all().await?;
 
-            Ok(Some(PfcDict::parse(maps.blocks_map, maps.offsets_map)?))
+            Ok(Some(StringDict::parse(maps.blocks_map, maps.offsets_map)?))
         } else {
             Ok(None)
         }
     }
 
-    async fn get_value_dictionary(&self, name: [u32; 5]) -> io::Result<Option<PfcDict>> {
+    async fn get_value_dictionary(&self, name: [u32; 5]) -> io::Result<Option<TypedDict>> {
         if self.directory_exists(name).await? {
             let files = self.value_dictionary_files(name).await?;
             let maps = files.map_all().await?;
 
-            Ok(Some(PfcDict::parse(maps.blocks_map, maps.offsets_map)?))
+            Ok(Some(TypedDict::from_parts(maps.blocks_map, maps.offsets_map)?))
         } else {
             Ok(None)
         }

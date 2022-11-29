@@ -352,7 +352,7 @@ impl<'a> Buf for SizedDictEntryBuf<'a> {
     }
 }
 
-type OwnedSizedDictEntryBuf = SizedDictEntryBuf<'static>;
+pub type OwnedSizedDictEntryBuf = SizedDictEntryBuf<'static>;
 
 #[derive(Debug)]
 pub struct SizedDictBlock {
