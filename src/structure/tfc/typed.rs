@@ -534,7 +534,6 @@ struct TypedDictBufBuilder<'a, B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> {
     types_present_builder: LateLogArrayBufBuilder<'a, B1>,
     type_offsets_builder: LateLogArrayBufBuilder<'a, B2>,
     sized_dict_buf_builder: SizedDictBufBuilder<'a, B3, B4>,
-    data_buf: &'a mut B4,
     current_datatype: Option<Datatype>,
 }
 
@@ -543,7 +542,7 @@ impl<'a, B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<'a,
         used_types: &'a mut B1,
         type_offsets: &'a mut B2,
         block_offsets: &'a mut B3,
-        data_buf: &'a mut B4,
+        data_buf: B4,
     ) -> Self {
         let types_present_builder = LateLogArrayBufBuilder::new(used_types);
         let type_offsets_builder = LateLogArrayBufBuilder::new(type_offsets);
@@ -552,7 +551,6 @@ impl<'a, B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<'a,
         Self {
             types_present_builder,
             type_offsets_builder,
-            data_buf,
             sized_dict_buf_builder,
             current_datatype: None,
         }
@@ -567,16 +565,12 @@ impl<'a, B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<'a,
         if self.current_datatype != Some(dt) {
             let id_offset = self.sized_dict_buf_builder.id_offset();
             let block_offset = self.sized_dict_buf_builder.block_offset();
-            let block_offset_builder = self.sized_dict_buf_builder.finalize();
+            let (block_offset_builder, data_buf) = self.sized_dict_buf_builder.finalize();
 
             self.types_present_builder.push(dt as u64);
             self.type_offsets_builder.push(block_offset + 1);
-            self.sized_dict_buf_builder = SizedDictBufBuilder::new(
-                id_offset,
-                block_offset,
-                block_offset_builder,
-                self.data_buf,
-            );
+            self.sized_dict_buf_builder =
+                SizedDictBufBuilder::new(id_offset, block_offset, block_offset_builder, data_buf);
         }
 
         self.sized_dict_buf_builder.add(value)
@@ -590,16 +584,17 @@ impl<'a, B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<'a,
         it.map(|(dt, val)| self.add(dt, val)).collect()
     }
 
-    pub fn finalize(mut self) {
+    pub fn finalize(self) -> B4 {
         if self.current_datatype == None {
             panic!("There was nothing added to this dictionary!");
         }
-        let block_offset_builder = self.sized_dict_buf_builder.finalize();
+        let (mut block_offset_builder, mut data_buf) = self.sized_dict_buf_builder.finalize();
         block_offset_builder.pop();
         block_offset_builder.finalize();
 
         self.types_present_builder.finalize();
         self.type_offsets_builder.finalize();
+        data_buf
     }
 }
 
@@ -1020,13 +1015,13 @@ mod tests {
             &mut used_types_buf,
             &mut type_offsets_buf,
             &mut block_offsets_buf,
-            &mut data_buf,
+            data_buf,
         );
 
         vec.into_iter()
             .map(|(dt, entry)| typed_builder.add(dt, entry));
 
-        typed_builder.finalize();
+        let data_buf = typed_builder.finalize();
 
         let used_types = used_types_buf.freeze();
         let type_offsets = type_offsets_buf.freeze();
