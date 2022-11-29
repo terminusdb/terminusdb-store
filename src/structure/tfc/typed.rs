@@ -533,7 +533,7 @@ pub fn build_multiple_segments<
 struct TypedDictBufBuilder<'a, B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> {
     types_present_builder: LateLogArrayBufBuilder<'a, B1>,
     type_offsets_builder: LateLogArrayBufBuilder<'a, B2>,
-    sized_dict_buf_builder: SizedDictBufBuilder<'a, B3, B4>,
+    sized_dict_buf_builder: Option<SizedDictBufBuilder<'a, B3, B4>>,
     current_datatype: Option<Datatype>,
 }
 
@@ -547,7 +547,12 @@ impl<'a, B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<'a,
         let types_present_builder = LateLogArrayBufBuilder::new(used_types);
         let type_offsets_builder = LateLogArrayBufBuilder::new(type_offsets);
         let block_offset_builder = LateLogArrayBufBuilder::new(block_offsets);
-        let sized_dict_buf_builder = SizedDictBufBuilder::new(0, 0, block_offset_builder, data_buf);
+        let sized_dict_buf_builder = Some(SizedDictBufBuilder::new(
+            0,
+            0,
+            block_offset_builder,
+            data_buf,
+        ));
         Self {
             types_present_builder,
             type_offsets_builder,
@@ -558,22 +563,30 @@ impl<'a, B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<'a,
 
     pub fn add(&mut self, dt: Datatype, value: Bytes) -> u64 {
         if self.current_datatype == None {
-            self.current_datatype = Some(dt);
+            self.current_datatype = dbg!(Some(dt));
             self.types_present_builder.push(dt as u64);
         }
 
         if self.current_datatype != Some(dt) {
-            let id_offset = self.sized_dict_buf_builder.id_offset();
-            let block_offset = self.sized_dict_buf_builder.block_offset();
-            let (block_offset_builder, data_buf) = self.sized_dict_buf_builder.finalize();
-
+            let (block_offset_builder, data_buf, block_offset, id_offset) =
+                self.sized_dict_buf_builder.take().unwrap().finalize();
+            dbg!(dt);
+            dbg!(id_offset);
+            dbg!(block_offset);
             self.types_present_builder.push(dt as u64);
             self.type_offsets_builder.push(block_offset + 1);
-            self.sized_dict_buf_builder =
-                SizedDictBufBuilder::new(id_offset, block_offset, block_offset_builder, data_buf);
+            self.sized_dict_buf_builder = Some(SizedDictBufBuilder::new(
+                block_offset,
+                id_offset,
+                block_offset_builder,
+                data_buf,
+            ));
         }
 
-        self.sized_dict_buf_builder.add(value)
+        self.sized_dict_buf_builder
+            .as_mut()
+            .map(|s| s.add(value))
+            .unwrap()
     }
 
     pub fn add_entry(&mut self, dt: Datatype, e: &SizedDictEntry) -> u64 {
@@ -588,7 +601,8 @@ impl<'a, B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<'a,
         if self.current_datatype == None {
             panic!("There was nothing added to this dictionary!");
         }
-        let (mut block_offset_builder, mut data_buf) = self.sized_dict_buf_builder.finalize();
+        let (mut block_offset_builder, data_buf, _, _) =
+            self.sized_dict_buf_builder.unwrap().finalize();
         block_offset_builder.pop();
         block_offset_builder.finalize();
 
@@ -970,6 +984,7 @@ mod tests {
         assert_eq!(vec, actual);
     }
 
+    #[test]
     fn test_incremental_builder() {
         let mut vec: Vec<(Datatype, Bytes)> = vec![
             "fdsa".to_string().make_entry(),
@@ -1009,17 +1024,22 @@ mod tests {
         let mut used_types_buf = BytesMut::new();
         let mut type_offsets_buf = BytesMut::new();
         let mut block_offsets_buf = BytesMut::new();
-        let mut data_buf = BytesMut::new();
+        let data_buf = BytesMut::new();
 
-        let typed_builder = TypedDictBufBuilder::new(
+        let mut typed_builder = TypedDictBufBuilder::new(
             &mut used_types_buf,
             &mut type_offsets_buf,
             &mut block_offsets_buf,
             data_buf,
         );
 
-        vec.into_iter()
-            .map(|(dt, entry)| typed_builder.add(dt, entry));
+        let results: Vec<u64> = vec
+            .into_iter()
+            .map(|(dt, entry)| {
+                eprintln!("dt: {dt:?}");
+                dbg!(typed_builder.add(dt, entry))
+            })
+            .collect();
 
         let data_buf = typed_builder.finalize();
 
@@ -1032,5 +1052,9 @@ mod tests {
 
         let res = dict.entry(0);
         eprintln!("res: {res:?}");
+
+        let res = dict.entry(1);
+        eprintln!("res: {res:?}");
+        panic!();
     }
 }

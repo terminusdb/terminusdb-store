@@ -81,7 +81,7 @@ impl<'a, B1: BufMut, B2: BufMut> SizedDictBufBuilder<'a, B1, B2> {
         it.map(|val| self.add(val)).collect()
     }
 
-    pub fn finalize(mut self) -> (LateLogArrayBufBuilder<'a, B1>, B2) {
+    pub fn finalize(mut self) -> (LateLogArrayBufBuilder<'a, B1>, B2, u64, u64) {
         if self.current_block.len() > 0 {
             let current_block: Vec<&[u8]> = self.current_block.iter().map(|e| e.as_ref()).collect();
             let size = build_block_unchecked(&mut self.data_buf, &current_block);
@@ -89,7 +89,12 @@ impl<'a, B1: BufMut, B2: BufMut> SizedDictBufBuilder<'a, B1, B2> {
             self.offsets.push(self.block_offset);
         }
 
-        (self.offsets, self.data_buf)
+        (
+            self.offsets,
+            self.data_buf,
+            self.block_offset,
+            self.id_offset,
+        )
     }
 }
 
@@ -377,7 +382,7 @@ mod tests {
 
         let mut builder = SizedDictBufBuilder::new(0, 0, logarray_builder, data_buf);
         builder.add_all(strings.clone().into_iter().map(|v| Bytes::from_static(v)));
-        let (mut logarray_builder, data_buf) = builder.finalize();
+        let (mut logarray_builder, data_buf, _, _) = builder.finalize();
         logarray_builder.pop();
         logarray_builder.finalize();
 
