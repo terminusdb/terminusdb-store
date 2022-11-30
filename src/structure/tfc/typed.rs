@@ -57,8 +57,10 @@ impl TypedDict {
             type_id_offsets.push((type_offset + 1) * 8 - tally);
         }
 
-        let last_gap =
-            BLOCK_SIZE - data[block_offsets.entry(block_offsets.len() - 1) as usize] as usize;
+        let last_gap = BLOCK_SIZE
+            - parse_block_control_records(
+                data[block_offsets.entry(block_offsets.len() - 1) as usize],
+            ) as usize;
         let num_entries = (block_offsets.len() + 1) * BLOCK_SIZE - tally as usize - last_gap;
 
         Self {

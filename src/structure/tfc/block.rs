@@ -613,7 +613,10 @@ fn record_size_encoding(record_size: Option<u8>) -> u8 {
         None => 0,
         Some(4) => 3 << 3,
         Some(8) => 4 << 3,
-        _ => panic!("This is really bad!"),
+        _ => {
+            dbg!(record_size);
+            panic!("This is really bad!")
+        }
     }
 }
 
@@ -929,13 +932,19 @@ mod tests {
 
     #[test]
     fn control_word_round_trip() {
+        let cw = create_block_control_word(None, 1);
+        assert_eq!(parse_block_control_word(cw), (None, 1));
+
+        let cw = create_block_control_word(None, 8);
+        assert_eq!(parse_block_control_word(cw), (None, 8));
+
         let cw = create_block_control_word(None, 3);
         assert_eq!(parse_block_control_word(cw), (None, 3));
 
         let cw = create_block_control_word(Some(8), 5);
         assert_eq!(parse_block_control_word(cw), (Some(8), 5));
 
-        let cw = create_block_control_word(Some(12), 6);
-        assert_eq!(parse_block_control_word(cw), (Some(12), 6))
+        let cw = create_block_control_word(Some(4), 6);
+        assert_eq!(parse_block_control_word(cw), (Some(4), 6))
     }
 }
