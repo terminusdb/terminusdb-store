@@ -27,21 +27,21 @@ pub fn build_dict_unchecked<B: BufMut, R: AsRef<[u8]>, I: Iterator<Item = R>>(
     }
 }
 
-pub struct SizedDictBufBuilder<'a, B1: BufMut, B2: BufMut> {
+pub struct SizedDictBufBuilder<B1: BufMut, B2: BufMut> {
     pub(crate) record_size: Option<u8>,
     block_offset: u64,
     id_offset: u64,
-    offsets: LateLogArrayBufBuilder<'a, B1>,
+    offsets: LateLogArrayBufBuilder<B1>,
     data_buf: B2,
     current_block: Vec<Bytes>,
 }
 
-impl<'a, B1: BufMut, B2: BufMut> SizedDictBufBuilder<'a, B1, B2> {
+impl<B1: BufMut, B2: BufMut> SizedDictBufBuilder<B1, B2> {
     pub fn new(
         record_size: Option<u8>,
         block_offset: u64,
         id_offset: u64,
-        offsets: LateLogArrayBufBuilder<'a, B1>,
+        offsets: LateLogArrayBufBuilder<B1>,
         data_buf: B2,
     ) -> Self {
         Self {
@@ -85,7 +85,7 @@ impl<'a, B1: BufMut, B2: BufMut> SizedDictBufBuilder<'a, B1, B2> {
         it.map(|val| self.add(val)).collect()
     }
 
-    pub fn finalize(mut self) -> (LateLogArrayBufBuilder<'a, B1>, B2, u64, u64) {
+    pub fn finalize(mut self) -> (LateLogArrayBufBuilder<B1>, B2, u64, u64) {
         if self.current_block.len() > 0 {
             let current_block: Vec<&[u8]> = self.current_block.iter().map(|e| e.as_ref()).collect();
             let size = build_block_unchecked(self.record_size, &mut self.data_buf, &current_block);

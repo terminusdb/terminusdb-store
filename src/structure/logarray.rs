@@ -417,16 +417,16 @@ impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
     }
 }
 
-pub struct LateLogArrayBufBuilder<'a, B: BufMut> {
+pub struct LateLogArrayBufBuilder<B: BufMut> {
     /// Destination of the log array data
-    buf: &'a mut B,
+    buf: B,
     /// NOTE: remove pub
     pub vals: Vec<u64>,
     width: u8
 }
 
-impl<'a, B: BufMut> LateLogArrayBufBuilder<'a, B> {
-    pub fn new(buf: &'a mut B) -> Self {
+impl<B: BufMut> LateLogArrayBufBuilder<B> {
+    pub fn new(buf: B) -> Self {
         Self {
             buf,
             vals: Vec::new(),
@@ -460,10 +460,12 @@ impl<'a, B: BufMut> LateLogArrayBufBuilder<'a, B> {
         self.vals.pop()
     }
 
-    pub fn finalize(self) {
-        let mut builder = LogArrayBufBuilder::new(self.buf, self.width);
+    pub fn finalize(self) -> B {
+        let mut builder = LogArrayBufBuilder::new(&mut self.buf, self.width);
         builder.push_vec(self.vals);
         builder.finalize();
+
+        self.buf
     }
 }
 

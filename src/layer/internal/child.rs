@@ -62,21 +62,22 @@ impl ChildLayer {
     }
 
     pub fn load(name: [u32; 5], parent: Arc<InternalLayer>, maps: ChildLayerMaps) -> InternalLayer {
-        let node_dictionary = PfcDict::parse(
+        let node_dictionary = TypedDictSegment::parse(
             maps.node_dictionary_maps.blocks_map,
             maps.node_dictionary_maps.offsets_map,
-        )
-        .unwrap();
-        let predicate_dictionary = PfcDict::parse(
+            0
+        );
+        let predicate_dictionary = TypedDictSegment::parse(
             maps.predicate_dictionary_maps.blocks_map,
             maps.predicate_dictionary_maps.offsets_map,
-        )
-        .unwrap();
-        let value_dictionary = PfcDict::parse(
+            0,
+        );
+        let value_dictionary = TypedDict::from_parts(
+            maps.value_dictionary_maps.types_present_map,
+            maps.value_dictionary_maps.type_offsets_map,
             maps.value_dictionary_maps.blocks_map,
             maps.value_dictionary_maps.offsets_map,
-        )
-        .unwrap();
+        );
 
         let parent_node_value_count = parent.node_and_value_count();
         let parent_predicate_count = parent.predicate_count();
@@ -85,7 +86,7 @@ impl ChildLayer {
             None => IdMap::default(),
             Some(maps) => IdMap::from_maps(
                 maps,
-                util::calculate_width((node_dictionary.len() + value_dictionary.len()) as u64),
+                util::calculate_width((node_dictionary.num_entries() + value_dictionary.num_entries()) as u64),
             ),
         };
 
@@ -93,7 +94,7 @@ impl ChildLayer {
             None => IdMap::default(),
             Some(map) => IdMap::from_maps(
                 map,
-                util::calculate_width(predicate_dictionary.len() as u64),
+                util::calculate_width(predicate_dictionary.num_entries() as u64),
             ),
         };
 
@@ -233,10 +234,10 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// Does nothing if the node already exists in the parent, and
     /// panics if the given node string is not a lexical successor of
     /// the previous node string.
-    pub async fn add_node(&mut self, node: &str) -> io::Result<u64> {
+    pub fn add_node(&mut self, node: &str) -> u64 {
         match self.parent.subject_id(node) {
-            None => self.builder.add_node(node).await,
-            Some(id) => Ok(id),
+            None => self.builder.add_node(node),
+            Some(id) => id,
         }
     }
 
@@ -245,10 +246,10 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// Does nothing if the predicate already exists in the paretn, and
     /// panics if the given predicate string is not a lexical successor of
     /// the previous predicate string.
-    pub async fn add_predicate(&mut self, predicate: &str) -> io::Result<u64> {
+    pub fn add_predicate(&mut self, predicate: &str) -> u64 {
         match self.parent.predicate_id(predicate) {
-            None => self.builder.add_predicate(predicate).await,
-            Some(id) => Ok(id),
+            None => self.builder.add_predicate(predicate),
+            Some(id) => id,
         }
     }
 
@@ -257,10 +258,10 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// Does nothing if the value already exists in the paretn, and
     /// panics if the given value string is not a lexical successor of
     /// the previous value string.
-    pub async fn add_value(&mut self, value: &str) -> io::Result<u64> {
+    pub fn add_value(&mut self, value: &str) -> u64 {
         match self.parent.object_value_id(value) {
-            None => self.builder.add_value(value).await,
-            Some(id) => Ok(id),
+            None => self.builder.add_value(value),
+            Some(id) => id,
         }
     }
 
@@ -270,21 +271,21 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// added nodes are a lexical succesor of any of these
     /// nodes. Skips any nodes that are already part of the base
     /// layer.
-    pub async fn add_nodes<I: 'static + IntoIterator<Item = String> + Send>(
+    pub fn add_nodes<I: 'static + IntoIterator<Item = String> + Send>(
         &mut self,
         nodes: I,
-    ) -> io::Result<Vec<u64>>
+    ) -> Vec<u64>
     where
         <I as std::iter::IntoIterator>::IntoIter: Send,
     {
         // TODO bulk check node existence
         let mut result = Vec::new();
         for node in nodes {
-            let id = self.add_node(&node).await?;
+            let id = self.add_node(&node);
             result.push(id);
         }
 
-        Ok(result)
+        result
     }
 
     /// Add predicates from an iterable.
@@ -293,21 +294,21 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// previous added predicates are a lexical succesor of any of
     /// these predicates. Skips any predicates that are already part
     /// of the base layer.
-    pub async fn add_predicates<I: 'static + IntoIterator<Item = String> + Send>(
+    pub fn add_predicates<I: 'static + IntoIterator<Item = String> + Send>(
         &mut self,
         predicates: I,
-    ) -> io::Result<Vec<u64>>
+    ) -> Vec<u64>
     where
         <I as std::iter::IntoIterator>::IntoIter: Send,
     {
         // TODO bulk check predicate existence
         let mut result = Vec::new();
         for predicate in predicates {
-            let id = self.add_predicate(&predicate).await?;
+            let id = self.add_predicate(&predicate);
             result.push(id);
         }
 
-        Ok(result)
+        result
     }
 
     /// Add values from an iterable.
@@ -316,21 +317,21 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// added values are a lexical succesor of any of these
     /// values. Skips any nodes that are already part of the base
     /// layer.
-    pub async fn add_values<I: 'static + IntoIterator<Item = String> + Send>(
+    pub fn add_values<I: 'static + IntoIterator<Item = String> + Send>(
         &mut self,
         values: I,
-    ) -> io::Result<Vec<u64>>
+    ) -> Vec<u64>
     where
         <I as std::iter::IntoIterator>::IntoIter: Send,
     {
         // TODO bulk check predicate existence
         let mut result = Vec::new();
         for value in values {
-            let id = self.add_value(&value).await?;
+            let id = self.add_value(&value);
             result.push(id);
         }
 
-        Ok(result)
+        result
     }
 
     /// Turn this builder into a phase 2 builder that will take triple data.

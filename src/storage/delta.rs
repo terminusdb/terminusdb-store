@@ -207,7 +207,7 @@ async fn dictionary_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore
         files.predicate_dictionary_files.clone(),
     )
     .await?;
-    merge_typed_dictionaries(&value_dicts, files.value_dictionary_files.clone()).await?;
+    merge_typed_dictionaries(value_dicts.iter(), files.value_dictionary_files.clone()).await?;
 
     construct_idmaps_from_structures(
         node_dicts,

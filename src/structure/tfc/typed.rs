@@ -567,18 +567,18 @@ pub fn build_multiple_segments<
     type_offsets_builder.finalize();
 }
 
-struct TypedDictBufBuilder<'a, B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> {
-    types_present_builder: LateLogArrayBufBuilder<'a, B1>,
-    type_offsets_builder: LateLogArrayBufBuilder<'a, B2>,
-    sized_dict_buf_builder: Option<SizedDictBufBuilder<'a, B3, B4>>,
+pub struct TypedDictBufBuilder<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> {
+    types_present_builder: LateLogArrayBufBuilder<B1>,
+    type_offsets_builder: LateLogArrayBufBuilder<B2>,
+    sized_dict_buf_builder: Option<SizedDictBufBuilder<B3, B4>>,
     current_datatype: Option<Datatype>,
 }
 
-impl<'a, B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<'a, B1, B2, B3, B4> {
+impl<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<B1, B2, B3, B4> {
     pub fn new(
-        used_types: &'a mut B1,
-        type_offsets: &'a mut B2,
-        block_offsets: &'a mut B3,
+        used_types: B1,
+        type_offsets: B2,
+        block_offsets: B3,
         data_buf: B4,
     ) -> Self {
         let types_present_builder = LateLogArrayBufBuilder::new(used_types);
@@ -638,19 +638,19 @@ impl<'a, B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<'a,
         it.map(|(dt, val)| self.add(dt, val)).collect()
     }
 
-    pub fn finalize(self) -> B4 {
+    pub fn finalize(self) -> (B1, B2, B3, B4) {
         if self.current_datatype == None {
             panic!("There was nothing added to this dictionary!");
         }
         let (mut block_offset_builder, data_buf, _, _) =
             self.sized_dict_buf_builder.unwrap().finalize();
         block_offset_builder.pop();
-        block_offset_builder.finalize();
+        let block_offsets_buf = block_offset_builder.finalize();
 
-        self.types_present_builder.finalize();
-        self.type_offsets_builder.finalize();
+        let types_present_buf = self.types_present_builder.finalize();
+        let type_offsets_buf = self.type_offsets_builder.finalize();
 
-        data_buf
+        (types_present_buf, type_offsets_buf, block_offsets_buf, data_buf)
     }
 }
 

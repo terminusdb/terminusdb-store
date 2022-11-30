@@ -176,7 +176,7 @@ impl LayerStore for CachedLayerStore {
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
             if !layer.is_rollup() {
-                return Ok(Some(layer.node_dictionary().len() as u64));
+                return Ok(Some(layer.node_dictionary().num_entries() as u64));
             }
         }
 
@@ -188,7 +188,7 @@ impl LayerStore for CachedLayerStore {
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
             if !layer.is_rollup() {
-                return Ok(Some(layer.predicate_dictionary().len() as u64));
+                return Ok(Some(layer.predicate_dictionary().num_entries() as u64));
             }
         }
 
@@ -200,7 +200,7 @@ impl LayerStore for CachedLayerStore {
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
             if !layer.is_rollup() {
-                return Ok(Some(layer.value_dictionary().len() as u64));
+                return Ok(Some(layer.value_dictionary().num_entries() as u64));
             }
         }
 

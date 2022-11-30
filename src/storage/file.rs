@@ -2,8 +2,8 @@
 
 use std::io;
 
-use bytes::Bytes;
-use tokio::io::{AsyncRead, AsyncWrite};
+use bytes::{Bytes, Buf};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use async_trait::async_trait;
 
@@ -290,6 +290,26 @@ impl<F: 'static + FileLoad + FileStore> TypedDictionaryFiles<F> {
             offsets_map,
         })
     }
+
+    pub async fn write_all_from_bufs<B1: Buf, B2: Buf, B3:Buf, B4:Buf>(&self, types_present_buf: &mut B1, type_offsets_buf: &mut B2, blocks_buf: &mut B3, offsets_buf: &mut B4) -> io::Result<()> {
+        let mut types_present_writer = self.types_present_file.open_write().await?;
+        let mut type_offsets_writer = self.type_offsets_file.open_write().await?;
+        let mut blocks_writer = self.blocks_file.open_write().await?;
+        let mut offsets_writer = self.offsets_file.open_write().await?;
+
+        types_present_writer.write_all_buf(types_present_buf).await?;
+        type_offsets_writer.write_all_buf(type_offsets_buf).await?;
+        blocks_writer.write_all_buf(blocks_buf).await?;
+        offsets_writer.write_all_buf(offsets_buf).await?;
+
+        blocks_writer.flush();
+        blocks_writer.sync_all();
+
+        offsets_writer.flush();
+        offsets_writer.sync_all();
+
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -314,6 +334,22 @@ impl<F: 'static + FileLoad + FileStore> DictionaryFiles<F> {
             blocks_map,
             offsets_map,
         })
+    }
+
+    pub async fn write_all_from_bufs<B1: Buf, B2: Buf>(&self, blocks_buf: &mut B1, offsets_buf: &mut B2) -> io::Result<()> {
+        let mut blocks_writer = self.blocks_file.open_write().await?;
+        let mut offsets_writer = self.offsets_file.open_write().await?;
+
+        blocks_writer.write_all_buf(blocks_buf).await?;
+        offsets_writer.write_all_buf(offsets_buf).await?;
+
+        blocks_writer.flush();
+        blocks_writer.sync_all();
+
+        offsets_writer.flush();
+        offsets_writer.sync_all();
+
+        Ok(())
     }
 }
 

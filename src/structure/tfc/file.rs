@@ -51,7 +51,7 @@ pub async fn merge_string_dictionaries<
     let mut offsets = Vec::new();
     let mut offsets_buf = BytesMut::new();
     let mut data_buf = BytesMut::new();
-    build_dict_unchecked(0, &mut offsets, &mut data_buf, sorted_iterator);
+    build_dict_unchecked(None, 0, &mut offsets, &mut data_buf, sorted_iterator);
     build_offset_logarray(&mut offsets_buf, offsets);
 
 

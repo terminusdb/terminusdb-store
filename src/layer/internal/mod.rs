@@ -27,6 +27,7 @@ pub enum InternalLayer {
 }
 
 use InternalLayer::*;
+use tfc::block::IdLookupResult;
 
 impl InternalLayer {
     pub fn name(&self) -> [u32; 5] {
@@ -221,14 +222,14 @@ impl InternalLayer {
     }
 
     pub fn predicate_dict_len(&self) -> usize {
-        self.predicate_dictionary().len()
+        self.predicate_dictionary().num_entries()
     }
 
-    pub fn predicate_dict_id(&self, predicate: &str) -> Option<u64> {
+    pub fn predicate_dict_id(&self, predicate: &str) -> IdLookupResult {
         self.predicate_dictionary().id(predicate)
     }
 
-    pub fn node_dict_id(&self, subject: &str) -> Option<u64> {
+    pub fn node_dict_id(&self, subject: &str) -> IdLookupResult {
         self.node_dictionary().id(subject)
     }
 
@@ -237,15 +238,15 @@ impl InternalLayer {
     }
 
     pub fn node_dict_len(&self) -> usize {
-        self.node_dictionary().len()
+        self.node_dictionary().num_entries()
     }
 
-    pub fn value_dict_id(&self, value: &str) -> Option<u64> {
+    pub fn value_dict_id(&self, value: &str) -> IdLookupResult {
         self.value_dictionary().id(value)
     }
 
     pub fn value_dict_len(&self) -> usize {
-        self.value_dictionary().len()
+        self.value_dictionary().num_entries()
     }
 
     pub fn value_dict_get(&self, id: usize) -> Option<String> {

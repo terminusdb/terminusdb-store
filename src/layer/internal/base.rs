@@ -49,27 +49,28 @@ impl BaseLayer {
     }
 
     pub fn load(name: [u32; 5], maps: BaseLayerMaps) -> InternalLayer {
-        let node_dictionary = PfcDict::parse(
+        let node_dictionary = TypedDictSegment::parse(
             maps.node_dictionary_maps.blocks_map,
             maps.node_dictionary_maps.offsets_map,
-        )
-        .unwrap();
-        let predicate_dictionary = PfcDict::parse(
+            0,
+        );
+        let predicate_dictionary = TypedDictSegment::parse(
             maps.predicate_dictionary_maps.blocks_map,
             maps.predicate_dictionary_maps.offsets_map,
-        )
-        .unwrap();
-        let value_dictionary = PfcDict::parse(
+            0,
+        );
+        let value_dictionary = TypedDict::from_parts(
+            maps.value_dictionary_maps.types_present_map,
+            maps.value_dictionary_maps.type_offsets_map,
             maps.value_dictionary_maps.blocks_map,
             maps.value_dictionary_maps.offsets_map,
-        )
-        .unwrap();
+        );
 
         let node_value_idmap = match maps.id_map_maps.node_value_idmap_maps {
             None => IdMap::default(),
             Some(maps) => IdMap::from_maps(
                 maps,
-                util::calculate_width((node_dictionary.len() + value_dictionary.len()) as u64),
+                util::calculate_width((node_dictionary.num_entries() + value_dictionary.num_entries()) as u64),
             ),
         };
 
@@ -77,7 +78,7 @@ impl BaseLayer {
             None => IdMap::default(),
             Some(map) => IdMap::from_maps(
                 map,
-                util::calculate_width(predicate_dictionary.len() as u64),
+                util::calculate_width(predicate_dictionary.num_entries() as u64),
             ),
         };
 
@@ -170,76 +171,76 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     /// Add a node string.
     ///
     /// Panics if the given node string is not a lexical successor of the previous node string.
-    pub async fn add_node(&mut self, node: &str) -> io::Result<u64> {
-        let id = self.builder.add_node(node).await?;
+    pub fn add_node(&mut self, node: &str) -> u64 {
+        let id = self.builder.add_node(node);
 
-        Ok(id)
+        id
     }
 
     /// Add a predicate string.
     ///
     /// Panics if the given predicate string is not a lexical successor of the previous node string.
-    pub async fn add_predicate(&mut self, predicate: &str) -> io::Result<u64> {
-        let id = self.builder.add_predicate(predicate).await?;
+    pub fn add_predicate(&mut self, predicate: &str) -> u64 {
+        let id = self.builder.add_predicate(predicate);
 
-        Ok(id)
+        id
     }
 
     /// Add a value string.
     ///
     /// Panics if the given value string is not a lexical successor of the previous value string.
-    pub async fn add_value(&mut self, value: &str) -> io::Result<u64> {
-        let id = self.builder.add_value(value).await?;
+    pub fn add_value(&mut self, value: &str) -> u64 {
+        let id = self.builder.add_value(value);
 
-        Ok(id)
+        id
     }
 
     /// Add nodes from an iterable.
     ///
     /// Panics if the nodes are not in lexical order, or if previous added nodes are a lexical succesor of any of these nodes.
-    pub async fn add_nodes<I: 'static + IntoIterator<Item = String> + Send>(
+    pub fn add_nodes<I: 'static + IntoIterator<Item = String> + Send>(
         &mut self,
         nodes: I,
-    ) -> io::Result<Vec<u64>>
+    ) -> Vec<u64>
     where
         <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
         I: Unpin + Sync,
     {
-        let ids = self.builder.add_nodes(nodes).await?;
+        let ids = self.builder.add_nodes(nodes);
 
-        Ok(ids)
+        ids
     }
 
     /// Add predicates from an iterable.
     ///
     /// Panics if the predicates are not in lexical order, or if previous added predicates are a lexical succesor of any of these predicates.
-    pub async fn add_predicates<I: 'static + IntoIterator<Item = String> + Send>(
+    pub fn add_predicates<I: 'static + IntoIterator<Item = String> + Send>(
         &mut self,
         predicates: I,
-    ) -> io::Result<Vec<u64>>
+    ) -> Vec<u64>
     where
         <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
         I: Unpin + Sync,
     {
-        let ids = self.builder.add_predicates(predicates).await?;
+        let ids = self.builder.add_predicates(predicates);
 
-        Ok(ids)
+        ids
     }
 
     /// Add values from an iterable.
     ///
     /// Panics if the values are not in lexical order, or if previous added values are a lexical succesor of any of these values.
-    pub async fn add_values<I: 'static + IntoIterator<Item = String> + Send>(
+    pub fn add_values<I: 'static + IntoIterator<Item = String> + Send>(
         &mut self,
         values: I,
-    ) -> io::Result<Vec<u64>>
+    ) -> Vec<u64>
     where
         <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
         I: Unpin + Sync,
     {
-        let ids = self.builder.add_values(values).await?;
+        let ids = self.builder.add_values(values);
 
-        Ok(ids)
+        ids
     }
 
     /// Turn this builder into a phase 2 builder that will take triple data.
