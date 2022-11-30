@@ -1056,12 +1056,20 @@ mod tests {
         let data = data_buf.freeze();
 
         let dict = TypedDict::from_parts(used_types, type_offsets, block_offsets, data);
-        eprintln!("dict: {dict:?}");
-        let res = dict.entry(0);
-        eprintln!("res: {res:?}");
-
-        let res = dict.entry(1);
-        eprintln!("res: {res:?}");
+        assert_eq!(
+            dict.entry(1),
+            (
+                Datatype::String,
+                SizedDictEntry(vec![Bytes::from_static(b"Batman")])
+            )
+        );
+        assert_eq!(
+            dict.entry(2),
+            (
+                Datatype::String,
+                SizedDictEntry(vec![Bytes::from_static(b"Batty")])
+            )
+        );
         panic!();
     }
 }
