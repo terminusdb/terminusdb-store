@@ -1124,9 +1124,9 @@ mod tests {
         ];
         vec.sort();
 
-        let mut used_types_buf = BytesMut::new();
-        let mut type_offsets_buf = BytesMut::new();
-        let mut block_offsets_buf = BytesMut::new();
+        let used_types_buf = BytesMut::new();
+        let type_offsets_buf = BytesMut::new();
+        let block_offsets_buf = BytesMut::new();
         let data_buf = BytesMut::new();
 
         let mut typed_builder = TypedDictBufBuilder::new(
@@ -1136,7 +1136,7 @@ mod tests {
             data_buf,
         );
 
-        let results: Vec<u64> = vec
+        let _results: Vec<u64> = vec
             .clone()
             .into_iter()
             .map(|(dt, entry)| typed_builder.add(dt, entry))
