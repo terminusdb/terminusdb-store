@@ -365,6 +365,8 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
             FILENAMES.node_dictionary_offsets,
             FILENAMES.predicate_dictionary_blocks,
             FILENAMES.predicate_dictionary_offsets,
+            FILENAMES.value_dictionary_types_present,
+            FILENAMES.value_dictionary_type_offsets,
             FILENAMES.value_dictionary_blocks,
             FILENAMES.value_dictionary_offsets,
             FILENAMES.node_value_idmap_bits,
@@ -407,55 +409,57 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
                 blocks_file: files[2].clone(),
                 offsets_file: files[3].clone(),
             },
-            value_dictionary_files: DictionaryFiles {
-                blocks_file: files[4].clone(),
-                offsets_file: files[5].clone(),
+            value_dictionary_files: TypedDictionaryFiles {
+                types_present_file: files[4].clone(),
+                type_offsets_file: files[5].clone(),
+                blocks_file: files[6].clone(),
+                offsets_file: files[7].clone(),
             },
 
             id_map_files: IdMapFiles {
                 node_value_idmap_files: BitIndexFiles {
-                    bits_file: files[6].clone(),
-                    blocks_file: files[7].clone(),
-                    sblocks_file: files[8].clone(),
+                    bits_file: files[8].clone(),
+                    blocks_file: files[9].clone(),
+                    sblocks_file: files[10].clone(),
                 },
                 predicate_idmap_files: BitIndexFiles {
-                    bits_file: files[9].clone(),
-                    blocks_file: files[10].clone(),
-                    sblocks_file: files[11].clone(),
+                    bits_file: files[11].clone(),
+                    blocks_file: files[12].clone(),
+                    sblocks_file: files[13].clone(),
                 },
             },
 
-            subjects_file: files[12].clone(),
-            objects_file: files[13].clone(),
+            subjects_file: files[14].clone(),
+            objects_file: files[15].clone(),
 
             s_p_adjacency_list_files: AdjacencyListFiles {
                 bitindex_files: BitIndexFiles {
-                    bits_file: files[14].clone(),
-                    blocks_file: files[15].clone(),
-                    sblocks_file: files[16].clone(),
+                    bits_file: files[16].clone(),
+                    blocks_file: files[17].clone(),
+                    sblocks_file: files[18].clone(),
                 },
-                nums_file: files[17].clone(),
+                nums_file: files[19].clone(),
             },
             sp_o_adjacency_list_files: AdjacencyListFiles {
                 bitindex_files: BitIndexFiles {
-                    bits_file: files[18].clone(),
-                    blocks_file: files[19].clone(),
-                    sblocks_file: files[20].clone(),
+                    bits_file: files[20].clone(),
+                    blocks_file: files[21].clone(),
+                    sblocks_file: files[22].clone(),
                 },
-                nums_file: files[21].clone(),
+                nums_file: files[23].clone(),
             },
             o_ps_adjacency_list_files: AdjacencyListFiles {
                 bitindex_files: BitIndexFiles {
-                    bits_file: files[22].clone(),
-                    blocks_file: files[23].clone(),
-                    sblocks_file: files[24].clone(),
+                    bits_file: files[24].clone(),
+                    blocks_file: files[25].clone(),
+                    sblocks_file: files[26].clone(),
                 },
-                nums_file: files[25].clone(),
+                nums_file: files[27].clone(),
             },
             predicate_wavelet_tree_files: BitIndexFiles {
-                bits_file: files[26].clone(),
-                blocks_file: files[27].clone(),
-                sblocks_file: files[28].clone(),
+                bits_file: files[28].clone(),
+                blocks_file: files[29].clone(),
+                sblocks_file: files[30].clone(),
             },
         })
     }
@@ -466,6 +470,8 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
             FILENAMES.node_dictionary_offsets,
             FILENAMES.predicate_dictionary_blocks,
             FILENAMES.predicate_dictionary_offsets,
+            FILENAMES.value_dictionary_types_present,
+            FILENAMES.value_dictionary_type_offsets,
             FILENAMES.value_dictionary_blocks,
             FILENAMES.value_dictionary_offsets,
             FILENAMES.node_value_idmap_bits,
@@ -524,86 +530,88 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
                 blocks_file: files[2].clone(),
                 offsets_file: files[3].clone(),
             },
-            value_dictionary_files: DictionaryFiles {
-                blocks_file: files[4].clone(),
-                offsets_file: files[5].clone(),
+            value_dictionary_files: TypedDictionaryFiles {
+                types_present_file: files[4].clone(),
+                type_offsets_file: files[5].clone(),
+                blocks_file: files[6].clone(),
+                offsets_file: files[7].clone(),
             },
 
             id_map_files: IdMapFiles {
                 node_value_idmap_files: BitIndexFiles {
-                    bits_file: files[6].clone(),
-                    blocks_file: files[7].clone(),
-                    sblocks_file: files[8].clone(),
+                    bits_file: files[8].clone(),
+                    blocks_file: files[9].clone(),
+                    sblocks_file: files[10].clone(),
                 },
                 predicate_idmap_files: BitIndexFiles {
-                    bits_file: files[9].clone(),
-                    blocks_file: files[10].clone(),
-                    sblocks_file: files[11].clone(),
+                    bits_file: files[11].clone(),
+                    blocks_file: files[12].clone(),
+                    sblocks_file: files[13].clone(),
                 },
             },
 
-            pos_subjects_file: files[12].clone(),
-            pos_objects_file: files[13].clone(),
-            neg_subjects_file: files[14].clone(),
-            neg_objects_file: files[15].clone(),
+            pos_subjects_file: files[14].clone(),
+            pos_objects_file: files[15].clone(),
+            neg_subjects_file: files[16].clone(),
+            neg_objects_file: files[17].clone(),
 
             pos_s_p_adjacency_list_files: AdjacencyListFiles {
                 bitindex_files: BitIndexFiles {
-                    bits_file: files[16].clone(),
-                    blocks_file: files[17].clone(),
-                    sblocks_file: files[18].clone(),
+                    bits_file: files[18].clone(),
+                    blocks_file: files[19].clone(),
+                    sblocks_file: files[20].clone(),
                 },
-                nums_file: files[19].clone(),
+                nums_file: files[21].clone(),
             },
             pos_sp_o_adjacency_list_files: AdjacencyListFiles {
                 bitindex_files: BitIndexFiles {
-                    bits_file: files[20].clone(),
-                    blocks_file: files[21].clone(),
-                    sblocks_file: files[22].clone(),
+                    bits_file: files[22].clone(),
+                    blocks_file: files[23].clone(),
+                    sblocks_file: files[24].clone(),
                 },
-                nums_file: files[23].clone(),
+                nums_file: files[25].clone(),
             },
             pos_o_ps_adjacency_list_files: AdjacencyListFiles {
                 bitindex_files: BitIndexFiles {
-                    bits_file: files[24].clone(),
-                    blocks_file: files[25].clone(),
-                    sblocks_file: files[26].clone(),
+                    bits_file: files[26].clone(),
+                    blocks_file: files[27].clone(),
+                    sblocks_file: files[28].clone(),
                 },
-                nums_file: files[27].clone(),
+                nums_file: files[29].clone(),
             },
             neg_s_p_adjacency_list_files: AdjacencyListFiles {
                 bitindex_files: BitIndexFiles {
-                    bits_file: files[28].clone(),
-                    blocks_file: files[29].clone(),
-                    sblocks_file: files[30].clone(),
+                    bits_file: files[30].clone(),
+                    blocks_file: files[31].clone(),
+                    sblocks_file: files[32].clone(),
                 },
-                nums_file: files[31].clone(),
+                nums_file: files[33].clone(),
             },
             neg_sp_o_adjacency_list_files: AdjacencyListFiles {
                 bitindex_files: BitIndexFiles {
-                    bits_file: files[32].clone(),
-                    blocks_file: files[33].clone(),
-                    sblocks_file: files[34].clone(),
+                    bits_file: files[34].clone(),
+                    blocks_file: files[35].clone(),
+                    sblocks_file: files[36].clone(),
                 },
-                nums_file: files[35].clone(),
+                nums_file: files[37].clone(),
             },
             neg_o_ps_adjacency_list_files: AdjacencyListFiles {
                 bitindex_files: BitIndexFiles {
-                    bits_file: files[36].clone(),
-                    blocks_file: files[37].clone(),
-                    sblocks_file: files[38].clone(),
+                    bits_file: files[38].clone(),
+                    blocks_file: files[39].clone(),
+                    sblocks_file: files[40].clone(),
                 },
-                nums_file: files[39].clone(),
+                nums_file: files[41].clone(),
             },
             pos_predicate_wavelet_tree_files: BitIndexFiles {
-                bits_file: files[40].clone(),
-                blocks_file: files[41].clone(),
-                sblocks_file: files[42].clone(),
+                bits_file: files[42].clone(),
+                blocks_file: files[43].clone(),
+                sblocks_file: files[44].clone(),
             },
             neg_predicate_wavelet_tree_files: BitIndexFiles {
-                bits_file: files[43].clone(),
-                blocks_file: files[44].clone(),
-                sblocks_file: files[45].clone(),
+                bits_file: files[45].clone(),
+                blocks_file: files[46].clone(),
+                sblocks_file: files[47].clone(),
             },
         })
     }
@@ -1561,7 +1569,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             let files = self.node_dictionary_files(name).await?;
             let maps = files.map_all().await?;
 
-            Ok(Some(StringDict::parse(maps.blocks_map, maps.offsets_map)?))
+            Ok(Some(StringDict::parse(maps.blocks_map, maps.offsets_map, 0)))
         } else {
             Ok(None)
         }
@@ -1572,7 +1580,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             let files = self.predicate_dictionary_files(name).await?;
             let maps = files.map_all().await?;
 
-            Ok(Some(StringDict::parse(maps.blocks_map, maps.offsets_map)?))
+            Ok(Some(StringDict::parse(maps.blocks_map, maps.offsets_map, 0)))
         } else {
             Ok(None)
         }
@@ -1583,7 +1591,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             let files = self.value_dictionary_files(name).await?;
             let maps = files.map_all().await?;
 
-            Ok(Some(TypedDict::from_parts(maps.blocks_map, maps.offsets_map)?))
+            Ok(Some(TypedDict::from_parts(maps.types_present_map, maps.type_offsets_map, maps.blocks_map, maps.offsets_map)))
         } else {
             Ok(None)
         }

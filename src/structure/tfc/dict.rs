@@ -174,9 +174,12 @@ impl SizedDict {
         self.offsets.len() + 1
     }
 
-    pub fn entry(&self, index: u64) -> SizedDictEntry {
+    pub fn entry(&self, index: usize) -> Option<SizedDictEntry> {
+        if index > self.num_entries() {
+            return None;
+        }
         let block = self.block(((index - 1) / 8) as usize);
-        block.entry(((index - 1) % 8) as usize)
+        Some(block.entry(((index - 1) % 8) as usize))
     }
 
     pub fn id(&self, slice: &[u8]) -> IdLookupResult {

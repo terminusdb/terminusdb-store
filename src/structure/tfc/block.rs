@@ -587,6 +587,21 @@ impl IdLookupResult {
             _ => self,
         }
     }
+
+    pub fn map<F: Fn(u64)->u64>(self, f: F) -> Self {
+        match self {
+            Self::Found(i) => Self::Found(f(i)),
+            Self::Closest(i) => Self::Closest(f(i)),
+            Self::NotFound => Self::NotFound
+        }
+    }
+
+    pub fn into_option(self) -> Option<u64> {
+        match self {
+            Self::Found(i) => Some(i),
+            _ => None
+        }
+    }
 }
 
 pub fn parse_block_control_records(cw: u8) -> u8 {

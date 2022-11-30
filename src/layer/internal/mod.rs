@@ -226,11 +226,11 @@ impl InternalLayer {
     }
 
     pub fn predicate_dict_id(&self, predicate: &str) -> IdLookupResult {
-        self.predicate_dictionary().id(predicate)
+        self.predicate_dictionary().id(&predicate)
     }
 
     pub fn node_dict_id(&self, subject: &str) -> IdLookupResult {
-        self.node_dictionary().id(subject)
+        self.node_dictionary().id(&subject)
     }
 
     pub fn node_dict_get(&self, id: usize) -> Option<String> {
@@ -242,7 +242,7 @@ impl InternalLayer {
     }
 
     pub fn value_dict_id(&self, value: &str) -> IdLookupResult {
-        self.value_dictionary().id(value)
+        self.value_dictionary().id(&value)
     }
 
     pub fn value_dict_len(&self) -> usize {
@@ -542,12 +542,12 @@ impl Layer for InternalLayer {
 
     fn node_and_value_count(&self) -> usize {
         self.parent_node_value_count()
-            + self.node_dictionary().len()
-            + self.value_dictionary().len()
+            + self.node_dictionary().num_entries()
+            + self.value_dictionary().num_entries()
     }
 
     fn predicate_count(&self) -> usize {
-        self.parent_predicate_count() + self.predicate_dictionary().len()
+        self.parent_predicate_count() + self.predicate_dictionary().num_entries()
     }
 
     fn subject_id<'a>(&'a self, subject: &str) -> Option<u64> {
@@ -555,6 +555,7 @@ impl Layer for InternalLayer {
             (
                 layer
                     .node_dict_id(subject)
+                    .into_option()
                     .map(|id| layer.node_value_id_map().inner_to_outer(id)),
                 layer.immediate_parent(),
             )
@@ -572,6 +573,7 @@ impl Layer for InternalLayer {
             (
                 layer
                     .predicate_dict_id(predicate)
+                    .into_option()
                     .map(|id| layer.predicate_id_map().inner_to_outer(id)),
                 layer.immediate_parent(),
             )
@@ -589,6 +591,7 @@ impl Layer for InternalLayer {
             (
                 layer
                     .node_dict_id(object)
+                    .into_option()
                     .map(|id| layer.node_value_id_map().inner_to_outer(id)),
                 layer.immediate_parent(),
             )
@@ -604,7 +607,9 @@ impl Layer for InternalLayer {
     fn object_value_id<'a>(&'a self, object: &str) -> Option<u64> {
         let to_result = |layer: &'a InternalLayer| {
             (
-                layer.value_dict_id(object).map(|i| {
+                layer.value_dict_id(object)
+                    .into_option()
+                    .map(|i| {
                     layer
                         .node_value_id_map()
                         .inner_to_outer(i + layer.node_dict_len() as u64)

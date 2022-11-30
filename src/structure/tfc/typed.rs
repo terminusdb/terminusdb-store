@@ -79,9 +79,9 @@ impl TypedDict {
         self.id_slice(datatype, bytes.as_ref())
     }
 
-    pub fn get<T: TdbDataType>(&self, id: u64) -> T {
-        let (datatype, slice) = self.entry(id);
-        datatype.cast(slice.into_buf())
+    pub fn get<T: TdbDataType>(&self, id: usize) -> Option<T> {
+        let result = self.entry(id);
+        result.map(|(datatype, slice)| datatype.cast(slice.into_buf()))
     }
 
     fn inner_type_segment(&self, i: usize) -> (SizedDict, u64) {
@@ -159,12 +159,15 @@ impl TypedDict {
         FromPrimitive::from_u64(self.types_present.entry(type_index)).unwrap()
     }
 
-    pub fn entry(&self, id: u64) -> (Datatype, SizedDictEntry) {
-        let type_index = self.type_index_for_id(id);
+    pub fn entry(&self, id: usize) -> Option<(Datatype, SizedDictEntry)> {
+        if id > self.num_entries() {
+            return None;
+        }
+        let type_index = self.type_index_for_id(id as u64);
 
         let (dict, offset) = self.inner_type_segment(type_index);
         let dt = self.type_for_type_index(type_index);
-        (dt, dict.entry(id - offset))
+        dict.entry(id - offset as usize).map(|e| (dt, e))
     }
 
     pub fn num_entries(&self) -> usize {
@@ -253,9 +256,9 @@ impl<T: TdbDataType> TypedDictSegment<T> {
         }
     }
 
-    pub fn get(&self, index: u64) -> T {
+    pub fn get(&self, index: usize) -> Option<T> {
         let entry = self.dict.entry(index);
-        T::from_lexical(entry.into_buf())
+        entry.map(|e|T::from_lexical(e.into_buf()))
     }
 
     pub fn id<Q: ToLexical<T>>(&self, val: &Q) -> IdLookupResult {

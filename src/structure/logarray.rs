@@ -460,7 +460,7 @@ impl<B: BufMut> LateLogArrayBufBuilder<B> {
         self.vals.pop()
     }
 
-    pub fn finalize(self) -> B {
+    pub fn finalize(mut self) -> B {
         let mut builder = LogArrayBufBuilder::new(&mut self.buf, self.width);
         builder.push_vec(self.vals);
         builder.finalize();

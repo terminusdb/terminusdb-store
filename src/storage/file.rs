@@ -65,7 +65,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerFiles<F> {
         }
     }
 
-    pub fn value_dictionary_files(&self) -> &DictionaryFiles<F> {
+    pub fn value_dictionary_files(&self) -> &TypedDictionaryFiles<F> {
         match self {
             Self::Base(b) => &b.value_dictionary_files,
             Self::Child(c) => &c.value_dictionary_files,
