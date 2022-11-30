@@ -599,18 +599,6 @@ pub fn parse_block_control_word(cw: u8) -> (Option<u8>, u8) {
     (record_size, records)
 }
 
-// None => 0
-// Some(1) => 1
-// Some(2) => 2
-//
-// Some(4) => 3
-// Some(8) => 4
-
-// MSB = 1, fake ids block.
-//
-// id => byte = id - id_offset
-// two more bits
-
 fn record_size_decoding(enc: u8) -> Option<u8> {
     match enc >> 3 {
         0 => None,
