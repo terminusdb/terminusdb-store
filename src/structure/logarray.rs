@@ -420,7 +420,8 @@ impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
 pub struct LateLogArrayBufBuilder<'a, B: BufMut> {
     /// Destination of the log array data
     buf: &'a mut B,
-    vals: Vec<u64>,
+    /// NOTE: remove pub
+    pub vals: Vec<u64>,
     width: u8
 }
 
