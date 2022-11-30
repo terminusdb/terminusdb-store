@@ -57,8 +57,10 @@ impl TypedDict {
             type_id_offsets.push((type_offset + 1) * 8 - tally);
         }
 
-        let last_gap =
-            BLOCK_SIZE - data[block_offsets.entry(block_offsets.len() - 1) as usize] as usize;
+        let last_gap = BLOCK_SIZE
+            - parse_block_control_records(
+                data[block_offsets.entry(block_offsets.len() - 1) as usize],
+            ) as usize;
         let num_entries = (block_offsets.len() + 1) * BLOCK_SIZE - tally as usize - last_gap;
 
         Self {
@@ -71,8 +73,8 @@ impl TypedDict {
         }
     }
 
-    pub fn id<T: TdbDataType>(&self, v: &T) -> IdLookupResult {
-        let (datatype, bytes) = v.make_entry();
+    pub fn id<T: TdbDataType, Q: ToLexical<T>>(&self, v: &Q) -> IdLookupResult {
+        let (datatype, bytes) = T::make_entry(v);
 
         self.id_slice(datatype, bytes.as_ref())
     }
@@ -256,8 +258,8 @@ impl<T: TdbDataType> TypedDictSegment<T> {
         T::from_lexical(entry.into_buf())
     }
 
-    pub fn id(&self, val: &T) -> IdLookupResult {
-        let slice = val.to_lexical();
+    pub fn id<Q: ToLexical<T>>(&self, val: &Q) -> IdLookupResult {
+        let slice = T::to_lexical(val);
         self.dict.id(&slice[..])
     }
 
@@ -315,23 +317,32 @@ impl Datatype {
 
 pub trait TdbDataType {
     fn datatype() -> Datatype;
-
-    fn to_lexical(&self) -> Bytes;
-
     fn from_lexical<B: Buf>(b: B) -> Self;
 
-    fn make_entry(&self) -> (Datatype, Bytes) {
-        (Self::datatype(), self.to_lexical())
+    fn to_lexical<T>(val: &T) -> Bytes
+    where T: ToLexical<Self> + ?Sized {
+        val.to_lexical()
+    }
+
+    fn make_entry<T>(val: &T) -> (Datatype, Bytes)
+    where T: ToLexical<Self> + ?Sized{
+        (Self::datatype(), val.to_lexical())
+    }
+}
+
+pub trait ToLexical<T:?Sized> {
+    fn to_lexical(&self) -> Bytes;
+}
+
+impl<T:AsRef<str>> ToLexical<String> for T {
+    fn to_lexical(&self) -> Bytes {
+        Bytes::copy_from_slice(self.as_ref().as_bytes())
     }
 }
 
 impl TdbDataType for String {
     fn datatype() -> Datatype {
         Datatype::String
-    }
-
-    fn to_lexical(&self) -> Bytes {
-        Bytes::copy_from_slice(self.as_bytes())
     }
 
     fn from_lexical<B: Buf>(mut b: B) -> Self {
@@ -346,15 +357,17 @@ impl TdbDataType for u32 {
         Datatype::UInt32
     }
 
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        b.reader().read_u32::<BigEndian>().unwrap()
+    }
+}
+
+impl ToLexical<u32> for u32 {
     fn to_lexical(&self) -> Bytes {
         let mut buf = BytesMut::new().writer();
         buf.write_u32::<BigEndian>(*self).unwrap();
 
         buf.into_inner().freeze()
-    }
-
-    fn from_lexical<B: Buf>(b: B) -> Self {
-        b.reader().read_u32::<BigEndian>().unwrap()
     }
 }
 
@@ -364,16 +377,18 @@ impl TdbDataType for i32 {
         Datatype::Int32
     }
 
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        let i = b.reader().read_u32::<BigEndian>().unwrap();
+        (I32_BYTE_MASK ^ i) as i32
+    }
+}
+
+impl ToLexical<i32> for i32 {
     fn to_lexical(&self) -> Bytes {
         let sign_flip = I32_BYTE_MASK ^ (*self as u32);
         let mut buf = BytesMut::new().writer();
         buf.write_u32::<BigEndian>(sign_flip).unwrap();
         buf.into_inner().freeze()
-    }
-
-    fn from_lexical<B: Buf>(b: B) -> Self {
-        let i = b.reader().read_u32::<BigEndian>().unwrap();
-        (I32_BYTE_MASK ^ i) as i32
     }
 }
 
@@ -382,15 +397,17 @@ impl TdbDataType for u64 {
         Datatype::UInt64
     }
 
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        b.reader().read_u64::<BigEndian>().unwrap()
+    }
+}
+
+impl ToLexical<u64> for u64 {
     fn to_lexical(&self) -> Bytes {
         let mut buf = BytesMut::new().writer();
         buf.write_u64::<BigEndian>(*self).unwrap();
 
         buf.into_inner().freeze()
-    }
-
-    fn from_lexical<B: Buf>(b: B) -> Self {
-        b.reader().read_u64::<BigEndian>().unwrap()
     }
 }
 
@@ -400,16 +417,18 @@ impl TdbDataType for i64 {
         Datatype::Int64
     }
 
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        let i = b.reader().read_u64::<BigEndian>().unwrap();
+        (I64_BYTE_MASK ^ i) as i64
+    }
+}
+
+impl ToLexical<i64> for i64 {
     fn to_lexical(&self) -> Bytes {
         let sign_flip = I64_BYTE_MASK ^ (*self as u64);
         let mut buf = BytesMut::new().writer();
         buf.write_u64::<BigEndian>(sign_flip).unwrap();
         buf.into_inner().freeze()
-    }
-
-    fn from_lexical<B: Buf>(b: B) -> Self {
-        let i = b.reader().read_u64::<BigEndian>().unwrap();
-        (I64_BYTE_MASK ^ i) as i64
     }
 }
 
@@ -418,19 +437,6 @@ const F32_COMPLEMENT: u32 = 0xffff_ffff;
 impl TdbDataType for f32 {
     fn datatype() -> Datatype {
         Datatype::Float32
-    }
-
-    fn to_lexical(&self) -> Bytes {
-        let f = *self;
-        let g: u32;
-        if f.signum() == -1.0 {
-            g = f.to_bits() ^ F32_COMPLEMENT;
-        } else {
-            g = f.to_bits() ^ F32_SIGN_MASK;
-        };
-        let mut buf = BytesMut::new().writer();
-        buf.write_u32::<BigEndian>(g).unwrap();
-        buf.into_inner().freeze()
     }
 
     fn from_lexical<B: Buf>(b: B) -> Self {
@@ -443,24 +449,26 @@ impl TdbDataType for f32 {
     }
 }
 
+impl ToLexical<f32> for f32 {
+    fn to_lexical(&self) -> Bytes {
+        let f = *self;
+        let g: u32;
+        if f.signum() == -1.0 {
+            g = f.to_bits() ^ F32_COMPLEMENT;
+        } else {
+            g = f.to_bits() ^ F32_SIGN_MASK;
+        };
+        let mut buf = BytesMut::new().writer();
+        buf.write_u32::<BigEndian>(g).unwrap();
+        buf.into_inner().freeze()
+    }
+}
+
 const F64_SIGN_MASK: u64 = 0x8000_0000_0000_0000;
 const F64_COMPLEMENT: u64 = 0xffff_ffff_ffff_ffff;
 impl TdbDataType for f64 {
     fn datatype() -> Datatype {
         Datatype::Float64
-    }
-
-    fn to_lexical(&self) -> Bytes {
-        let f = *self;
-        let g: u64;
-        if f.signum() == -1.0 {
-            g = f.to_bits() ^ F64_COMPLEMENT;
-        } else {
-            g = f.to_bits() ^ F64_SIGN_MASK;
-        };
-        let mut buf = BytesMut::new().writer();
-        buf.write_u64::<BigEndian>(g).unwrap();
-        buf.into_inner().freeze()
     }
 
     fn from_lexical<B: Buf>(b: B) -> Self {
@@ -473,17 +481,34 @@ impl TdbDataType for f64 {
     }
 }
 
+impl ToLexical<f64> for f64 {
+    fn to_lexical(&self) -> Bytes {
+        let f = *self;
+        let g: u64;
+        if f.signum() == -1.0 {
+            g = f.to_bits() ^ F64_COMPLEMENT;
+        } else {
+            g = f.to_bits() ^ F64_SIGN_MASK;
+        };
+        let mut buf = BytesMut::new().writer();
+        buf.write_u64::<BigEndian>(g).unwrap();
+        buf.into_inner().freeze()
+    }
+}
+
 impl TdbDataType for Integer {
     fn datatype() -> Datatype {
         Datatype::BigInt
     }
 
-    fn to_lexical(&self) -> Bytes {
-        Bytes::from(bigint_to_storage(self.clone()))
-    }
-
     fn from_lexical<B: Buf>(mut b: B) -> Self {
         storage_to_bigint(&mut b)
+    }
+}
+
+impl ToLexical<Integer> for Integer {
+    fn to_lexical(&self) -> Bytes {
+        Bytes::from(bigint_to_storage(self.clone()))
     }
 }
 
@@ -495,16 +520,18 @@ impl TdbDataType for Decimal {
         Datatype::Decimal
     }
 
-    fn to_lexical(&self) -> Bytes {
-        Bytes::from(decimal_to_storage(&self.0))
-    }
-
     fn from_lexical<B: Buf>(mut b: B) -> Self {
         Decimal(storage_to_decimal(&mut b))
     }
 }
 
-pub fn build_segment<B: BufMut, T: TdbDataType, I: Iterator<Item = T>>(
+impl ToLexical<Decimal> for Decimal {
+    fn to_lexical(&self) -> Bytes {
+        Bytes::from(decimal_to_storage(&self.0))
+    }
+}
+
+pub fn build_segment<B: BufMut, T: TdbDataType, Q: ToLexical<T>, I: Iterator<Item = Q>>(
     record_size: Option<u8>,
     offsets: &mut Vec<u64>,
     data_buf: &mut B,
@@ -660,7 +687,7 @@ mod tests {
 
     use super::*;
 
-    fn build_segment_and_offsets<B1: BufMut, B2: BufMut, T: TdbDataType, I: Iterator<Item = T>>(
+    fn build_segment_and_offsets<B1: BufMut, B2: BufMut, T: TdbDataType, Q: ToLexical<T>, I: Iterator<Item = Q>>(
         dt: Datatype,
         array_buf: &mut B1,
         data_buf: &mut B2,
@@ -739,9 +766,9 @@ mod tests {
 
     fn cycle<D>(d: D)
     where
-        D: TdbDataType + PartialEq + Debug,
+        D: TdbDataType + PartialEq + Debug + ToLexical<D>,
     {
-        let j = D::from_lexical(d.to_lexical());
+        let j = D::from_lexical(<D as TdbDataType>::to_lexical(&d));
         assert_eq!(d, j)
     }
 
@@ -830,19 +857,19 @@ mod tests {
     #[test]
     fn test_multi_segment() {
         let mut vec: Vec<(Datatype, Bytes)> = vec![
-            Decimal("-1".to_string()).make_entry(),
-            "asdf".to_string().make_entry(),
-            Decimal("-12342343.2348973".to_string()).make_entry(),
-            "Batty".to_string().make_entry(),
-            "Batman".to_string().make_entry(),
-            (-3_i64).make_entry(),
-            Decimal("2348973".to_string()).make_entry(),
-            4.389832_f32.make_entry(),
-            "apple".to_string().make_entry(),
-            23434.389832_f32.make_entry(),
-            "apply".to_string().make_entry(),
-            (-500_i32).make_entry(),
-            20_u32.make_entry(),
+            Decimal::make_entry(&Decimal("-1".to_string())),
+            String::make_entry(&"asdf"),
+            Decimal::make_entry(&Decimal("-12342343.2348973".to_string())),
+            String::make_entry(&"Batty"),
+            String::make_entry(&"Batman"),
+            i64::make_entry(&-3_i64),
+            Decimal::make_entry(&Decimal("2348973".to_string())),
+            f32::make_entry(&4.389832_f32),
+            String::make_entry(&"apple"),
+            f32::make_entry(&23434.389832_f32),
+            String::make_entry(&"apply"),
+            i32::make_entry(&-500_i32),
+            u32::make_entry(&20_u32),
         ];
         vec.sort();
         let mut used_types = BytesMut::new();
@@ -882,37 +909,37 @@ mod tests {
     #[test]
     fn test_full_blocks() {
         let mut vec: Vec<(Datatype, Bytes)> = vec![
-            "fdsa".to_string().make_entry(),
-            "a".to_string().make_entry(),
-            "bc".to_string().make_entry(),
-            "bcd".to_string().make_entry(),
-            "z".to_string().make_entry(),
-            "Batty".to_string().make_entry(),
-            "Batman".to_string().make_entry(),
-            "apple".to_string().make_entry(),
-            (-500_i32).make_entry(),
-            20_u32.make_entry(),
-            22_u32.make_entry(),
-            23_u32.make_entry(),
-            24_u32.make_entry(),
-            25_u32.make_entry(),
-            26_u32.make_entry(),
-            27_u32.make_entry(),
-            28_u32.make_entry(),
-            3000_u32.make_entry(),
-            (-3_i64).make_entry(),
-            Decimal("-12342343.2348973".to_string()).make_entry(),
-            Decimal("234.8973".to_string()).make_entry(),
-            Decimal("0.2348973".to_string()).make_entry(),
-            Decimal("23423423.8973".to_string()).make_entry(),
-            Decimal("3.3".to_string()).make_entry(),
-            Decimal("0.001".to_string()).make_entry(),
-            Decimal("-0.001".to_string()).make_entry(),
-            Decimal("2".to_string()).make_entry(),
-            Decimal("0".to_string()).make_entry(),
-            4.389832_f32.make_entry(),
-            23434.389832_f32.make_entry(),
-            int("239487329872343987").make_entry(),
+            String::make_entry(&"fdsa"),
+            String::make_entry(&"a"),
+            String::make_entry(&"bc"),
+            String::make_entry(&"bcd"),
+            String::make_entry(&"z"),
+            String::make_entry(&"Batty"),
+            String::make_entry(&"Batman"),
+            String::make_entry(&"apple"),
+            i32::make_entry(&-500_i32),
+            u32::make_entry(&20_u32),
+            u32::make_entry(&22_u32),
+            u32::make_entry(&23_u32),
+            u32::make_entry(&24_u32),
+            u32::make_entry(&25_u32),
+            u32::make_entry(&26_u32),
+            u32::make_entry(&27_u32),
+            u32::make_entry(&28_u32),
+            u32::make_entry(&3000_u32),
+            i64::make_entry(&-3_i64),
+            Decimal::make_entry(&Decimal("-12342343.2348973".to_string())),
+            Decimal::make_entry(&Decimal("234.8973".to_string())),
+            Decimal::make_entry(&Decimal("0.2348973".to_string())),
+            Decimal::make_entry(&Decimal("23423423.8973".to_string())),
+            Decimal::make_entry(&Decimal("3.3".to_string())),
+            Decimal::make_entry(&Decimal("0.001".to_string())),
+            Decimal::make_entry(&Decimal("-0.001".to_string())),
+            Decimal::make_entry(&Decimal("2".to_string())),
+            Decimal::make_entry(&Decimal("0".to_string())),
+            f32::make_entry(&4.389832_f32),
+            f32::make_entry(&23434.389832_f32),
+            Integer::make_entry(&int("239487329872343987")),
         ];
         vec.sort();
         let mut used_types = BytesMut::new();
@@ -980,37 +1007,37 @@ mod tests {
     #[test]
     fn iterate_full_blocks() {
         let mut vec: Vec<(Datatype, Bytes)> = vec![
-            "fdsa".to_string().make_entry(),
-            "a".to_string().make_entry(),
-            "bc".to_string().make_entry(),
-            "bcd".to_string().make_entry(),
-            "z".to_string().make_entry(),
-            "Batty".to_string().make_entry(),
-            "Batman".to_string().make_entry(),
-            "apple".to_string().make_entry(),
-            (-500_i32).make_entry(),
-            20_u32.make_entry(),
-            22_u32.make_entry(),
-            23_u32.make_entry(),
-            24_u32.make_entry(),
-            25_u32.make_entry(),
-            26_u32.make_entry(),
-            27_u32.make_entry(),
-            28_u32.make_entry(),
-            3000_u32.make_entry(),
-            (-3_i64).make_entry(),
-            Decimal("-12342343.2348973".to_string()).make_entry(),
-            Decimal("234.8973".to_string()).make_entry(),
-            Decimal("0.2348973".to_string()).make_entry(),
-            Decimal("23423423.8973".to_string()).make_entry(),
-            Decimal("3.3".to_string()).make_entry(),
-            Decimal("0.001".to_string()).make_entry(),
-            Decimal("-0.001".to_string()).make_entry(),
-            Decimal("2".to_string()).make_entry(),
-            Decimal("0".to_string()).make_entry(),
-            4.389832_f32.make_entry(),
-            23434.389832_f32.make_entry(),
-            int("239487329872343987").make_entry(),
+            String::make_entry(&"fdsa"),
+            String::make_entry(&"a"),
+            String::make_entry(&"bc"),
+            String::make_entry(&"bcd"),
+            String::make_entry(&"z"),
+            String::make_entry(&"Batty"),
+            String::make_entry(&"Batman"),
+            String::make_entry(&"apple"),
+            i32::make_entry(&-500_i32),
+            u32::make_entry(&20_u32),
+            u32::make_entry(&22_u32),
+            u32::make_entry(&23_u32),
+            u32::make_entry(&24_u32),
+            u32::make_entry(&25_u32),
+            u32::make_entry(&26_u32),
+            u32::make_entry(&27_u32),
+            u32::make_entry(&28_u32),
+            u32::make_entry(&3000_u32),
+            i64::make_entry(&-3_i64),
+            Decimal::make_entry(&Decimal("-12342343.2348973".to_string())),
+            Decimal::make_entry(&Decimal("234.8973".to_string())),
+            Decimal::make_entry(&Decimal("0.2348973".to_string())),
+            Decimal::make_entry(&Decimal("23423423.8973".to_string())),
+            Decimal::make_entry(&Decimal("3.3".to_string())),
+            Decimal::make_entry(&Decimal("0.001".to_string())),
+            Decimal::make_entry(&Decimal("-0.001".to_string())),
+            Decimal::make_entry(&Decimal("2".to_string())),
+            Decimal::make_entry(&Decimal("0".to_string())),
+            f32::make_entry(&4.389832_f32),
+            f32::make_entry(&23434.389832_f32),
+            Integer::make_entry(&int("239487329872343987")),
         ];
         vec.sort();
         let mut used_types = BytesMut::new();
@@ -1044,37 +1071,37 @@ mod tests {
     #[test]
     fn test_incremental_builder() {
         let mut vec: Vec<(Datatype, Bytes)> = vec![
-            "fdsa".to_string().make_entry(),
-            "a".to_string().make_entry(),
-            "bc".to_string().make_entry(),
-            "bcd".to_string().make_entry(),
-            "z".to_string().make_entry(),
-            "Batty".to_string().make_entry(),
-            "Batman".to_string().make_entry(),
-            "apple".to_string().make_entry(),
-            (-500_i32).make_entry(),
-            20_u32.make_entry(),
-            22_u32.make_entry(),
-            23_u32.make_entry(),
-            24_u32.make_entry(),
-            25_u32.make_entry(),
-            26_u32.make_entry(),
-            27_u32.make_entry(),
-            28_u32.make_entry(),
-            3000_u32.make_entry(),
-            (-3_i64).make_entry(),
-            Decimal("-12342343.2348973".to_string()).make_entry(),
-            Decimal("234.8973".to_string()).make_entry(),
-            Decimal("0.2348973".to_string()).make_entry(),
-            Decimal("23423423.8973".to_string()).make_entry(),
-            Decimal("3.3".to_string()).make_entry(),
-            Decimal("0.001".to_string()).make_entry(),
-            Decimal("-0.001".to_string()).make_entry(),
-            Decimal("2".to_string()).make_entry(),
-            Decimal("0".to_string()).make_entry(),
-            4.389832_f32.make_entry(),
-            23434.389832_f32.make_entry(),
-            int("239487329872343987").make_entry(),
+            String::make_entry(&"fdsa"),
+            String::make_entry(&"a"),
+            String::make_entry(&"bc"),
+            String::make_entry(&"bcd"),
+            String::make_entry(&"z"),
+            String::make_entry(&"Batty"),
+            String::make_entry(&"Batman"),
+            String::make_entry(&"apple"),
+            i32::make_entry(&-500_i32),
+            u32::make_entry(&20_u32),
+            u32::make_entry(&22_u32),
+            u32::make_entry(&23_u32),
+            u32::make_entry(&24_u32),
+            u32::make_entry(&25_u32),
+            u32::make_entry(&26_u32),
+            u32::make_entry(&27_u32),
+            u32::make_entry(&28_u32),
+            u32::make_entry(&3000_u32),
+            i64::make_entry(&-3_i64),
+            Decimal::make_entry(&Decimal("-12342343.2348973".to_string())),
+            Decimal::make_entry(&Decimal("234.8973".to_string())),
+            Decimal::make_entry(&Decimal("0.2348973".to_string())),
+            Decimal::make_entry(&Decimal("23423423.8973".to_string())),
+            Decimal::make_entry(&Decimal("3.3".to_string())),
+            Decimal::make_entry(&Decimal("0.001".to_string())),
+            Decimal::make_entry(&Decimal("-0.001".to_string())),
+            Decimal::make_entry(&Decimal("2".to_string())),
+            Decimal::make_entry(&Decimal("0".to_string())),
+            f32::make_entry(&4.389832_f32),
+            f32::make_entry(&23434.389832_f32),
+            Integer::make_entry(&int("239487329872343987")),
         ];
         vec.sort();
 
