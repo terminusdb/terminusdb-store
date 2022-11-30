@@ -45,7 +45,6 @@ impl TypedDict {
             if type_offset == 0 {
                 last_block_len = data[0];
             } else {
-                eprintln!("type_offset: {type_offset}");
                 let last_block_offset_of_previous_type =
                     block_offsets.entry(type_offset as usize - 1);
                 last_block_len = data[last_block_offset_of_previous_type as usize];
@@ -509,7 +508,6 @@ pub fn build_multiple_segments<
     }
 
     build_offset_logarray(block_offsets_buf, offsets);
-    eprintln!("types: {types:?}");
     let largest_type = types.last().unwrap();
     let largest_type_offset = type_offsets.last().unwrap();
 
@@ -564,19 +562,13 @@ impl<'a, B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<'a,
 
     pub fn add(&mut self, dt: Datatype, value: Bytes) -> u64 {
         if self.current_datatype == None {
-            self.current_datatype = dbg!(Some(dt));
+            self.current_datatype = Some(dt);
             self.types_present_builder.push(dt as u64);
         }
 
         if self.current_datatype != Some(dt) {
             let (block_offset_builder, data_buf, block_offset, id_offset) =
                 self.sized_dict_buf_builder.take().unwrap().finalize();
-            dbg!(dt);
-            dbg!(id_offset);
-            dbg!(block_offset);
-
-            dbg!(&self.types_present_builder.vals);
-            dbg!(&self.type_offsets_builder.vals);
             self.types_present_builder.push(dt as u64);
             self.type_offsets_builder
                 .push(block_offset_builder.count() as u64 - 1);
@@ -991,6 +983,10 @@ mod tests {
         assert_eq!(vec, actual);
     }
 
+    fn convert_entry(e: (Datatype, SizedDictEntry)) -> (Datatype, Bytes) {
+        (e.0, e.1.to_bytes())
+    }
+
     #[test]
     fn test_incremental_builder() {
         let mut vec: Vec<(Datatype, Bytes)> = vec![
@@ -1041,11 +1037,9 @@ mod tests {
         );
 
         let results: Vec<u64> = vec
+            .clone()
             .into_iter()
-            .map(|(dt, entry)| {
-                eprintln!("dt: {dt:?}");
-                dbg!(typed_builder.add(dt, entry))
-            })
+            .map(|(dt, entry)| typed_builder.add(dt, entry))
             .collect();
 
         let data_buf = typed_builder.finalize();
@@ -1056,20 +1050,9 @@ mod tests {
         let data = data_buf.freeze();
 
         let dict = TypedDict::from_parts(used_types, type_offsets, block_offsets, data);
-        assert_eq!(
-            dict.entry(1),
-            (
-                Datatype::String,
-                SizedDictEntry(vec![Bytes::from_static(b"Batman")])
-            )
-        );
-        assert_eq!(
-            dict.entry(2),
-            (
-                Datatype::String,
-                SizedDictEntry(vec![Bytes::from_static(b"Batty")])
-            )
-        );
-        panic!();
+
+        for i in 0..vec.len() {
+            assert_eq!(vec[i], convert_entry(dict.entry(i as u64 + 1)))
+        }
     }
 }
