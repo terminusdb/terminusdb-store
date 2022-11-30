@@ -420,7 +420,8 @@ impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
 pub struct LateLogArrayBufBuilder<'a, B: BufMut> {
     /// Destination of the log array data
     buf: &'a mut B,
-    vals: Vec<u64>,
+    /// NOTE: remove pub
+    pub vals: Vec<u64>,
     width: u8
 }
 
@@ -449,6 +450,10 @@ impl<'a, B: BufMut> LateLogArrayBufBuilder<'a, B> {
         for val in vals {
             self.push(val)
         }
+    }
+
+    pub fn last(&mut self) -> Option<u64> {
+        self.vals.last().copied()
     }
 
     pub fn pop(&mut self) -> Option<u64> {

@@ -1,5 +1,7 @@
 use crate::structure::{
-    tfc::block::BLOCK_SIZE, util::calculate_width, LogArrayBufBuilder, MonotonicLogArray,
+    tfc::block::{parse_block_control_records, BLOCK_SIZE},
+    util::calculate_width,
+    LateLogArrayBufBuilder, LogArrayBufBuilder, MonotonicLogArray,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
@@ -12,7 +14,7 @@ use std::{borrow::Cow, marker::PhantomData};
 use super::{
     block::{IdLookupResult, SizedDictBlock, SizedDictEntry},
     decimal::{decimal_to_storage, storage_to_decimal},
-    dict::{build_dict_unchecked, build_offset_logarray, SizedDict},
+    dict::{build_dict_unchecked, build_offset_logarray, SizedDict, SizedDictBufBuilder},
     integer::{bigint_to_storage, storage_to_bigint},
 };
 
@@ -42,12 +44,14 @@ impl TypedDict {
         for type_offset in type_offsets.iter() {
             let last_block_len;
             if type_offset == 0 {
-                last_block_len = data[0];
+                last_block_len = parse_block_control_records(data[0]);
             } else {
                 let last_block_offset_of_previous_type =
                     block_offsets.entry(type_offset as usize - 1);
-                last_block_len = data[last_block_offset_of_previous_type as usize];
+                last_block_len =
+                    parse_block_control_records(data[last_block_offset_of_previous_type as usize]);
             }
+            eprintln!("last_block_len: {last_block_len}");
             let gap = BLOCK_SIZE as u8 - last_block_len;
             tally += gap as u64;
             type_id_offsets.push((type_offset + 1) * 8 - tally);
@@ -293,6 +297,20 @@ impl Datatype {
 
         T::from_lexical(b)
     }
+
+    pub fn record_size(&self) -> Option<u8> {
+        match self {
+            Datatype::String => None,
+            Datatype::UInt32 => Some(4),
+            Datatype::Int32 => Some(4),
+            Datatype::UInt64 => Some(8),
+            Datatype::Int64 => Some(8),
+            Datatype::Float32 => Some(4),
+            Datatype::Float64 => Some(8),
+            Datatype::Decimal => None,
+            Datatype::BigInt => None,
+        }
+    }
 }
 
 pub trait TdbDataType {
@@ -487,13 +505,13 @@ impl TdbDataType for Decimal {
 }
 
 pub fn build_segment<B: BufMut, T: TdbDataType, I: Iterator<Item = T>>(
+    record_size: Option<u8>,
     offsets: &mut Vec<u64>,
     data_buf: &mut B,
     iter: I,
 ) {
     let slices = iter.map(|val| val.to_lexical());
-
-    build_dict_unchecked(0, offsets, data_buf, slices);
+    build_dict_unchecked(record_size, 0, offsets, data_buf, slices);
 }
 
 pub fn build_multiple_segments<
@@ -518,11 +536,16 @@ pub fn build_multiple_segments<
         let start_type_offset = offsets.len();
         types.push(key);
         type_offsets.push(start_type_offset as u64);
-        build_dict_unchecked(start_offset, &mut offsets, data_buf, group.map(|v| v.1));
+        build_dict_unchecked(
+            key.record_size(),
+            start_offset,
+            &mut offsets,
+            data_buf,
+            group.map(|v| v.1),
+        );
     }
 
     build_offset_logarray(block_offsets_buf, offsets);
-    eprintln!("types: {types:?}");
     let largest_type = types.last().unwrap();
     let largest_type_offset = type_offsets.last().unwrap();
 
@@ -544,6 +567,93 @@ pub fn build_multiple_segments<
     type_offsets_builder.finalize();
 }
 
+struct TypedDictBufBuilder<'a, B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> {
+    types_present_builder: LateLogArrayBufBuilder<'a, B1>,
+    type_offsets_builder: LateLogArrayBufBuilder<'a, B2>,
+    sized_dict_buf_builder: Option<SizedDictBufBuilder<'a, B3, B4>>,
+    current_datatype: Option<Datatype>,
+}
+
+impl<'a, B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<'a, B1, B2, B3, B4> {
+    pub fn new(
+        used_types: &'a mut B1,
+        type_offsets: &'a mut B2,
+        block_offsets: &'a mut B3,
+        data_buf: B4,
+    ) -> Self {
+        let types_present_builder = LateLogArrayBufBuilder::new(used_types);
+        let type_offsets_builder = LateLogArrayBufBuilder::new(type_offsets);
+        let block_offset_builder = LateLogArrayBufBuilder::new(block_offsets);
+        let sized_dict_buf_builder = Some(SizedDictBufBuilder::new(
+            None,
+            0,
+            0,
+            block_offset_builder,
+            data_buf,
+        ));
+        Self {
+            types_present_builder,
+            type_offsets_builder,
+            sized_dict_buf_builder,
+            current_datatype: None,
+        }
+    }
+
+    pub fn add(&mut self, dt: Datatype, value: Bytes) -> u64 {
+        if self.current_datatype == None {
+            self.current_datatype = Some(dt);
+            self.types_present_builder.push(dt as u64);
+            self.sized_dict_buf_builder
+                .as_mut()
+                .map(|b| b.record_size = dt.record_size());
+        }
+
+        if self.current_datatype != Some(dt) {
+            let (block_offset_builder, data_buf, block_offset, id_offset) =
+                self.sized_dict_buf_builder.take().unwrap().finalize();
+            self.types_present_builder.push(dt as u64);
+            self.type_offsets_builder
+                .push(block_offset_builder.count() as u64 - 1);
+            self.sized_dict_buf_builder = Some(SizedDictBufBuilder::new(
+                dt.record_size(),
+                block_offset,
+                id_offset,
+                block_offset_builder,
+                data_buf,
+            ));
+            self.current_datatype = Some(dt);
+        }
+
+        self.sized_dict_buf_builder
+            .as_mut()
+            .map(|s| s.add(value))
+            .unwrap()
+    }
+
+    pub fn add_entry(&mut self, dt: Datatype, e: &SizedDictEntry) -> u64 {
+        self.add(dt, e.to_bytes())
+    }
+
+    pub fn add_all<I: Iterator<Item = (Datatype, Bytes)>>(&mut self, it: I) -> Vec<u64> {
+        it.map(|(dt, val)| self.add(dt, val)).collect()
+    }
+
+    pub fn finalize(self) -> B4 {
+        if self.current_datatype == None {
+            panic!("There was nothing added to this dictionary!");
+        }
+        let (mut block_offset_builder, data_buf, _, _) =
+            self.sized_dict_buf_builder.unwrap().finalize();
+        block_offset_builder.pop();
+        block_offset_builder.finalize();
+
+        self.types_present_builder.finalize();
+        self.type_offsets_builder.finalize();
+
+        data_buf
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::structure::tfc::dict::build_offset_logarray;
@@ -551,12 +661,13 @@ mod tests {
     use super::*;
 
     fn build_segment_and_offsets<B1: BufMut, B2: BufMut, T: TdbDataType, I: Iterator<Item = T>>(
+        dt: Datatype,
         array_buf: &mut B1,
         data_buf: &mut B2,
         iter: I,
     ) {
         let mut offsets = Vec::new();
-        build_segment(&mut offsets, data_buf, iter);
+        build_segment(dt.record_size(), &mut offsets, data_buf, iter);
         build_offset_logarray(array_buf, offsets);
     }
 
@@ -585,7 +696,12 @@ mod tests {
         let mut offsets = BytesMut::new();
         let mut data = BytesMut::new();
 
-        build_segment_and_offsets(&mut offsets, &mut data, strings.clone().into_iter());
+        build_segment_and_offsets(
+            Datatype::String,
+            &mut offsets,
+            &mut data,
+            strings.clone().into_iter(),
+        );
 
         let segment = TypedDictSegment::parse(offsets.freeze(), data.freeze(), 0);
 
@@ -604,7 +720,12 @@ mod tests {
         let mut offsets = BytesMut::new();
         let mut data = BytesMut::new();
 
-        build_segment_and_offsets(&mut offsets, &mut data, nums.clone().into_iter());
+        build_segment_and_offsets(
+            Datatype::UInt64,
+            &mut offsets,
+            &mut data,
+            nums.clone().into_iter(),
+        );
 
         let segment = TypedDictSegment::parse(offsets.freeze(), data.freeze(), 0);
 
@@ -914,5 +1035,78 @@ mod tests {
         let actual: Vec<_> = dict.iter().map(|(dt, e)| (dt, e.to_bytes())).collect();
 
         assert_eq!(vec, actual);
+    }
+
+    fn convert_entry(e: (Datatype, SizedDictEntry)) -> (Datatype, Bytes) {
+        (e.0, e.1.to_bytes())
+    }
+
+    #[test]
+    fn test_incremental_builder() {
+        let mut vec: Vec<(Datatype, Bytes)> = vec![
+            "fdsa".to_string().make_entry(),
+            "a".to_string().make_entry(),
+            "bc".to_string().make_entry(),
+            "bcd".to_string().make_entry(),
+            "z".to_string().make_entry(),
+            "Batty".to_string().make_entry(),
+            "Batman".to_string().make_entry(),
+            "apple".to_string().make_entry(),
+            (-500_i32).make_entry(),
+            20_u32.make_entry(),
+            22_u32.make_entry(),
+            23_u32.make_entry(),
+            24_u32.make_entry(),
+            25_u32.make_entry(),
+            26_u32.make_entry(),
+            27_u32.make_entry(),
+            28_u32.make_entry(),
+            3000_u32.make_entry(),
+            (-3_i64).make_entry(),
+            Decimal("-12342343.2348973".to_string()).make_entry(),
+            Decimal("234.8973".to_string()).make_entry(),
+            Decimal("0.2348973".to_string()).make_entry(),
+            Decimal("23423423.8973".to_string()).make_entry(),
+            Decimal("3.3".to_string()).make_entry(),
+            Decimal("0.001".to_string()).make_entry(),
+            Decimal("-0.001".to_string()).make_entry(),
+            Decimal("2".to_string()).make_entry(),
+            Decimal("0".to_string()).make_entry(),
+            4.389832_f32.make_entry(),
+            23434.389832_f32.make_entry(),
+            int("239487329872343987").make_entry(),
+        ];
+        vec.sort();
+
+        let mut used_types_buf = BytesMut::new();
+        let mut type_offsets_buf = BytesMut::new();
+        let mut block_offsets_buf = BytesMut::new();
+        let data_buf = BytesMut::new();
+
+        let mut typed_builder = TypedDictBufBuilder::new(
+            &mut used_types_buf,
+            &mut type_offsets_buf,
+            &mut block_offsets_buf,
+            data_buf,
+        );
+
+        let results: Vec<u64> = vec
+            .clone()
+            .into_iter()
+            .map(|(dt, entry)| typed_builder.add(dt, entry))
+            .collect();
+
+        let data_buf = typed_builder.finalize();
+
+        let used_types = used_types_buf.freeze();
+        let type_offsets = type_offsets_buf.freeze();
+        let block_offsets = block_offsets_buf.freeze();
+        let data = data_buf.freeze();
+
+        let dict = TypedDict::from_parts(used_types, type_offsets, block_offsets, data);
+
+        for i in 0..vec.len() {
+            assert_eq!(vec[i], convert_entry(dict.entry(i as u64 + 1)))
+        }
     }
 }
