@@ -70,7 +70,9 @@ impl BaseLayer {
             None => IdMap::default(),
             Some(maps) => IdMap::from_maps(
                 maps,
-                util::calculate_width((node_dictionary.num_entries() + value_dictionary.num_entries()) as u64),
+                util::calculate_width(
+                    (node_dictionary.num_entries() + value_dictionary.num_entries()) as u64,
+                ),
             ),
         };
 
@@ -452,15 +454,9 @@ pub mod tests {
 
         let mut builder = BaseLayerFileBuilder::from_files(&base_layer_files).await?;
 
-        builder
-            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
-            .await?;
-        builder
-            .add_predicates(predicates.into_iter().map(|s| s.to_string()))
-            .await?;
-        builder
-            .add_values(values.into_iter().map(|s| s.to_string()))
-            .await?;
+        builder.add_nodes(nodes.into_iter().map(|s| s.to_string()));
+        builder.add_predicates(predicates.into_iter().map(|s| s.to_string()));
+        builder.add_values(values.into_iter().map(|s| s.to_string()));
 
         let mut builder = builder.into_phase2().await?;
 

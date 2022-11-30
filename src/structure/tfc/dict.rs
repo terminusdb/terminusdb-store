@@ -167,7 +167,7 @@ impl SizedDict {
     pub fn block_num_elements(&self, block_index: usize) -> u8 {
         let offset = self.block_offset(block_index);
 
-        self.data[offset]
+        parse_block_control_records(self.data[offset])
     }
 
     pub fn num_blocks(&self) -> usize {
@@ -176,6 +176,8 @@ impl SizedDict {
 
     pub fn entry(&self, index: usize) -> Option<SizedDictEntry> {
         if index > self.num_entries() {
+            dbg!(index);
+            dbg!(self.num_entries());
             return None;
         }
         let block = self.block(((index - 1) / 8) as usize);
@@ -255,7 +257,7 @@ impl SizedDict {
         let num_blocks = self.num_blocks();
         let last_block_size = self.block_num_elements(num_blocks - 1);
 
-        (num_blocks-1) * BLOCK_SIZE + last_block_size as usize
+        (num_blocks - 1) * BLOCK_SIZE + last_block_size as usize
     }
 }
 
@@ -366,7 +368,7 @@ mod tests {
         assert_eq!(6, block1.num_entries());
 
         for (ix, s) in strings.into_iter().enumerate() {
-            assert_eq!(s, &dict.entry((ix + 1) as u64).to_bytes()[..]);
+            assert_eq!(s, &dict.entry(ix + 1).unwrap().to_bytes()[..]);
         }
     }
 
@@ -415,7 +417,7 @@ mod tests {
         assert_eq!(6, block1.num_entries());
 
         for (ix, s) in strings.into_iter().enumerate() {
-            assert_eq!(s, &dict.entry((ix + 1) as u64).to_bytes()[..]);
+            assert_eq!(s, &dict.entry(ix + 1).unwrap().to_bytes()[..]);
         }
     }
 

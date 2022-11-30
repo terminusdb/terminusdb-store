@@ -26,8 +26,8 @@ pub enum InternalLayer {
     Rollup(RollupLayer),
 }
 
-use InternalLayer::*;
 use tfc::block::IdLookupResult;
+use InternalLayer::*;
 
 impl InternalLayer {
     pub fn name(&self) -> [u32; 5] {
@@ -607,9 +607,7 @@ impl Layer for InternalLayer {
     fn object_value_id<'a>(&'a self, object: &str) -> Option<u64> {
         let to_result = |layer: &'a InternalLayer| {
             (
-                layer.value_dict_id(object)
-                    .into_option()
-                    .map(|i| {
+                layer.value_dict_id(object).into_option().map(|i| {
                     layer
                         .node_value_id_map()
                         .inner_to_outer(i + layer.node_dict_len() as u64)
@@ -1109,18 +1107,9 @@ mod tests {
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
 
         let mut builder = BaseLayerFileBuilder::from_files(&files).await.unwrap();
-        builder
-            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
-        builder
-            .add_predicates(predicates.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
-        builder
-            .add_values(values.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
+        builder.add_nodes(nodes.into_iter().map(|s| s.to_string()));
+        builder.add_predicates(predicates.into_iter().map(|s| s.to_string()));
+        builder.add_values(values.into_iter().map(|s| s.to_string()));
         let mut builder = builder.into_phase2().await.unwrap();
         builder.add_triple(3, 3, 3).await.unwrap();
         builder.finalize().await.unwrap();

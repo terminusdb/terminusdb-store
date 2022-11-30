@@ -161,13 +161,16 @@ impl TypedDict {
 
     pub fn entry(&self, id: usize) -> Option<(Datatype, SizedDictEntry)> {
         if id > self.num_entries() {
+            dbg!(self.num_entries());
             return None;
         }
         let type_index = self.type_index_for_id(id as u64);
 
         let (dict, offset) = self.inner_type_segment(type_index);
+        dbg!(offset);
+        dbg!(type_index);
         let dt = self.type_for_type_index(type_index);
-        dict.entry(id - offset as usize).map(|e| (dt, e))
+        dbg!(dict.entry(id - offset as usize).map(|e| (dt, e)))
     }
 
     pub fn num_entries(&self) -> usize {
@@ -258,7 +261,7 @@ impl<T: TdbDataType> TypedDictSegment<T> {
 
     pub fn get(&self, index: usize) -> Option<T> {
         let entry = self.dict.entry(index);
-        entry.map(|e|T::from_lexical(e.into_buf()))
+        entry.map(|e| T::from_lexical(e.into_buf()))
     }
 
     pub fn id<Q: ToLexical<T>>(&self, val: &Q) -> IdLookupResult {
@@ -270,11 +273,11 @@ impl<T: TdbDataType> TypedDictSegment<T> {
         self.dict.num_entries()
     }
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item=SizedDictEntry>+'a+Clone {
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = SizedDictEntry> + 'a + Clone {
         self.dict.iter()
     }
 
-    pub fn into_iter(self) -> impl Iterator<Item=SizedDictEntry>+Clone {
+    pub fn into_iter(self) -> impl Iterator<Item = SizedDictEntry> + Clone {
         self.dict.into_iter()
     }
 }
@@ -323,21 +326,25 @@ pub trait TdbDataType {
     fn from_lexical<B: Buf>(b: B) -> Self;
 
     fn to_lexical<T>(val: &T) -> Bytes
-    where T: ToLexical<Self> + ?Sized {
+    where
+        T: ToLexical<Self> + ?Sized,
+    {
         val.to_lexical()
     }
 
     fn make_entry<T>(val: &T) -> (Datatype, Bytes)
-    where T: ToLexical<Self> + ?Sized{
+    where
+        T: ToLexical<Self> + ?Sized,
+    {
         (Self::datatype(), val.to_lexical())
     }
 }
 
-pub trait ToLexical<T:?Sized> {
+pub trait ToLexical<T: ?Sized> {
     fn to_lexical(&self) -> Bytes;
 }
 
-impl<T:AsRef<str>> ToLexical<String> for T {
+impl<T: AsRef<str>> ToLexical<String> for T {
     fn to_lexical(&self) -> Bytes {
         Bytes::copy_from_slice(self.as_ref().as_bytes())
     }
@@ -605,12 +612,7 @@ pub struct TypedDictBufBuilder<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> {
 }
 
 impl<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<B1, B2, B3, B4> {
-    pub fn new(
-        used_types: B1,
-        type_offsets: B2,
-        block_offsets: B3,
-        data_buf: B4,
-    ) -> Self {
+    pub fn new(used_types: B1, type_offsets: B2, block_offsets: B3, data_buf: B4) -> Self {
         let types_present_builder = LateLogArrayBufBuilder::new(used_types);
         let type_offsets_builder = LateLogArrayBufBuilder::new(type_offsets);
         let block_offset_builder = LateLogArrayBufBuilder::new(block_offsets);
@@ -680,7 +682,12 @@ impl<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<B1, B2,
         let types_present_buf = self.types_present_builder.finalize();
         let type_offsets_buf = self.type_offsets_builder.finalize();
 
-        (types_present_buf, type_offsets_buf, block_offsets_buf, data_buf)
+        (
+            types_present_buf,
+            type_offsets_buf,
+            block_offsets_buf,
+            data_buf,
+        )
     }
 }
 
@@ -690,7 +697,13 @@ mod tests {
 
     use super::*;
 
-    fn build_segment_and_offsets<B1: BufMut, B2: BufMut, T: TdbDataType, Q: ToLexical<T>, I: Iterator<Item = Q>>(
+    fn build_segment_and_offsets<
+        B1: BufMut,
+        B2: BufMut,
+        T: TdbDataType,
+        Q: ToLexical<T>,
+        I: Iterator<Item = Q>,
+    >(
         dt: Datatype,
         array_buf: &mut B1,
         data_buf: &mut B2,
@@ -737,7 +750,7 @@ mod tests {
 
         for (ix, s) in strings.into_iter().enumerate() {
             assert_eq!(IdLookupResult::Found((ix + 1) as u64), segment.id(&s));
-            assert_eq!(s, segment.get((ix + 1) as u64));
+            assert_eq!(s, segment.get(ix + 1).unwrap());
         }
     }
 
@@ -761,7 +774,7 @@ mod tests {
 
         for (ix, s) in nums.into_iter().enumerate() {
             assert_eq!(IdLookupResult::Found((ix + 1) as u64), segment.id(&s));
-            assert_eq!(s, segment.get((ix + 1) as u64));
+            assert_eq!(s, segment.get(ix + 1).unwrap());
         }
     }
 
@@ -902,11 +915,14 @@ mod tests {
         assert_eq!(IdLookupResult::Found(7), dict.id(&(-500_i32)));
 
         for i in 1..vec.len() + 1 {
-            let (t, s) = dict.entry(i as u64);
+            let (t, s) = dict.entry(i).unwrap();
             assert_eq!(vec[i - 1], (t, s.0.into_iter().flatten().collect()));
         }
 
-        assert_eq!(Decimal("-12342343.2348973".to_string()), dict.get(11));
+        assert_eq!(
+            Decimal("-12342343.2348973".to_string()),
+            dict.get(11).unwrap()
+        );
     }
 
     #[test]
@@ -967,14 +983,14 @@ mod tests {
         assert_eq!(31, dict.num_entries());
 
         for i in 1..vec.len() + 1 {
-            let (t, s) = dict.entry(i as u64);
+            let (t, s) = dict.entry(i).unwrap();
             assert_eq!(vec[i - 1], (t, s.0.into_iter().flatten().collect()));
         }
 
-        assert_eq!("Batman".to_string(), dict.get::<String>(1));
-        assert_eq!("fdsa".to_string(), dict.get::<String>(7));
-        assert_eq!(26_u32, dict.get::<u32>(14));
-        assert_eq!(Decimal("234.8973".to_string()), dict.get(29));
+        assert_eq!("Batman".to_string(), dict.get::<String>(1).unwrap());
+        assert_eq!("fdsa".to_string(), dict.get::<String>(7).unwrap());
+        assert_eq!(26_u32, dict.get::<u32>(14).unwrap());
+        assert_eq!(Decimal("234.8973".to_string()), dict.get(29).unwrap());
 
         assert_eq!(IdLookupResult::NotFound, dict.id(&"AAAA".to_string()));
         assert_eq!(IdLookupResult::Closest(2), dict.id(&"Baz".to_string()));
@@ -1114,9 +1130,9 @@ mod tests {
         let data_buf = BytesMut::new();
 
         let mut typed_builder = TypedDictBufBuilder::new(
-            &mut used_types_buf,
-            &mut type_offsets_buf,
-            &mut block_offsets_buf,
+            used_types_buf,
+            type_offsets_buf,
+            block_offsets_buf,
             data_buf,
         );
 
@@ -1126,17 +1142,17 @@ mod tests {
             .map(|(dt, entry)| typed_builder.add(dt, entry))
             .collect();
 
-        let data_buf = typed_builder.finalize();
+        let (used_types, type_offsets, block_offsets, data) = typed_builder.finalize();
 
-        let used_types = used_types_buf.freeze();
-        let type_offsets = type_offsets_buf.freeze();
-        let block_offsets = block_offsets_buf.freeze();
-        let data = data_buf.freeze();
-
-        let dict = TypedDict::from_parts(used_types, type_offsets, block_offsets, data);
+        let dict = TypedDict::from_parts(
+            used_types.freeze(),
+            type_offsets.freeze(),
+            block_offsets.freeze(),
+            data.freeze(),
+        );
 
         for i in 0..vec.len() {
-            assert_eq!(vec[i], convert_entry(dict.entry(i as u64 + 1)))
+            assert_eq!(vec[i], convert_entry(dict.entry(i + 1).unwrap()))
         }
     }
 }

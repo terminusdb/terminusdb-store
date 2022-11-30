@@ -65,7 +65,7 @@ impl ChildLayer {
         let node_dictionary = TypedDictSegment::parse(
             maps.node_dictionary_maps.blocks_map,
             maps.node_dictionary_maps.offsets_map,
-            0
+            0,
         );
         let predicate_dictionary = TypedDictSegment::parse(
             maps.predicate_dictionary_maps.blocks_map,
@@ -86,7 +86,9 @@ impl ChildLayer {
             None => IdMap::default(),
             Some(maps) => IdMap::from_maps(
                 maps,
-                util::calculate_width((node_dictionary.num_entries() + value_dictionary.num_entries()) as u64),
+                util::calculate_width(
+                    (node_dictionary.num_entries() + value_dictionary.num_entries()) as u64,
+                ),
             ),
         };
 
@@ -944,9 +946,9 @@ pub mod tests {
         let mut b = ChildLayerFileBuilder::from_files(parent.clone(), &child_files)
             .await
             .unwrap();
-        b.add_node("foo").await.unwrap();
-        b.add_predicate("bar").await.unwrap();
-        b.add_value("baz").await.unwrap();
+        b.add_node("foo");
+        b.add_predicate("bar");
+        b.add_value("baz");
 
         let b = b.into_phase2().await.unwrap();
         b.finalize().await.unwrap();
@@ -982,9 +984,9 @@ pub mod tests {
         let mut b = ChildLayerFileBuilder::from_files(parent.clone(), &child_files)
             .await
             .unwrap();
-        b.add_node("foo").await.unwrap();
-        b.add_predicate("bar").await.unwrap();
-        b.add_value("baz").await.unwrap();
+        b.add_node("foo");
+        b.add_predicate("bar");
+        b.add_value("baz");
         let b = b.into_phase2().await.unwrap();
 
         b.finalize().await.unwrap();

@@ -242,18 +242,9 @@ mod tests {
             .await
             .unwrap();
 
-        builder
-            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
-        builder
-            .add_predicates(predicates.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
-        builder
-            .add_values(values.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
+        builder.add_nodes(nodes.into_iter().map(|s| s.to_string()));
+        builder.add_predicates(predicates.into_iter().map(|s| s.to_string()));
+        builder.add_values(values.into_iter().map(|s| s.to_string()));
         let mut builder = builder.into_phase2().await.unwrap();
 
         builder.add_triple(1, 1, 2).await.unwrap();

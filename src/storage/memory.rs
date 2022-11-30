@@ -326,7 +326,9 @@ pub fn base_layer_memory_files() -> BaseLayerFiles<MemoryBackedStore> {
             blocks_file: MemoryBackedStore::new(),
             offsets_file: MemoryBackedStore::new(),
         },
-        value_dictionary_files: DictionaryFiles {
+        value_dictionary_files: TypedDictionaryFiles {
+            types_present_file: MemoryBackedStore::new(),
+            type_offsets_file: MemoryBackedStore::new(),
             blocks_file: MemoryBackedStore::new(),
             offsets_file: MemoryBackedStore::new(),
         },
@@ -390,7 +392,9 @@ pub fn child_layer_memory_files() -> ChildLayerFiles<MemoryBackedStore> {
             blocks_file: MemoryBackedStore::new(),
             offsets_file: MemoryBackedStore::new(),
         },
-        value_dictionary_files: DictionaryFiles {
+        value_dictionary_files: TypedDictionaryFiles {
+            types_present_file: MemoryBackedStore::new(),
+            type_offsets_file: MemoryBackedStore::new(),
             blocks_file: MemoryBackedStore::new(),
             offsets_file: MemoryBackedStore::new(),
         },
