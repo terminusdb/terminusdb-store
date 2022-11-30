@@ -1,6 +1,7 @@
 use crate::structure::{
-    tfc::block::BLOCK_SIZE, util::calculate_width, LateLogArrayBufBuilder, LogArrayBufBuilder,
-    MonotonicLogArray,
+    tfc::block::{parse_block_control_records, BLOCK_SIZE},
+    util::calculate_width,
+    LateLogArrayBufBuilder, LogArrayBufBuilder, MonotonicLogArray,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
@@ -43,12 +44,14 @@ impl TypedDict {
         for type_offset in type_offsets.iter() {
             let last_block_len;
             if type_offset == 0 {
-                last_block_len = data[0];
+                last_block_len = parse_block_control_records(data[0]);
             } else {
                 let last_block_offset_of_previous_type =
                     block_offsets.entry(type_offset as usize - 1);
-                last_block_len = data[last_block_offset_of_previous_type as usize];
+                last_block_len =
+                    parse_block_control_records(data[last_block_offset_of_previous_type as usize]);
             }
+            eprintln!("last_block_len: {last_block_len}");
             let gap = BLOCK_SIZE as u8 - last_block_len;
             tally += gap as u64;
             type_id_offsets.push((type_offset + 1) * 8 - tally);
@@ -279,6 +282,20 @@ impl Datatype {
 
         T::from_lexical(b)
     }
+
+    pub fn record_size(&self) -> Option<u8> {
+        match self {
+            Datatype::String => None,
+            Datatype::UInt32 => Some(4),
+            Datatype::Int32 => Some(4),
+            Datatype::UInt64 => Some(8),
+            Datatype::Int64 => Some(8),
+            Datatype::Float32 => Some(4),
+            Datatype::Float64 => Some(8),
+            Datatype::Decimal => None,
+            Datatype::BigInt => None,
+        }
+    }
 }
 
 pub trait TdbDataType {
@@ -473,13 +490,13 @@ impl TdbDataType for Decimal {
 }
 
 pub fn build_segment<B: BufMut, T: TdbDataType, I: Iterator<Item = T>>(
+    record_size: Option<u8>,
     offsets: &mut Vec<u64>,
     data_buf: &mut B,
     iter: I,
 ) {
     let slices = iter.map(|val| val.to_lexical());
-
-    build_dict_unchecked(0, offsets, data_buf, slices);
+    build_dict_unchecked(record_size, 0, offsets, data_buf, slices);
 }
 
 pub fn build_multiple_segments<
@@ -504,7 +521,13 @@ pub fn build_multiple_segments<
         let start_type_offset = offsets.len();
         types.push(key);
         type_offsets.push(start_type_offset as u64);
-        build_dict_unchecked(start_offset, &mut offsets, data_buf, group.map(|v| v.1));
+        build_dict_unchecked(
+            key.record_size(),
+            start_offset,
+            &mut offsets,
+            data_buf,
+            group.map(|v| v.1),
+        );
     }
 
     build_offset_logarray(block_offsets_buf, offsets);
@@ -547,6 +570,7 @@ impl<'a, B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<'a,
         let type_offsets_builder = LateLogArrayBufBuilder::new(type_offsets);
         let block_offset_builder = LateLogArrayBufBuilder::new(block_offsets);
         let sized_dict_buf_builder = Some(SizedDictBufBuilder::new(
+            None,
             0,
             0,
             block_offset_builder,
@@ -564,6 +588,9 @@ impl<'a, B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<'a,
         if self.current_datatype == None {
             self.current_datatype = Some(dt);
             self.types_present_builder.push(dt as u64);
+            self.sized_dict_buf_builder
+                .as_mut()
+                .map(|b| b.record_size = dt.record_size());
         }
 
         if self.current_datatype != Some(dt) {
@@ -573,6 +600,7 @@ impl<'a, B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<'a,
             self.type_offsets_builder
                 .push(block_offset_builder.count() as u64 - 1);
             self.sized_dict_buf_builder = Some(SizedDictBufBuilder::new(
+                dt.record_size(),
                 block_offset,
                 id_offset,
                 block_offset_builder,
@@ -618,12 +646,13 @@ mod tests {
     use super::*;
 
     fn build_segment_and_offsets<B1: BufMut, B2: BufMut, T: TdbDataType, I: Iterator<Item = T>>(
+        dt: Datatype,
         array_buf: &mut B1,
         data_buf: &mut B2,
         iter: I,
     ) {
         let mut offsets = Vec::new();
-        build_segment(&mut offsets, data_buf, iter);
+        build_segment(dt.record_size(), &mut offsets, data_buf, iter);
         build_offset_logarray(array_buf, offsets);
     }
 
@@ -652,7 +681,12 @@ mod tests {
         let mut offsets = BytesMut::new();
         let mut data = BytesMut::new();
 
-        build_segment_and_offsets(&mut offsets, &mut data, strings.clone().into_iter());
+        build_segment_and_offsets(
+            Datatype::String,
+            &mut offsets,
+            &mut data,
+            strings.clone().into_iter(),
+        );
 
         let segment = TypedDictSegment::parse(offsets.freeze(), data.freeze(), 0);
 
@@ -671,7 +705,12 @@ mod tests {
         let mut offsets = BytesMut::new();
         let mut data = BytesMut::new();
 
-        build_segment_and_offsets(&mut offsets, &mut data, nums.clone().into_iter());
+        build_segment_and_offsets(
+            Datatype::UInt64,
+            &mut offsets,
+            &mut data,
+            nums.clone().into_iter(),
+        );
 
         let segment = TypedDictSegment::parse(offsets.freeze(), data.freeze(), 0);
 

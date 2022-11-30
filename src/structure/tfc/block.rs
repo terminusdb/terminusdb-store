@@ -37,8 +37,8 @@ impl From<vbyte::DecodeError> for SizedDictError {
 
 impl SizedBlockHeader {
     fn parse(buf: &mut Bytes) -> Result<Self, SizedDictError> {
-        let num_entries = buf.get_u8();
-
+        let cw = buf.get_u8();
+        let (record_size, num_entries) = parse_block_control_word(cw);
         let mut sizes = [0_usize; BLOCK_SIZE - 1];
         let mut shareds = [0_usize; BLOCK_SIZE - 1];
         let (first_size, _) = vbyte::decode_buf(buf)?;
@@ -47,8 +47,12 @@ impl SizedBlockHeader {
 
         for i in 0..(num_entries - 1) as usize {
             let (shared, _) = vbyte::decode_buf(buf)?;
-            let (size, _) = vbyte::decode_buf(buf)?;
-
+            let size = if record_size == None {
+                let (size, _) = vbyte::decode_buf(buf)?;
+                size
+            } else {
+                record_size.unwrap() as u64 - shared
+            };
             sizes[i] = size as usize;
             shareds[i] = shared as usize;
         }
@@ -533,7 +537,7 @@ impl<'a> Iterator for SizedBlockIterator<'a> {
             if self.ix >= self.header.num_entries as usize - 1 {
                 return None;
             }
-            let size = self.header.sizes[self.ix];
+            let size = dbg!(self.header.sizes[self.ix]);
             let mut shared = self.header.shareds[self.ix];
             for rope_index in 0..last.len() {
                 let x = &mut last[rope_index];
@@ -585,12 +589,60 @@ impl IdLookupResult {
     }
 }
 
-pub(crate) fn build_block_unchecked<B: BufMut>(buf: &mut B, slices: &[&[u8]]) -> usize {
+pub fn parse_block_control_records(cw: u8) -> u8 {
+    parse_block_control_word(cw).1
+}
+
+pub fn parse_block_control_word(cw: u8) -> (Option<u8>, u8) {
+    let records = (cw & ((1 << 3) - 1)) + 1;
+    let record_size = record_size_decoding(cw);
+    (record_size, records)
+}
+
+// None => 0
+// Some(1) => 1
+// Some(2) => 2
+//
+// Some(4) => 3
+// Some(8) => 4
+
+// MSB = 1, fake ids block.
+//
+// id => byte = id - id_offset
+// two more bits
+
+fn record_size_decoding(enc: u8) -> Option<u8> {
+    match enc >> 3 {
+        0 => None,
+        3 => Some(4),
+        4 => Some(8),
+        _ => panic!("Ok, this is not known"),
+    }
+}
+
+fn record_size_encoding(record_size: Option<u8>) -> u8 {
+    match record_size {
+        None => 0,
+        Some(4) => 3 << 3,
+        Some(8) => 4 << 3,
+        _ => panic!("This is really bad!"),
+    }
+}
+
+fn create_block_control_word(record_size: Option<u8>, records: u8) -> u8 {
+    records - 1 + record_size_encoding(record_size)
+}
+
+pub(crate) fn build_block_unchecked<B: BufMut>(
+    record_size: Option<u8>,
+    buf: &mut B,
+    slices: &[&[u8]],
+) -> usize {
     let mut size = 0;
     let slices_len = slices.len();
     debug_assert!(slices_len <= BLOCK_SIZE && slices_len != 0);
-
-    buf.put_u8(slices_len as u8);
+    let cw = dbg!(create_block_control_word(record_size, slices_len as u8));
+    buf.put_u8(cw as u8);
     size += 1;
 
     let first = slices[0];
@@ -611,11 +663,14 @@ pub(crate) fn build_block_unchecked<B: BufMut>(buf: &mut B, slices: &[&[u8]]) ->
         buf.put_slice(&vbyte[..vbyte_len]);
         size += vbyte_len;
 
-        let suffix_len = cur.len() - common_prefix;
-        let (vbyte, vbyte_len) = encode_array(suffix_len as u64);
-        buf.put_slice(&vbyte[..vbyte_len]);
-        size += vbyte_len;
-
+        if record_size == None {
+            let suffix_len = cur.len() - common_prefix;
+            let (vbyte, vbyte_len) = encode_array(suffix_len as u64);
+            buf.put_slice(&vbyte[..vbyte_len]);
+            size += vbyte_len;
+        } else {
+            eprintln!("Fixed width: {record_size:?}");
+        }
         suffixes.push(&cur[common_prefix..]);
         last = cur;
     }
@@ -642,7 +697,7 @@ mod tests {
 
     fn build_block_bytes(strings: &[&[u8]]) -> Bytes {
         let mut buf = BytesMut::new();
-        build_block_unchecked(&mut buf, &strings);
+        build_block_unchecked(None, &mut buf, &strings);
 
         buf.freeze()
     }
@@ -882,5 +937,17 @@ mod tests {
                 .collect::<Vec<_>>(),
             result
         );
+    }
+
+    #[test]
+    fn control_word_round_trip() {
+        let cw = create_block_control_word(None, 3);
+        assert_eq!(parse_block_control_word(cw), (None, 3));
+
+        let cw = create_block_control_word(Some(8), 5);
+        assert_eq!(parse_block_control_word(cw), (Some(8), 5));
+
+        let cw = create_block_control_word(Some(12), 6);
+        assert_eq!(parse_block_control_word(cw), (Some(12), 6))
     }
 }

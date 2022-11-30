@@ -9,6 +9,7 @@ use itertools::Itertools;
 use super::block::*;
 
 pub fn build_dict_unchecked<B: BufMut, R: AsRef<[u8]>, I: Iterator<Item = R>>(
+    record_size: Option<u8>,
     start_offset: u64,
     offsets: &mut Vec<u64>,
     data_buf: &mut B,
@@ -20,13 +21,14 @@ pub fn build_dict_unchecked<B: BufMut, R: AsRef<[u8]>, I: Iterator<Item = R>>(
     for chunk in &chunk_iter {
         let slices: Vec<R> = chunk.collect();
         let borrows: Vec<&[u8]> = slices.iter().map(|s| s.as_ref()).collect();
-        let size = build_block_unchecked(data_buf, &borrows);
+        let size = build_block_unchecked(record_size, data_buf, &borrows);
         offset += size as u64;
         offsets.push(offset);
     }
 }
 
 pub struct SizedDictBufBuilder<'a, B1: BufMut, B2: BufMut> {
+    pub(crate) record_size: Option<u8>,
     block_offset: u64,
     id_offset: u64,
     offsets: LateLogArrayBufBuilder<'a, B1>,
@@ -36,12 +38,14 @@ pub struct SizedDictBufBuilder<'a, B1: BufMut, B2: BufMut> {
 
 impl<'a, B1: BufMut, B2: BufMut> SizedDictBufBuilder<'a, B1, B2> {
     pub fn new(
+        record_size: Option<u8>,
         block_offset: u64,
         id_offset: u64,
         offsets: LateLogArrayBufBuilder<'a, B1>,
         data_buf: B2,
     ) -> Self {
         Self {
+            record_size,
             block_offset,
             id_offset,
             offsets,
@@ -63,7 +67,7 @@ impl<'a, B1: BufMut, B2: BufMut> SizedDictBufBuilder<'a, B1, B2> {
         self.id_offset += 1;
         if self.current_block.len() == BLOCK_SIZE {
             let current_block: Vec<&[u8]> = self.current_block.iter().map(|e| e.as_ref()).collect();
-            let size = build_block_unchecked(&mut self.data_buf, &current_block);
+            let size = build_block_unchecked(self.record_size, &mut self.data_buf, &current_block);
             self.block_offset += size as u64;
             self.offsets.push(self.block_offset);
 
@@ -84,7 +88,7 @@ impl<'a, B1: BufMut, B2: BufMut> SizedDictBufBuilder<'a, B1, B2> {
     pub fn finalize(mut self) -> (LateLogArrayBufBuilder<'a, B1>, B2, u64, u64) {
         if self.current_block.len() > 0 {
             let current_block: Vec<&[u8]> = self.current_block.iter().map(|e| e.as_ref()).collect();
-            let size = build_block_unchecked(&mut self.data_buf, &current_block);
+            let size = build_block_unchecked(self.record_size, &mut self.data_buf, &current_block);
             self.block_offset += size as u64;
             self.offsets.push(self.block_offset);
         }
@@ -310,7 +314,7 @@ mod tests {
         vals: I,
     ) {
         let mut offsets = Vec::new();
-        build_dict_unchecked(0, &mut offsets, data_buf, vals);
+        build_dict_unchecked(None, 0, &mut offsets, data_buf, vals);
         build_offset_logarray(array_buf, offsets);
     }
 
@@ -380,7 +384,7 @@ mod tests {
 
         let logarray_builder = LateLogArrayBufBuilder::new(&mut array_buf);
 
-        let mut builder = SizedDictBufBuilder::new(0, 0, logarray_builder, data_buf);
+        let mut builder = SizedDictBufBuilder::new(None, 0, 0, logarray_builder, data_buf);
         builder.add_all(strings.clone().into_iter().map(|v| Bytes::from_static(v)));
         let (mut logarray_builder, data_buf, _, _) = builder.finalize();
         logarray_builder.pop();
