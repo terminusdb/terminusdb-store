@@ -140,7 +140,7 @@ impl SizedDict {
         if block_index == 0 {
             offset = 0;
         } else {
-            offset = (self.offsets.entry(block_index - 1) - self.dict_offset) as usize;
+            offset = (dbg!(self.offsets.entry(block_index - 1)) - dbg!(self.dict_offset)) as usize;
         }
 
         offset

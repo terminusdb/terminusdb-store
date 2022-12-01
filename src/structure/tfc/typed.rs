@@ -98,27 +98,30 @@ impl TypedDict {
             block_offset = 0;
             id_offset = 0;
         } else {
-            type_offset = self.type_offsets.entry(i - 1) as usize;
-            id_offset = self.type_id_offsets[i - 1];
-            block_offset = self.block_offsets.entry(type_offset as usize) as usize;
+            type_offset = dbg!(self.type_offsets.entry(i - 1) as usize);
+            id_offset = dbg!(self.type_id_offsets[i - 1]);
+            block_offset = dbg!(self.block_offsets.entry(type_offset as usize) as usize);
         }
 
         let len;
-        if i == self.types_present.len() - 1 {
+        dbg!(&self.types_present);
+        dbg!(&self.type_id_offsets);
+        dbg!(&self.block_offsets);
+        if dbg!(i == dbg!(self.types_present.len()) - 1) {
             if i == 0 {
                 len = self.block_offsets.len() - type_offset;
             } else {
                 len = self.block_offsets.len() - type_offset - 1;
             }
         } else {
-            let next_offset = self.type_offsets.entry(i) as usize;
+            let next_offset = dbg!(self.type_offsets.entry(i) as usize);
             if i == 0 {
                 len = next_offset - type_offset;
             } else {
-                len = next_offset - type_offset - 1;
+                len = dbg!(next_offset - type_offset - 1);
             }
         }
-        dbg!(type_offset + 1);
+        dbg!(type_offset);
         let logarray_slice = self.block_offsets.slice(type_offset + 1, len);
         let data_slice = self.data.slice(block_offset..);
 
@@ -240,7 +243,6 @@ impl<'a> Iterator for DictSegmentIterator<'a> {
         if self.type_index >= self.dict.types_present.len() {
             return None;
         }
-
         let (segment, _) = self.dict.inner_type_segment(self.type_index);
         let datatype = self.dict.type_for_type_index(self.type_index);
         self.type_index += 1;
@@ -291,12 +293,12 @@ pub type StringDict = TypedDictSegment<String>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 pub enum Datatype {
-    String = 1,
+    String = 0,
     UInt32,
     Int32,
+    Float32,
     UInt64,
     Int64,
-    Float32,
     Float64,
     Decimal,
     BigInt,
