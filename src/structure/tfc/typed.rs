@@ -122,7 +122,13 @@ impl TypedDict {
             }
         }
         dbg!(type_offset);
-        let logarray_slice = self.block_offsets.slice(type_offset + 1, len);
+        let logarray_slice;
+        if len == 0 {
+            // any slice will do
+            logarray_slice = self.block_offsets.slice(0, 0);
+        } else {
+            logarray_slice = self.block_offsets.slice(type_offset + 1, len);
+        }
         let data_slice = self.data.slice(block_offset..);
 
         (
