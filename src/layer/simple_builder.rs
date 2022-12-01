@@ -62,6 +62,7 @@ pub struct SimpleLayerBuilder<F: 'static + FileLoad + FileStore + Clone> {
 impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
     /// Construct a layer builder for a base layer
     pub fn new(name: [u32; 5], files: BaseLayerFiles<F>) -> Self {
+        eprintln!("Trying to make a new layer file");
         Self {
             name,
             parent: None,
@@ -194,8 +195,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                         ChildLayerFileBuilder::from_files(parent.clone(), &files).await?;
 
                     let node_ids = builder.add_nodes(unresolved_nodes.clone());
-                    let predicate_ids = builder
-                        .add_predicates(unresolved_predicates.clone());
+                    let predicate_ids = builder.add_predicates(unresolved_predicates.clone());
                     let value_ids = builder.add_values(unresolved_values.clone());
 
                     let mut builder = builder.into_phase2().await?;
@@ -240,8 +240,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                     let mut builder = BaseLayerFileBuilder::from_files(&files).await?;
 
                     let node_ids = builder.add_nodes(unresolved_nodes.clone());
-                    let predicate_ids = builder
-                        .add_predicates(unresolved_predicates.clone());
+                    let predicate_ids = builder.add_predicates(unresolved_predicates.clone());
                     let value_ids = builder.add_values(unresolved_values.clone());
 
                     let mut builder = builder.into_phase2().await?;

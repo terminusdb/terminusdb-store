@@ -130,12 +130,8 @@ struct SortedIterator<
     pick_fn: F,
 }
 
-impl<
-        'a,
-        T,
-        I: 'a + Iterator<Item = T> + Send,
-        F: 'static + Fn(&[Option<&T>]) -> Option<usize>,
-    > Iterator for SortedIterator<T, I, F>
+impl<'a, T, I: 'a + Iterator<Item = T> + Send, F: 'static + Fn(&[Option<&T>]) -> Option<usize>>
+    Iterator for SortedIterator<T, I, F>
 {
     type Item = T;
 
@@ -155,14 +151,14 @@ impl<
 }
 
 pub fn sorted_iterator<
-        'a,
+    'a,
     T: 'a,
     I: 'a + Iterator<Item = T> + Send,
     F: 'static + Fn(&[Option<&T>]) -> Option<usize>,
 >(
     iters: Vec<I>,
     pick_fn: F,
-) -> impl Iterator<Item = T>+'a {
+) -> impl Iterator<Item = T> + 'a {
     let peekable_iters = iters
         .into_iter()
         .map(std::iter::Iterator::peekable)
@@ -187,7 +183,12 @@ pub fn assert_poll_next<T, S: Stream<Item = T>>(stream: Pin<&mut S>, cx: &mut Co
 }
 
 pub fn calculate_width(size: u64) -> u8 {
-    ((size + 1) as f32).log2().ceil() as u8
+    let mut msb = u64::BITS - size.leading_zeros();
+    // zero is a degenerate case, but needs to be represented with one bit.
+    if msb == 0 {
+        msb = 1
+    };
+    msb as u8
 }
 
 #[cfg(test)]

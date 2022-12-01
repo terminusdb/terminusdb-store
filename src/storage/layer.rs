@@ -10,13 +10,12 @@ use crate::layer::{
     OptInternalLayerTriplePredicateIterator, OptInternalLayerTripleSubjectIterator, RollupLayer,
     SimpleLayerBuilder,
 };
-use crate::structure::StringDict;
-use crate::structure::TypedDict;
 use crate::structure::bitarray::bitarray_len_from_file;
 use crate::structure::logarray::logarray_file_get_length_and_width;
+use crate::structure::StringDict;
+use crate::structure::TypedDict;
 use crate::structure::{
-    dict_file_get_count, util, AdjacencyList, BitIndex, LogArray, MonotonicLogArray,
-    WaveletTree,
+    dict_file_get_count, util, AdjacencyList, BitIndex, LogArray, MonotonicLogArray, WaveletTree,
 };
 
 use std::convert::TryInto;
@@ -1569,7 +1568,11 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             let files = self.node_dictionary_files(name).await?;
             let maps = files.map_all().await?;
 
-            Ok(Some(StringDict::parse(maps.blocks_map, maps.offsets_map, 0)))
+            Ok(Some(StringDict::parse(
+                maps.blocks_map,
+                maps.offsets_map,
+                0,
+            )))
         } else {
             Ok(None)
         }
@@ -1580,7 +1583,11 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             let files = self.predicate_dictionary_files(name).await?;
             let maps = files.map_all().await?;
 
-            Ok(Some(StringDict::parse(maps.blocks_map, maps.offsets_map, 0)))
+            Ok(Some(StringDict::parse(
+                maps.blocks_map,
+                maps.offsets_map,
+                0,
+            )))
         } else {
             Ok(None)
         }
@@ -1591,7 +1598,12 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             let files = self.value_dictionary_files(name).await?;
             let maps = files.map_all().await?;
 
-            Ok(Some(TypedDict::from_parts(maps.types_present_map, maps.type_offsets_map, maps.blocks_map, maps.offsets_map)))
+            Ok(Some(TypedDict::from_parts(
+                maps.types_present_map,
+                maps.type_offsets_map,
+                maps.blocks_map,
+                maps.offsets_map,
+            )))
         } else {
             Ok(None)
         }
@@ -2274,7 +2286,7 @@ mod tests {
         HashMap<StringTriple, IdTriple>,
     )> {
         let mut builder = store.create_base_layer().await?;
-        let name = builder.name();
+        let name = dbg!(builder.name());
         for t in BASE_TRIPLES.iter() {
             builder.add_string_triple(t.clone());
         }
