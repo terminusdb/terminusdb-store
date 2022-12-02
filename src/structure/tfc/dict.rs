@@ -140,7 +140,7 @@ impl SizedDict {
         if block_index == 0 {
             offset = 0;
         } else {
-            offset = (dbg!(self.offsets.entry(block_index - 1)) - dbg!(self.dict_offset)) as usize;
+            offset = (self.offsets.entry(block_index - 1) - self.dict_offset) as usize;
         }
 
         offset
@@ -176,8 +176,6 @@ impl SizedDict {
 
     pub fn entry(&self, index: usize) -> Option<SizedDictEntry> {
         if index > self.num_entries() {
-            dbg!(index);
-            dbg!(self.num_entries());
             return None;
         }
         let block = self.block(((index - 1) / 8) as usize);

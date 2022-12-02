@@ -51,12 +51,12 @@ impl TypedDict {
                 last_block_len =
                     parse_block_control_records(data[last_block_offset_of_previous_type as usize]);
             }
-            eprintln!("last_block_len: {last_block_len}");
+
             let gap = BLOCK_SIZE as u8 - last_block_len;
             tally += gap as u64;
             type_id_offsets.push((type_offset + 1) * 8 - tally);
         }
-        dbg!(block_offsets.len());
+
         let last_gap = if block_offsets.len() == 0 {
             1
         } else {
@@ -92,36 +92,33 @@ impl TypedDict {
         let type_offset;
         let block_offset;
         let id_offset;
-        dbg!(i);
+
         if i == 0 {
             type_offset = 0;
             block_offset = 0;
             id_offset = 0;
         } else {
-            type_offset = dbg!(self.type_offsets.entry(i - 1) as usize);
-            id_offset = dbg!(self.type_id_offsets[i - 1]);
-            block_offset = dbg!(self.block_offsets.entry(type_offset as usize) as usize);
+            type_offset = self.type_offsets.entry(i - 1) as usize;
+            id_offset = self.type_id_offsets[i - 1];
+            block_offset = self.block_offsets.entry(type_offset as usize) as usize;
         }
 
         let len;
-        dbg!(&self.types_present);
-        dbg!(&self.type_id_offsets);
-        dbg!(&self.block_offsets);
-        if dbg!(i == dbg!(self.types_present.len()) - 1) {
+        if i == self.types_present.len() - 1 {
             if i == 0 {
                 len = self.block_offsets.len() - type_offset;
             } else {
                 len = self.block_offsets.len() - type_offset - 1;
             }
         } else {
-            let next_offset = dbg!(self.type_offsets.entry(i) as usize);
+            let next_offset = self.type_offsets.entry(i) as usize;
             if i == 0 {
                 len = next_offset - type_offset;
             } else {
-                len = dbg!(next_offset - type_offset - 1);
+                len = next_offset - type_offset - 1;
             }
         }
-        dbg!(type_offset);
+
         let logarray_slice;
         if len == 0 {
             // any slice will do
@@ -175,16 +172,13 @@ impl TypedDict {
 
     pub fn entry(&self, id: usize) -> Option<(Datatype, SizedDictEntry)> {
         if id > self.num_entries() {
-            dbg!(self.num_entries());
             return None;
         }
         let type_index = self.type_index_for_id(id as u64);
 
         let (dict, offset) = self.inner_type_segment(type_index);
-        dbg!(offset);
-        dbg!(type_index);
         let dt = self.type_for_type_index(type_index);
-        dbg!(dict.entry(id - offset as usize).map(|e| (dt, e)))
+        dict.entry(id - offset as usize).map(|e| (dt, e))
     }
 
     pub fn num_entries(&self) -> usize {
@@ -265,6 +259,10 @@ pub struct TypedDictSegment<T: TdbDataType> {
 
 impl<T: TdbDataType> TypedDictSegment<T> {
     pub fn parse(offsets: Bytes, data: Bytes, dict_offset: u64) -> Self {
+        let offsets2 = offsets.clone();
+        let data2 = data.clone();
+        dbg!(offsets2);
+        dbg!(data2);
         let dict = SizedDict::parse(offsets, data, dict_offset);
         Self {
             dict,
@@ -676,7 +674,6 @@ impl<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<B1, B2,
     }
 
     pub fn add_entry(&mut self, dt: Datatype, e: &SizedDictEntry) -> u64 {
-        eprintln!("Adding entry: {dt:?},{e:?}");
         self.add(dt, e.to_bytes())
     }
 
@@ -685,21 +682,18 @@ impl<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<B1, B2,
     }
 
     pub fn finalize(self) -> (B1, B2, B3, B4) {
-        eprintln!("Finalizing now");
+        /*
         if self.current_datatype == None {
             panic!("There was nothing added to this dictionary!");
-        }
+        }*/
         let (mut block_offset_builder, data_buf, _, _) =
             self.sized_dict_buf_builder.unwrap().finalize();
-        eprintln!("a");
+
         block_offset_builder.pop();
         let block_offsets_buf = block_offset_builder.finalize();
-        eprintln!("b");
-        dbg!(&self.types_present_builder.vals);
         let types_present_buf = self.types_present_builder.finalize();
-        eprintln!("c");
         let type_offsets_buf = self.type_offsets_builder.finalize();
-        eprintln!("Finalized...");
+
         (
             types_present_buf,
             type_offsets_buf,
@@ -1169,6 +1163,51 @@ mod tests {
             Decimal::make_entry(&Decimal("2".to_string())),
             Decimal::make_entry(&Decimal("0".to_string())),
             f32::make_entry(&4.389832_f32),
+            f32::make_entry(&23434.389832_f32),
+            Integer::make_entry(&int("239487329872343987")),
+        ];
+        vec.sort();
+
+        let used_types_buf = BytesMut::new();
+        let type_offsets_buf = BytesMut::new();
+        let block_offsets_buf = BytesMut::new();
+        let data_buf = BytesMut::new();
+
+        let mut typed_builder = TypedDictBufBuilder::new(
+            used_types_buf,
+            type_offsets_buf,
+            block_offsets_buf,
+            data_buf,
+        );
+
+        let _results: Vec<u64> = vec
+            .clone()
+            .into_iter()
+            .map(|(dt, entry)| typed_builder.add(dt, entry))
+            .collect();
+
+        let (used_types, type_offsets, block_offsets, data) = typed_builder.finalize();
+
+        let dict = TypedDict::from_parts(
+            used_types.freeze(),
+            type_offsets.freeze(),
+            block_offsets.freeze(),
+            data.freeze(),
+        );
+
+        for i in 0..vec.len() {
+            assert_eq!(vec[i], convert_entry(dict.entry(i + 1).unwrap()))
+        }
+    }
+
+    #[test]
+    fn test_incremental_builder_small_dicts() {
+        let mut vec: Vec<(Datatype, Bytes)> = vec![
+            String::make_entry(&"fdsa"),
+            i32::make_entry(&-500_i32),
+            u32::make_entry(&20_u32),
+            i64::make_entry(&-3_i64),
+            Decimal::make_entry(&Decimal("-12342343.2348973".to_string())),
             f32::make_entry(&23434.389832_f32),
             Integer::make_entry(&int("239487329872343987")),
         ];

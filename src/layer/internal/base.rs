@@ -256,17 +256,29 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
         let predicate_dict_blocks_map = files.predicate_dictionary_files.blocks_file.map().await?;
         let predicate_dict_offsets_map =
             files.predicate_dictionary_files.offsets_file.map().await?;
+        let value_dict_types_present_map = files
+            .value_dictionary_files
+            .types_present_file
+            .map()
+            .await?;
+        let value_dict_type_offsets_map =
+            files.value_dictionary_files.type_offsets_file.map().await?;
         let value_dict_blocks_map = files.value_dictionary_files.blocks_file.map().await?;
         let value_dict_offsets_map = files.value_dictionary_files.offsets_file.map().await?;
 
-        let node_dict = PfcDict::parse(node_dict_blocks_map, node_dict_offsets_map)?;
-        let pred_dict = PfcDict::parse(predicate_dict_blocks_map, predicate_dict_offsets_map)?;
-        let val_dict = PfcDict::parse(value_dict_blocks_map, value_dict_offsets_map)?;
+        let node_dict = StringDict::parse(node_dict_blocks_map, node_dict_offsets_map, 0);
+        let pred_dict = StringDict::parse(predicate_dict_blocks_map, predicate_dict_offsets_map, 0);
+        let val_dict = TypedDict::from_parts(
+            value_dict_types_present_map,
+            value_dict_type_offsets_map,
+            value_dict_blocks_map,
+            value_dict_offsets_map,
+        );
 
         // TODO: it is a bit silly to parse the dictionaries just for this. surely we can get the counts in an easier way?
-        let num_nodes = node_dict.len();
-        let num_predicates = pred_dict.len();
-        let num_values = val_dict.len();
+        let num_nodes = node_dict.num_entries();
+        let num_predicates = pred_dict.num_entries();
+        let num_values = val_dict.num_entries();
 
         BaseLayerFileBuilderPhase2::new(files, num_nodes, num_predicates, num_values).await
     }
@@ -605,7 +617,7 @@ pub mod tests {
 
         let builder = builder.into_phase2().await.unwrap();
         builder.finalize().await.unwrap();
-
+        eprintln!("Here");
         let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files)
             .await
             .unwrap();

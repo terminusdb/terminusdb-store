@@ -354,8 +354,6 @@ impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
     }
 
     pub fn push(&mut self, val: u64) {
-        eprintln!("push");
-        dbg!(val);
         // This is the minimum number of leading zeros that a decoded value should have.
         let leading_zeros = u64::BITS - self.width as u32;
 
@@ -408,7 +406,7 @@ impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
 
     pub fn finalize(mut self) {
         let len = self.count;
-        let width = dbg!(self.width);
+        let width = self.width;
 
         // Write the final data word.
         self.finalize_data();
@@ -444,7 +442,7 @@ impl<B: BufMut> LateLogArrayBufBuilder<B> {
 
     pub fn push(&mut self, val: u64) {
         self.vals.push(val);
-        let width = dbg!(calculate_width(val));
+        let width = calculate_width(val);
         if self.width < width {
             self.width = width;
         }
@@ -469,9 +467,8 @@ impl<B: BufMut> LateLogArrayBufBuilder<B> {
             self.width = 1
         }*/
         let mut builder = LogArrayBufBuilder::new(&mut self.buf, self.width);
-        builder.push_vec(dbg!(self.vals));
+        builder.push_vec(self.vals);
         builder.finalize();
-        eprintln!("Finalized logarray");
         self.buf
     }
 }

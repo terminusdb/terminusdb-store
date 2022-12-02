@@ -537,7 +537,7 @@ impl<'a> Iterator for SizedBlockIterator<'a> {
             if self.ix >= self.header.num_entries as usize - 1 {
                 return None;
             }
-            let size = dbg!(self.header.sizes[self.ix]);
+            let size = self.header.sizes[self.ix];
             let mut shared = self.header.shareds[self.ix];
             for rope_index in 0..last.len() {
                 let x = &mut last[rope_index];
@@ -588,18 +588,18 @@ impl IdLookupResult {
         }
     }
 
-    pub fn map<F: Fn(u64)->u64>(self, f: F) -> Self {
+    pub fn map<F: Fn(u64) -> u64>(self, f: F) -> Self {
         match self {
             Self::Found(i) => Self::Found(f(i)),
             Self::Closest(i) => Self::Closest(f(i)),
-            Self::NotFound => Self::NotFound
+            Self::NotFound => Self::NotFound,
         }
     }
 
     pub fn into_option(self) -> Option<u64> {
         match self {
             Self::Found(i) => Some(i),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -647,7 +647,7 @@ pub(crate) fn build_block_unchecked<B: BufMut>(
     let mut size = 0;
     let slices_len = slices.len();
     debug_assert!(slices_len <= BLOCK_SIZE && slices_len != 0);
-    let cw = dbg!(create_block_control_word(record_size, slices_len as u8));
+    let cw = create_block_control_word(record_size, slices_len as u8);
     buf.put_u8(cw as u8);
     size += 1;
 
