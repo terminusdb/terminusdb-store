@@ -280,14 +280,14 @@ impl<F: 'static + FileLoad + FileStore> TypedDictionaryFiles<F> {
     pub async fn map_all(&self) -> io::Result<TypedDictionaryMaps> {
         let types_present_map = self.types_present_file.map().await?;
         let type_offsets_map = self.type_offsets_file.map().await?;
-        let blocks_map = self.blocks_file.map().await?;
         let offsets_map = self.offsets_file.map().await?;
+        let blocks_map = self.blocks_file.map().await?;
 
         Ok(TypedDictionaryMaps {
             types_present_map,
             type_offsets_map,
-            blocks_map,
             offsets_map,
+            blocks_map,
         })
     }
 
@@ -295,20 +295,20 @@ impl<F: 'static + FileLoad + FileStore> TypedDictionaryFiles<F> {
         &self,
         types_present_buf: &mut B1,
         type_offsets_buf: &mut B2,
-        blocks_buf: &mut B3,
-        offsets_buf: &mut B4,
+        offsets_buf: &mut B3,
+        blocks_buf: &mut B4,
     ) -> io::Result<()> {
         let mut types_present_writer = self.types_present_file.open_write().await?;
         let mut type_offsets_writer = self.type_offsets_file.open_write().await?;
-        let mut blocks_writer = self.blocks_file.open_write().await?;
         let mut offsets_writer = self.offsets_file.open_write().await?;
+        let mut blocks_writer = self.blocks_file.open_write().await?;
 
         types_present_writer
             .write_all_buf(types_present_buf)
             .await?;
         type_offsets_writer.write_all_buf(type_offsets_buf).await?;
-        blocks_writer.write_all_buf(blocks_buf).await?;
         offsets_writer.write_all_buf(offsets_buf).await?;
+        blocks_writer.write_all_buf(blocks_buf).await?;
 
         types_present_writer.flush().await?;
         types_present_writer.sync_all().await?;
@@ -316,11 +316,11 @@ impl<F: 'static + FileLoad + FileStore> TypedDictionaryFiles<F> {
         type_offsets_writer.flush().await?;
         type_offsets_writer.sync_all().await?;
 
-        blocks_writer.flush().await?;
-        blocks_writer.sync_all().await?;
-
         offsets_writer.flush().await?;
         offsets_writer.sync_all().await?;
+
+        blocks_writer.flush().await?;
+        blocks_writer.sync_all().await?;
 
         Ok(())
     }
@@ -345,8 +345,8 @@ impl<F: 'static + FileLoad + FileStore> DictionaryFiles<F> {
         let offsets_map = self.offsets_file.map().await?;
 
         Ok(DictionaryMaps {
-            blocks_map,
             offsets_map,
+            blocks_map,
         })
     }
 
@@ -355,17 +355,17 @@ impl<F: 'static + FileLoad + FileStore> DictionaryFiles<F> {
         blocks_buf: &mut B1,
         offsets_buf: &mut B2,
     ) -> io::Result<()> {
-        let mut blocks_writer = self.blocks_file.open_write().await?;
         let mut offsets_writer = self.offsets_file.open_write().await?;
+        let mut blocks_writer = self.blocks_file.open_write().await?;
 
         blocks_writer.write_all_buf(blocks_buf).await?;
         offsets_writer.write_all_buf(offsets_buf).await?;
 
-        blocks_writer.flush().await?;
-        blocks_writer.sync_all().await?;
-
         offsets_writer.flush().await?;
         offsets_writer.sync_all().await?;
+
+        blocks_writer.flush().await?;
+        blocks_writer.sync_all().await?;
 
         Ok(())
     }

@@ -605,7 +605,7 @@ impl IdLookupResult {
 }
 
 pub fn parse_block_control_records(cw: u8) -> u8 {
-    parse_block_control_word(cw).1
+    dbg!(parse_block_control_word(cw).1)
 }
 
 pub fn parse_block_control_word(cw: u8) -> (Option<u8>, u8) {

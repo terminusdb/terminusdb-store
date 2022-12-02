@@ -525,17 +525,17 @@ mod tests {
         builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
 
         builder.commit_boxed().await.unwrap();
-
+        eprintln!("Here1");
         builder = store.create_child_layer(base_name).await.unwrap();
         let child_name = builder.name();
-
+        eprintln!("Here2");
         builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
         builder.add_string_triple(StringTriple::new_node("cow", "likes", "pig"));
-
+        eprintln!("Here3");
         builder.commit_boxed().await.unwrap();
-
+        eprintln!("Here4");
         let layer = store.get_layer(child_name).await.unwrap().unwrap();
-
+        eprintln!("Here5");
         assert!(layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
         assert!(layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
         assert!(layer.string_triple_exists(&StringTriple::new_node("cow", "likes", "pig")));

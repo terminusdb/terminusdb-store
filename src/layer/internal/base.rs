@@ -49,21 +49,21 @@ impl BaseLayer {
     }
 
     pub fn load(name: [u32; 5], maps: BaseLayerMaps) -> InternalLayer {
-        let node_dictionary = TypedDictSegment::parse(
-            maps.node_dictionary_maps.blocks_map,
+        let node_dictionary = StringDict::parse(
             maps.node_dictionary_maps.offsets_map,
+            maps.node_dictionary_maps.blocks_map,
             0,
         );
-        let predicate_dictionary = TypedDictSegment::parse(
-            maps.predicate_dictionary_maps.blocks_map,
+        let predicate_dictionary = StringDict::parse(
             maps.predicate_dictionary_maps.offsets_map,
+            maps.predicate_dictionary_maps.blocks_map,
             0,
         );
         let value_dictionary = TypedDict::from_parts(
             maps.value_dictionary_maps.types_present_map,
             maps.value_dictionary_maps.type_offsets_map,
-            maps.value_dictionary_maps.blocks_map,
             maps.value_dictionary_maps.offsets_map,
+            maps.value_dictionary_maps.blocks_map,
         );
 
         let node_value_idmap = match maps.id_map_maps.node_value_idmap_maps {
@@ -266,13 +266,13 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
         let value_dict_blocks_map = files.value_dictionary_files.blocks_file.map().await?;
         let value_dict_offsets_map = files.value_dictionary_files.offsets_file.map().await?;
 
-        let node_dict = StringDict::parse(node_dict_blocks_map, node_dict_offsets_map, 0);
-        let pred_dict = StringDict::parse(predicate_dict_blocks_map, predicate_dict_offsets_map, 0);
+        let node_dict = StringDict::parse(node_dict_offsets_map, node_dict_blocks_map, 0);
+        let pred_dict = StringDict::parse(predicate_dict_offsets_map, predicate_dict_blocks_map, 0);
         let val_dict = TypedDict::from_parts(
             value_dict_types_present_map,
             value_dict_type_offsets_map,
-            value_dict_blocks_map,
             value_dict_offsets_map,
+            value_dict_blocks_map,
         );
 
         // TODO: it is a bit silly to parse the dictionaries just for this. surely we can get the counts in an easier way?

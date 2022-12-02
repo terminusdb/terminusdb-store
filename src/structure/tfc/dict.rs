@@ -44,6 +44,7 @@ impl<B1: BufMut, B2: BufMut> SizedDictBufBuilder<B1, B2> {
         offsets: LateLogArrayBufBuilder<B1>,
         data_buf: B2,
     ) -> Self {
+        dbg!(block_offset);
         Self {
             record_size,
             block_offset,
@@ -86,9 +87,13 @@ impl<B1: BufMut, B2: BufMut> SizedDictBufBuilder<B1, B2> {
     }
 
     pub fn finalize(mut self) -> (LateLogArrayBufBuilder<B1>, B2, u64, u64) {
-        if self.current_block.len() > 0 {
+        if dbg!(self.current_block.len()) > 0 {
             let current_block: Vec<&[u8]> = self.current_block.iter().map(|e| e.as_ref()).collect();
-            let size = build_block_unchecked(self.record_size, &mut self.data_buf, &current_block);
+            let size = dbg!(build_block_unchecked(
+                self.record_size,
+                &mut self.data_buf,
+                &current_block
+            ));
             self.block_offset += size as u64;
             self.offsets.push(self.block_offset);
         }
@@ -103,13 +108,14 @@ impl<B1: BufMut, B2: BufMut> SizedDictBufBuilder<B1, B2> {
 }
 
 pub fn build_offset_logarray<B: BufMut>(buf: &mut B, mut offsets: Vec<u64>) {
+    dbg!(&offsets);
     // the last offset doesn't matter as it's implied by the total size
     offsets.pop();
 
     let largest_element = offsets.last().cloned().unwrap_or(0);
     let width = calculate_width(largest_element);
     let mut array_builder = LogArrayBufBuilder::new(buf, width);
-
+    dbg!(&offsets);
     array_builder.push_vec(offsets);
     array_builder.finalize();
 }
@@ -123,7 +129,11 @@ pub struct SizedDict {
 
 impl SizedDict {
     pub fn parse(offsets: Bytes, data: Bytes, dict_offset: u64) -> Self {
+        dbg!(&offsets);
+        dbg!(&data);
+        dbg!(dict_offset);
         let offsets = MonotonicLogArray::parse(offsets).unwrap();
+        dbg!(&offsets);
         Self::from_parts(offsets, data, dict_offset)
     }
 
@@ -136,6 +146,7 @@ impl SizedDict {
     }
 
     fn block_offset(&self, block_index: usize) -> usize {
+        dbg!(block_index);
         let offset: usize;
         if block_index == 0 {
             offset = 0;
@@ -165,12 +176,15 @@ impl SizedDict {
     }
 
     pub fn block_num_elements(&self, block_index: usize) -> u8 {
+        eprintln!("offset: {block_index}");
         let offset = self.block_offset(block_index);
-
+        eprintln!("offset: {offset}");
         parse_block_control_records(self.data[offset])
     }
 
     pub fn num_blocks(&self) -> usize {
+        dbg!(&self.offsets);
+        dbg!(&self.data);
         self.offsets.len() + 1
     }
 
@@ -252,7 +266,7 @@ impl SizedDict {
     }
 
     pub fn num_entries(&self) -> usize {
-        let num_blocks = self.num_blocks();
+        let num_blocks = dbg!(self.num_blocks());
         let last_block_size = self.block_num_elements(num_blocks - 1);
 
         (num_blocks - 1) * BLOCK_SIZE + last_block_size as usize

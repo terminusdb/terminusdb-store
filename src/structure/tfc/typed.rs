@@ -35,10 +35,20 @@ impl TypedDict {
         block_offsets: Bytes,
         data: Bytes,
     ) -> Self {
+        let types_present2 = types_present.clone();
+        dbg!(types_present2);
+        let type_offsets2 = type_offsets.clone();
+        dbg!(type_offsets2);
+        let block_offsets2 = block_offsets.clone();
+        dbg!(block_offsets2);
+        let data2 = data.clone();
+        dbg!(data2);
         let types_present = MonotonicLogArray::parse(types_present).unwrap();
         let type_offsets = MonotonicLogArray::parse(type_offsets).unwrap();
         let block_offsets = MonotonicLogArray::parse(block_offsets).unwrap();
-
+        dbg!(&types_present);
+        dbg!(&type_offsets);
+        dbg!(&block_offsets);
         let mut tally: u64 = 0;
         let mut type_id_offsets = Vec::with_capacity(types_present.len() - 1);
         for type_offset in type_offsets.iter() {
@@ -61,20 +71,26 @@ impl TypedDict {
             1
         } else {
             BLOCK_SIZE
-                - parse_block_control_records(
+                - dbg!(parse_block_control_records(
                     data[block_offsets.entry(block_offsets.len() - 1) as usize],
-                ) as usize
+                ) as usize)
         };
-        let num_entries = (block_offsets.len() + 1) * BLOCK_SIZE - tally as usize - last_gap;
-
-        Self {
+        dbg!(last_gap);
+        dbg!((block_offsets.len() + 1) * BLOCK_SIZE - tally as usize);
+        let num_entries = if block_offsets.len() == 0 {
+            parse_block_control_records(data[0]) as usize
+        } else {
+            (block_offsets.len() + 1) * BLOCK_SIZE - tally as usize - last_gap
+        };
+        dbg!(num_entries);
+        dbg!(Self {
             types_present,
             type_offsets,
             block_offsets,
             type_id_offsets,
             num_entries,
             data,
-        }
+        })
     }
 
     pub fn id<T: TdbDataType, Q: ToLexical<T>>(&self, v: &Q) -> IdLookupResult {
@@ -92,7 +108,7 @@ impl TypedDict {
         let type_offset;
         let block_offset;
         let id_offset;
-
+        dbg!(i);
         if i == 0 {
             type_offset = 0;
             block_offset = 0;
@@ -102,7 +118,7 @@ impl TypedDict {
             id_offset = self.type_id_offsets[i - 1];
             block_offset = self.block_offsets.entry(type_offset as usize) as usize;
         }
-
+        dbg!(block_offset);
         let len;
         if i == self.types_present.len() - 1 {
             if i == 0 {
@@ -263,7 +279,9 @@ impl<T: TdbDataType> TypedDictSegment<T> {
         let data2 = data.clone();
         dbg!(offsets2);
         dbg!(data2);
+        dbg!(dict_offset);
         let dict = SizedDict::parse(offsets, data, dict_offset);
+        dbg!(&dict);
         Self {
             dict,
             _x: Default::default(),
@@ -689,11 +707,10 @@ impl<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<B1, B2,
         let (mut block_offset_builder, data_buf, _, _) =
             self.sized_dict_buf_builder.unwrap().finalize();
 
-        block_offset_builder.pop();
-        let block_offsets_buf = block_offset_builder.finalize();
         let types_present_buf = self.types_present_builder.finalize();
         let type_offsets_buf = self.type_offsets_builder.finalize();
-
+        block_offset_builder.pop();
+        let block_offsets_buf = block_offset_builder.finalize();
         (
             types_present_buf,
             type_offsets_buf,
