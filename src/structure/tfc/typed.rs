@@ -49,17 +49,28 @@ impl TypedDict {
         dbg!(&types_present);
         dbg!(&type_offsets);
         dbg!(&block_offsets);
+        if types_present.len() == 0 {
+            return Self {
+                types_present,
+                type_offsets,
+                block_offsets,
+                type_id_offsets: Vec::new(),
+                num_entries: 0,
+                data,
+            };
+        }
         let mut tally: u64 = 0;
         let mut type_id_offsets = Vec::with_capacity(types_present.len() - 1);
         for type_offset in type_offsets.iter() {
             let last_block_len;
             if type_offset == 0 {
-                last_block_len = parse_block_control_records(data[0]);
+                last_block_len = dbg!(parse_block_control_records(data[0]));
             } else {
                 let last_block_offset_of_previous_type =
                     block_offsets.entry(type_offset as usize - 1);
-                last_block_len =
-                    parse_block_control_records(data[last_block_offset_of_previous_type as usize]);
+                last_block_len = dbg!(parse_block_control_records(
+                    data[last_block_offset_of_previous_type as usize]
+                ));
             }
 
             let gap = BLOCK_SIZE as u8 - last_block_len;
@@ -295,6 +306,7 @@ impl<T: TdbDataType> TypedDictSegment<T> {
 
     pub fn id<Q: ToLexical<T>>(&self, val: &Q) -> IdLookupResult {
         let slice = T::to_lexical(val);
+        dbg!(&slice);
         self.dict.id(&slice[..])
     }
 

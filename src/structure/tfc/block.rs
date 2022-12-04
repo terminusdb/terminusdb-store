@@ -38,6 +38,7 @@ impl From<vbyte::DecodeError> for SizedDictError {
 impl SizedBlockHeader {
     fn parse(buf: &mut Bytes) -> Result<Self, SizedDictError> {
         let cw = buf.get_u8();
+        dbg!(&buf);
         let (record_size, num_entries) = parse_block_control_word(cw);
         let mut sizes = [0_usize; BLOCK_SIZE - 1];
         let mut shareds = [0_usize; BLOCK_SIZE - 1];
@@ -59,13 +60,13 @@ impl SizedBlockHeader {
 
         let buffer_length = sizes.iter().sum();
 
-        Ok(Self {
+        Ok(dbg!(Self {
             head,
             num_entries,
             buffer_length,
             sizes,
             shareds,
-        })
+        }))
     }
 }
 
@@ -373,7 +374,7 @@ impl SizedDictBlock {
 
         let data = bytes.split_to(header.buffer_length);
 
-        Ok(Self { header, data })
+        Ok(dbg!(Self { header, data }))
     }
 
     pub fn num_entries(&self) -> u8 {
@@ -385,6 +386,7 @@ impl SizedDictBlock {
     }
 
     pub fn entry(&self, index: usize) -> SizedDictEntry {
+        dbg!(index);
         if index == 0 {
             return SizedDictEntry::new(vec![self.header.head.clone()]);
         }
@@ -448,7 +450,7 @@ impl SizedDictBlock {
         let suffix_size = self.header.sizes[index - 1];
         slices.push(self.data.slice(offset..offset + suffix_size));
 
-        SizedDictEntry::new_optimized(slices)
+        dbg!(SizedDictEntry::new_optimized(slices))
     }
 
     fn suffixes<'a>(&'a self) -> impl Iterator<Item = Bytes> + 'a {
@@ -489,7 +491,7 @@ impl SizedDictBlock {
             let (new_common_prefix, ordering) =
                 find_common_prefix_ord(&slice[common_prefix..], &suffix[..]);
             match ordering {
-                Ordering::Equal => return IdLookupResult::Found(ix as u64 + 1),
+                Ordering::Equal => return dbg!(IdLookupResult::Found(ix as u64 + 1)),
                 Ordering::Less => return IdLookupResult::Closest(ix as u64),
                 Ordering::Greater => {
                     common_prefix += new_common_prefix;

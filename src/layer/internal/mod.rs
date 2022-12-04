@@ -551,6 +551,7 @@ impl Layer for InternalLayer {
     }
 
     fn subject_id<'a>(&'a self, subject: &str) -> Option<u64> {
+        eprintln!("In subject_id");
         let to_result = |layer: &'a InternalLayer| {
             (
                 layer
@@ -565,10 +566,12 @@ impl Layer for InternalLayer {
             result = to_result(layer);
         }
         let (id_option, parent_option) = result;
-        id_option.map(|id| 1 + id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
+        eprintln!("id_option: {id_option:?}");
+        id_option.map(|id| id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
     }
 
     fn predicate_id<'a>(&'a self, predicate: &str) -> Option<u64> {
+        eprintln!("In predicate id");
         let to_result = |layer: &'a InternalLayer| {
             (
                 layer
@@ -583,7 +586,7 @@ impl Layer for InternalLayer {
             result = to_result(layer);
         }
         let (id_option, parent_option) = result;
-        id_option.map(|id| 1 + id + parent_option.map_or(0, |p| p.predicate_count() as u64))
+        id_option.map(|id| id + parent_option.map_or(0, |p| p.predicate_count() as u64))
     }
 
     fn object_node_id<'a>(&'a self, object: &str) -> Option<u64> {
@@ -601,7 +604,7 @@ impl Layer for InternalLayer {
             result = to_result(layer);
         }
         let (id_option, parent_option) = result;
-        id_option.map(|id| 1 + id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
+        id_option.map(|id| id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
     }
 
     fn object_value_id<'a>(&'a self, object: &str) -> Option<u64> {
@@ -620,14 +623,14 @@ impl Layer for InternalLayer {
             result = to_result(layer);
         }
         let (id_option, parent_option) = result;
-        id_option.map(|id| 1 + id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
+        id_option.map(|id| id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
     }
 
     fn id_subject(&self, id: u64) -> Option<String> {
         if id == 0 {
             return None;
         }
-        let mut corrected_id = id - 1;
+        let mut corrected_id = id;
         let mut current_option: Option<&InternalLayer> = Some(self);
         let mut parent_count = self.node_and_value_count() as u64;
         while let Some(current_layer) = current_option {
@@ -663,7 +666,7 @@ impl Layer for InternalLayer {
         let mut current_option: Option<&InternalLayer> = Some(self);
         let mut parent_count = self.predicate_count() as u64;
         while let Some(current_layer) = current_option {
-            let mut corrected_id = id - 1;
+            let mut corrected_id = id;
             if let Some(parent) = current_layer.immediate_parent() {
                 parent_count -= current_layer.predicate_dict_len() as u64;
                 if corrected_id >= parent_count as u64 {
@@ -691,7 +694,7 @@ impl Layer for InternalLayer {
         if id == 0 {
             return None;
         }
-        let mut corrected_id = id - 1;
+        let mut corrected_id = id;
         let mut current_option: Option<&InternalLayer> = Some(self);
         let mut parent_count = self.node_and_value_count() as u64;
         while let Some(current_layer) = current_option {
@@ -734,7 +737,7 @@ impl Layer for InternalLayer {
             return None;
         }
 
-        let mut corrected_id = id - 1;
+        let mut corrected_id = id;
         let mut current_option: Option<&InternalLayer> = Some(self);
         let mut parent_count = self.node_and_value_count() as u64;
         while let Some(current_layer) = current_option {

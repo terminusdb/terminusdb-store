@@ -160,7 +160,7 @@ impl SizedDict {
     pub fn block_bytes(&self, block_index: usize) -> Bytes {
         let offset = self.block_offset(block_index);
         let block_bytes;
-        block_bytes = self.data.slice(offset..);
+        block_bytes = dbg!(self.data.slice(offset..));
 
         block_bytes
     }
@@ -176,10 +176,17 @@ impl SizedDict {
     }
 
     pub fn block_num_elements(&self, block_index: usize) -> u8 {
-        eprintln!("offset: {block_index}");
-        let offset = self.block_offset(block_index);
+        eprintln!("block_index: {block_index}");
+        let offset = dbg!(self.block_offset(block_index));
         eprintln!("offset: {offset}");
-        parse_block_control_records(self.data[offset])
+
+        dbg!(&self.data);
+        if dbg!(self.data.len()) == 0 {
+            eprintln!("size is zero");
+            0
+        } else {
+            dbg!(parse_block_control_records(dbg!(self.data[offset])))
+        }
     }
 
     pub fn num_blocks(&self) -> usize {
@@ -189,6 +196,7 @@ impl SizedDict {
     }
 
     pub fn entry(&self, index: usize) -> Option<SizedDictEntry> {
+        dbg!(index);
         if index > self.num_entries() {
             return None;
         }
@@ -197,6 +205,7 @@ impl SizedDict {
     }
 
     pub fn id(&self, slice: &[u8]) -> IdLookupResult {
+        dbg!(slice);
         // let's binary search
         let mut min = 0;
         let mut max = self.offsets.len();
