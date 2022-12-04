@@ -2286,7 +2286,7 @@ mod tests {
         HashMap<StringTriple, IdTriple>,
     )> {
         let mut builder = store.create_base_layer().await?;
-        let name = dbg!(builder.name());
+        let name = builder.name();
         for t in BASE_TRIPLES.iter() {
             builder.add_string_triple(t.clone());
         }

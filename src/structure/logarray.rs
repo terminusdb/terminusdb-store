@@ -296,8 +296,6 @@ impl LogArray {
     ///
     /// Panics if `index` + `length` is >= the length of the log array.
     pub fn slice(&self, offset: usize, len: usize) -> LogArray {
-        dbg!(len);
-        dbg!(offset);
         let offset = u32::try_from(offset)
             .unwrap_or_else(|_| panic!("expected 32-bit slice offset ({})", offset));
         let len =

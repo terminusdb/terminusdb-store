@@ -36,19 +36,13 @@ impl TypedDict {
         data: Bytes,
     ) -> Self {
         let types_present2 = types_present.clone();
-        dbg!(types_present2);
         let type_offsets2 = type_offsets.clone();
-        dbg!(type_offsets2);
         let block_offsets2 = block_offsets.clone();
-        dbg!(block_offsets2);
         let data2 = data.clone();
-        dbg!(data2);
+
         let types_present = MonotonicLogArray::parse(types_present).unwrap();
         let type_offsets = MonotonicLogArray::parse(type_offsets).unwrap();
         let block_offsets = MonotonicLogArray::parse(block_offsets).unwrap();
-        dbg!(&types_present);
-        dbg!(&type_offsets);
-        dbg!(&block_offsets);
         if types_present.len() == 0 {
             return Self {
                 types_present,
@@ -64,13 +58,12 @@ impl TypedDict {
         for type_offset in type_offsets.iter() {
             let last_block_len;
             if type_offset == 0 {
-                last_block_len = dbg!(parse_block_control_records(data[0]));
+                last_block_len = parse_block_control_records(data[0]);
             } else {
                 let last_block_offset_of_previous_type =
                     block_offsets.entry(type_offset as usize - 1);
-                last_block_len = dbg!(parse_block_control_records(
-                    data[last_block_offset_of_previous_type as usize]
-                ));
+                last_block_len =
+                    parse_block_control_records(data[last_block_offset_of_previous_type as usize]);
             }
 
             let gap = BLOCK_SIZE as u8 - last_block_len;
@@ -82,26 +75,24 @@ impl TypedDict {
             1
         } else {
             BLOCK_SIZE
-                - dbg!(parse_block_control_records(
+                - parse_block_control_records(
                     data[block_offsets.entry(block_offsets.len() - 1) as usize],
-                ) as usize)
+                ) as usize
         };
-        dbg!(last_gap);
-        dbg!((block_offsets.len() + 1) * BLOCK_SIZE - tally as usize);
         let num_entries = if block_offsets.len() == 0 {
             parse_block_control_records(data[0]) as usize
         } else {
             (block_offsets.len() + 1) * BLOCK_SIZE - tally as usize - last_gap
         };
-        dbg!(num_entries);
-        dbg!(Self {
+
+        Self {
             types_present,
             type_offsets,
             block_offsets,
             type_id_offsets,
             num_entries,
             data,
-        })
+        }
     }
 
     pub fn id<T: TdbDataType, Q: ToLexical<T>>(&self, v: &Q) -> IdLookupResult {
@@ -119,7 +110,7 @@ impl TypedDict {
         let type_offset;
         let block_offset;
         let id_offset;
-        dbg!(i);
+
         if i == 0 {
             type_offset = 0;
             block_offset = 0;
@@ -129,7 +120,7 @@ impl TypedDict {
             id_offset = self.type_id_offsets[i - 1];
             block_offset = self.block_offsets.entry(type_offset as usize) as usize;
         }
-        dbg!(block_offset);
+
         let len;
         if i == self.types_present.len() - 1 {
             if i == 0 {
@@ -288,11 +279,8 @@ impl<T: TdbDataType> TypedDictSegment<T> {
     pub fn parse(offsets: Bytes, data: Bytes, dict_offset: u64) -> Self {
         let offsets2 = offsets.clone();
         let data2 = data.clone();
-        dbg!(offsets2);
-        dbg!(data2);
-        dbg!(dict_offset);
         let dict = SizedDict::parse(offsets, data, dict_offset);
-        dbg!(&dict);
+
         Self {
             dict,
             _x: Default::default(),
@@ -306,7 +294,6 @@ impl<T: TdbDataType> TypedDictSegment<T> {
 
     pub fn id<Q: ToLexical<T>>(&self, val: &Q) -> IdLookupResult {
         let slice = T::to_lexical(val);
-        dbg!(&slice);
         self.dict.id(&slice[..])
     }
 
