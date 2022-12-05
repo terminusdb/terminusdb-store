@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1667813559551,
+  "lastUpdate": 1670239266236,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -14590,6 +14590,126 @@ window.BENCHMARK_DATA = {
           {
             "name": "logarray_w5_empty",
             "value": 261,
+            "range": "± 1",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rrooij@users.noreply.github.com",
+            "name": "Robin de Rooij",
+            "username": "rrooij"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "17d34cd6ffb598b106415d15e63af61f9f968d20",
+          "message": "Clippy comments (#103)\n\n* ci: run clippy\r\n\r\n* Run clippy separately\r\n\r\nWe don't want it running three times!\r\n\r\n* disable clippy erroring on arc ptr comparison in tests\r\n\r\nCo-authored-by: Matthijs van Otterdijk <matthijs@terminusdb.com>",
+          "timestamp": "2022-12-05T12:14:16+01:00",
+          "tree_id": "0161da8c9f4c87bfce1456e15b1833920555c81e",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/17d34cd6ffb598b106415d15e63af61f9f968d20"
+        },
+        "date": 1670239264997,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 335,
+            "range": "± 21",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 28677167,
+            "range": "± 3319391",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 16915963,
+            "range": "± 4062149",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 22018625,
+            "range": "± 4283623",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 33650872,
+            "range": "± 3646407",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 33637076,
+            "range": "± 4081755",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w10_1000",
+            "value": 10846,
+            "range": "± 98",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1",
+            "value": 408,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10",
+            "value": 470,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_100",
+            "value": 1582,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1000",
+            "value": 9977,
+            "range": "± 33",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000",
+            "value": 91978,
+            "range": "± 309",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_as_stream",
+            "value": 102850,
+            "range": "± 995",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent",
+            "value": 880712,
+            "range": "± 213196",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent_as_stream",
+            "value": 948721,
+            "range": "± 285560",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_empty",
+            "value": 345,
             "range": "± 1",
             "unit": "ns/iter"
           }
