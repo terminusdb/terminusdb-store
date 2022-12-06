@@ -32,10 +32,10 @@ impl IdMap {
         self.id_wtree
             .as_ref()
             .and_then(|wtree| {
-                if id >= wtree.len() as u64 {
+                if id > wtree.len() as u64 {
                     None
                 } else {
-                    Some(wtree.lookup_one(id).unwrap())
+                    Some(wtree.lookup_one(id-1).unwrap() + 1)
                 }
             })
             .unwrap_or(id)
@@ -45,10 +45,11 @@ impl IdMap {
         self.id_wtree
             .as_ref()
             .and_then(|wtree| {
-                if id >= wtree.len() as u64 {
+                if id > wtree.len() as u64 {
                     None
                 } else {
-                    Some(wtree.decode_one(id.try_into().unwrap()))
+                    let id:usize = id.try_into().unwrap();
+                    Some(wtree.decode_one(id - 1) + 1)
                 }
             })
             .unwrap_or(id)
@@ -97,7 +98,7 @@ pub async fn construct_idmaps_from_structures<F: 'static + FileLoad + FileStore>
         node_iters.push(
             dict.into_iter()
                 .enumerate()
-                .map(move |(i, e)| (idmap.inner_to_outer(i as u64) + node_offset as u64, e)),
+                .map(move |(i, e)| (idmap.inner_to_outer(i as u64 + 1) + node_offset as u64, e)),
         );
 
         node_offset += num_entries + value_dicts[ix].num_entries();
@@ -111,7 +112,7 @@ pub async fn construct_idmaps_from_structures<F: 'static + FileLoad + FileStore>
         let num_entries = dict.num_entries();
         value_iters.push(dict.into_iter().enumerate().map(move |(i, e)| {
             (
-                idmap.inner_to_outer(i as u64 + node_count as u64) + value_offset as u64,
+                idmap.inner_to_outer(i as u64 + node_count as u64 + 1) + value_offset as u64,
                 e,
             )
         }));
@@ -127,7 +128,7 @@ pub async fn construct_idmaps_from_structures<F: 'static + FileLoad + FileStore>
         predicate_iters.push(
             dict.into_iter()
                 .enumerate()
-                .map(move |(i, e)| (idmap.inner_to_outer(i as u64) + predicate_offset as u64, e)),
+                .map(move |(i, e)| (idmap.inner_to_outer(i as u64 + 1) + predicate_offset as u64, e)),
         );
 
         predicate_offset += num_entries;
@@ -151,9 +152,9 @@ pub async fn construct_idmaps_from_structures<F: 'static + FileLoad + FileStore>
 
     let sorted_node_iter = sorted_iterator(node_iters, entry_comparator).map(|(i,s)|(i, (Datatype::String, s)));
     let sorted_value_iter = sorted_iterator(value_iters, typed_entry_comparator);
-    let sorted_node_value_iter = sorted_node_iter.chain(sorted_value_iter).map(|(id, _)| id);
+    let sorted_node_value_iter = sorted_node_iter.chain(sorted_value_iter).map(|(id, _)| id - 1);
     let sorted_predicate_iter =
-        sorted_iterator(predicate_iters, entry_comparator).map(|(id, _)| id);
+        sorted_iterator(predicate_iters, entry_comparator).map(|(id, _)| id - 1);
 
     let node_value_width = util::calculate_width(node_offset as u64);
     let node_value_build_task = tokio::spawn(build_wavelet_tree_from_iter(
