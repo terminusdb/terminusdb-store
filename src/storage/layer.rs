@@ -15,7 +15,7 @@ use crate::structure::logarray::logarray_file_get_length_and_width;
 use crate::structure::StringDict;
 use crate::structure::TypedDict;
 use crate::structure::{
-    dict_file_get_count, util, AdjacencyList, BitIndex, LogArray, MonotonicLogArray, WaveletTree,
+    util, AdjacencyList, BitIndex, LogArray, MonotonicLogArray, WaveletTree,
 };
 
 use std::convert::TryInto;
@@ -1571,7 +1571,6 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             Ok(Some(StringDict::parse(
                 maps.offsets_map,
                 maps.blocks_map,
-                0,
             )))
         } else {
             Ok(None)
@@ -1586,7 +1585,6 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             Ok(Some(StringDict::parse(
                 maps.offsets_map,
                 maps.blocks_map,
-                0,
             )))
         } else {
             Ok(None)
@@ -1612,7 +1610,8 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
     async fn get_node_count(&self, name: [u32; 5]) -> io::Result<Option<u64>> {
         if self.directory_exists(name).await? {
             let file = self.node_dictionary_files(name).await?.blocks_file;
-            Ok(Some(dict_file_get_count(file).await?))
+            panic!();
+            //Ok(Some(dict_file_get_count(file).await?))
         } else {
             Ok(None)
         }
@@ -1621,7 +1620,8 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
     async fn get_predicate_count(&self, name: [u32; 5]) -> io::Result<Option<u64>> {
         if self.directory_exists(name).await? {
             let file = self.predicate_dictionary_files(name).await?.blocks_file;
-            Ok(Some(dict_file_get_count(file).await?))
+            panic!();
+            //Ok(Some(dict_file_get_count(file).await?))
         } else {
             Ok(None)
         }
@@ -1630,7 +1630,8 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
     async fn get_value_count(&self, name: [u32; 5]) -> io::Result<Option<u64>> {
         if self.directory_exists(name).await? {
             let file = self.value_dictionary_files(name).await?.blocks_file;
-            Ok(Some(dict_file_get_count(file).await?))
+            panic!();
+            //Ok(Some(dict_file_get_count(file).await?))
         } else {
             Ok(None)
         }

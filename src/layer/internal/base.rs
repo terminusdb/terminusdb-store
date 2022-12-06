@@ -52,12 +52,10 @@ impl BaseLayer {
         let node_dictionary = StringDict::parse(
             maps.node_dictionary_maps.offsets_map,
             maps.node_dictionary_maps.blocks_map,
-            0,
         );
         let predicate_dictionary = StringDict::parse(
             maps.predicate_dictionary_maps.offsets_map,
-            dbg!(maps.predicate_dictionary_maps.blocks_map),
-            0,
+            maps.predicate_dictionary_maps.blocks_map,
         );
         let value_dictionary = TypedDict::from_parts(
             maps.value_dictionary_maps.types_present_map,
@@ -266,8 +264,8 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
         let value_dict_blocks_map = files.value_dictionary_files.blocks_file.map().await?;
         let value_dict_offsets_map = files.value_dictionary_files.offsets_file.map().await?;
 
-        let node_dict = StringDict::parse(node_dict_offsets_map, node_dict_blocks_map, 0);
-        let pred_dict = StringDict::parse(predicate_dict_offsets_map, predicate_dict_blocks_map, 0);
+        let node_dict = StringDict::parse(node_dict_offsets_map, node_dict_blocks_map);
+        let pred_dict = StringDict::parse(predicate_dict_offsets_map, predicate_dict_blocks_map);
         let val_dict = TypedDict::from_parts(
             value_dict_types_present_map,
             value_dict_type_offsets_map,

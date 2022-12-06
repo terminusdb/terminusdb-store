@@ -150,9 +150,9 @@ impl SizedDict {
         if self.data.is_empty() {
             panic!("empty dictionary has no block");
         }
-        let offset = dbg!(self.block_offset(block_index));
+        let offset = self.block_offset(block_index);
         let block_bytes;
-        block_bytes = dbg!(self.data.slice(offset..));
+        block_bytes = self.data.slice(offset..);
 
         block_bytes
     }
@@ -186,7 +186,6 @@ impl SizedDict {
     }
 
     pub fn entry(&self, index: usize) -> Option<SizedDictEntry> {
-        dbg!(index);
         if index > self.num_entries() {
             return None;
         }
@@ -199,14 +198,12 @@ impl SizedDict {
         let mut min = 0;
         let mut max = self.offsets.len();
         let mut mid: usize;
-        dbg!(&self);
         if self.is_empty() {
             return IdLookupResult::NotFound;
         }
         while min <= max {
             mid = (min + max) / 2;
-            dbg!(mid);
-            let head_slice = dbg!(self.block_head(mid));
+            let head_slice = self.block_head(mid);
 
             match slice.cmp(&head_slice[..]) {
                 Ordering::Less => {
@@ -215,11 +212,11 @@ impl SizedDict {
                         // but since this is the first block, the string doesn't exist.
                         return IdLookupResult::NotFound;
                     }
-                    max = dbg!(mid - 1);
+                    max = mid - 1;
                 }
-                Ordering::Greater => min = dbg!(mid + 1),
+                Ordering::Greater => min = mid + 1,
                 Ordering::Equal => {
-                    return IdLookupResult::Found(dbg!((mid * BLOCK_SIZE + 1)) as u64)
+                    return IdLookupResult::Found((mid * BLOCK_SIZE + 1) as u64)
                 } // what luck! turns out the string we were looking for was the block head
             }
         }
@@ -227,10 +224,10 @@ impl SizedDict {
         let found = max;
 
         // we found the block the string should be part of.
-        let block = dbg!(self.block(found));
+        let block = self.block(found);
         let block_id = block.id(slice);
         let offset = (found * BLOCK_SIZE) as u64 + 1;
-        let result = block_id.offset(offset).default(dbg!(offset - 1));
+        let result = block_id.offset(offset).default(offset - 1);
         /*
         if found != 0 {
             // the default value will fill in the last index of the

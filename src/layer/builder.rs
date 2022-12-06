@@ -3,7 +3,6 @@ use std::io;
 use bytes::{Bytes, BytesMut};
 use futures::stream::TryStreamExt;
 use rayon::prelude::*;
-use tfc::dict::SizedDictBufBuilder;
 
 use super::layer::*;
 use crate::storage::*;
@@ -14,8 +13,8 @@ pub struct DictionarySetFileBuilder<F: 'static + FileLoad + FileStore> {
     node_files: DictionaryFiles<F>,
     predicate_files: DictionaryFiles<F>,
     value_files: TypedDictionaryFiles<F>,
-    node_dictionary_builder: SizedDictBufBuilder<BytesMut, BytesMut>,
-    predicate_dictionary_builder: SizedDictBufBuilder<BytesMut, BytesMut>,
+    node_dictionary_builder: StringDictBufBuilder<BytesMut, BytesMut>,
+    predicate_dictionary_builder: StringDictBufBuilder<BytesMut, BytesMut>,
     value_dictionary_builder: TypedDictBufBuilder<BytesMut, BytesMut, BytesMut, BytesMut>,
 }
 
@@ -25,18 +24,12 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
         predicate_files: DictionaryFiles<F>,
         value_files: TypedDictionaryFiles<F>,
     ) -> io::Result<Self> {
-        let node_dictionary_builder = SizedDictBufBuilder::new(
-            None,
-            0,
-            0,
-            LateLogArrayBufBuilder::new(BytesMut::new()),
+        let node_dictionary_builder = StringDictBufBuilder::new(
+            BytesMut::new(),
             BytesMut::new(),
         );
-        let predicate_dictionary_builder = SizedDictBufBuilder::new(
-            None,
-            0,
-            0,
-            LateLogArrayBufBuilder::new(BytesMut::new()),
+        let predicate_dictionary_builder = StringDictBufBuilder::new(
+            BytesMut::new(),
             BytesMut::new(),
         );
         let value_dictionary_builder = TypedDictBufBuilder::new(
@@ -147,16 +140,10 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
     }
 
     pub async fn finalize(self) -> io::Result<()> {
-        let (mut node_offsets_builder, mut node_data_buf, _, _) =
+        let (mut node_offsets_buf, mut node_data_buf) =
             self.node_dictionary_builder.finalize();
-        // last offset is useless
-        node_offsets_builder.pop();
-        let mut node_offsets_buf = node_offsets_builder.finalize();
-        let (mut predicate_offsets_builder, mut predicate_data_buf, _, _) =
+        let (mut predicate_offsets_buf, mut predicate_data_buf) =
             self.predicate_dictionary_builder.finalize();
-        // last offset is useless
-        predicate_offsets_builder.pop();
-        let mut predicate_offsets_buf = predicate_offsets_builder.finalize();
         let (
             mut value_types_present_buf,
             mut value_type_offsets_buf,

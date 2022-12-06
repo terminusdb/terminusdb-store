@@ -102,7 +102,7 @@ impl TypedDict {
     }
 
     pub fn get<T: TdbDataType>(&self, id: usize) -> Option<T> {
-        let result = self.entry(dbg!(id));
+        let result = self.entry(id);
         result.map(|(datatype, slice)| datatype.cast(slice.into_buf()))
     }
 
@@ -286,13 +286,12 @@ impl<T: TdbDataType> TypedDictSegment<T> {
     }
 
     pub fn get(&self, index: usize) -> Option<T> {
-        let entry = self.dict.entry(dbg!(index));
+        let entry = self.dict.entry(index);
         entry.map(|e| T::from_lexical(e.into_buf()))
     }
 
     pub fn id<Q: ToLexical<T>>(&self, val: &Q) -> IdLookupResult {
-        dbg!(&self.dict);
-        let slice = dbg!(T::to_lexical(val));
+        let slice = T::to_lexical(val);
         self.dict.id(&slice[..])
     }
 
@@ -309,7 +308,75 @@ impl<T: TdbDataType> TypedDictSegment<T> {
     }
 }
 
-pub type StringDict = TypedDictSegment<String>;
+#[derive(Clone)]
+pub struct StringDict(TypedDictSegment<String>);
+
+impl StringDict {
+    pub fn parse(offsets: Bytes, data: Bytes) -> Self {
+        Self(TypedDictSegment::parse(offsets, data.slice(..data.len()), 0))
+    }
+
+    pub fn get(&self, index: usize) -> Option<String> {
+        self.0.get(index)
+    }
+
+    pub fn id<Q: ToLexical<String>>(&self, val: &Q) -> IdLookupResult {
+        self.0.id(val)
+    }
+
+    pub fn num_entries(&self) -> usize {
+        self.0.num_entries()
+    }
+
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = SizedDictEntry> + 'a + Clone {
+        self.0.iter()
+    }
+
+    pub fn into_iter(self) -> impl Iterator<Item = SizedDictEntry> + Clone {
+        self.0.into_iter()
+    }
+}
+
+pub struct StringDictBufBuilder<B1: BufMut, B2: BufMut>(SizedDictBufBuilder<B1, B2>);
+
+impl<B1: BufMut, B2: BufMut> StringDictBufBuilder<B1, B2> {
+    pub fn new(
+        offsets_buf: B1,
+        data_buf: B2,
+    ) -> Self {
+        let offsets = LateLogArrayBufBuilder::new(offsets_buf);
+        Self(SizedDictBufBuilder::new(None, 0, 0, offsets, data_buf))
+    }
+
+    pub fn id_offset(&self) -> u64 {
+        self.0.id_offset()
+    }
+
+    pub fn block_offset(&self) -> u64 {
+        self.0.block_offset()
+    }
+
+    pub fn add(&mut self, value: Bytes) -> u64 {
+        self.0.add(value)
+    }
+
+    pub fn add_entry(&mut self, e: &SizedDictEntry) -> u64 {
+        self.0.add_entry(e)
+    }
+
+    pub fn add_all<I: Iterator<Item = Bytes>>(&mut self, it: I) -> Vec<u64> {
+        self.0.add_all(it)
+    }
+
+    pub fn finalize(self) -> (B1, B2) {
+        let (mut offsets_array, mut data_buf, _block_offset, id_offset) = self.0.finalize();
+        offsets_array.pop();
+        let offsets_buf = offsets_array.finalize();
+        //data_buf.put_u64(id_offset);
+
+        (offsets_buf, data_buf)
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 pub enum Datatype {

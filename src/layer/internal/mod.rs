@@ -234,7 +234,7 @@ impl InternalLayer {
     }
 
     pub fn node_dict_get(&self, id: usize) -> Option<String> {
-        dbg!(self.node_dictionary().get(id))
+        self.node_dictionary().get(id)
     }
 
     pub fn node_dict_len(&self) -> usize {
@@ -709,11 +709,11 @@ impl Layer for InternalLayer {
                 }
             }
 
-            corrected_id = dbg!(current_layer
+            corrected_id = current_layer
                 .node_value_id_map()
-                .outer_to_inner(corrected_id));
+                .outer_to_inner(corrected_id);
 
-            if corrected_id > dbg!(current_layer.node_dict_len()) as u64 {
+            if corrected_id > current_layer.node_dict_len() as u64 {
                 // object, if it exists, must be a value
                 corrected_id -= current_layer.node_dict_len() as u64;
                 return current_layer
