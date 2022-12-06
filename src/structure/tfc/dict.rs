@@ -148,6 +148,9 @@ impl SizedDict {
     }
 
     pub fn block_bytes(&self, block_index: usize) -> Bytes {
+        if self.data.is_empty() {
+            panic!("empty dictionary has no block");
+        }
         let offset = dbg!(self.block_offset(block_index));
         let block_bytes;
         block_bytes = dbg!(self.data.slice(offset..));
@@ -166,16 +169,21 @@ impl SizedDict {
     }
 
     pub fn block_num_elements(&self, block_index: usize) -> u8 {
-        let offset = self.block_offset(block_index);
-        if self.data.len() == 0 {
+        if self.data.is_empty() {
             0
         } else {
+            let offset = self.block_offset(block_index);
             parse_block_control_records(self.data[offset])
         }
     }
 
     pub fn num_blocks(&self) -> usize {
-        self.offsets.len() + 1
+        if self.data.is_empty() {
+            0
+        }
+        else {
+            self.offsets.len() + 1
+        }
     }
 
     pub fn entry(&self, index: usize) -> Option<SizedDictEntry> {
@@ -193,6 +201,9 @@ impl SizedDict {
         let mut max = self.offsets.len();
         let mut mid: usize;
         dbg!(&self);
+        if self.is_empty() {
+            return IdLookupResult::NotFound;
+        }
         while min <= max {
             mid = (min + max) / 2;
             dbg!(mid);
@@ -260,9 +271,18 @@ impl SizedDict {
 
     pub fn num_entries(&self) -> usize {
         let num_blocks = self.num_blocks();
-        let last_block_size = self.block_num_elements(num_blocks - 1);
+        if num_blocks == 0 {
+            0
+        }
+        else {
+            let last_block_size = self.block_num_elements(num_blocks - 1);
 
-        (num_blocks - 1) * BLOCK_SIZE + last_block_size as usize
+            (num_blocks - 1) * BLOCK_SIZE + last_block_size as usize
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
     }
 }
 
