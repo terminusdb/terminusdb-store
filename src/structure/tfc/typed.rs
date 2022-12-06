@@ -43,7 +43,7 @@ impl TypedDict {
                 block_offsets,
                 type_id_offsets: Vec::new(),
                 num_entries: 0,
-                data: data.slice(..data.len()-8),
+                data: data.slice(..data.len() - 8),
             };
         }
         let mut tally: u64 = 0;
@@ -84,7 +84,7 @@ impl TypedDict {
             block_offsets,
             type_id_offsets,
             num_entries,
-            data: data.slice(..data.len()-8),
+            data: data.slice(..data.len() - 8),
         }
     }
 
@@ -134,6 +134,8 @@ impl TypedDict {
         if len == 0 {
             // any slice will do
             logarray_slice = self.block_offsets.slice(0, 0);
+        } else if i == 0 {
+            logarray_slice = self.block_offsets.slice(type_offset, len);
         } else {
             logarray_slice = self.block_offsets.slice(type_offset + 1, len);
         }
@@ -306,7 +308,11 @@ pub struct StringDict(TypedDictSegment<String>);
 
 impl StringDict {
     pub fn parse(offsets: Bytes, data: Bytes) -> Self {
-        Self(TypedDictSegment::parse(offsets, data.slice(..data.len()-8), 0))
+        Self(TypedDictSegment::parse(
+            offsets,
+            data.slice(..data.len() - 8),
+            0,
+        ))
     }
 
     pub fn get(&self, index: usize) -> Option<String> {
@@ -333,10 +339,7 @@ impl StringDict {
 pub struct StringDictBufBuilder<B1: BufMut, B2: BufMut>(SizedDictBufBuilder<B1, B2>);
 
 impl<B1: BufMut, B2: BufMut> StringDictBufBuilder<B1, B2> {
-    pub fn new(
-        offsets_buf: B1,
-        data_buf: B2,
-    ) -> Self {
+    pub fn new(offsets_buf: B1, data_buf: B2) -> Self {
         let offsets = LateLogArrayBufBuilder::new(offsets_buf);
         Self(SizedDictBufBuilder::new(None, 0, 0, offsets, data_buf))
     }
@@ -720,23 +723,27 @@ impl<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<B1, B2,
 mod tests {
     use super::*;
     fn build_multiple_segments<
-            B1: BufMut,
+        B1: BufMut,
         B2: BufMut,
         B3: BufMut,
         B4: BufMut,
         I: Iterator<Item = (Datatype, Bytes)>,
-        >(
+    >(
         used_types_buf: &mut B1,
         type_offsets_buf: &mut B2,
         block_offsets_buf: &mut B3,
         data_buf: &mut B4,
         iter: I,
     ) {
-        let mut builder = TypedDictBufBuilder::new(used_types_buf, type_offsets_buf, block_offsets_buf, data_buf);
+        let mut builder = TypedDictBufBuilder::new(
+            used_types_buf,
+            type_offsets_buf,
+            block_offsets_buf,
+            data_buf,
+        );
         builder.add_all(iter);
         builder.finalize();
     }
-
 
     fn build_segment_and_offsets<
         B1: BufMut,
@@ -752,7 +759,7 @@ mod tests {
     ) -> (B1, B2) {
         let offsets = LateLogArrayBufBuilder::new(array_buf);
         let mut builder = SizedDictBufBuilder::new(dt.record_size(), 0, 0, offsets, data_buf);
-        builder.add_all(iter.map(|v|v.to_lexical()));
+        builder.add_all(iter.map(|v| v.to_lexical()));
         let (mut offsets_array, data_buf, _, _) = builder.finalize();
         offsets_array.pop();
         let offsets_buf = offsets_array.finalize();
@@ -1257,6 +1264,121 @@ mod tests {
             type_offsets_buf,
             block_offsets_buf,
             data_buf,
+        );
+
+        let _results: Vec<u64> = vec
+            .clone()
+            .into_iter()
+            .map(|(dt, entry)| typed_builder.add(dt, entry))
+            .collect();
+
+        let (used_types, type_offsets, block_offsets, data) = typed_builder.finalize();
+
+        let dict = TypedDict::from_parts(
+            used_types.freeze(),
+            type_offsets.freeze(),
+            block_offsets.freeze(),
+            data.freeze(),
+        );
+
+        for i in 0..vec.len() {
+            assert_eq!(vec[i], convert_entry(dict.entry(i + 1).unwrap()))
+        }
+    }
+
+    #[test]
+    fn test_two_blocks() {
+        let mut vec: Vec<(Datatype, Bytes)> = vec![
+            String::make_entry(&"fdsa"),
+            String::make_entry(&"a"),
+            String::make_entry(&"bc"),
+            String::make_entry(&"bcd"),
+            String::make_entry(&"z"),
+            String::make_entry(&"Batty"),
+            String::make_entry(&"Batman"),
+            String::make_entry(&"apple"),
+            String::make_entry(&"donkey"),
+        ];
+        vec.sort();
+
+        let mut typed_builder = TypedDictBufBuilder::new(
+            BytesMut::new(),
+            BytesMut::new(),
+            BytesMut::new(),
+            BytesMut::new(),
+        );
+
+        let _results: Vec<u64> = vec
+            .clone()
+            .into_iter()
+            .map(|(dt, entry)| typed_builder.add(dt, entry))
+            .collect();
+
+        let (used_types, type_offsets, block_offsets, data) = typed_builder.finalize();
+
+        let dict = TypedDict::from_parts(
+            used_types.freeze(),
+            type_offsets.freeze(),
+            block_offsets.freeze(),
+            data.freeze(),
+        );
+
+        for i in 0..vec.len() {
+            assert_eq!(vec[i], convert_entry(dict.entry(i + 1).unwrap()))
+        }
+    }
+
+    #[test]
+    fn test_three_blocks() {
+        let mut vec: Vec<(Datatype, Bytes)> = vec![
+            String::make_entry(&"fdsa"),
+            String::make_entry(&"a"),
+            String::make_entry(&"bc"),
+            String::make_entry(&"bcd"),
+            String::make_entry(&"z"),
+            String::make_entry(&"Batty"),
+            String::make_entry(&"Batman"),
+            String::make_entry(&"apple"),
+            String::make_entry(&"donkey"),
+            String::make_entry(&"pickle"),
+            String::make_entry(&"Pacify"),
+            String::make_entry(&"Buckle"),
+            String::make_entry(&"possibilities"),
+            String::make_entry(&"suspicious"),
+            String::make_entry(&"babble"),
+            String::make_entry(&"reformat"),
+            String::make_entry(&"refactor"),
+            String::make_entry(&"prereserve"),
+            String::make_entry(&"full"),
+            String::make_entry(&"block"),
+            String::make_entry(&"precalculate"),
+            String::make_entry(&"make"),
+            String::make_entry(&"Fix"),
+            String::make_entry(&"Remove"),
+            String::make_entry(&"Two"),
+            String::make_entry(&"typed"),
+            String::make_entry(&"fix"),
+            String::make_entry(&"Working"),
+            String::make_entry(&"write"),
+            String::make_entry(&"refactor"),
+            String::make_entry(&"only"),
+            String::make_entry(&"Implementation"),
+            String::make_entry(&"Add"),
+            String::make_entry(&"typed"),
+            String::make_entry(&"renamed"),
+            String::make_entry(&"move"),
+            String::make_entry(&"look"),
+            String::make_entry(&"implement"),
+            String::make_entry(&"test"),
+            String::make_entry(&"lookup"),
+        ];
+        vec.sort();
+
+        let mut typed_builder = TypedDictBufBuilder::new(
+            BytesMut::new(),
+            BytesMut::new(),
+            BytesMut::new(),
+            BytesMut::new(),
         );
 
         let _results: Vec<u64> = vec
