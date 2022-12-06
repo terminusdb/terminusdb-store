@@ -1,13 +1,11 @@
+use byteorder::{BigEndian, ByteOrder};
 use bytes::BytesMut;
 use std::io;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncWriteExt, AsyncReadExt};
 
 use crate::{storage::*, structure::util::sorted_iterator};
 
-use super::{
-    dict::{build_dict_unchecked, build_offset_logarray},
-    *,
-};
+use super::*;
 
 pub async fn merge_string_dictionaries<
     'a,
@@ -32,11 +30,9 @@ pub async fn merge_string_dictionaries<
     let mut blocks_file_writer = dict_files.blocks_file.open_write().await?;
     let mut offsets_file_writer = dict_files.offsets_file.open_write().await?;
 
-    let mut offsets = Vec::new();
-    let mut offsets_buf = BytesMut::new();
-    let mut data_buf = BytesMut::new();
-    build_dict_unchecked(None, 0, &mut offsets, &mut data_buf, sorted_iterator);
-    build_offset_logarray(&mut offsets_buf, offsets);
+    let mut builder = StringDictBufBuilder::new(BytesMut::new(), BytesMut::new());
+    builder.add_all(sorted_iterator);
+    let (offsets_buf, data_buf) = builder.finalize();
 
     offsets_file_writer.write_all(offsets_buf.as_ref()).await?;
     offsets_file_writer.flush().await?;
@@ -74,17 +70,9 @@ pub async fn merge_typed_dictionaries<
     let mut blocks_file_writer = dict_files.blocks_file.open_write().await?;
     let mut offsets_file_writer = dict_files.offsets_file.open_write().await?;
 
-    let mut types_present_buf = BytesMut::new();
-    let mut type_offsets_buf = BytesMut::new();
-    let mut offsets_buf = BytesMut::new();
-    let mut data_buf = BytesMut::new();
-    build_multiple_segments(
-        &mut types_present_buf,
-        &mut type_offsets_buf,
-        &mut offsets_buf,
-        &mut data_buf,
-        sorted_iterator,
-    );
+    let mut builder = TypedDictBufBuilder::new(BytesMut::new(), BytesMut::new(), BytesMut::new(), BytesMut::new());
+    builder.add_all(sorted_iterator);
+    let (types_present_buf, type_offsets_buf, offsets_buf, data_buf) = builder.finalize();
 
     types_present_file_writer
         .write_all(types_present_buf.as_ref())
@@ -107,4 +95,13 @@ pub async fn merge_typed_dictionaries<
     blocks_file_writer.sync_all().await?;
 
     Ok(())
+}
+
+pub async fn dict_file_get_count<F: 'static + FileLoad>(file: F) -> io::Result<u64> {
+    let mut result = vec![0; 8];
+    file.open_read_from(file.size().await? - 8)
+        .await?
+        .read_exact(&mut result)
+        .await?;
+    Ok(BigEndian::read_u64(&result))
 }

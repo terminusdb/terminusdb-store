@@ -4,28 +4,8 @@ use crate::structure::{
     util::calculate_width, LateLogArrayBufBuilder, LogArrayBufBuilder, MonotonicLogArray,
 };
 use bytes::{BufMut, Bytes};
-use itertools::Itertools;
 
 use super::block::*;
-
-pub fn build_dict_unchecked<B: BufMut, R: AsRef<[u8]>, I: Iterator<Item = R>>(
-    record_size: Option<u8>,
-    start_offset: u64,
-    offsets: &mut Vec<u64>,
-    data_buf: &mut B,
-    iter: I,
-) {
-    let chunk_iter = iter.chunks(BLOCK_SIZE);
-
-    let mut offset = start_offset;
-    for chunk in &chunk_iter {
-        let slices: Vec<R> = chunk.collect();
-        let borrows: Vec<&[u8]> = slices.iter().map(|s| s.as_ref()).collect();
-        let size = build_block_unchecked(record_size, data_buf, &borrows);
-        offset += size as u64;
-        offsets.push(offset);
-    }
-}
 
 pub struct SizedDictBufBuilder<B1: BufMut, B2: BufMut> {
     pub(crate) record_size: Option<u8>,
@@ -341,14 +321,19 @@ mod tests {
     use super::*;
     use bytes::BytesMut;
 
-    fn build_dict_and_offsets<B1: BufMut, B2: BufMut, R: AsRef<[u8]>, I: Iterator<Item = R>>(
-        array_buf: &mut B1,
-        data_buf: &mut B2,
+    fn build_dict_and_offsets<B1: BufMut, B2: BufMut, I: Iterator<Item = Bytes>>(
+        array_buf: B1,
+        data_buf: B2,
         vals: I,
-    ) {
-        let mut offsets = Vec::new();
-        build_dict_unchecked(None, 0, &mut offsets, data_buf, vals);
-        build_offset_logarray(array_buf, offsets);
+    ) -> (B1, B2) {
+        let offsets = LateLogArrayBufBuilder::new(array_buf);
+        let mut builder = SizedDictBufBuilder::new(None, 0, 0, offsets, data_buf);
+        builder.add_all(vals);
+        let (mut array, data_buf, _, _) = builder.finalize();
+        array.pop();
+        let array_buf = array.finalize();
+
+        (array_buf, data_buf)
     }
 
     #[test]
@@ -372,7 +357,7 @@ mod tests {
 
         let mut array_buf = BytesMut::new();
         let mut data_buf = BytesMut::new();
-        build_dict_and_offsets(&mut array_buf, &mut data_buf, strings.clone().into_iter());
+        build_dict_and_offsets(&mut array_buf, &mut data_buf, strings.clone().into_iter().map(|s|Bytes::from(s)));
 
         let array_bytes = array_buf.freeze();
         let data_bytes = data_buf.freeze();
@@ -463,7 +448,7 @@ mod tests {
 
         let mut array_buf = BytesMut::new();
         let mut data_buf = BytesMut::new();
-        build_dict_and_offsets(&mut array_buf, &mut data_buf, strings.clone().into_iter());
+        build_dict_and_offsets(&mut array_buf, &mut data_buf, strings.clone().into_iter().map(Bytes::from));
 
         let array_bytes = array_buf.freeze();
         let data_bytes = data_buf.freeze();
@@ -495,7 +480,7 @@ mod tests {
 
         let mut array_buf = BytesMut::new();
         let mut data_buf = BytesMut::new();
-        build_dict_and_offsets(&mut array_buf, &mut data_buf, strings.clone().into_iter());
+        build_dict_and_offsets(&mut array_buf, &mut data_buf, strings.clone().into_iter().map(Bytes::from));
 
         let array_bytes = array_buf.freeze();
         let data_bytes = data_buf.freeze();

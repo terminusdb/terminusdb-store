@@ -7,3 +7,4 @@ pub mod file;
 
 pub use typed::*;
 pub use block::{SizedDictEntry, SizedDictEntryBuf, OwnedSizedDictEntryBuf};
+pub use file::*;
