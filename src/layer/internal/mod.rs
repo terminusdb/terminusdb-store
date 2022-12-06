@@ -234,7 +234,7 @@ impl InternalLayer {
     }
 
     pub fn node_dict_get(&self, id: usize) -> Option<String> {
-        self.node_dictionary().get(id)
+        dbg!(self.node_dictionary().get(id))
     }
 
     pub fn node_dict_len(&self) -> usize {
@@ -551,7 +551,6 @@ impl Layer for InternalLayer {
     }
 
     fn subject_id<'a>(&'a self, subject: &str) -> Option<u64> {
-        eprintln!("In subject_id");
         let to_result = |layer: &'a InternalLayer| {
             (
                 layer
@@ -566,12 +565,10 @@ impl Layer for InternalLayer {
             result = to_result(layer);
         }
         let (id_option, parent_option) = result;
-        eprintln!("id_option: {id_option:?}");
         id_option.map(|id| id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
     }
 
     fn predicate_id<'a>(&'a self, predicate: &str) -> Option<u64> {
-        eprintln!("In predicate id");
         let to_result = |layer: &'a InternalLayer| {
             (
                 layer
@@ -712,11 +709,11 @@ impl Layer for InternalLayer {
                 }
             }
 
-            corrected_id = current_layer
+            corrected_id = dbg!(current_layer
                 .node_value_id_map()
-                .outer_to_inner(corrected_id);
+                .outer_to_inner(corrected_id));
 
-            if corrected_id >= current_layer.node_dict_len() as u64 {
+            if corrected_id > dbg!(current_layer.node_dict_len()) as u64 {
                 // object, if it exists, must be a value
                 corrected_id -= current_layer.node_dict_len() as u64;
                 return current_layer

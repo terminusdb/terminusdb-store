@@ -35,6 +35,7 @@ impl TypedDict {
         block_offsets: Bytes,
         data: Bytes,
     ) -> Self {
+        dbg!(&data);
         let types_present2 = types_present.clone();
         let type_offsets2 = type_offsets.clone();
         let block_offsets2 = block_offsets.clone();
@@ -85,14 +86,14 @@ impl TypedDict {
             (block_offsets.len() + 1) * BLOCK_SIZE - tally as usize - last_gap
         };
 
-        Self {
+        dbg!(Self {
             types_present,
             type_offsets,
             block_offsets,
             type_id_offsets,
             num_entries,
             data,
-        }
+        })
     }
 
     pub fn id<T: TdbDataType, Q: ToLexical<T>>(&self, v: &Q) -> IdLookupResult {
@@ -102,7 +103,7 @@ impl TypedDict {
     }
 
     pub fn get<T: TdbDataType>(&self, id: usize) -> Option<T> {
-        let result = self.entry(id);
+        let result = self.entry(dbg!(id));
         result.map(|(datatype, slice)| datatype.cast(slice.into_buf()))
     }
 
@@ -277,8 +278,7 @@ pub struct TypedDictSegment<T: TdbDataType> {
 
 impl<T: TdbDataType> TypedDictSegment<T> {
     pub fn parse(offsets: Bytes, data: Bytes, dict_offset: u64) -> Self {
-        let offsets2 = offsets.clone();
-        let data2 = data.clone();
+        dbg!(&data);
         let dict = SizedDict::parse(offsets, data, dict_offset);
 
         Self {
@@ -288,12 +288,13 @@ impl<T: TdbDataType> TypedDictSegment<T> {
     }
 
     pub fn get(&self, index: usize) -> Option<T> {
-        let entry = self.dict.entry(index);
+        let entry = self.dict.entry(dbg!(index));
         entry.map(|e| T::from_lexical(e.into_buf()))
     }
 
     pub fn id<Q: ToLexical<T>>(&self, val: &Q) -> IdLookupResult {
-        let slice = T::to_lexical(val);
+        dbg!(&self.dict);
+        let slice = dbg!(T::to_lexical(val));
         self.dict.id(&slice[..])
     }
 

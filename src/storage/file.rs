@@ -341,8 +341,8 @@ pub struct DictionaryFiles<F: 'static + FileLoad + FileStore> {
 
 impl<F: 'static + FileLoad + FileStore> DictionaryFiles<F> {
     pub async fn map_all(&self) -> io::Result<DictionaryMaps> {
-        let blocks_map = self.blocks_file.map().await?;
         let offsets_map = self.offsets_file.map().await?;
+        let blocks_map = self.blocks_file.map().await?;
 
         Ok(DictionaryMaps {
             offsets_map,
@@ -358,8 +358,8 @@ impl<F: 'static + FileLoad + FileStore> DictionaryFiles<F> {
         let mut offsets_writer = self.offsets_file.open_write().await?;
         let mut blocks_writer = self.blocks_file.open_write().await?;
 
-        blocks_writer.write_all_buf(blocks_buf).await?;
         offsets_writer.write_all_buf(offsets_buf).await?;
+        blocks_writer.write_all_buf(blocks_buf).await?;
 
         offsets_writer.flush().await?;
         offsets_writer.sync_all().await?;

@@ -345,7 +345,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         } = self;
 
         builder.finalize().await?;
-        eprintln!("Into phase2");
+
         let node_dict_offsets_map = files.node_dictionary_files.offsets_file.map().await?;
         let node_dict_blocks_map = files.node_dictionary_files.blocks_file.map().await?;
         let predicate_dict_offsets_map =

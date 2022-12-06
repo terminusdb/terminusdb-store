@@ -56,7 +56,7 @@ impl BaseLayer {
         );
         let predicate_dictionary = StringDict::parse(
             maps.predicate_dictionary_maps.offsets_map,
-            maps.predicate_dictionary_maps.blocks_map,
+            dbg!(maps.predicate_dictionary_maps.blocks_map),
             0,
         );
         let value_dictionary = TypedDict::from_parts(
@@ -617,7 +617,7 @@ pub mod tests {
 
         let builder = builder.into_phase2().await.unwrap();
         builder.finalize().await.unwrap();
-        eprintln!("Here");
+
         let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &base_layer_files)
             .await
             .unwrap();

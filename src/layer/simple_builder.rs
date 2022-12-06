@@ -62,7 +62,6 @@ pub struct SimpleLayerBuilder<F: 'static + FileLoad + FileStore + Clone> {
 impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
     /// Construct a layer builder for a base layer
     pub fn new(name: [u32; 5], files: BaseLayerFiles<F>) -> Self {
-        eprintln!("Trying to make a new layer file");
         Self {
             name,
             parent: None,
