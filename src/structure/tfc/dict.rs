@@ -128,12 +128,11 @@ impl SizedDict {
     }
 
     pub fn from_parts(offsets: MonotonicLogArray, data: Bytes, dict_offset: u64) -> Self {
-        dbg!(&data);
-        dbg!(Self {
+        Self {
             offsets,
             data,
             dict_offset,
-        })
+        }
     }
 
     fn block_offset(&self, block_index: usize) -> usize {
