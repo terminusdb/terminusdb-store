@@ -186,11 +186,13 @@ pub const FILENAMES: Filenames = Filenames {
     rollup: "rollup.hex",
 };
 
-pub const SHARED_REQUIRED_FILES: [&'static str; 6] = [
+pub const SHARED_REQUIRED_FILES: [&'static str; 8] = [
     FILENAMES.node_dictionary_blocks,
     FILENAMES.node_dictionary_offsets,
     FILENAMES.predicate_dictionary_blocks,
     FILENAMES.predicate_dictionary_offsets,
+    FILENAMES.value_dictionary_types_present,
+    FILENAMES.value_dictionary_type_offsets,
     FILENAMES.value_dictionary_blocks,
     FILENAMES.value_dictionary_offsets,
 ];

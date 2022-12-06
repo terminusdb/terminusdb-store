@@ -62,21 +62,21 @@ impl ChildLayer {
     }
 
     pub fn load(name: [u32; 5], parent: Arc<InternalLayer>, maps: ChildLayerMaps) -> InternalLayer {
-        let node_dictionary = TypedDictSegment::parse(
-            maps.node_dictionary_maps.blocks_map,
+        let node_dictionary = StringDict::parse(
             maps.node_dictionary_maps.offsets_map,
+            maps.node_dictionary_maps.blocks_map,
             0,
         );
-        let predicate_dictionary = TypedDictSegment::parse(
-            maps.predicate_dictionary_maps.blocks_map,
+        let predicate_dictionary = StringDict::parse(
             maps.predicate_dictionary_maps.offsets_map,
+            maps.predicate_dictionary_maps.blocks_map,
             0,
         );
         let value_dictionary = TypedDict::from_parts(
             maps.value_dictionary_maps.types_present_map,
             maps.value_dictionary_maps.type_offsets_map,
-            maps.value_dictionary_maps.blocks_map,
             maps.value_dictionary_maps.offsets_map,
+            maps.value_dictionary_maps.blocks_map,
         );
 
         let parent_node_value_count = parent.node_and_value_count();
@@ -346,22 +346,34 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
 
         builder.finalize().await?;
 
-        let node_dict_blocks_map = files.node_dictionary_files.blocks_file.map().await?;
         let node_dict_offsets_map = files.node_dictionary_files.offsets_file.map().await?;
-        let predicate_dict_blocks_map = files.predicate_dictionary_files.blocks_file.map().await?;
+        let node_dict_blocks_map = files.node_dictionary_files.blocks_file.map().await?;
         let predicate_dict_offsets_map =
             files.predicate_dictionary_files.offsets_file.map().await?;
-        let value_dict_blocks_map = files.value_dictionary_files.blocks_file.map().await?;
+        let predicate_dict_blocks_map = files.predicate_dictionary_files.blocks_file.map().await?;
+        let value_dict_types_present_map = files
+            .value_dictionary_files
+            .types_present_file
+            .map()
+            .await?;
+        let value_dict_type_offsets_map =
+            files.value_dictionary_files.type_offsets_file.map().await?;
         let value_dict_offsets_map = files.value_dictionary_files.offsets_file.map().await?;
+        let value_dict_blocks_map = files.value_dictionary_files.blocks_file.map().await?;
 
-        let node_dict = PfcDict::parse(node_dict_blocks_map, node_dict_offsets_map)?;
-        let pred_dict = PfcDict::parse(predicate_dict_blocks_map, predicate_dict_offsets_map)?;
-        let val_dict = PfcDict::parse(value_dict_blocks_map, value_dict_offsets_map)?;
+        let node_dict = StringDict::parse(node_dict_offsets_map, node_dict_blocks_map, 0);
+        let pred_dict = StringDict::parse(predicate_dict_offsets_map, predicate_dict_blocks_map, 0);
+        let val_dict = TypedDict::from_parts(
+            value_dict_types_present_map,
+            value_dict_type_offsets_map,
+            value_dict_offsets_map,
+            value_dict_blocks_map,
+        );
 
         // TODO: it is a bit silly to parse the dictionaries just for this. surely we can get the counts in an easier way?
-        let num_nodes = node_dict.len();
-        let num_predicates = pred_dict.len();
-        let num_values = val_dict.len();
+        let num_nodes = node_dict.num_entries();
+        let num_predicates = pred_dict.num_entries();
+        let num_values = val_dict.num_entries();
 
         ChildLayerFileBuilderPhase2::new(parent, files, num_nodes, num_predicates, num_values).await
     }

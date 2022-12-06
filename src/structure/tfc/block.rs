@@ -38,6 +38,7 @@ impl From<vbyte::DecodeError> for SizedDictError {
 impl SizedBlockHeader {
     fn parse(buf: &mut Bytes) -> Result<Self, SizedDictError> {
         let cw = buf.get_u8();
+
         let (record_size, num_entries) = parse_block_control_word(cw);
         let mut sizes = [0_usize; BLOCK_SIZE - 1];
         let mut shareds = [0_usize; BLOCK_SIZE - 1];
@@ -537,7 +538,7 @@ impl<'a> Iterator for SizedBlockIterator<'a> {
             if self.ix >= self.header.num_entries as usize - 1 {
                 return None;
             }
-            let size = dbg!(self.header.sizes[self.ix]);
+            let size = self.header.sizes[self.ix];
             let mut shared = self.header.shareds[self.ix];
             for rope_index in 0..last.len() {
                 let x = &mut last[rope_index];
@@ -588,18 +589,18 @@ impl IdLookupResult {
         }
     }
 
-    pub fn map<F: Fn(u64)->u64>(self, f: F) -> Self {
+    pub fn map<F: Fn(u64) -> u64>(self, f: F) -> Self {
         match self {
             Self::Found(i) => Self::Found(f(i)),
             Self::Closest(i) => Self::Closest(f(i)),
-            Self::NotFound => Self::NotFound
+            Self::NotFound => Self::NotFound,
         }
     }
 
     pub fn into_option(self) -> Option<u64> {
         match self {
             Self::Found(i) => Some(i),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -629,7 +630,6 @@ fn record_size_encoding(record_size: Option<u8>) -> u8 {
         Some(4) => 3 << 3,
         Some(8) => 4 << 3,
         _ => {
-            dbg!(record_size);
             panic!("This is really bad!")
         }
     }
@@ -647,7 +647,7 @@ pub(crate) fn build_block_unchecked<B: BufMut>(
     let mut size = 0;
     let slices_len = slices.len();
     debug_assert!(slices_len <= BLOCK_SIZE && slices_len != 0);
-    let cw = dbg!(create_block_control_word(record_size, slices_len as u8));
+    let cw = create_block_control_word(record_size, slices_len as u8);
     buf.put_u8(cw as u8);
     size += 1;
 
@@ -674,8 +674,6 @@ pub(crate) fn build_block_unchecked<B: BufMut>(
             let (vbyte, vbyte_len) = encode_array(suffix_len as u64);
             buf.put_slice(&vbyte[..vbyte_len]);
             size += vbyte_len;
-        } else {
-            eprintln!("Fixed width: {record_size:?}");
         }
         suffixes.push(&cur[common_prefix..]);
         last = cur;

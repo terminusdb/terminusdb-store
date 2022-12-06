@@ -128,11 +128,12 @@ impl SizedDict {
     }
 
     pub fn from_parts(offsets: MonotonicLogArray, data: Bytes, dict_offset: u64) -> Self {
-        Self {
+        dbg!(&data);
+        dbg!(Self {
             offsets,
             data,
             dict_offset,
-        }
+        })
     }
 
     fn block_offset(&self, block_index: usize) -> usize {
@@ -147,9 +148,9 @@ impl SizedDict {
     }
 
     pub fn block_bytes(&self, block_index: usize) -> Bytes {
-        let offset = self.block_offset(block_index);
+        let offset = dbg!(self.block_offset(block_index));
         let block_bytes;
-        block_bytes = self.data.slice(offset..);
+        block_bytes = dbg!(self.data.slice(offset..));
 
         block_bytes
     }
@@ -166,8 +167,11 @@ impl SizedDict {
 
     pub fn block_num_elements(&self, block_index: usize) -> u8 {
         let offset = self.block_offset(block_index);
-
-        parse_block_control_records(self.data[offset])
+        if self.data.len() == 0 {
+            0
+        } else {
+            parse_block_control_records(self.data[offset])
+        }
     }
 
     pub fn num_blocks(&self) -> usize {
@@ -175,9 +179,8 @@ impl SizedDict {
     }
 
     pub fn entry(&self, index: usize) -> Option<SizedDictEntry> {
+        dbg!(index);
         if index > self.num_entries() {
-            dbg!(index);
-            dbg!(self.num_entries());
             return None;
         }
         let block = self.block(((index - 1) / 8) as usize);
@@ -189,11 +192,11 @@ impl SizedDict {
         let mut min = 0;
         let mut max = self.offsets.len();
         let mut mid: usize;
-
+        dbg!(&self);
         while min <= max {
             mid = (min + max) / 2;
-
-            let head_slice = self.block_head(mid);
+            dbg!(mid);
+            let head_slice = dbg!(self.block_head(mid));
 
             match slice.cmp(&head_slice[..]) {
                 Ordering::Less => {
@@ -202,20 +205,22 @@ impl SizedDict {
                         // but since this is the first block, the string doesn't exist.
                         return IdLookupResult::NotFound;
                     }
-                    max = mid - 1;
+                    max = dbg!(mid - 1);
                 }
-                Ordering::Greater => min = mid + 1,
-                Ordering::Equal => return IdLookupResult::Found((mid * BLOCK_SIZE + 1) as u64), // what luck! turns out the string we were looking for was the block head
+                Ordering::Greater => min = dbg!(mid + 1),
+                Ordering::Equal => {
+                    return IdLookupResult::Found(dbg!((mid * BLOCK_SIZE + 1)) as u64)
+                } // what luck! turns out the string we were looking for was the block head
             }
         }
 
         let found = max;
 
         // we found the block the string should be part of.
-        let block = self.block(found);
+        let block = dbg!(self.block(found));
         let block_id = block.id(slice);
         let offset = (found * BLOCK_SIZE) as u64 + 1;
-        let result = block_id.offset(offset).default(offset - 1);
+        let result = block_id.offset(offset).default(dbg!(offset - 1));
         /*
         if found != 0 {
             // the default value will fill in the last index of the

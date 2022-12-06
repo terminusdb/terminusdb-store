@@ -38,12 +38,13 @@ pub async fn merge_string_dictionaries<
     build_dict_unchecked(None, 0, &mut offsets, &mut data_buf, sorted_iterator);
     build_offset_logarray(&mut offsets_buf, offsets);
 
-    blocks_file_writer.write_all(data_buf.as_ref()).await?;
-    blocks_file_writer.flush().await?;
-    blocks_file_writer.sync_all().await?;
     offsets_file_writer.write_all(offsets_buf.as_ref()).await?;
     offsets_file_writer.flush().await?;
     offsets_file_writer.sync_all().await?;
+
+    blocks_file_writer.write_all(data_buf.as_ref()).await?;
+    blocks_file_writer.flush().await?;
+    blocks_file_writer.sync_all().await?;
 
     Ok(())
 }
@@ -97,13 +98,13 @@ pub async fn merge_typed_dictionaries<
     type_offsets_file_writer.flush().await?;
     type_offsets_file_writer.sync_all().await?;
 
-    blocks_file_writer.write_all(data_buf.as_ref()).await?;
-    blocks_file_writer.flush().await?;
-    blocks_file_writer.sync_all().await?;
-
     offsets_file_writer.write_all(offsets_buf.as_ref()).await?;
     offsets_file_writer.flush().await?;
     offsets_file_writer.sync_all().await?;
+
+    blocks_file_writer.write_all(data_buf.as_ref()).await?;
+    blocks_file_writer.flush().await?;
+    blocks_file_writer.sync_all().await?;
 
     Ok(())
 }

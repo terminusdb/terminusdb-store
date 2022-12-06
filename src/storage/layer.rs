@@ -10,13 +10,12 @@ use crate::layer::{
     OptInternalLayerTriplePredicateIterator, OptInternalLayerTripleSubjectIterator, RollupLayer,
     SimpleLayerBuilder,
 };
-use crate::structure::StringDict;
-use crate::structure::TypedDict;
 use crate::structure::bitarray::bitarray_len_from_file;
 use crate::structure::logarray::logarray_file_get_length_and_width;
+use crate::structure::StringDict;
+use crate::structure::TypedDict;
 use crate::structure::{
-    dict_file_get_count, util, AdjacencyList, BitIndex, LogArray, MonotonicLogArray,
-    WaveletTree,
+    dict_file_get_count, util, AdjacencyList, BitIndex, LogArray, MonotonicLogArray, WaveletTree,
 };
 
 use std::convert::TryInto;
@@ -367,8 +366,8 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
             FILENAMES.predicate_dictionary_offsets,
             FILENAMES.value_dictionary_types_present,
             FILENAMES.value_dictionary_type_offsets,
-            FILENAMES.value_dictionary_blocks,
             FILENAMES.value_dictionary_offsets,
+            FILENAMES.value_dictionary_blocks,
             FILENAMES.node_value_idmap_bits,
             FILENAMES.node_value_idmap_bit_index_blocks,
             FILENAMES.node_value_idmap_bit_index_sblocks,
@@ -412,8 +411,8 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
             value_dictionary_files: TypedDictionaryFiles {
                 types_present_file: files[4].clone(),
                 type_offsets_file: files[5].clone(),
-                blocks_file: files[6].clone(),
-                offsets_file: files[7].clone(),
+                offsets_file: files[6].clone(),
+                blocks_file: files[7].clone(),
             },
 
             id_map_files: IdMapFiles {
@@ -472,8 +471,8 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
             FILENAMES.predicate_dictionary_offsets,
             FILENAMES.value_dictionary_types_present,
             FILENAMES.value_dictionary_type_offsets,
-            FILENAMES.value_dictionary_blocks,
             FILENAMES.value_dictionary_offsets,
+            FILENAMES.value_dictionary_blocks,
             FILENAMES.node_value_idmap_bits,
             FILENAMES.node_value_idmap_bit_index_blocks,
             FILENAMES.node_value_idmap_bit_index_sblocks,
@@ -533,8 +532,8 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
             value_dictionary_files: TypedDictionaryFiles {
                 types_present_file: files[4].clone(),
                 type_offsets_file: files[5].clone(),
-                blocks_file: files[6].clone(),
-                offsets_file: files[7].clone(),
+                offsets_file: files[6].clone(),
+                blocks_file: files[7].clone(),
             },
 
             id_map_files: IdMapFiles {
@@ -707,11 +706,11 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
     ) -> io::Result<DictionaryFiles<Self::File>> {
         // does layer exist?
         if self.directory_exists(layer).await? {
-            let blocks_file = self
-                .get_file(layer, FILENAMES.node_dictionary_blocks)
-                .await?;
             let offsets_file = self
                 .get_file(layer, FILENAMES.node_dictionary_offsets)
+                .await?;
+            let blocks_file = self
+                .get_file(layer, FILENAMES.node_dictionary_blocks)
                 .await?;
 
             Ok(DictionaryFiles {
@@ -729,11 +728,11 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
     ) -> io::Result<DictionaryFiles<Self::File>> {
         // does layer exist?
         if self.directory_exists(layer).await? {
-            let blocks_file = self
-                .get_file(layer, FILENAMES.predicate_dictionary_blocks)
-                .await?;
             let offsets_file = self
                 .get_file(layer, FILENAMES.predicate_dictionary_offsets)
+                .await?;
+            let blocks_file = self
+                .get_file(layer, FILENAMES.predicate_dictionary_blocks)
                 .await?;
 
             Ok(DictionaryFiles {
@@ -757,11 +756,11 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
             let type_offsets_file = self
                 .get_file(layer, FILENAMES.value_dictionary_type_offsets)
                 .await?;
-            let blocks_file = self
-                .get_file(layer, FILENAMES.value_dictionary_blocks)
-                .await?;
             let offsets_file = self
                 .get_file(layer, FILENAMES.value_dictionary_offsets)
+                .await?;
+            let blocks_file = self
+                .get_file(layer, FILENAMES.value_dictionary_blocks)
                 .await?;
 
             Ok(TypedDictionaryFiles {
@@ -1569,7 +1568,11 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             let files = self.node_dictionary_files(name).await?;
             let maps = files.map_all().await?;
 
-            Ok(Some(StringDict::parse(maps.blocks_map, maps.offsets_map, 0)))
+            Ok(Some(StringDict::parse(
+                maps.offsets_map,
+                maps.blocks_map,
+                0,
+            )))
         } else {
             Ok(None)
         }
@@ -1580,7 +1583,11 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             let files = self.predicate_dictionary_files(name).await?;
             let maps = files.map_all().await?;
 
-            Ok(Some(StringDict::parse(maps.blocks_map, maps.offsets_map, 0)))
+            Ok(Some(StringDict::parse(
+                maps.offsets_map,
+                maps.blocks_map,
+                0,
+            )))
         } else {
             Ok(None)
         }
@@ -1591,7 +1598,12 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             let files = self.value_dictionary_files(name).await?;
             let maps = files.map_all().await?;
 
-            Ok(Some(TypedDict::from_parts(maps.types_present_map, maps.type_offsets_map, maps.blocks_map, maps.offsets_map)))
+            Ok(Some(TypedDict::from_parts(
+                maps.types_present_map,
+                maps.type_offsets_map,
+                maps.offsets_map,
+                maps.blocks_map,
+            )))
         } else {
             Ok(None)
         }

@@ -1,6 +1,6 @@
 use std::io;
 
-use bytes::{BytesMut, Bytes};
+use bytes::{Bytes, BytesMut};
 use futures::stream::TryStreamExt;
 use rayon::prelude::*;
 use tfc::dict::SizedDictBufBuilder;
@@ -25,12 +25,26 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
         predicate_files: DictionaryFiles<F>,
         value_files: TypedDictionaryFiles<F>,
     ) -> io::Result<Self> {
-        let node_dictionary_builder = SizedDictBufBuilder::new(None, 0, 0, LateLogArrayBufBuilder::new(BytesMut::new()), BytesMut::new());
-        let predicate_dictionary_builder = SizedDictBufBuilder::new(None, 0, 0, LateLogArrayBufBuilder::new(BytesMut::new()), BytesMut::new());
-        let value_dictionary_builder = TypedDictBufBuilder::new(BytesMut::new(),
-                                                                 BytesMut::new(),
-                                                                 BytesMut::new(),
-                                                                 BytesMut::new());
+        let node_dictionary_builder = SizedDictBufBuilder::new(
+            None,
+            0,
+            0,
+            LateLogArrayBufBuilder::new(BytesMut::new()),
+            BytesMut::new(),
+        );
+        let predicate_dictionary_builder = SizedDictBufBuilder::new(
+            None,
+            0,
+            0,
+            LateLogArrayBufBuilder::new(BytesMut::new()),
+            BytesMut::new(),
+        );
+        let value_dictionary_builder = TypedDictBufBuilder::new(
+            BytesMut::new(),
+            BytesMut::new(),
+            BytesMut::new(),
+            BytesMut::new(),
+        );
 
         Ok(Self {
             node_files,
@@ -46,7 +60,9 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
     ///
     /// Panics if the given node string is not a lexical successor of the previous node string.
     pub fn add_node(&mut self, node: &str) -> u64 {
-        let id = self.node_dictionary_builder.add(Bytes::copy_from_slice(node.as_bytes()));
+        let id = self
+            .node_dictionary_builder
+            .add(Bytes::copy_from_slice(node.as_bytes()));
 
         id
     }
@@ -55,7 +71,9 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
     ///
     /// Panics if the given predicate string is not a lexical successor of the previous node string.
     pub fn add_predicate(&mut self, predicate: &str) -> u64 {
-        let id = self.predicate_dictionary_builder.add(Bytes::copy_from_slice(predicate.as_bytes()));
+        let id = self
+            .predicate_dictionary_builder
+            .add(Bytes::copy_from_slice(predicate.as_bytes()));
 
         id
     }
@@ -64,8 +82,9 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
     ///
     /// Panics if the given value string is not a lexical successor of the previous value string.
     pub fn add_value(&mut self, value: &str) -> u64 {
-        let id = self.value_dictionary_builder.add(Datatype::String,
-                                                   Bytes::copy_from_slice(value.as_bytes()));
+        let id = self
+            .value_dictionary_builder
+            .add(Datatype::String, Bytes::copy_from_slice(value.as_bytes()));
 
         id
     }
@@ -128,16 +147,38 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
     }
 
     pub async fn finalize(self) -> io::Result<()> {
-        let (node_offsets_builder, mut node_data_buf, _, _) = self.node_dictionary_builder.finalize();
+        let (mut node_offsets_builder, mut node_data_buf, _, _) =
+            self.node_dictionary_builder.finalize();
+        // last offset is useless
+        node_offsets_builder.pop();
         let mut node_offsets_buf = node_offsets_builder.finalize();
-        let (predicate_offsets_builder, mut predicate_data_buf, _, _) = self.predicate_dictionary_builder.finalize();
+        let (mut predicate_offsets_builder, mut predicate_data_buf, _, _) =
+            self.predicate_dictionary_builder.finalize();
+        // last offset is useless
+        predicate_offsets_builder.pop();
         let mut predicate_offsets_buf = predicate_offsets_builder.finalize();
-        let (mut value_types_present_buf, mut value_type_offsets_buf, mut value_offsets_buf, mut value_data_buf) = self.value_dictionary_builder.finalize();
+        let (
+            mut value_types_present_buf,
+            mut value_type_offsets_buf,
+            mut value_offsets_buf,
+            mut value_data_buf,
+        ) = self.value_dictionary_builder.finalize();
 
-        self.node_files.write_all_from_bufs(&mut node_data_buf, &mut node_offsets_buf).await?;
-        self.predicate_files.write_all_from_bufs(&mut predicate_data_buf, &mut predicate_offsets_buf).await?;
+        self.node_files
+            .write_all_from_bufs(&mut node_data_buf, &mut node_offsets_buf)
+            .await?;
+        self.predicate_files
+            .write_all_from_bufs(&mut predicate_data_buf, &mut predicate_offsets_buf)
+            .await?;
 
-        self.value_files.write_all_from_bufs(&mut value_types_present_buf, &mut value_type_offsets_buf, &mut value_offsets_buf, &mut value_data_buf).await?;
+        self.value_files
+            .write_all_from_bufs(
+                &mut value_types_present_buf,
+                &mut value_type_offsets_buf,
+                &mut value_offsets_buf,
+                &mut value_data_buf,
+            )
+            .await?;
 
         Ok(())
     }

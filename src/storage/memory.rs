@@ -525,7 +525,6 @@ mod tests {
         builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
 
         builder.commit_boxed().await.unwrap();
-
         builder = store.create_child_layer(base_name).await.unwrap();
         let child_name = builder.name();
 
@@ -533,7 +532,6 @@ mod tests {
         builder.add_string_triple(StringTriple::new_node("cow", "likes", "pig"));
 
         builder.commit_boxed().await.unwrap();
-
         let layer = store.get_layer(child_name).await.unwrap().unwrap();
 
         assert!(layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));

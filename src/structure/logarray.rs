@@ -353,7 +353,7 @@ impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
 
     pub fn push(&mut self, val: u64) {
         // This is the minimum number of leading zeros that a decoded value should have.
-        let leading_zeros = 64 - self.width;
+        let leading_zeros = u64::BITS - self.width as u32;
 
         // If `val` does not fit in the `width`, return an error.
         if val.leading_zeros() < u32::from(leading_zeros) {
@@ -422,7 +422,7 @@ pub struct LateLogArrayBufBuilder<B: BufMut> {
     buf: B,
     /// NOTE: remove pub
     pub vals: Vec<u64>,
-    width: u8
+    width: u8,
 }
 
 impl<B: BufMut> LateLogArrayBufBuilder<B> {
@@ -430,7 +430,7 @@ impl<B: BufMut> LateLogArrayBufBuilder<B> {
         Self {
             buf,
             vals: Vec::new(),
-            width: 0
+            width: 0,
         }
     }
 
@@ -461,10 +461,12 @@ impl<B: BufMut> LateLogArrayBufBuilder<B> {
     }
 
     pub fn finalize(mut self) -> B {
+        /*if self.width == 0 {
+            self.width = 1
+        }*/
         let mut builder = LogArrayBufBuilder::new(&mut self.buf, self.width);
         builder.push_vec(self.vals);
         builder.finalize();
-
         self.buf
     }
 }
@@ -928,6 +930,16 @@ mod tests {
         let logarray = LogArray::parse(Bytes::from([0u8; 8].as_ref())).unwrap();
         assert!(logarray.is_empty());
         assert!(MonotonicLogArray::from_logarray(logarray).is_empty());
+    }
+
+    #[test]
+    pub fn late_logarray_just_zero() {
+        let buf = BytesMut::new();
+        let mut builder = LateLogArrayBufBuilder::new(buf);
+        builder.push(0);
+        let logarray_buf = builder.finalize().freeze();
+        let logarray = LogArray::parse(logarray_buf).unwrap();
+        assert_eq!(logarray.entry(0_usize), 0_u64);
     }
 
     #[tokio::test]
