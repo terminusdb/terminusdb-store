@@ -10,6 +10,17 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: actions-rs/clippy-check@v1
+        continue-on-error: true
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-features
+
   build-and-test:
     strategy:
       matrix:

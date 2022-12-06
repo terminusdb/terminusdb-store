@@ -540,6 +540,7 @@ impl StoreLayer {
 }
 
 impl PartialEq for StoreLayer {
+    #[allow(clippy::vtable_address_comparisons)]
     fn eq(&self, other: &StoreLayer) -> bool {
         Arc::ptr_eq(&self.layer, &other.layer)
     }
