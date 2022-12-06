@@ -635,7 +635,7 @@ impl Layer for InternalLayer {
                 parent_count = parent_count
                     - current_layer.node_dict_len() as u64
                     - current_layer.value_dict_len() as u64;
-                if corrected_id >= parent_count as u64 {
+                if corrected_id > parent_count as u64 {
                     // subject, if it exists, is in this layer
                     corrected_id -= parent_count;
                 } else {
@@ -666,7 +666,7 @@ impl Layer for InternalLayer {
             let mut corrected_id = id;
             if let Some(parent) = current_layer.immediate_parent() {
                 parent_count -= current_layer.predicate_dict_len() as u64;
-                if corrected_id >= parent_count as u64 {
+                if corrected_id > parent_count as u64 {
                     // subject, if it exists, is in this layer
                     corrected_id -= parent_count;
                 } else {
@@ -700,7 +700,7 @@ impl Layer for InternalLayer {
                     - current_layer.node_dict_len() as u64
                     - current_layer.value_dict_len() as u64;
 
-                if corrected_id >= parent_count {
+                if corrected_id > parent_count {
                     // object, if it exists, is in this layer
                     corrected_id -= parent_count;
                 } else {
