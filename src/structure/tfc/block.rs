@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use itertools::Either;
 
 use crate::structure::{
     util::{find_common_prefix, find_common_prefix_ord},
@@ -71,11 +72,26 @@ impl SizedBlockHeader {
 }
 
 #[derive(Clone, Debug)]
-pub struct SizedDictEntry(pub Vec<Bytes>);
+pub enum SizedDictEntry {
+    Single(Bytes),
+    Rope(Vec<Bytes>)
+}
+
+impl From<Bytes> for SizedDictEntry {
+    fn from(val: Bytes) -> Self {
+        Self::Single(val)
+    }
+}
+
+impl From<Vec<Bytes>> for SizedDictEntry {
+    fn from(val: Vec<Bytes>) -> Self {
+        Self::Rope(val)
+    }
+}
 
 impl SizedDictEntry {
     pub fn new(parts: Vec<Bytes>) -> Self {
-        Self(parts)
+        Self::Rope(parts)
     }
 
     pub fn new_optimized(parts: Vec<Bytes>) -> Self {
@@ -86,21 +102,41 @@ impl SizedDictEntry {
     }
 
     pub fn to_bytes(&self) -> Bytes {
-        if self.0.len() == 1 {
-            self.0[0].clone()
-        } else {
-            let mut buf = BytesMut::with_capacity(self.len());
-            for slice in self.0.iter() {
-                buf.extend_from_slice(&slice[..]);
-            }
+        match self {
+            Self::Single(b) => b.clone(),
+            Self::Rope(v) => {
+                if v.len() == 1 {
+                    v[0].clone()
+                } else {
+                    let mut buf = BytesMut::with_capacity(self.len());
+                    for slice in v.iter() {
+                        buf.extend_from_slice(&slice[..]);
+                    }
 
-            buf.freeze()
+                    buf.freeze()
+                }
+            }
         }
     }
+
+    pub fn chunks(&self) -> impl Iterator<Item=&Bytes> {
+        match self {
+            Self::Single(b) => Either::Left(std::iter::once(b)),
+            Self::Rope(v) => Either::Right(v.iter())
+        }
+    }
+
+    pub fn into_chunks(self) -> impl Iterator<Item=Bytes> {
+        match self {
+            Self::Single(b) => Either::Left(std::iter::once(b)),
+            Self::Rope(v) => Either::Right(v.into_iter())
+        }
+    }
+
     pub fn to_vec(&self) -> Vec<u8> {
         let mut v = Vec::with_capacity(self.len());
 
-        for slice in self.0.iter() {
+        for slice in self.chunks() {
             v.extend_from_slice(slice);
         }
 
@@ -124,7 +160,14 @@ impl SizedDictEntry {
     }
 
     pub fn len(&self) -> usize {
-        self.0.iter().map(|s| s.len()).sum()
+        self.chunks().map(|s| s.len()).sum()
+    }
+
+    fn rope_len(&self) -> usize {
+        match self {
+            Self::Single(_) => 1,
+            Self::Rope(v) => v.len()
+        }
     }
 
     /// optimize size
@@ -133,15 +176,15 @@ impl SizedDictEntry {
     /// efficient than a copy of the string.  This will copy the
     /// underlying string if that is the case.
     pub fn optimize(&mut self) {
-        let overhead_size = std::mem::size_of::<Bytes>() * self.0.len();
+        let overhead_size = std::mem::size_of::<Bytes>() * self.rope_len();
 
         if std::mem::size_of::<Bytes>() + self.len() < overhead_size {
             let mut bytes = BytesMut::with_capacity(self.len());
-            for part in self.0.iter() {
+            for part in self.chunks() {
                 bytes.extend(part);
             }
 
-            self.0 = vec![bytes.freeze()];
+            *self = Self::Single(bytes.freeze());
         }
     }
 
@@ -151,7 +194,7 @@ impl SizedDictEntry {
         } else if self.len() == 0 {
             true
         } else {
-            let mut it = self.0.iter();
+            let mut it = self.chunks();
             let mut part = it.next().unwrap();
             loop {
                 let slice = b.chunk();
@@ -197,7 +240,7 @@ impl Eq for SizedDictEntry {}
 
 impl Hash for SizedDictEntry {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        for part in self.0.iter() {
+        for part in self.chunks() {
             state.write(part);
         }
     }
@@ -210,8 +253,8 @@ impl Ord for SizedDictEntry {
             return Ordering::Equal;
         }
 
-        let mut it1 = self.0.iter();
-        let mut it2 = other.0.iter();
+        let mut it1 = self.chunks();
+        let mut it2 = other.chunks();
         let mut part1 = it1.next().unwrap().clone();
         let mut part2 = it2.next().unwrap().clone();
 
@@ -289,14 +332,22 @@ pub struct SizedDictEntryBuf<'a> {
     pos_in_slice: usize,
 }
 
+impl<'a> SizedDictEntryBuf<'a> {
+    fn current_slice(&self) -> &Bytes {
+        match self.entry.as_ref() {
+            SizedDictEntry::Single(b) => &b,
+            SizedDictEntry::Rope(v) => &v[self.slice_ix]
+        }
+    }
+}
+
 impl<'a> Buf for SizedDictEntryBuf<'a> {
     fn remaining(&self) -> usize {
         {
             let pos_in_slice = self.pos_in_slice;
             let total: usize = self
                 .entry
-                .0
-                .iter()
+                .chunks()
                 .skip(self.slice_ix)
                 .map(|s| s.len())
                 .sum();
@@ -307,10 +358,10 @@ impl<'a> Buf for SizedDictEntryBuf<'a> {
     fn chunk(&self) -> &[u8] {
         {
             let pos_in_slice = self.pos_in_slice;
-            if self.slice_ix >= self.entry.0.len() {
+            if self.slice_ix >= self.entry.rope_len() {
                 &[]
             } else {
-                let slice = &self.entry.0[self.slice_ix];
+                let slice = self.current_slice();
                 &slice[pos_in_slice..]
             }
         }
@@ -318,37 +369,36 @@ impl<'a> Buf for SizedDictEntryBuf<'a> {
 
     fn advance(&mut self, cnt: usize) {
         {
-            let pos_in_slice: &mut usize = &mut self.pos_in_slice;
             let mut cnt = cnt;
-            if self.slice_ix < self.entry.0.len() {
-                let slice = &self.entry.0[self.slice_ix];
-                let remaining_in_slice = slice.len() - *pos_in_slice;
+            if self.slice_ix < self.entry.rope_len() {
+                let slice = self.current_slice();
+                let remaining_in_slice = slice.len() - self.pos_in_slice;
 
                 if remaining_in_slice > cnt {
                     // we remain in the slice we're at.
-                    *pos_in_slice += cnt;
+                    self.pos_in_slice += cnt;
                 } else {
                     // we are starting at the next slice
                     cnt -= remaining_in_slice;
                     self.slice_ix += 1;
 
                     loop {
-                        if self.entry.0.len() >= self.slice_ix {
+                        if self.entry.rope_len() >= self.slice_ix {
                             // past the end
-                            *pos_in_slice = 0;
+                            self.pos_in_slice = 0;
                             break;
                         }
 
-                        let slice_len = self.entry.0[self.slice_ix].len();
+                        let slice_len = self.current_slice().len();
 
                         if cnt < slice_len {
                             // this is our slice
-                            *pos_in_slice = cnt;
+                            self.pos_in_slice = cnt;
                             break;
                         }
 
                         // not our slice, so advance to next
-                        cnt -= self.entry.0.len();
+                        cnt -= self.entry.rope_len();
                         self.slice_ix += 1;
                     }
                 }

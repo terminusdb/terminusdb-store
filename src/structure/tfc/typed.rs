@@ -713,7 +713,7 @@ mod tests {
 
         for i in 1..vec.len() + 1 {
             let (t, s) = dict.entry(i).unwrap();
-            assert_eq!(vec[i - 1], (t, s.0.into_iter().flatten().collect()));
+            assert_eq!(vec[i - 1], (t, s.into_chunks().flatten().collect()));
         }
 
         assert_eq!(
@@ -781,7 +781,7 @@ mod tests {
 
         for i in 1..vec.len() + 1 {
             let (t, s) = dict.entry(i).unwrap();
-            assert_eq!(vec[i - 1], (t, s.0.into_iter().flatten().collect()));
+            assert_eq!(vec[i - 1], (t, s.into_chunks().flatten().collect()));
         }
 
         assert_eq!("Batman".to_string(), dict.get::<String>(1).unwrap());
