@@ -79,7 +79,6 @@ pub trait Layer: Send + Sync {
 
     /// Returns true if the given triple exists, and false otherwise.
     fn string_triple_exists(&self, triple: &StringTriple) -> bool {
-        eprintln!("I am here");
         self.string_triple_to_id(triple)
             .map(|t| self.id_triple_exists(t))
             .unwrap_or(false)
