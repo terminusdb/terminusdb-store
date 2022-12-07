@@ -3,7 +3,7 @@ extern crate test;
 
 use tempfile::tempdir;
 use terminus_store;
-use terminus_store::layer::StringTriple;
+use terminus_store::layer::ValueTriple;
 use test::Bencher;
 
 #[bench]
@@ -14,7 +14,7 @@ fn bench_add_string_triple(b: &mut Bencher) {
     let mut count = 1;
     b.iter(|| {
         layer_builder
-            .add_string_triple(StringTriple::new_value(
+            .add_value_triple(ValueTriple::new_string_value(
                 &count.to_string(),
                 &count.to_string(),
                 &count.to_string(),

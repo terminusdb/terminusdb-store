@@ -7,8 +7,8 @@ use tokio;
 use tokio::io::{self, AsyncBufReadExt};
 
 enum Command {
-    Add(StringTriple),
-    Remove(StringTriple),
+    Add(ValueTriple),
+    Remove(ValueTriple),
 }
 
 async fn parse_command(s: &str) -> io::Result<Command> {
@@ -25,8 +25,8 @@ async fn parse_command(s: &str) -> io::Result<Command> {
         let object = &matches[5];
 
         let triple = match object_type_name {
-            "node" => StringTriple::new_node(subject, predicate, object),
-            "value" => StringTriple::new_value(subject, predicate, object),
+            "node" => ValueTriple::new_node(subject, predicate, object),
+            "value" => ValueTriple::new_string_value(subject, predicate, object),
             _ => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -84,8 +84,8 @@ async fn process_commands(store_path: &str, graph: &str) -> io::Result<()> {
         // Since no io is happening, adding triples to the builder is
         // not a future.
         match command {
-            Command::Add(triple) => builder.add_string_triple(triple)?,
-            Command::Remove(triple) => builder.remove_string_triple(triple)?,
+            Command::Add(triple) => builder.add_value_triple(triple)?,
+            Command::Remove(triple) => builder.remove_value_triple(triple)?,
         }
     }
 

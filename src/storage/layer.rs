@@ -2228,7 +2228,7 @@ pub(crate) async fn file_triple_layer_count<F: FileLoad + FileStore>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layer::{Layer, ObjectType, StringTriple};
+    use crate::layer::{Layer, ObjectType, ValueTriple};
     use crate::storage::directory::DirectoryLayerStore;
     use crate::storage::memory::MemoryLayerStore;
     use std::collections::HashMap;
@@ -2238,33 +2238,33 @@ mod tests {
     // They test functionality that should really work for both
 
     lazy_static! {
-        static ref BASE_TRIPLES: Vec<StringTriple> = vec![
-            StringTriple::new_value("cow", "says", "moo"),
-            StringTriple::new_value("cow", "says", "mooo"),
-            StringTriple::new_node("cow", "likes", "duck"),
-            StringTriple::new_node("cow", "likes", "pig"),
-            StringTriple::new_value("cow", "name", "clarabelle"),
-            StringTriple::new_value("pig", "says", "oink"),
-            StringTriple::new_node("pig", "hates", "cow"),
-            StringTriple::new_value("duck", "says", "quack"),
-            StringTriple::new_node("duck", "hates", "cow"),
-            StringTriple::new_node("duck", "hates", "pig"),
-            StringTriple::new_value("duck", "name", "donald"),
+        static ref BASE_TRIPLES: Vec<ValueTriple> = vec![
+            ValueTriple::new_string_value("cow", "says", "moo"),
+            ValueTriple::new_string_value("cow", "says", "mooo"),
+            ValueTriple::new_node("cow", "likes", "duck"),
+            ValueTriple::new_node("cow", "likes", "pig"),
+            ValueTriple::new_string_value("cow", "name", "clarabelle"),
+            ValueTriple::new_string_value("pig", "says", "oink"),
+            ValueTriple::new_node("pig", "hates", "cow"),
+            ValueTriple::new_string_value("duck", "says", "quack"),
+            ValueTriple::new_node("duck", "hates", "cow"),
+            ValueTriple::new_node("duck", "hates", "pig"),
+            ValueTriple::new_string_value("duck", "name", "donald"),
         ];
-        static ref CHILD_ADDITION_TRIPLES: Vec<StringTriple> = vec![
-            StringTriple::new_value("cow", "says", "moooo"),
-            StringTriple::new_value("cow", "says", "mooooo"),
-            StringTriple::new_node("cow", "likes", "horse"),
-            StringTriple::new_node("pig", "likes", "platypus"),
-            StringTriple::new_node("duck", "hates", "platypus"),
+        static ref CHILD_ADDITION_TRIPLES: Vec<ValueTriple> = vec![
+            ValueTriple::new_string_value("cow", "says", "moooo"),
+            ValueTriple::new_string_value("cow", "says", "mooooo"),
+            ValueTriple::new_node("cow", "likes", "horse"),
+            ValueTriple::new_node("pig", "likes", "platypus"),
+            ValueTriple::new_node("duck", "hates", "platypus"),
         ];
-        static ref CHILD_REMOVAL_TRIPLES: Vec<StringTriple> = vec![
-            StringTriple::new_value("cow", "says", "mooo"),
-            StringTriple::new_value("cow", "name", "clarabelle"),
-            StringTriple::new_node("pig", "hates", "cow"),
-            StringTriple::new_node("duck", "hates", "cow"),
-            StringTriple::new_node("duck", "hates", "pig"),
-            StringTriple::new_value("duck", "name", "donald"),
+        static ref CHILD_REMOVAL_TRIPLES: Vec<ValueTriple> = vec![
+            ValueTriple::new_string_value("cow", "says", "mooo"),
+            ValueTriple::new_string_value("cow", "name", "clarabelle"),
+            ValueTriple::new_node("pig", "hates", "cow"),
+            ValueTriple::new_node("duck", "hates", "cow"),
+            ValueTriple::new_node("duck", "hates", "pig"),
+            ValueTriple::new_string_value("duck", "name", "donald"),
         ];
     }
 
@@ -2274,19 +2274,19 @@ mod tests {
     ) -> io::Result<(
         [u32; 5],
         Option<Arc<InternalLayer>>,
-        HashMap<StringTriple, IdTriple>,
+        HashMap<ValueTriple, IdTriple>,
     )> {
         let mut builder = store.create_base_layer().await?;
         let name = builder.name();
         for t in BASE_TRIPLES.iter() {
-            builder.add_string_triple(t.clone());
+            builder.add_value_triple(t.clone());
         }
         builder.commit_boxed().await?;
         let layer = store.get_layer(name).await?.unwrap();
 
         let mut contents = HashMap::with_capacity(BASE_TRIPLES.len());
         for t in BASE_TRIPLES.iter() {
-            let t_id = layer.string_triple_to_id(t).unwrap();
+            let t_id = layer.value_triple_to_id(t).unwrap();
             contents.insert(t.clone(), t_id);
         }
 
@@ -2304,30 +2304,30 @@ mod tests {
     ) -> io::Result<(
         [u32; 5],
         Option<Arc<InternalLayer>>,
-        HashMap<StringTriple, IdTriple>,
-        HashMap<StringTriple, IdTriple>,
+        HashMap<ValueTriple, IdTriple>,
+        HashMap<ValueTriple, IdTriple>,
     )> {
         let (base_name, _base_layer, _) = example_base_layer(store, false).await?;
         let mut builder = store.create_child_layer(base_name).await?;
         let name = builder.name();
         for t in CHILD_ADDITION_TRIPLES.iter() {
-            builder.add_string_triple(t.clone());
+            builder.add_value_triple(t.clone());
         }
         for t in CHILD_REMOVAL_TRIPLES.iter() {
-            builder.remove_string_triple(t.clone());
+            builder.remove_value_triple(t.clone());
         }
         builder.commit_boxed().await?;
         let layer = store.get_layer(name).await?.unwrap();
 
         let mut add_contents = HashMap::with_capacity(BASE_TRIPLES.len());
         for t in CHILD_ADDITION_TRIPLES.iter() {
-            let t_id = layer.string_triple_to_id(t).unwrap();
+            let t_id = layer.value_triple_to_id(t).unwrap();
             add_contents.insert(t.clone(), t_id);
         }
 
         let mut remove_contents = HashMap::with_capacity(BASE_TRIPLES.len());
         for t in CHILD_REMOVAL_TRIPLES.iter() {
-            let t_id = layer.string_triple_to_id(t).unwrap();
+            let t_id = layer.value_triple_to_id(t).unwrap();
             remove_contents.insert(t.clone(), t_id);
         }
 

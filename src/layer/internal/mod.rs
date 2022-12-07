@@ -241,16 +241,16 @@ impl InternalLayer {
         self.node_dictionary().num_entries()
     }
 
-    pub fn value_dict_id(&self, value: &str) -> IdLookupResult {
-        self.value_dictionary().id(&value)
+    pub fn value_dict_id(&self, value: &TypedDictEntry) -> IdLookupResult {
+        self.value_dictionary().id_entry(value)
     }
 
     pub fn value_dict_len(&self) -> usize {
         self.value_dictionary().num_entries()
     }
 
-    pub fn value_dict_get(&self, id: usize) -> Option<String> {
-        self.value_dictionary().get(id)
+    pub fn value_dict_get(&self, id: usize) -> Option<TypedDictEntry> {
+        self.value_dictionary().entry(id)
     }
 
     pub fn internal_triple_addition_exists(
@@ -604,7 +604,7 @@ impl Layer for InternalLayer {
         id_option.map(|id| id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
     }
 
-    fn object_value_id<'a>(&'a self, object: &str) -> Option<u64> {
+    fn object_value_id<'a>(&'a self, object: &TypedDictEntry) -> Option<u64> {
         let to_result = |layer: &'a InternalLayer| {
             (
                 layer.value_dict_id(object).into_option().map(|i| {
@@ -1057,13 +1057,13 @@ mod tests {
         let builder = store.create_base_layer().unwrap();
 
         builder
-            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
+            .add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
             .unwrap();
         builder
-            .add_string_triple(StringTriple::new_node("cow", "likes", "duck"))
+            .add_value_triple(ValueTriple::new_node("cow", "likes", "duck"))
             .unwrap();
         builder
-            .add_string_triple(StringTriple::new_value("duck", "says", "quack"))
+            .add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"))
             .unwrap();
 
         builder.commit().unwrap()
@@ -1085,10 +1085,10 @@ mod tests {
         let builder = base_layer.open_write().unwrap();
 
         builder
-            .remove_string_triple(StringTriple::new_value("cow", "says", "moo"))
+            .remove_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
             .unwrap();
         builder
-            .add_string_triple(StringTriple::new_value("horse", "says", "neigh"))
+            .add_value_triple(ValueTriple::new_string_value("horse", "says", "neigh"))
             .unwrap();
 
         let layer = builder.commit().unwrap();
@@ -1109,7 +1109,7 @@ mod tests {
         let mut builder = BaseLayerFileBuilder::from_files(&files).await.unwrap();
         builder.add_nodes(nodes.into_iter().map(|s| s.to_string()));
         builder.add_predicates(predicates.into_iter().map(|s| s.to_string()));
-        builder.add_values(values.into_iter().map(|s| s.to_string()));
+        builder.add_values(values.into_iter().map(|s| String::make_entry(&s)));
         let mut builder = builder.into_phase2().await.unwrap();
         builder.add_triple(3, 3, 3).await.unwrap();
         builder.finalize().await.unwrap();

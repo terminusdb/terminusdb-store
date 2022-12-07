@@ -6,10 +6,11 @@ pub mod sync;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
-use crate::layer::{IdTriple, Layer, LayerBuilder, LayerCounts, ObjectType, StringTriple};
+use crate::layer::{IdTriple, Layer, LayerBuilder, LayerCounts, ObjectType, ValueTriple};
 use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore};
 use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
 use crate::storage::{CachedLayerStore, LabelStore, LayerStore, LockingHashMapLayerCache};
+use crate::structure::TypedDictEntry;
 
 use std::io;
 
@@ -90,8 +91,8 @@ impl StoreLayerBuilder {
     }
 
     /// Add a string triple.
-    pub fn add_string_triple(&self, triple: StringTriple) -> Result<(), io::Error> {
-        self.with_builder(move |b| b.add_string_triple(triple))
+    pub fn add_value_triple(&self, triple: ValueTriple) -> Result<(), io::Error> {
+        self.with_builder(move |b| b.add_value_triple(triple))
     }
 
     /// Add an id triple.
@@ -100,8 +101,8 @@ impl StoreLayerBuilder {
     }
 
     /// Remove a string triple.
-    pub fn remove_string_triple(&self, triple: StringTriple) -> Result<(), io::Error> {
-        self.with_builder(move |b| b.remove_string_triple(triple))
+    pub fn remove_value_triple(&self, triple: ValueTriple) -> Result<(), io::Error> {
+        self.with_builder(move |b| b.remove_value_triple(triple))
     }
 
     /// Remove an id triple.
@@ -165,14 +166,14 @@ impl StoreLayerBuilder {
                 triple_additions.par_bridge().for_each(|t| {
                     delta
                         .id_triple_to_string(&t)
-                        .map(|st| self.add_string_triple(st));
+                        .map(|st| self.add_value_triple(st));
                 });
             },
             move || {
                 triple_removals.par_bridge().for_each(|t| {
                     delta
                         .id_triple_to_string(&t)
-                        .map(|st| self.remove_string_triple(st));
+                        .map(|st| self.remove_value_triple(st));
                 })
             },
         );
@@ -189,8 +190,8 @@ impl StoreLayerBuilder {
                 if let Some(this) = self.parent() {
                     this.triples().par_bridge().for_each(|t| {
                         if let Some(st) = this.id_triple_to_string(&t) {
-                            if !other.string_triple_exists(&st) {
-                                self.remove_string_triple(st).unwrap()
+                            if !other.value_triple_exists(&st) {
+                                self.remove_value_triple(st).unwrap()
                             }
                         }
                     })
@@ -200,11 +201,11 @@ impl StoreLayerBuilder {
                 other.triples().par_bridge().for_each(|t| {
                     if let Some(st) = other.id_triple_to_string(&t) {
                         if let Some(this) = self.parent() {
-                            if !this.string_triple_exists(&st) {
-                                self.add_string_triple(st).unwrap()
+                            if !this.value_triple_exists(&st) {
+                                self.add_value_triple(st).unwrap()
                             }
                         } else {
-                            self.add_string_triple(st).unwrap()
+                            self.add_value_triple(st).unwrap()
                         };
                     }
                 })
@@ -278,7 +279,7 @@ impl StoreLayer {
         let new_builder = self.store.create_base_layer().await?;
         self.triples().par_bridge().for_each(|t| {
             let st = self.id_triple_to_string(&t).unwrap();
-            new_builder.add_string_triple(st).unwrap()
+            new_builder.add_value_triple(st).unwrap()
         });
 
         new_builder.commit().await
@@ -577,7 +578,7 @@ impl Layer for StoreLayer {
         self.layer.object_node_id(object)
     }
 
-    fn object_value_id(&self, object: &str) -> Option<u64> {
+    fn object_value_id(&self, object: &TypedDictEntry) -> Option<u64> {
         self.layer.object_value_id(object)
     }
 
@@ -892,7 +893,7 @@ mod tests {
 
         let mut builder = store.create_base_layer().await.unwrap();
         builder
-            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
+            .add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
             .unwrap();
 
         let layer = builder.commit().await.unwrap();
@@ -900,7 +901,7 @@ mod tests {
 
         builder = layer.open_write().await.unwrap();
         builder
-            .add_string_triple(StringTriple::new_value("pig", "says", "oink"))
+            .add_value_triple(ValueTriple::new_string_value("pig", "says", "oink"))
             .unwrap();
 
         let layer2 = builder.commit().await.unwrap();
@@ -910,8 +911,8 @@ mod tests {
         let layer = database.head().await.unwrap().unwrap();
 
         assert_eq!(layer2_name, layer.name());
-        assert!(layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
-        assert!(layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
+        assert!(layer.value_triple_exists(&ValueTriple::new_string_value("cow", "says", "moo")));
+        assert!(layer.value_triple_exists(&ValueTriple::new_string_value("pig", "says", "oink")));
     }
 
     #[tokio::test]
@@ -934,7 +935,7 @@ mod tests {
         let store = open_memory_store();
         let builder = store.create_base_layer().await.unwrap();
         builder
-            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
+            .add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
             .unwrap();
 
         let layer = builder.commit().await.unwrap();
@@ -943,7 +944,7 @@ mod tests {
 
         let layer2 = store.get_layer_from_id(id).await.unwrap().unwrap();
 
-        assert!(layer2.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+        assert!(layer2.value_triple_exists(&ValueTriple::new_string_value("cow", "says", "moo")));
     }
 
     #[tokio::test]
@@ -952,7 +953,7 @@ mod tests {
         let builder = store.create_base_layer().await.unwrap();
 
         builder
-            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
+            .add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
             .unwrap();
 
         assert!(!builder.committed());
@@ -969,7 +970,7 @@ mod tests {
 
         let builder1 = store.create_base_layer().await.unwrap();
         builder1
-            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
+            .add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
             .unwrap();
 
         let layer1 = builder1.commit().await.unwrap();
@@ -978,7 +979,7 @@ mod tests {
 
         let builder2 = store.create_base_layer().await.unwrap();
         builder2
-            .add_string_triple(StringTriple::new_value("duck", "says", "quack"))
+            .add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"))
             .unwrap();
 
         let layer2 = builder2.commit().await.unwrap();
@@ -987,8 +988,12 @@ mod tests {
 
         let new_layer = database.head().await.unwrap().unwrap();
 
-        assert!(new_layer.string_triple_exists(&StringTriple::new_value("duck", "says", "quack")));
-        assert!(!new_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+        assert!(
+            new_layer.value_triple_exists(&ValueTriple::new_string_value("duck", "says", "quack"))
+        );
+        assert!(
+            !new_layer.value_triple_exists(&ValueTriple::new_string_value("cow", "says", "moo"))
+        );
     }
 
     #[tokio::test]
@@ -996,7 +1001,7 @@ mod tests {
         let store = open_memory_store();
         let builder = store.create_base_layer().await.unwrap();
         builder
-            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
+            .add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
             .unwrap();
 
         let layer = builder.commit().await.unwrap();
@@ -1004,15 +1009,15 @@ mod tests {
         let builder2 = layer.open_write().await.unwrap();
 
         builder2
-            .add_string_triple(StringTriple::new_value("dog", "says", "woof"))
+            .add_value_triple(ValueTriple::new_string_value("dog", "says", "woof"))
             .unwrap();
 
         let layer2 = builder2.commit().await.unwrap();
 
         let new = layer2.squash().await.unwrap();
 
-        assert!(new.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
-        assert!(new.string_triple_exists(&StringTriple::new_value("dog", "says", "woof")));
+        assert!(new.value_triple_exists(&ValueTriple::new_string_value("cow", "says", "moo")));
+        assert!(new.value_triple_exists(&ValueTriple::new_string_value("dog", "says", "woof")));
         assert!(new.parent().await.unwrap().is_none());
     }
 
@@ -1022,7 +1027,7 @@ mod tests {
         let builder = store.create_base_layer().await.unwrap();
 
         builder
-            .add_string_triple(StringTriple::new_value("cow", "says", "moo"))
+            .add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
             .unwrap();
 
         let layer = builder.commit().await.unwrap();
@@ -1030,7 +1035,7 @@ mod tests {
         let builder2 = layer.open_write().await.unwrap();
 
         builder2
-            .add_string_triple(StringTriple::new_value("dog", "says", "woof"))
+            .add_value_triple(ValueTriple::new_string_value("dog", "says", "woof"))
             .unwrap();
 
         let layer2 = builder2.commit().await.unwrap();
@@ -1038,10 +1043,10 @@ mod tests {
         let delta_builder_1 = store.create_base_layer().await.unwrap();
 
         delta_builder_1
-            .add_string_triple(StringTriple::new_value("dog", "says", "woof"))
+            .add_value_triple(ValueTriple::new_string_value("dog", "says", "woof"))
             .unwrap();
         delta_builder_1
-            .add_string_triple(StringTriple::new_value("cat", "says", "meow"))
+            .add_value_triple(ValueTriple::new_string_value("cat", "says", "meow"))
             .unwrap();
 
         let delta_1 = delta_builder_1.commit().await.unwrap();
@@ -1049,10 +1054,10 @@ mod tests {
         let delta_builder_2 = delta_1.open_write().await.unwrap();
 
         delta_builder_2
-            .add_string_triple(StringTriple::new_value("crow", "says", "caw"))
+            .add_value_triple(ValueTriple::new_string_value("crow", "says", "caw"))
             .unwrap();
         delta_builder_2
-            .remove_string_triple(StringTriple::new_value("cat", "says", "meow"))
+            .remove_value_triple(ValueTriple::new_string_value("cat", "says", "meow"))
             .unwrap();
 
         let delta = delta_builder_2.commit().await.unwrap();
@@ -1063,10 +1068,17 @@ mod tests {
 
         let rebase_layer = rebase_builder.commit().await.unwrap();
 
-        assert!(rebase_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
-        assert!(rebase_layer.string_triple_exists(&StringTriple::new_value("crow", "says", "caw")));
-        assert!(rebase_layer.string_triple_exists(&StringTriple::new_value("dog", "says", "woof")));
-        assert!(!rebase_layer.string_triple_exists(&StringTriple::new_value("cat", "says", "meow")));
+        assert!(
+            rebase_layer.value_triple_exists(&ValueTriple::new_string_value("cow", "says", "moo"))
+        );
+        assert!(
+            rebase_layer.value_triple_exists(&ValueTriple::new_string_value("crow", "says", "caw"))
+        );
+        assert!(
+            rebase_layer.value_triple_exists(&ValueTriple::new_string_value("dog", "says", "woof"))
+        );
+        assert!(!rebase_layer
+            .value_triple_exists(&ValueTriple::new_string_value("cat", "says", "meow")));
     }
 
     async fn cached_layer_name_does_not_change_after_rollup(store: Store) {

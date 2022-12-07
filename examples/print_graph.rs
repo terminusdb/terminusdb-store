@@ -1,6 +1,7 @@
 use std::env;
 
 use std::io;
+use terminus_store::structure::TdbDataType;
 use terminus_store::*;
 use tokio;
 
@@ -21,7 +22,7 @@ async fn print_graph(store_path: &str, graph: &str) -> io::Result<()> {
                     .expect("expected id triple to be mapable to string");
 
                 println!(
-                    "{}, {}, {} {}",
+                    "{}, {}, {} {:?}",
                     triple.subject,
                     triple.predicate,
                     match triple.object {
@@ -29,7 +30,7 @@ async fn print_graph(store_path: &str, graph: &str) -> io::Result<()> {
                         ObjectType::Value(_) => "value",
                     },
                     match triple.object {
-                        ObjectType::Node(n) => n,
+                        ObjectType::Node(n) => String::make_entry(&n),
                         ObjectType::Value(v) => v,
                     }
                 );

@@ -557,17 +557,17 @@ pub mod tests {
         let mut builder = store.create_base_layer().await.unwrap();
         let base_name = builder.name();
 
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
-        builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
-        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("pig", "says", "oink"));
+        builder.add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
 
         builder.commit_boxed().await.unwrap();
 
         builder = store.create_child_layer(base_name).await.unwrap();
         let child_name = builder.name();
 
-        builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
-        builder.add_string_triple(StringTriple::new_node("cow", "likes", "pig"));
+        builder.remove_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_node("cow", "likes", "pig"));
 
         builder.commit_boxed().await.unwrap();
 
@@ -591,17 +591,17 @@ pub mod tests {
         let mut builder = store.create_base_layer().await.unwrap();
         let base_name = builder.name();
 
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
-        builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
-        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("pig", "says", "oink"));
+        builder.add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
 
         builder.commit_boxed().await.unwrap();
 
         builder = store.create_child_layer(base_name).await.unwrap();
         let child_name = builder.name();
 
-        builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
-        builder.add_string_triple(StringTriple::new_node("cow", "likes", "pig"));
+        builder.remove_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_node("cow", "likes", "pig"));
 
         builder.commit_boxed().await.unwrap();
 
@@ -621,9 +621,9 @@ pub mod tests {
         let mut builder = store.create_base_layer().await.unwrap();
         let base_name = builder.name();
 
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
-        builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
-        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("pig", "says", "oink"));
+        builder.add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
 
         builder.commit_boxed().await.unwrap();
 

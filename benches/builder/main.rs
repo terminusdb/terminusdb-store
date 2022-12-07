@@ -38,7 +38,7 @@ fn build_base_layer_1000(b: &mut Bencher) {
         let builder = store.create_base_layer().unwrap();
 
         for triple in triples.iter() {
-            builder.add_string_triple(triple.clone()).unwrap();
+            builder.add_value_triple(triple.clone()).unwrap();
         }
 
         let _base_layer = builder.commit().unwrap();
@@ -78,7 +78,7 @@ fn build_nonempty_child_layer_on_empty_base_layer(b: &mut Bencher) {
         let builder = base_layer.open_write().unwrap();
 
         for triple in triples.iter() {
-            builder.add_string_triple(triple.clone()).unwrap();
+            builder.add_value_triple(triple.clone()).unwrap();
         }
 
         builder.commit().unwrap();
@@ -97,7 +97,7 @@ fn build_nonempty_child_layer_on_nonempty_base_layer(b: &mut Bencher) {
     let builder = store.create_base_layer().unwrap();
 
     for _ in 0..1000 {
-        builder.add_string_triple(data.random_triple()).unwrap();
+        builder.add_value_triple(data.random_triple()).unwrap();
     }
     let base_layer = builder.commit().unwrap();
 
@@ -110,7 +110,7 @@ fn build_nonempty_child_layer_on_nonempty_base_layer(b: &mut Bencher) {
         let builder = base_layer.open_write().unwrap();
 
         for triple in triples.iter() {
-            builder.add_string_triple(triple.clone()).unwrap();
+            builder.add_value_triple(triple.clone()).unwrap();
         }
 
         builder.commit().unwrap();

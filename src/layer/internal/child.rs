@@ -258,8 +258,8 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// Does nothing if the value already exists in the paretn, and
     /// panics if the given value string is not a lexical successor of
     /// the previous value string.
-    pub fn add_value(&mut self, value: &str) -> u64 {
-        match self.parent.object_value_id(value) {
+    pub fn add_value(&mut self, value: TypedDictEntry) -> u64 {
+        match self.parent.object_value_id(&value) {
             None => self.builder.add_value(value),
             Some(id) => id,
         }
@@ -317,7 +317,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// added values are a lexical succesor of any of these
     /// values. Skips any nodes that are already part of the base
     /// layer.
-    pub fn add_values<I: 'static + IntoIterator<Item = String> + Send>(
+    pub fn add_values<I: 'static + IntoIterator<Item = TypedDictEntry> + Send>(
         &mut self,
         values: I,
     ) -> Vec<u64>
@@ -327,7 +327,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         // TODO bulk check predicate existence
         let mut result = Vec::new();
         for value in values {
-            let id = self.add_value(&value);
+            let id = self.add_value(value);
             result.push(id);
         }
 
@@ -958,7 +958,7 @@ pub mod tests {
             .unwrap();
         b.add_node("foo");
         b.add_predicate("bar");
-        b.add_value("baz");
+        b.add_value(String::make_entry(&"baz"));
 
         let b = b.into_phase2().await.unwrap();
         b.finalize().await.unwrap();
@@ -970,7 +970,12 @@ pub mod tests {
         assert_eq!(3, child_layer.subject_id("bbbbb").unwrap());
         assert_eq!(2, child_layer.predicate_id("fghij").unwrap());
         assert_eq!(1, child_layer.object_node_id("aaaaa").unwrap());
-        assert_eq!(6, child_layer.object_value_id("chicken").unwrap());
+        assert_eq!(
+            6,
+            child_layer
+                .object_value_id(&String::make_entry(&"chicken"))
+                .unwrap()
+        );
 
         assert_eq!("bbbbb", child_layer.id_subject(3).unwrap());
         assert_eq!("fghij", child_layer.id_predicate(2).unwrap());
@@ -979,7 +984,7 @@ pub mod tests {
             child_layer.id_object(1).unwrap()
         );
         assert_eq!(
-            ObjectType::Value("chicken".to_string()),
+            ObjectType::Value(String::make_entry(&"chicken")),
             child_layer.id_object(6).unwrap()
         );
     }
@@ -996,7 +1001,7 @@ pub mod tests {
             .unwrap();
         b.add_node("foo");
         b.add_predicate("bar");
-        b.add_value("baz");
+        b.add_value(String::make_entry(&"baz"));
         let b = b.into_phase2().await.unwrap();
 
         b.finalize().await.unwrap();
@@ -1008,7 +1013,12 @@ pub mod tests {
         assert_eq!(11, child_layer.subject_id("foo").unwrap());
         assert_eq!(5, child_layer.predicate_id("bar").unwrap());
         assert_eq!(11, child_layer.object_node_id("foo").unwrap());
-        assert_eq!(12, child_layer.object_value_id("baz").unwrap());
+        assert_eq!(
+            12,
+            child_layer
+                .object_value_id(&String::make_entry(&"baz"))
+                .unwrap()
+        );
 
         assert_eq!("foo", child_layer.id_subject(11).unwrap());
         assert_eq!("bar", child_layer.id_predicate(5).unwrap());
@@ -1017,7 +1027,7 @@ pub mod tests {
             child_layer.id_object(11).unwrap()
         );
         assert_eq!(
-            ObjectType::Value("baz".to_string()),
+            ObjectType::Value(String::make_entry(&"baz")),
             child_layer.id_object(12).unwrap()
         );
     }

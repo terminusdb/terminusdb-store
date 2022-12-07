@@ -1,7 +1,7 @@
 use rand::distributions::Alphanumeric;
 use rand::prelude::*;
 use std::iter;
-use terminus_store::layer::StringTriple;
+use terminus_store::layer::ValueTriple;
 
 fn random_string<R: Rng>(rand: &mut R, len_min: usize, len_max: usize) -> String {
     let len: usize = rand.gen_range(len_min..len_max);
@@ -50,19 +50,19 @@ impl<R: Rng> TestData<R> {
         }
     }
 
-    pub fn random_triple(&mut self) -> StringTriple {
+    pub fn random_triple(&mut self) -> ValueTriple {
         let subject_ix = self.rand.gen_range(0..self.nodes.len());
         let predicate_ix = self.rand.gen_range(0..self.predicates.len());
         if self.rand.gen() {
             let object_ix = self.rand.gen_range(0..self.nodes.len());
-            StringTriple::new_node(
+            ValueTriple::new_node(
                 &self.nodes[subject_ix],
                 &self.predicates[predicate_ix],
                 &self.nodes[object_ix],
             )
         } else {
             let object_ix = self.rand.gen_range(0..self.values.len());
-            StringTriple::new_value(
+            ValueTriple::new_string_value(
                 &self.nodes[subject_ix],
                 &self.predicates[predicate_ix],
                 &self.values[object_ix],

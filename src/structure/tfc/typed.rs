@@ -110,6 +110,10 @@ impl TypedDict {
     pub fn id<T: TdbDataType, Q: ToLexical<T>>(&self, v: &Q) -> IdLookupResult {
         let entry = T::make_entry(v);
 
+        self.id_entry(&entry)
+    }
+
+    pub fn id_entry(&self, entry: &TypedDictEntry) -> IdLookupResult {
         self.id_slice(entry.datatype, &entry.to_bytes())
     }
 
@@ -174,6 +178,7 @@ impl TypedDict {
         }
     }
 
+    // TOOD: would be nice if this worked on a buf instead of a slice
     pub fn id_slice(&self, dt: Datatype, slice: &[u8]) -> IdLookupResult {
         if let Some((dict, offset)) = self.type_segment(dt) {
             let result = dict.id(slice).offset(offset);

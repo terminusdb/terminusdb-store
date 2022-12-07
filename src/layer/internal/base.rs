@@ -189,7 +189,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     /// Add a value string.
     ///
     /// Panics if the given value string is not a lexical successor of the previous value string.
-    pub fn add_value(&mut self, value: &str) -> u64 {
+    pub fn add_value(&mut self, value: TypedDictEntry) -> u64 {
         let id = self.builder.add_value(value);
 
         id
@@ -230,7 +230,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     /// Add values from an iterable.
     ///
     /// Panics if the values are not in lexical order, or if previous added values are a lexical succesor of any of these values.
-    pub fn add_values<I: 'static + IntoIterator<Item = String> + Send>(
+    pub fn add_values<I: 'static + IntoIterator<Item = TypedDictEntry> + Send>(
         &mut self,
         values: I,
     ) -> Vec<u64>
@@ -466,7 +466,7 @@ pub mod tests {
 
         builder.add_nodes(nodes.into_iter().map(|s| s.to_string()));
         builder.add_predicates(predicates.into_iter().map(|s| s.to_string()));
-        builder.add_values(values.into_iter().map(|s| s.to_string()));
+        builder.add_values(values.into_iter().map(|s| String::make_entry(&s)));
 
         let mut builder = builder.into_phase2().await?;
 
@@ -513,7 +513,12 @@ pub mod tests {
         assert_eq!(3, base_layer.subject_id("bbbbb").unwrap());
         assert_eq!(2, base_layer.predicate_id("fghij").unwrap());
         assert_eq!(1, base_layer.object_node_id("aaaaa").unwrap());
-        assert_eq!(6, base_layer.object_value_id("chicken").unwrap());
+        assert_eq!(
+            6,
+            base_layer
+                .object_value_id(&String::make_entry(&"chicken"))
+                .unwrap()
+        );
 
         assert_eq!("bbbbb", base_layer.id_subject(3).unwrap());
         assert_eq!("fghij", base_layer.id_predicate(2).unwrap());
@@ -522,7 +527,7 @@ pub mod tests {
             base_layer.id_object(1).unwrap()
         );
         assert_eq!(
-            ObjectType::Value("chicken".to_string()),
+            ObjectType::Value(String::make_entry(&"chicken")),
             base_layer.id_object(6).unwrap()
         );
     }

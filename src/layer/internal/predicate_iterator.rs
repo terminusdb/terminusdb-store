@@ -257,38 +257,38 @@ mod tests {
         let mut builder = store.create_base_layer().await.unwrap();
         let base_name = builder.name();
 
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
-        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
-        builder.add_string_triple(StringTriple::new_node("cow", "likes", "duck"));
-        builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_node("cow", "likes", "duck"));
+        builder.add_value_triple(ValueTriple::new_node("duck", "hates", "cow"));
         builder.commit_boxed().await.unwrap();
 
         builder = store.create_child_layer(base_name).await.unwrap();
         let child1_name = builder.name();
 
-        builder.add_string_triple(StringTriple::new_value("horse", "says", "neigh"));
-        builder.add_string_triple(StringTriple::new_node("horse", "likes", "horse"));
+        builder.add_value_triple(ValueTriple::new_string_value("horse", "says", "neigh"));
+        builder.add_value_triple(ValueTriple::new_node("horse", "likes", "horse"));
         builder.commit_boxed().await.unwrap();
 
         builder = store.create_child_layer(child1_name).await.unwrap();
         let child2_name = builder.name();
 
-        builder.remove_string_triple(StringTriple::new_node("duck", "hates", "cow"));
-        builder.add_string_triple(StringTriple::new_node("duck", "likes", "cow"));
+        builder.remove_value_triple(ValueTriple::new_node("duck", "hates", "cow"));
+        builder.add_value_triple(ValueTriple::new_node("duck", "likes", "cow"));
         builder.commit_boxed().await.unwrap();
 
         builder = store.create_child_layer(child2_name).await.unwrap();
         let child3_name = builder.name();
 
-        builder.remove_string_triple(StringTriple::new_node("duck", "likes", "cow"));
-        builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
+        builder.remove_value_triple(ValueTriple::new_node("duck", "likes", "cow"));
+        builder.add_value_triple(ValueTriple::new_node("duck", "hates", "cow"));
         builder.commit_boxed().await.unwrap();
 
         builder = store.create_child_layer(child3_name).await.unwrap();
         let child4_name = builder.name();
 
-        builder.remove_string_triple(StringTriple::new_node("duck", "hates", "cow"));
-        builder.add_string_triple(StringTriple::new_node("duck", "likes", "cow"));
+        builder.remove_value_triple(ValueTriple::new_node("duck", "hates", "cow"));
+        builder.add_value_triple(ValueTriple::new_node("duck", "likes", "cow"));
         builder.commit_boxed().await.unwrap();
 
         let layer = store.get_layer(child4_name).await.unwrap().unwrap();
@@ -300,9 +300,9 @@ mod tests {
             .collect();
 
         let expected = vec![
-            StringTriple::new_node("cow", "likes", "duck"),
-            StringTriple::new_node("duck", "likes", "cow"),
-            StringTriple::new_node("horse", "likes", "horse"),
+            ValueTriple::new_node("cow", "likes", "duck"),
+            ValueTriple::new_node("duck", "likes", "cow"),
+            ValueTriple::new_node("horse", "likes", "horse"),
         ];
 
         assert_eq!(expected, triples);
@@ -314,8 +314,8 @@ mod tests {
         let mut builder = store.create_base_layer().await.unwrap();
         let base_name = builder.name();
 
-        builder.add_string_triple(StringTriple::new_node("cow", "says", "moo"));
-        builder.add_string_triple(StringTriple::new_node("cow", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_node("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_node("cow", "says", "quack"));
         builder.commit_boxed().await.unwrap();
 
         let layer = store.get_layer(base_name).await.unwrap().unwrap();
@@ -326,8 +326,8 @@ mod tests {
             .collect();
 
         let expected = vec![
-            StringTriple::new_node("cow", "says", "moo"),
-            StringTriple::new_node("cow", "says", "quack"),
+            ValueTriple::new_node("cow", "says", "moo"),
+            ValueTriple::new_node("cow", "says", "quack"),
         ];
 
         assert_eq!(expected, triples);

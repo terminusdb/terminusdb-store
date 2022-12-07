@@ -37,6 +37,6 @@ pub mod storage;
 pub mod store;
 pub mod structure;
 
-pub use layer::{IdTriple, Layer, ObjectType, StringTriple};
+pub use layer::{IdTriple, Layer, ObjectType, ValueTriple};
 pub use store::sync::{open_sync_directory_store, open_sync_memory_store};
 pub use store::{open_directory_store, open_memory_store};

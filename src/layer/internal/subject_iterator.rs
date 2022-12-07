@@ -455,6 +455,7 @@ mod tests {
     use crate::layer::base::tests::*;
     use crate::layer::child::tests::*;
     use crate::layer::*;
+    use crate::structure::TdbDataType;
 
     use std::sync::Arc;
 
@@ -496,7 +497,7 @@ mod tests {
 
         builder.add_nodes(nodes.into_iter().map(|s| s.to_string()));
         builder.add_predicates(predicates.into_iter().map(|s| s.to_string()));
-        builder.add_values(values.into_iter().map(|s| s.to_string()));
+        builder.add_values(values.into_iter().map(|s| String::make_entry(&s)));
         let mut builder = builder.into_phase2().await.unwrap();
         builder.add_triple(1, 1, 1).await.unwrap();
         builder.add_triple(3, 2, 5).await.unwrap();
@@ -529,7 +530,7 @@ mod tests {
 
         builder.add_nodes(nodes.into_iter().map(|s| s.to_string()));
         builder.add_predicates(predicates.into_iter().map(|s| s.to_string()));
-        builder.add_values(values.into_iter().map(|s| s.to_string()));
+        builder.add_values(values.into_iter().map(|s| String::make_entry(&s)));
         let mut builder = builder.into_phase2().await.unwrap();
         builder.add_triple(1, 1, 1).await.unwrap();
         builder.add_triple(3, 2, 5).await.unwrap();
@@ -605,7 +606,7 @@ mod tests {
 
         builder.add_nodes(nodes.into_iter().map(|s| s.to_string()));
         builder.add_predicates(predicates.into_iter().map(|s| s.to_string()));
-        builder.add_values(values.into_iter().map(|s| s.to_string()));
+        builder.add_values(values.into_iter().map(|s| String::make_entry(&s)));
         let mut builder = builder.into_phase2().await.unwrap();
         builder.add_triple(3, 2, 5).await.unwrap();
         builder.add_triple(3, 3, 5).await.unwrap();
@@ -638,7 +639,7 @@ mod tests {
 
         builder.add_nodes(nodes.into_iter().map(|s| s.to_string()));
         builder.add_predicates(predicates.into_iter().map(|s| s.to_string()));
-        builder.add_values(values.into_iter().map(|s| s.to_string()));
+        builder.add_values(values.into_iter().map(|s| String::make_entry(&s)));
         let mut builder = builder.into_phase2().await.unwrap();
         builder.add_triple(1, 1, 1).await.unwrap();
         builder.add_triple(3, 2, 4).await.unwrap();
@@ -870,38 +871,38 @@ mod tests {
         let mut builder = store.create_base_layer().await.unwrap();
         let base_name = builder.name();
 
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
-        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
-        builder.add_string_triple(StringTriple::new_node("cow", "likes", "duck"));
-        builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_node("cow", "likes", "duck"));
+        builder.add_value_triple(ValueTriple::new_node("duck", "hates", "cow"));
         builder.commit_boxed().await.unwrap();
 
         builder = store.create_child_layer(base_name).await.unwrap();
         let child1_name = builder.name();
 
-        builder.add_string_triple(StringTriple::new_value("horse", "says", "neigh"));
-        builder.add_string_triple(StringTriple::new_node("horse", "likes", "horse"));
+        builder.add_value_triple(ValueTriple::new_string_value("horse", "says", "neigh"));
+        builder.add_value_triple(ValueTriple::new_node("horse", "likes", "horse"));
         builder.commit_boxed().await.unwrap();
 
         builder = store.create_child_layer(child1_name).await.unwrap();
         let child2_name = builder.name();
 
-        builder.remove_string_triple(StringTriple::new_node("duck", "hates", "cow"));
-        builder.add_string_triple(StringTriple::new_node("duck", "likes", "cow"));
+        builder.remove_value_triple(ValueTriple::new_node("duck", "hates", "cow"));
+        builder.add_value_triple(ValueTriple::new_node("duck", "likes", "cow"));
         builder.commit_boxed().await.unwrap();
 
         builder = store.create_child_layer(child2_name).await.unwrap();
         let child3_name = builder.name();
 
-        builder.remove_string_triple(StringTriple::new_node("duck", "likes", "cow"));
-        builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
+        builder.remove_value_triple(ValueTriple::new_node("duck", "likes", "cow"));
+        builder.add_value_triple(ValueTriple::new_node("duck", "hates", "cow"));
         builder.commit_boxed().await.unwrap();
 
         builder = store.create_child_layer(child3_name).await.unwrap();
         let child4_name = builder.name();
 
-        builder.remove_string_triple(StringTriple::new_node("duck", "hates", "cow"));
-        builder.add_string_triple(StringTriple::new_node("duck", "likes", "cow"));
+        builder.remove_value_triple(ValueTriple::new_node("duck", "hates", "cow"));
+        builder.add_value_triple(ValueTriple::new_node("duck", "likes", "cow"));
         builder.commit_boxed().await.unwrap();
 
         let layer = store.get_layer(child4_name).await.unwrap().unwrap();
@@ -913,8 +914,8 @@ mod tests {
             .collect();
 
         let expected = vec![
-            StringTriple::new_node("duck", "likes", "cow"),
-            StringTriple::new_value("duck", "says", "quack"),
+            ValueTriple::new_node("duck", "likes", "cow"),
+            ValueTriple::new_string_value("duck", "says", "quack"),
         ];
 
         assert_eq!(expected, triples);
@@ -926,42 +927,42 @@ mod tests {
         let mut builder = store.create_base_layer().await.unwrap();
         let base_name = builder.name();
 
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
-        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
-        builder.add_string_triple(StringTriple::new_node("cow", "likes", "duck"));
-        builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_node("cow", "likes", "duck"));
+        builder.add_value_triple(ValueTriple::new_node("duck", "hates", "cow"));
         builder.commit_boxed().await.unwrap();
 
         builder = store.create_child_layer(base_name).await.unwrap();
         let child1_name = builder.name();
 
-        builder.add_string_triple(StringTriple::new_value("horse", "says", "neigh"));
-        builder.add_string_triple(StringTriple::new_node("horse", "likes", "horse"));
+        builder.add_value_triple(ValueTriple::new_string_value("horse", "says", "neigh"));
+        builder.add_value_triple(ValueTriple::new_node("horse", "likes", "horse"));
         builder.commit_boxed().await.unwrap();
 
         builder = store.create_child_layer(child1_name).await.unwrap();
         let child2_name = builder.name();
 
-        builder.remove_string_triple(StringTriple::new_node("duck", "hates", "cow"));
-        builder.add_string_triple(StringTriple::new_node("duck", "likes", "cow"));
-        builder.add_string_triple(StringTriple::new_node("duck", "likes", "horse"));
+        builder.remove_value_triple(ValueTriple::new_node("duck", "hates", "cow"));
+        builder.add_value_triple(ValueTriple::new_node("duck", "likes", "cow"));
+        builder.add_value_triple(ValueTriple::new_node("duck", "likes", "horse"));
         builder.commit_boxed().await.unwrap();
 
         builder = store.create_child_layer(child2_name).await.unwrap();
         let child3_name = builder.name();
 
-        builder.remove_string_triple(StringTriple::new_node("duck", "likes", "cow"));
-        builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
-        builder.add_string_triple(StringTriple::new_node("duck", "likes", "pig"));
+        builder.remove_value_triple(ValueTriple::new_node("duck", "likes", "cow"));
+        builder.add_value_triple(ValueTriple::new_node("duck", "hates", "cow"));
+        builder.add_value_triple(ValueTriple::new_node("duck", "likes", "pig"));
         builder.commit_boxed().await.unwrap();
 
         builder = store.create_child_layer(child3_name).await.unwrap();
         let child4_name = builder.name();
 
-        builder.remove_string_triple(StringTriple::new_node("duck", "hates", "cow"));
-        builder.remove_string_triple(StringTriple::new_node("duck", "likes", "horse"));
-        builder.add_string_triple(StringTriple::new_node("duck", "likes", "cow"));
-        builder.add_string_triple(StringTriple::new_node("duck", "likes", "rabbit"));
+        builder.remove_value_triple(ValueTriple::new_node("duck", "hates", "cow"));
+        builder.remove_value_triple(ValueTriple::new_node("duck", "likes", "horse"));
+        builder.add_value_triple(ValueTriple::new_node("duck", "likes", "cow"));
+        builder.add_value_triple(ValueTriple::new_node("duck", "likes", "rabbit"));
         builder.commit_boxed().await.unwrap();
 
         let layer = store.get_layer(child4_name).await.unwrap().unwrap();
@@ -974,9 +975,9 @@ mod tests {
             .collect();
 
         let expected = vec![
-            StringTriple::new_node("duck", "likes", "cow"),
-            StringTriple::new_node("duck", "likes", "pig"),
-            StringTriple::new_node("duck", "likes", "rabbit"),
+            ValueTriple::new_node("duck", "likes", "cow"),
+            ValueTriple::new_node("duck", "likes", "pig"),
+            ValueTriple::new_node("duck", "likes", "rabbit"),
         ];
 
         assert_eq!(expected, triples);
@@ -987,38 +988,38 @@ mod tests {
         let mut builder = store.create_base_layer().await.unwrap();
         let base_name = builder.name();
 
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
-        builder.add_string_triple(StringTriple::new_value("sheep", "says", "baa"));
-        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
-        builder.add_string_triple(StringTriple::new_node("cow", "likes", "duck"));
-        builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("sheep", "says", "baa"));
+        builder.add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_node("cow", "likes", "duck"));
+        builder.add_value_triple(ValueTriple::new_node("duck", "hates", "cow"));
         builder.commit_boxed().await.unwrap();
 
         builder = store.create_child_layer(base_name).await.unwrap();
         let child1_name = builder.name();
 
-        builder.add_string_triple(StringTriple::new_value("horse", "says", "woof"));
-        builder.add_string_triple(StringTriple::new_node("horse", "likes", "horse"));
+        builder.add_value_triple(ValueTriple::new_string_value("horse", "says", "woof"));
+        builder.add_value_triple(ValueTriple::new_node("horse", "likes", "horse"));
         builder.commit_boxed().await.unwrap();
 
         builder = store.create_child_layer(child1_name).await.unwrap();
         let child2_name = builder.name();
 
-        builder.remove_string_triple(StringTriple::new_value("horse", "says", "woof"));
-        builder.remove_string_triple(StringTriple::new_value("sheep", "says", "baa"));
+        builder.remove_value_triple(ValueTriple::new_string_value("horse", "says", "woof"));
+        builder.remove_value_triple(ValueTriple::new_string_value("sheep", "says", "baa"));
 
-        builder.add_string_triple(StringTriple::new_value("horse", "says", "quack"));
-        builder.add_string_triple(StringTriple::new_value("rabbit", "says", "sniff"));
+        builder.add_value_triple(ValueTriple::new_string_value("horse", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_string_value("rabbit", "says", "sniff"));
         builder.commit_boxed().await.unwrap();
 
         builder = store.create_child_layer(child2_name).await.unwrap();
         let child3_name = builder.name();
 
-        builder.remove_string_triple(StringTriple::new_node("duck", "hates", "cow"));
-        builder.remove_string_triple(StringTriple::new_value("horse", "says", "quack"));
+        builder.remove_value_triple(ValueTriple::new_node("duck", "hates", "cow"));
+        builder.remove_value_triple(ValueTriple::new_string_value("horse", "says", "quack"));
 
-        builder.add_string_triple(StringTriple::new_node("duck", "likes", "cow"));
-        builder.add_string_triple(StringTriple::new_value("horse", "says", "neigh"));
+        builder.add_value_triple(ValueTriple::new_node("duck", "likes", "cow"));
+        builder.add_value_triple(ValueTriple::new_string_value("horse", "says", "neigh"));
         builder.commit_boxed().await.unwrap();
 
         (
@@ -1050,15 +1051,15 @@ mod tests {
             .collect();
 
         let expected_additions = vec![
-            StringTriple::new_node("duck", "likes", "cow"),
-            StringTriple::new_value("horse", "says", "neigh"),
-            StringTriple::new_value("rabbit", "says", "sniff"),
+            ValueTriple::new_node("duck", "likes", "cow"),
+            ValueTriple::new_string_value("horse", "says", "neigh"),
+            ValueTriple::new_string_value("rabbit", "says", "sniff"),
         ];
 
         let expected_removals = vec![
-            StringTriple::new_node("duck", "hates", "cow"),
-            StringTriple::new_value("sheep", "says", "baa"),
-            StringTriple::new_value("horse", "says", "woof"),
+            ValueTriple::new_node("duck", "hates", "cow"),
+            ValueTriple::new_string_value("sheep", "says", "baa"),
+            ValueTriple::new_string_value("horse", "says", "woof"),
         ];
 
         assert_eq!(expected_additions, additions);
