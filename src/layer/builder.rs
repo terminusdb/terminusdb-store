@@ -77,7 +77,7 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
     pub fn add_value(&mut self, value: &str) -> u64 {
         let id = self
             .value_dictionary_builder
-            .add(Datatype::String, Bytes::copy_from_slice(value.as_bytes()));
+            .add(TypedDictEntry::new(Datatype::String, Bytes::copy_from_slice(value.as_bytes()).into()));
 
         id
     }

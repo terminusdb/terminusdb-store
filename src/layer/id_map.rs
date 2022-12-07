@@ -142,7 +142,7 @@ pub async fn construct_idmaps_from_structures<F: 'static + FileLoad + FileStore>
             .map(|x| x.0)
     };
 
-    let typed_entry_comparator = |vals: &[Option<&(u64, (Datatype, SizedDictEntry))>]| {
+    let typed_entry_comparator = |vals: &[Option<&(u64, TypedDictEntry)>]| {
         vals.iter()
             .enumerate()
             .filter(|(_, x)| x.is_some())
@@ -150,7 +150,7 @@ pub async fn construct_idmaps_from_structures<F: 'static + FileLoad + FileStore>
             .map(|x| x.0)
     };
 
-    let sorted_node_iter = sorted_iterator(node_iters, entry_comparator).map(|(i,s)|(i, (Datatype::String, s)));
+    let sorted_node_iter = sorted_iterator(node_iters, entry_comparator).map(|(i,s)|(i, TypedDictEntry::new(Datatype::String, s)));
     let sorted_value_iter = sorted_iterator(value_iters, typed_entry_comparator);
     let sorted_node_value_iter = sorted_node_iter.chain(sorted_value_iter).map(|(id, _)| id - 1);
     let sorted_predicate_iter =

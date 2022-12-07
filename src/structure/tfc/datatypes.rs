@@ -1,13 +1,13 @@
 use super::{
     decimal::{decimal_to_storage, storage_to_decimal},
-    integer::{bigint_to_storage, storage_to_bigint},
+    integer::{bigint_to_storage, storage_to_bigint}, TypedDictEntry,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use num_derive::FromPrimitive;
 use rug::Integer;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, FromPrimitive, Hash)]
 pub enum Datatype {
     String = 0,
     UInt32,
@@ -55,11 +55,11 @@ pub trait TdbDataType {
         val.to_lexical()
     }
 
-    fn make_entry<T>(val: &T) -> (Datatype, Bytes)
+    fn make_entry<T>(val: &T) -> TypedDictEntry
     where
         T: ToLexical<Self> + ?Sized,
     {
-        (Self::datatype(), val.to_lexical())
+        TypedDictEntry::new(Self::datatype(), val.to_lexical().into())
     }
 }
 

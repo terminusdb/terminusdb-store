@@ -9,8 +9,33 @@ use std::{borrow::Cow, marker::PhantomData};
 use super::{
     block::{IdLookupResult, SizedDictBlock, SizedDictEntry},
     dict::{SizedDict, SizedDictBufBuilder},
-    Datatype, TdbDataType, ToLexical,
+    Datatype, TdbDataType, ToLexical, SizedDictEntryBuf, OwnedSizedDictEntryBuf,
 };
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TypedDictEntry {
+    datatype: Datatype,
+    entry: SizedDictEntry
+}
+
+impl TypedDictEntry {
+    pub fn new(datatype: Datatype, entry: SizedDictEntry) -> Self {
+        Self {
+            datatype, entry
+        }
+    }
+    pub fn to_bytes(&self) -> Bytes {
+        self.entry.to_bytes()
+    }
+
+    pub fn as_buf(&self) -> SizedDictEntryBuf {
+        self.entry.as_buf()
+    }
+
+    pub fn into_buf(self) -> OwnedSizedDictEntryBuf {
+        self.entry.into_buf()
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct TypedDict {
@@ -85,14 +110,14 @@ impl TypedDict {
     }
 
     pub fn id<T: TdbDataType, Q: ToLexical<T>>(&self, v: &Q) -> IdLookupResult {
-        let (datatype, bytes) = T::make_entry(v);
+        let entry = T::make_entry(v);
 
-        self.id_slice(datatype, bytes.as_ref())
+        self.id_slice(entry.datatype, &entry.to_bytes())
     }
 
     pub fn get<T: TdbDataType>(&self, id: usize) -> Option<T> {
         let result = self.entry(id);
-        result.map(|(datatype, slice)| datatype.cast(slice.into_buf()))
+        result.map(|entry| entry.datatype.cast(entry.into_buf()))
     }
 
     fn inner_type_segment(&self, i: usize) -> (SizedDict, u64) {
@@ -179,7 +204,7 @@ impl TypedDict {
         FromPrimitive::from_u64(self.types_present.entry(type_index)).unwrap()
     }
 
-    pub fn entry(&self, id: usize) -> Option<(Datatype, SizedDictEntry)> {
+    pub fn entry(&self, id: usize) -> Option<TypedDictEntry> {
         if id > self.num_entries() {
             return None;
         }
@@ -187,7 +212,7 @@ impl TypedDict {
 
         let (dict, offset) = self.inner_type_segment(type_index);
         let dt = self.type_for_type_index(type_index);
-        dict.entry(id - offset as usize).map(|e| (dt, e))
+        dict.entry(id - offset as usize).map(|e| TypedDictEntry::new(dt, e))
     }
 
     pub fn num_entries(&self) -> usize {
@@ -226,14 +251,14 @@ impl TypedDict {
         })
     }
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = (Datatype, SizedDictEntry)> + 'a + Clone {
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = TypedDictEntry> + 'a + Clone {
         self.block_iter()
-            .flat_map(|(datatype, segment)| segment.into_iter().map(move |entry| (datatype, entry)))
+            .flat_map(|(datatype, segment)| segment.into_iter().map(move |entry| TypedDictEntry::new(datatype, entry)))
     }
 
-    pub fn into_iter(self) -> impl Iterator<Item = (Datatype, SizedDictEntry)> + Clone {
+    pub fn into_iter(self) -> impl Iterator<Item = TypedDictEntry> + Clone {
         self.into_block_iter()
-            .flat_map(|(datatype, segment)| segment.into_iter().map(move |entry| (datatype, entry)))
+            .flat_map(|(datatype, segment)| segment.into_iter().map(move |entry| TypedDictEntry::new(datatype, entry)))
     }
 }
 
@@ -397,43 +422,39 @@ impl<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<B1, B2,
         }
     }
 
-    pub fn add(&mut self, dt: Datatype, value: Bytes) -> u64 {
+    pub fn add(&mut self, value: TypedDictEntry) -> u64 {
         if self.current_datatype == None {
-            self.current_datatype = Some(dt);
-            self.types_present_builder.push(dt as u64);
+            self.current_datatype = Some(value.datatype);
+            self.types_present_builder.push(value.datatype as u64);
             self.sized_dict_buf_builder
                 .as_mut()
-                .map(|b| b.record_size = dt.record_size());
+                .map(|b| b.record_size = value.datatype.record_size());
         }
 
-        if self.current_datatype != Some(dt) {
+        if self.current_datatype != Some(value.datatype) {
             let (block_offset_builder, data_buf, block_offset, id_offset) =
                 self.sized_dict_buf_builder.take().unwrap().finalize();
-            self.types_present_builder.push(dt as u64);
+            self.types_present_builder.push(value.datatype as u64);
             self.type_offsets_builder
                 .push(block_offset_builder.count() as u64 - 1);
             self.sized_dict_buf_builder = Some(SizedDictBufBuilder::new(
-                dt.record_size(),
+                value.datatype.record_size(),
                 block_offset,
                 id_offset,
                 block_offset_builder,
                 data_buf,
             ));
-            self.current_datatype = Some(dt);
+            self.current_datatype = Some(value.datatype);
         }
 
         self.sized_dict_buf_builder
             .as_mut()
-            .map(|s| s.add(value))
+            .map(|s| s.add(value.entry.to_bytes()))
             .unwrap()
     }
 
-    pub fn add_entry(&mut self, dt: Datatype, e: &SizedDictEntry) -> u64 {
-        self.add(dt, e.to_bytes())
-    }
-
-    pub fn add_all<I: Iterator<Item = (Datatype, Bytes)>>(&mut self, it: I) -> Vec<u64> {
-        it.map(|(dt, val)| self.add(dt, val)).collect()
+    pub fn add_all<I: Iterator<Item = TypedDictEntry>>(&mut self, it: I) -> Vec<u64> {
+        it.map(|val| self.add(val)).collect()
     }
 
     pub fn finalize(self) -> (B1, B2, B3, B4) {
@@ -471,7 +492,7 @@ mod tests {
         B2: BufMut,
         B3: BufMut,
         B4: BufMut,
-        I: Iterator<Item = (Datatype, Bytes)>,
+        I: Iterator<Item = TypedDictEntry>,
     >(
         used_types_buf: &mut B1,
         type_offsets_buf: &mut B2,
@@ -669,7 +690,7 @@ mod tests {
 
     #[test]
     fn test_multi_segment() {
-        let mut vec: Vec<(Datatype, Bytes)> = vec![
+        let mut vec: Vec<TypedDictEntry> = vec![
             Decimal::make_entry(&Decimal("-1".to_string())),
             String::make_entry(&"asdf"),
             Decimal::make_entry(&Decimal("-12342343.2348973".to_string())),
@@ -712,8 +733,8 @@ mod tests {
         assert_eq!(IdLookupResult::Found(7), dict.id(&(-500_i32)));
 
         for i in 1..vec.len() + 1 {
-            let (t, s) = dict.entry(i).unwrap();
-            assert_eq!(vec[i - 1], (t, s.into_chunks().flatten().collect()));
+            let entry = dict.entry(i).unwrap();
+            assert_eq!(vec[i - 1], entry);
         }
 
         assert_eq!(
@@ -724,7 +745,7 @@ mod tests {
 
     #[test]
     fn test_full_blocks() {
-        let mut vec: Vec<(Datatype, Bytes)> = vec![
+        let mut vec: Vec<TypedDictEntry> = vec![
             String::make_entry(&"fdsa"),
             String::make_entry(&"a"),
             String::make_entry(&"bc"),
@@ -780,8 +801,8 @@ mod tests {
         assert_eq!(31, dict.num_entries());
 
         for i in 1..vec.len() + 1 {
-            let (t, s) = dict.entry(i).unwrap();
-            assert_eq!(vec[i - 1], (t, s.into_chunks().flatten().collect()));
+            let entry = dict.entry(i).unwrap();
+            assert_eq!(vec[i - 1], entry);
         }
 
         assert_eq!("Batman".to_string(), dict.get::<String>(1).unwrap());
@@ -822,7 +843,7 @@ mod tests {
 
     #[test]
     fn iterate_full_blocks() {
-        let mut vec: Vec<(Datatype, Bytes)> = vec![
+        let mut vec: Vec<TypedDictEntry> = vec![
             String::make_entry(&"fdsa"),
             String::make_entry(&"a"),
             String::make_entry(&"bc"),
@@ -875,18 +896,14 @@ mod tests {
             data.freeze(),
         );
 
-        let actual: Vec<_> = dict.iter().map(|(dt, e)| (dt, e.to_bytes())).collect();
+        let actual: Vec<_> = dict.iter().collect();
 
         assert_eq!(vec, actual);
     }
 
-    fn convert_entry(e: (Datatype, SizedDictEntry)) -> (Datatype, Bytes) {
-        (e.0, e.1.to_bytes())
-    }
-
     #[test]
     fn test_one_string() {
-        let vec: Vec<(Datatype, Bytes)> = vec![String::make_entry(&"fdsa")];
+        let vec: Vec<TypedDictEntry> = vec![String::make_entry(&"fdsa")];
         let used_types_buf = BytesMut::new();
         let type_offsets_buf = BytesMut::new();
         let block_offsets_buf = BytesMut::new();
@@ -902,7 +919,7 @@ mod tests {
         let _results: Vec<u64> = vec
             .clone()
             .into_iter()
-            .map(|(dt, entry)| typed_builder.add(dt, entry))
+            .map(|entry| typed_builder.add(entry))
             .collect();
 
         let (used_types, type_offsets, block_offsets, data) = typed_builder.finalize();
@@ -913,12 +930,12 @@ mod tests {
             block_offsets.freeze(),
             data.freeze(),
         );
-        assert_eq!(vec[0], convert_entry(dict.entry(1).unwrap()))
+        assert_eq!(vec[0], dict.entry(1).unwrap())
     }
 
     #[test]
     fn test_incremental_builder() {
-        let mut vec: Vec<(Datatype, Bytes)> = vec![
+        let mut vec: Vec<TypedDictEntry> = vec![
             String::make_entry(&"fdsa"),
             String::make_entry(&"a"),
             String::make_entry(&"bc"),
@@ -968,7 +985,7 @@ mod tests {
         let _results: Vec<u64> = vec
             .clone()
             .into_iter()
-            .map(|(dt, entry)| typed_builder.add(dt, entry))
+            .map(|entry| typed_builder.add(entry))
             .collect();
 
         let (used_types, type_offsets, block_offsets, data) = typed_builder.finalize();
@@ -981,13 +998,13 @@ mod tests {
         );
 
         for i in 0..vec.len() {
-            assert_eq!(vec[i], convert_entry(dict.entry(i + 1).unwrap()))
+            assert_eq!(vec[i], dict.entry(i + 1).unwrap())
         }
     }
 
     #[test]
     fn test_incremental_builder_small_dicts() {
-        let mut vec: Vec<(Datatype, Bytes)> = vec![
+        let mut vec: Vec<TypedDictEntry> = vec![
             String::make_entry(&"fdsa"),
             i32::make_entry(&-500_i32),
             u32::make_entry(&20_u32),
@@ -1013,7 +1030,7 @@ mod tests {
         let _results: Vec<u64> = vec
             .clone()
             .into_iter()
-            .map(|(dt, entry)| typed_builder.add(dt, entry))
+            .map(|entry| typed_builder.add(entry))
             .collect();
 
         let (used_types, type_offsets, block_offsets, data) = typed_builder.finalize();
@@ -1026,13 +1043,13 @@ mod tests {
         );
 
         for i in 0..vec.len() {
-            assert_eq!(vec[i], convert_entry(dict.entry(i + 1).unwrap()))
+            assert_eq!(vec[i], dict.entry(i + 1).unwrap())
         }
     }
 
     #[test]
     fn test_two_blocks() {
-        let mut vec: Vec<(Datatype, Bytes)> = vec![
+        let mut vec: Vec<TypedDictEntry> = vec![
             String::make_entry(&"fdsa"),
             String::make_entry(&"a"),
             String::make_entry(&"bc"),
@@ -1055,7 +1072,7 @@ mod tests {
         let _results: Vec<u64> = vec
             .clone()
             .into_iter()
-            .map(|(dt, entry)| typed_builder.add(dt, entry))
+            .map(|entry| typed_builder.add(entry))
             .collect();
 
         let (used_types, type_offsets, block_offsets, data) = typed_builder.finalize();
@@ -1068,13 +1085,13 @@ mod tests {
         );
 
         for i in 0..vec.len() {
-            assert_eq!(vec[i], convert_entry(dict.entry(i + 1).unwrap()))
+            assert_eq!(vec[i], dict.entry(i + 1).unwrap())
         }
     }
 
     #[test]
     fn test_three_blocks() {
-        let mut vec: Vec<(Datatype, Bytes)> = vec![
+        let mut vec: Vec<TypedDictEntry> = vec![
             String::make_entry(&"fdsa"),
             String::make_entry(&"a"),
             String::make_entry(&"bc"),
@@ -1128,7 +1145,7 @@ mod tests {
         let _results: Vec<u64> = vec
             .clone()
             .into_iter()
-            .map(|(dt, entry)| typed_builder.add(dt, entry))
+            .map(|entry| typed_builder.add(entry))
             .collect();
 
         let (used_types, type_offsets, block_offsets, data) = typed_builder.finalize();
@@ -1141,7 +1158,7 @@ mod tests {
         );
 
         for i in 0..vec.len() {
-            assert_eq!(vec[i], convert_entry(dict.entry(i + 1).unwrap()))
+            assert_eq!(vec[i], dict.entry(i + 1).unwrap())
         }
     }
 }

@@ -55,7 +55,7 @@ pub async fn merge_typed_dictionaries<
 ) -> io::Result<()> {
     let iterators: Vec<_> = dictionaries.map(|d| d.iter()).collect();
 
-    let pick_fn = |vals: &[Option<&(Datatype, SizedDictEntry)>]| {
+    let pick_fn = |vals: &[Option<&TypedDictEntry>]| {
         vals.iter()
             .enumerate()
             .filter(|(_, v)| v.is_some())
@@ -63,7 +63,7 @@ pub async fn merge_typed_dictionaries<
             .map(|(ix, _)| ix)
     };
 
-    let sorted_iterator = sorted_iterator(iterators, pick_fn).map(|(dt, elt)| (dt, elt.to_bytes()));
+    let sorted_iterator = sorted_iterator(iterators, pick_fn);
 
     let mut types_present_file_writer = dict_files.types_present_file.open_write().await?;
     let mut type_offsets_file_writer = dict_files.type_offsets_file.open_write().await?;
