@@ -44,6 +44,7 @@ impl Datatype {
             Datatype::Float64 => Some(8),
             Datatype::Decimal => None,
             Datatype::BigInt => None,
+            Datatype::Token => None,
         }
     }
 }
@@ -324,6 +325,12 @@ impl ToLexical<bool> for bool {
 #[derive(PartialEq, Debug)]
 pub struct Token(pub String);
 
+impl AsRef<str> for Token {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 impl TdbDataType for Token {
     fn datatype() -> Datatype {
         Datatype::Token
@@ -332,7 +339,7 @@ impl TdbDataType for Token {
 
 impl ToLexical<Token> for Token {
     fn to_lexical(&self) -> Bytes {
-        Bytes::copy_from_slice(self.0.as_ref().as_bytes())
+        Bytes::copy_from_slice(self.as_ref().as_bytes())
     }
 }
 
