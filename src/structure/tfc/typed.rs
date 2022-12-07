@@ -489,6 +489,7 @@ mod tests {
     use bytes::BytesMut;
     use rug::Integer;
 
+    use super::super::datatypes::FromLexical;
     use crate::structure::Decimal;
 
     use super::*;

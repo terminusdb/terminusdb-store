@@ -45,9 +45,8 @@ impl Datatype {
     }
 }
 
-pub trait TdbDataType {
+pub trait TdbDataType: FromLexical<Self> {
     fn datatype() -> Datatype;
-    fn from_lexical<B: Buf>(b: B) -> Self;
 
     fn to_lexical<T>(val: &T) -> Bytes
     where
@@ -68,17 +67,17 @@ pub trait ToLexical<T: ?Sized> {
     fn to_lexical(&self) -> Bytes;
 }
 
+pub trait FromLexical<T: ?Sized> {
+    fn from_lexical<B: Buf>(b: B) -> Self;
+}
+
 impl<T: AsRef<str>> ToLexical<String> for T {
     fn to_lexical(&self) -> Bytes {
         Bytes::copy_from_slice(self.as_ref().as_bytes())
     }
 }
 
-impl TdbDataType for String {
-    fn datatype() -> Datatype {
-        Datatype::String
-    }
-
+impl FromLexical<String> for String {
     fn from_lexical<B: Buf>(mut b: B) -> Self {
         let mut vec = vec![0; b.remaining()];
         b.copy_to_slice(&mut vec);
@@ -86,11 +85,19 @@ impl TdbDataType for String {
     }
 }
 
+impl TdbDataType for String {
+    fn datatype() -> Datatype {
+        Datatype::String
+    }
+}
+
 impl TdbDataType for u32 {
     fn datatype() -> Datatype {
         Datatype::UInt32
     }
+}
 
+impl FromLexical<u32> for u32 {
     fn from_lexical<B: Buf>(b: B) -> Self {
         b.reader().read_u32::<BigEndian>().unwrap()
     }
@@ -110,7 +117,9 @@ impl TdbDataType for i32 {
     fn datatype() -> Datatype {
         Datatype::Int32
     }
+}
 
+impl FromLexical<i32> for i32 {
     fn from_lexical<B: Buf>(b: B) -> Self {
         let i = b.reader().read_u32::<BigEndian>().unwrap();
         (I32_BYTE_MASK ^ i) as i32
@@ -130,7 +139,9 @@ impl TdbDataType for u64 {
     fn datatype() -> Datatype {
         Datatype::UInt64
     }
+}
 
+impl FromLexical<u64> for u64 {
     fn from_lexical<B: Buf>(b: B) -> Self {
         b.reader().read_u64::<BigEndian>().unwrap()
     }
@@ -150,7 +161,9 @@ impl TdbDataType for i64 {
     fn datatype() -> Datatype {
         Datatype::Int64
     }
+}
 
+impl FromLexical<i64> for i64 {
     fn from_lexical<B: Buf>(b: B) -> Self {
         let i = b.reader().read_u64::<BigEndian>().unwrap();
         (I64_BYTE_MASK ^ i) as i64
@@ -172,7 +185,9 @@ impl TdbDataType for f32 {
     fn datatype() -> Datatype {
         Datatype::Float32
     }
+}
 
+impl FromLexical<f32> for f32 {
     fn from_lexical<B: Buf>(b: B) -> Self {
         let i = b.reader().read_u32::<BigEndian>().unwrap();
         if i & F32_SIGN_MASK > 0 {
@@ -203,7 +218,9 @@ impl TdbDataType for f64 {
     fn datatype() -> Datatype {
         Datatype::Float64
     }
+}
 
+impl FromLexical<f64> for f64 {
     fn from_lexical<B: Buf>(b: B) -> Self {
         let i = b.reader().read_u64::<BigEndian>().unwrap();
         if i & F64_SIGN_MASK > 0 {
@@ -232,7 +249,9 @@ impl TdbDataType for Integer {
     fn datatype() -> Datatype {
         Datatype::BigInt
     }
+}
 
+impl FromLexical<Integer> for Integer {
     fn from_lexical<B: Buf>(mut b: B) -> Self {
         storage_to_bigint(&mut b)
     }
@@ -251,7 +270,9 @@ impl TdbDataType for Decimal {
     fn datatype() -> Datatype {
         Datatype::Decimal
     }
+}
 
+impl FromLexical<Decimal> for Decimal {
     fn from_lexical<B: Buf>(mut b: B) -> Self {
         Decimal(storage_to_decimal(&mut b))
     }
