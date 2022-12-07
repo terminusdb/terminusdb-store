@@ -19,6 +19,8 @@ pub enum Datatype {
     Float64,
     Decimal,
     BigInt,
+    Boolean,
+    Token,
 }
 
 impl Datatype {
@@ -32,6 +34,7 @@ impl Datatype {
 
     pub fn record_size(&self) -> Option<u8> {
         match self {
+            Datatype::Boolean => Some(4), // this is huge
             Datatype::String => None,
             Datatype::UInt32 => Some(4),
             Datatype::Int32 => Some(4),
@@ -278,8 +281,73 @@ impl FromLexical<Decimal> for Decimal {
     }
 }
 
+impl FromLexical<Decimal> for String {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        // TODO make this better
+        Decimal::from_lexical(b).0
+    }
+}
+
 impl ToLexical<Decimal> for Decimal {
     fn to_lexical(&self) -> Bytes {
         Bytes::from(decimal_to_storage(&self.0))
+    }
+}
+
+impl TdbDataType for bool {
+    fn datatype() -> Datatype {
+        Datatype::Boolean
+    }
+}
+
+impl FromLexical<bool> for bool {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        let num = b.get_u8();
+        if num == 0 {
+            false
+        } else {
+            true
+        }
+    }
+}
+
+impl ToLexical<bool> for bool {
+    fn to_lexical(&self) -> Bytes {
+        if *self {
+            vec![1].into()
+        } else {
+            vec![0].into()
+        }
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct Token(pub String);
+
+impl TdbDataType for Token {
+    fn datatype() -> Datatype {
+        Datatype::Token
+    }
+}
+
+impl ToLexical<Token> for Token {
+    fn to_lexical(&self) -> Bytes {
+        Bytes::copy_from_slice(self.0.as_ref().as_bytes())
+    }
+}
+
+impl FromLexical<Token> for Token {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        let mut vec = vec![0; b.remaining()];
+        b.copy_to_slice(&mut vec);
+        Token(String::from_utf8(vec).unwrap())
+    }
+}
+
+impl FromLexical<Token> for String {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        let mut vec = vec![0; b.remaining()];
+        b.copy_to_slice(&mut vec);
+        String::from_utf8(vec).unwrap()
     }
 }
