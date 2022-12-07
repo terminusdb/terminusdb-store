@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1670239266236,
+  "lastUpdate": 1670412880837,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -14711,6 +14711,126 @@ window.BENCHMARK_DATA = {
             "name": "logarray_w5_empty",
             "value": 345,
             "range": "± 1",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rrooij@users.noreply.github.com",
+            "name": "Robin de Rooij",
+            "username": "rrooij"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e4e7503429868d0d9f42b0cf0688f67fd01ca3fb",
+          "message": "ci: rustup for GNU in Windows (#106)\n\nNeeded for GMP support",
+          "timestamp": "2022-12-07T12:25:06+01:00",
+          "tree_id": "6c30fcec400050240f096f603c48b40182660c50",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/e4e7503429868d0d9f42b0cf0688f67fd01ca3fb"
+        },
+        "date": 1670412879952,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 392,
+            "range": "± 72",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 47072500,
+            "range": "± 8514660",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 30744969,
+            "range": "± 8573271",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 36967119,
+            "range": "± 11038265",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 54062266,
+            "range": "± 13947494",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 51238367,
+            "range": "± 8603070",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w10_1000",
+            "value": 13703,
+            "range": "± 2286",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1",
+            "value": 510,
+            "range": "± 118",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10",
+            "value": 587,
+            "range": "± 139",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_100",
+            "value": 1952,
+            "range": "± 494",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1000",
+            "value": 12201,
+            "range": "± 1833",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000",
+            "value": 112634,
+            "range": "± 26919",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_as_stream",
+            "value": 121622,
+            "range": "± 30838",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent",
+            "value": 1576487,
+            "range": "± 781283",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent_as_stream",
+            "value": 1536752,
+            "range": "± 510613",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_empty",
+            "value": 425,
+            "range": "± 97",
             "unit": "ns/iter"
           }
         ]
