@@ -216,11 +216,10 @@ impl TdbDataType for f64 {
 impl ToLexical<f64> for f64 {
     fn to_lexical(&self) -> Bytes {
         let f = *self;
-        let g: u64;
-        if f.signum() == -1.0 {
-            g = f.to_bits() ^ F64_COMPLEMENT;
+        let g: u64 = if f.signum() == -1.0 {
+            f.to_bits() ^ F64_COMPLEMENT
         } else {
-            g = f.to_bits() ^ F64_SIGN_MASK;
+            f.to_bits() ^ F64_SIGN_MASK
         };
         let mut buf = BytesMut::new().writer();
         buf.write_u64::<BigEndian>(g).unwrap();
