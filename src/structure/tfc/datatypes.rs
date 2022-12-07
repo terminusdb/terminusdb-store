@@ -245,7 +245,7 @@ impl ToLexical<Integer> for Integer {
 }
 
 #[derive(PartialEq, Debug)]
-pub struct Decimal(String);
+pub struct Decimal(pub String);
 
 impl TdbDataType for Decimal {
     fn datatype() -> Datatype {

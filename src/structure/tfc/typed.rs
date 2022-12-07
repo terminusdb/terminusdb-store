@@ -460,6 +460,11 @@ impl<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<B1, B2,
 
 #[cfg(test)]
 mod tests {
+    use bytes::BytesMut;
+    use rug::Integer;
+
+    use crate::structure::Decimal;
+
     use super::*;
     fn build_multiple_segments<
         B1: BufMut,
