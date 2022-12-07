@@ -61,13 +61,3 @@ jobs:
     - name: Check code format
       if: matrix.os == 'ubuntu-latest' # No need to do this on every OS.
       run: cargo fmt -- --check
-p catch errors in the `Cargo.toml`.
-    - name: Build the crate
-      run: cargo package --verbose
-
-    - name: Build and run tests
-      run: cargo test --verbose
-
-    - name: Check code format
-      if: matrix.os == 'ubuntu-latest' # No need to do this on every OS.
-      run: cargo fmt -- --check
