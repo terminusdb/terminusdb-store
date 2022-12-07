@@ -1,7 +1,7 @@
 use byteorder::{BigEndian, ByteOrder};
 use bytes::BytesMut;
 use std::io;
-use tokio::io::{AsyncWriteExt, AsyncReadExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::{storage::*, structure::util::sorted_iterator};
 
@@ -70,7 +70,12 @@ pub async fn merge_typed_dictionaries<
     let mut blocks_file_writer = dict_files.blocks_file.open_write().await?;
     let mut offsets_file_writer = dict_files.offsets_file.open_write().await?;
 
-    let mut builder = TypedDictBufBuilder::new(BytesMut::new(), BytesMut::new(), BytesMut::new(), BytesMut::new());
+    let mut builder = TypedDictBufBuilder::new(
+        BytesMut::new(),
+        BytesMut::new(),
+        BytesMut::new(),
+        BytesMut::new(),
+    );
     builder.add_all(sorted_iterator);
     let (types_present_buf, type_offsets_buf, offsets_buf, data_buf) = builder.finalize();
 

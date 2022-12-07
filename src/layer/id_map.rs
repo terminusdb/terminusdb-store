@@ -35,7 +35,7 @@ impl IdMap {
                 if id > wtree.len() as u64 {
                     None
                 } else {
-                    Some(wtree.lookup_one(id-1).unwrap() + 1)
+                    Some(wtree.lookup_one(id - 1).unwrap() + 1)
                 }
             })
             .unwrap_or(id)
@@ -48,7 +48,7 @@ impl IdMap {
                 if id > wtree.len() as u64 {
                     None
                 } else {
-                    let id:usize = id.try_into().unwrap();
+                    let id: usize = id.try_into().unwrap();
                     Some(wtree.decode_one(id - 1) + 1)
                 }
             })
@@ -91,7 +91,7 @@ pub async fn construct_idmaps_from_structures<F: 'static + FileLoad + FileStore>
 
     let mut node_iters = Vec::with_capacity(len);
     let mut node_offset = 0;
-    let node_entries_len: Vec<_> = node_dicts.iter().map(|d|d.num_entries()).collect();
+    let node_entries_len: Vec<_> = node_dicts.iter().map(|d| d.num_entries()).collect();
     for (ix, dict) in node_dicts.into_iter().enumerate() {
         let idmap = node_value_idmaps[ix].clone();
         let num_entries = dict.num_entries();
@@ -125,11 +125,12 @@ pub async fn construct_idmaps_from_structures<F: 'static + FileLoad + FileStore>
     for (ix, dict) in predicate_dicts.into_iter().enumerate() {
         let idmap = predicate_idmaps[ix].clone();
         let num_entries = dict.num_entries();
-        predicate_iters.push(
-            dict.into_iter()
-                .enumerate()
-                .map(move |(i, e)| (idmap.inner_to_outer(i as u64 + 1) + predicate_offset as u64, e)),
-        );
+        predicate_iters.push(dict.into_iter().enumerate().map(move |(i, e)| {
+            (
+                idmap.inner_to_outer(i as u64 + 1) + predicate_offset as u64,
+                e,
+            )
+        }));
 
         predicate_offset += num_entries;
     }
@@ -150,9 +151,12 @@ pub async fn construct_idmaps_from_structures<F: 'static + FileLoad + FileStore>
             .map(|x| x.0)
     };
 
-    let sorted_node_iter = sorted_iterator(node_iters, entry_comparator).map(|(i,s)|(i, TypedDictEntry::new(Datatype::String, s)));
+    let sorted_node_iter = sorted_iterator(node_iters, entry_comparator)
+        .map(|(i, s)| (i, TypedDictEntry::new(Datatype::String, s)));
     let sorted_value_iter = sorted_iterator(value_iters, typed_entry_comparator);
-    let sorted_node_value_iter = sorted_node_iter.chain(sorted_value_iter).map(|(id, _)| id - 1);
+    let sorted_node_value_iter = sorted_node_iter
+        .chain(sorted_value_iter)
+        .map(|(id, _)| id - 1);
     let sorted_predicate_iter =
         sorted_iterator(predicate_iters, entry_comparator).map(|(id, _)| id - 1);
 

@@ -159,8 +159,7 @@ impl SizedDict {
     pub fn num_blocks(&self) -> usize {
         if self.data.is_empty() {
             0
-        }
-        else {
+        } else {
             self.offsets.len() + 1
         }
     }
@@ -195,9 +194,7 @@ impl SizedDict {
                     max = mid - 1;
                 }
                 Ordering::Greater => min = mid + 1,
-                Ordering::Equal => {
-                    return IdLookupResult::Found((mid * BLOCK_SIZE + 1) as u64)
-                } // what luck! turns out the string we were looking for was the block head
+                Ordering::Equal => return IdLookupResult::Found((mid * BLOCK_SIZE + 1) as u64), // what luck! turns out the string we were looking for was the block head
             }
         }
 
@@ -249,8 +246,7 @@ impl SizedDict {
         let num_blocks = self.num_blocks();
         if num_blocks == 0 {
             0
-        }
-        else {
+        } else {
             let last_block_size = self.block_num_elements(num_blocks - 1);
 
             (num_blocks - 1) * BLOCK_SIZE + last_block_size as usize
@@ -357,7 +353,11 @@ mod tests {
 
         let mut array_buf = BytesMut::new();
         let mut data_buf = BytesMut::new();
-        build_dict_and_offsets(&mut array_buf, &mut data_buf, strings.clone().into_iter().map(|s|Bytes::from(s)));
+        build_dict_and_offsets(
+            &mut array_buf,
+            &mut data_buf,
+            strings.clone().into_iter().map(|s| Bytes::from(s)),
+        );
 
         let array_bytes = array_buf.freeze();
         let data_bytes = data_buf.freeze();
@@ -448,7 +448,11 @@ mod tests {
 
         let mut array_buf = BytesMut::new();
         let mut data_buf = BytesMut::new();
-        build_dict_and_offsets(&mut array_buf, &mut data_buf, strings.clone().into_iter().map(Bytes::from));
+        build_dict_and_offsets(
+            &mut array_buf,
+            &mut data_buf,
+            strings.clone().into_iter().map(Bytes::from),
+        );
 
         let array_bytes = array_buf.freeze();
         let data_bytes = data_buf.freeze();
@@ -480,7 +484,11 @@ mod tests {
 
         let mut array_buf = BytesMut::new();
         let mut data_buf = BytesMut::new();
-        build_dict_and_offsets(&mut array_buf, &mut data_buf, strings.clone().into_iter().map(Bytes::from));
+        build_dict_and_offsets(
+            &mut array_buf,
+            &mut data_buf,
+            strings.clone().into_iter().map(Bytes::from),
+        );
 
         let array_bytes = array_buf.freeze();
         let data_bytes = data_buf.freeze();

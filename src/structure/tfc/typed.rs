@@ -9,20 +9,18 @@ use std::{borrow::Cow, marker::PhantomData};
 use super::{
     block::{IdLookupResult, SizedDictBlock, SizedDictEntry},
     dict::{SizedDict, SizedDictBufBuilder},
-    Datatype, TdbDataType, ToLexical, SizedDictEntryBuf, OwnedSizedDictEntryBuf,
+    Datatype, OwnedSizedDictEntryBuf, SizedDictEntryBuf, TdbDataType, ToLexical,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TypedDictEntry {
     datatype: Datatype,
-    entry: SizedDictEntry
+    entry: SizedDictEntry,
 }
 
 impl TypedDictEntry {
     pub fn new(datatype: Datatype, entry: SizedDictEntry) -> Self {
-        Self {
-            datatype, entry
-        }
+        Self { datatype, entry }
     }
     pub fn to_bytes(&self) -> Bytes {
         self.entry.to_bytes()
@@ -212,7 +210,8 @@ impl TypedDict {
 
         let (dict, offset) = self.inner_type_segment(type_index);
         let dt = self.type_for_type_index(type_index);
-        dict.entry(id - offset as usize).map(|e| TypedDictEntry::new(dt, e))
+        dict.entry(id - offset as usize)
+            .map(|e| TypedDictEntry::new(dt, e))
     }
 
     pub fn num_entries(&self) -> usize {
@@ -252,13 +251,19 @@ impl TypedDict {
     }
 
     pub fn iter<'a>(&'a self) -> impl Iterator<Item = TypedDictEntry> + 'a + Clone {
-        self.block_iter()
-            .flat_map(|(datatype, segment)| segment.into_iter().map(move |entry| TypedDictEntry::new(datatype, entry)))
+        self.block_iter().flat_map(|(datatype, segment)| {
+            segment
+                .into_iter()
+                .map(move |entry| TypedDictEntry::new(datatype, entry))
+        })
     }
 
     pub fn into_iter(self) -> impl Iterator<Item = TypedDictEntry> + Clone {
-        self.into_block_iter()
-            .flat_map(|(datatype, segment)| segment.into_iter().map(move |entry| TypedDictEntry::new(datatype, entry)))
+        self.into_block_iter().flat_map(|(datatype, segment)| {
+            segment
+                .into_iter()
+                .map(move |entry| TypedDictEntry::new(datatype, entry))
+        })
     }
 }
 

@@ -15,9 +15,7 @@ use crate::structure::dict_file_get_count;
 use crate::structure::logarray::logarray_file_get_length_and_width;
 use crate::structure::StringDict;
 use crate::structure::TypedDict;
-use crate::structure::{
-    util, AdjacencyList, BitIndex, LogArray, MonotonicLogArray, WaveletTree,
-};
+use crate::structure::{util, AdjacencyList, BitIndex, LogArray, MonotonicLogArray, WaveletTree};
 
 use std::convert::TryInto;
 use std::io;
@@ -1569,10 +1567,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             let files = self.node_dictionary_files(name).await?;
             let maps = files.map_all().await?;
 
-            Ok(Some(StringDict::parse(
-                maps.offsets_map,
-                maps.blocks_map,
-            )))
+            Ok(Some(StringDict::parse(maps.offsets_map, maps.blocks_map)))
         } else {
             Ok(None)
         }
@@ -1583,10 +1578,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             let files = self.predicate_dictionary_files(name).await?;
             let maps = files.map_all().await?;
 
-            Ok(Some(StringDict::parse(
-                maps.offsets_map,
-                maps.blocks_map,
-            )))
+            Ok(Some(StringDict::parse(maps.offsets_map, maps.blocks_map)))
         } else {
             Ok(None)
         }

@@ -1,6 +1,7 @@
 use super::{
     decimal::{decimal_to_storage, storage_to_decimal},
-    integer::{bigint_to_storage, storage_to_bigint}, TypedDictEntry,
+    integer::{bigint_to_storage, storage_to_bigint},
+    TypedDictEntry,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{Buf, BufMut, Bytes, BytesMut};

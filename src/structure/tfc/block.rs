@@ -74,7 +74,7 @@ impl SizedBlockHeader {
 #[derive(Clone, Debug)]
 pub enum SizedDictEntry {
     Single(Bytes),
-    Rope(Vec<Bytes>)
+    Rope(Vec<Bytes>),
 }
 
 impl From<Bytes> for SizedDictEntry {
@@ -119,17 +119,17 @@ impl SizedDictEntry {
         }
     }
 
-    pub fn chunks(&self) -> impl Iterator<Item=&Bytes> {
+    pub fn chunks(&self) -> impl Iterator<Item = &Bytes> {
         match self {
             Self::Single(b) => Either::Left(std::iter::once(b)),
-            Self::Rope(v) => Either::Right(v.iter())
+            Self::Rope(v) => Either::Right(v.iter()),
         }
     }
 
-    pub fn into_chunks(self) -> impl Iterator<Item=Bytes> {
+    pub fn into_chunks(self) -> impl Iterator<Item = Bytes> {
         match self {
             Self::Single(b) => Either::Left(std::iter::once(b)),
-            Self::Rope(v) => Either::Right(v.into_iter())
+            Self::Rope(v) => Either::Right(v.into_iter()),
         }
     }
 
@@ -166,7 +166,7 @@ impl SizedDictEntry {
     fn rope_len(&self) -> usize {
         match self {
             Self::Single(_) => 1,
-            Self::Rope(v) => v.len()
+            Self::Rope(v) => v.len(),
         }
     }
 
@@ -336,7 +336,7 @@ impl<'a> SizedDictEntryBuf<'a> {
     fn current_slice(&self) -> &Bytes {
         match self.entry.as_ref() {
             SizedDictEntry::Single(b) => &b,
-            SizedDictEntry::Rope(v) => &v[self.slice_ix]
+            SizedDictEntry::Rope(v) => &v[self.slice_ix],
         }
     }
 }

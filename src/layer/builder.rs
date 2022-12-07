@@ -24,14 +24,9 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
         predicate_files: DictionaryFiles<F>,
         value_files: TypedDictionaryFiles<F>,
     ) -> io::Result<Self> {
-        let node_dictionary_builder = StringDictBufBuilder::new(
-            BytesMut::new(),
-            BytesMut::new(),
-        );
-        let predicate_dictionary_builder = StringDictBufBuilder::new(
-            BytesMut::new(),
-            BytesMut::new(),
-        );
+        let node_dictionary_builder = StringDictBufBuilder::new(BytesMut::new(), BytesMut::new());
+        let predicate_dictionary_builder =
+            StringDictBufBuilder::new(BytesMut::new(), BytesMut::new());
         let value_dictionary_builder = TypedDictBufBuilder::new(
             BytesMut::new(),
             BytesMut::new(),
@@ -75,9 +70,10 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
     ///
     /// Panics if the given value string is not a lexical successor of the previous value string.
     pub fn add_value(&mut self, value: &str) -> u64 {
-        let id = self
-            .value_dictionary_builder
-            .add(TypedDictEntry::new(Datatype::String, Bytes::copy_from_slice(value.as_bytes()).into()));
+        let id = self.value_dictionary_builder.add(TypedDictEntry::new(
+            Datatype::String,
+            Bytes::copy_from_slice(value.as_bytes()).into(),
+        ));
 
         id
     }
@@ -140,8 +136,7 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
     }
 
     pub async fn finalize(self) -> io::Result<()> {
-        let (mut node_offsets_buf, mut node_data_buf) =
-            self.node_dictionary_builder.finalize();
+        let (mut node_offsets_buf, mut node_data_buf) = self.node_dictionary_builder.finalize();
         let (mut predicate_offsets_buf, mut predicate_data_buf) =
             self.predicate_dictionary_builder.finalize();
         let (
