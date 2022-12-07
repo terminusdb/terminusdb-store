@@ -33,7 +33,7 @@ jobs:
       if: matrix.os == 'windows-latest'
       run: |
         rustup set default-host x86_64-pc-windows-gnu
-        rustup default x86_64-pc-windows-gnu
+        rustup default stable-x86_64-pc-windows-gnu
     # Create the crate and build it. We use this instead of `cargo build`,
     # because it can help catch errors in the `Cargo.toml`.
     - name: Build the crate
