@@ -1,6 +1,6 @@
 use super::layer::*;
 use crate::layer::*;
-use crate::structure::PfcDict;
+use crate::structure::{StringDict, TypedDict};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::io;
@@ -135,7 +135,7 @@ impl LayerStore for CachedLayerStore {
         }
     }
 
-    async fn get_node_dictionary(&self, name: [u32; 5]) -> io::Result<Option<PfcDict>> {
+    async fn get_node_dictionary(&self, name: [u32; 5]) -> io::Result<Option<StringDict>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
@@ -147,7 +147,7 @@ impl LayerStore for CachedLayerStore {
         self.inner.get_node_dictionary(name).await
     }
 
-    async fn get_predicate_dictionary(&self, name: [u32; 5]) -> io::Result<Option<PfcDict>> {
+    async fn get_predicate_dictionary(&self, name: [u32; 5]) -> io::Result<Option<StringDict>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
@@ -159,7 +159,7 @@ impl LayerStore for CachedLayerStore {
         self.inner.get_predicate_dictionary(name).await
     }
 
-    async fn get_value_dictionary(&self, name: [u32; 5]) -> io::Result<Option<PfcDict>> {
+    async fn get_value_dictionary(&self, name: [u32; 5]) -> io::Result<Option<TypedDict>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
@@ -176,7 +176,7 @@ impl LayerStore for CachedLayerStore {
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
             if !layer.is_rollup() {
-                return Ok(Some(layer.node_dictionary().len() as u64));
+                return Ok(Some(layer.node_dictionary().num_entries() as u64));
             }
         }
 
@@ -188,7 +188,7 @@ impl LayerStore for CachedLayerStore {
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
             if !layer.is_rollup() {
-                return Ok(Some(layer.predicate_dictionary().len() as u64));
+                return Ok(Some(layer.predicate_dictionary().num_entries() as u64));
             }
         }
 
@@ -200,7 +200,7 @@ impl LayerStore for CachedLayerStore {
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
             if !layer.is_rollup() {
-                return Ok(Some(layer.value_dictionary().len() as u64));
+                return Ok(Some(layer.value_dictionary().num_entries() as u64));
             }
         }
 

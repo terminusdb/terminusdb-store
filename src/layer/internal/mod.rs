@@ -26,6 +26,7 @@ pub enum InternalLayer {
     Rollup(RollupLayer),
 }
 
+use tfc::block::IdLookupResult;
 use InternalLayer::*;
 
 impl InternalLayer {
@@ -64,7 +65,7 @@ impl InternalLayer {
         count
     }
 
-    pub fn node_dictionary(&self) -> &PfcDict {
+    pub fn node_dictionary(&self) -> &StringDict {
         match self {
             Base(base) => &base.node_dictionary,
             Child(child) => &child.node_dictionary,
@@ -72,7 +73,7 @@ impl InternalLayer {
         }
     }
 
-    pub fn predicate_dictionary(&self) -> &PfcDict {
+    pub fn predicate_dictionary(&self) -> &StringDict {
         match self {
             Base(base) => &base.predicate_dictionary,
             Child(child) => &child.predicate_dictionary,
@@ -80,7 +81,7 @@ impl InternalLayer {
         }
     }
 
-    pub fn value_dictionary(&self) -> &PfcDict {
+    pub fn value_dictionary(&self) -> &TypedDict {
         match self {
             Base(base) => &base.value_dictionary,
             Child(child) => &child.value_dictionary,
@@ -221,15 +222,15 @@ impl InternalLayer {
     }
 
     pub fn predicate_dict_len(&self) -> usize {
-        self.predicate_dictionary().len()
+        self.predicate_dictionary().num_entries()
     }
 
-    pub fn predicate_dict_id(&self, predicate: &str) -> Option<u64> {
-        self.predicate_dictionary().id(predicate)
+    pub fn predicate_dict_id(&self, predicate: &str) -> IdLookupResult {
+        self.predicate_dictionary().id(&predicate)
     }
 
-    pub fn node_dict_id(&self, subject: &str) -> Option<u64> {
-        self.node_dictionary().id(subject)
+    pub fn node_dict_id(&self, subject: &str) -> IdLookupResult {
+        self.node_dictionary().id(&subject)
     }
 
     pub fn node_dict_get(&self, id: usize) -> Option<String> {
@@ -237,15 +238,15 @@ impl InternalLayer {
     }
 
     pub fn node_dict_len(&self) -> usize {
-        self.node_dictionary().len()
+        self.node_dictionary().num_entries()
     }
 
-    pub fn value_dict_id(&self, value: &str) -> Option<u64> {
-        self.value_dictionary().id(value)
+    pub fn value_dict_id(&self, value: &str) -> IdLookupResult {
+        self.value_dictionary().id(&value)
     }
 
     pub fn value_dict_len(&self) -> usize {
-        self.value_dictionary().len()
+        self.value_dictionary().num_entries()
     }
 
     pub fn value_dict_get(&self, id: usize) -> Option<String> {
@@ -541,12 +542,12 @@ impl Layer for InternalLayer {
 
     fn node_and_value_count(&self) -> usize {
         self.parent_node_value_count()
-            + self.node_dictionary().len()
-            + self.value_dictionary().len()
+            + self.node_dictionary().num_entries()
+            + self.value_dictionary().num_entries()
     }
 
     fn predicate_count(&self) -> usize {
-        self.parent_predicate_count() + self.predicate_dictionary().len()
+        self.parent_predicate_count() + self.predicate_dictionary().num_entries()
     }
 
     fn subject_id<'a>(&'a self, subject: &str) -> Option<u64> {
@@ -554,6 +555,7 @@ impl Layer for InternalLayer {
             (
                 layer
                     .node_dict_id(subject)
+                    .into_option()
                     .map(|id| layer.node_value_id_map().inner_to_outer(id)),
                 layer.immediate_parent(),
             )
@@ -563,7 +565,7 @@ impl Layer for InternalLayer {
             result = to_result(layer);
         }
         let (id_option, parent_option) = result;
-        id_option.map(|id| 1 + id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
+        id_option.map(|id| id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
     }
 
     fn predicate_id<'a>(&'a self, predicate: &str) -> Option<u64> {
@@ -571,6 +573,7 @@ impl Layer for InternalLayer {
             (
                 layer
                     .predicate_dict_id(predicate)
+                    .into_option()
                     .map(|id| layer.predicate_id_map().inner_to_outer(id)),
                 layer.immediate_parent(),
             )
@@ -580,7 +583,7 @@ impl Layer for InternalLayer {
             result = to_result(layer);
         }
         let (id_option, parent_option) = result;
-        id_option.map(|id| 1 + id + parent_option.map_or(0, |p| p.predicate_count() as u64))
+        id_option.map(|id| id + parent_option.map_or(0, |p| p.predicate_count() as u64))
     }
 
     fn object_node_id<'a>(&'a self, object: &str) -> Option<u64> {
@@ -588,6 +591,7 @@ impl Layer for InternalLayer {
             (
                 layer
                     .node_dict_id(object)
+                    .into_option()
                     .map(|id| layer.node_value_id_map().inner_to_outer(id)),
                 layer.immediate_parent(),
             )
@@ -597,13 +601,13 @@ impl Layer for InternalLayer {
             result = to_result(layer);
         }
         let (id_option, parent_option) = result;
-        id_option.map(|id| 1 + id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
+        id_option.map(|id| id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
     }
 
     fn object_value_id<'a>(&'a self, object: &str) -> Option<u64> {
         let to_result = |layer: &'a InternalLayer| {
             (
-                layer.value_dict_id(object).map(|i| {
+                layer.value_dict_id(object).into_option().map(|i| {
                     layer
                         .node_value_id_map()
                         .inner_to_outer(i + layer.node_dict_len() as u64)
@@ -616,14 +620,14 @@ impl Layer for InternalLayer {
             result = to_result(layer);
         }
         let (id_option, parent_option) = result;
-        id_option.map(|id| 1 + id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
+        id_option.map(|id| id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
     }
 
     fn id_subject(&self, id: u64) -> Option<String> {
         if id == 0 {
             return None;
         }
-        let mut corrected_id = id - 1;
+        let mut corrected_id = id;
         let mut current_option: Option<&InternalLayer> = Some(self);
         let mut parent_count = self.node_and_value_count() as u64;
         while let Some(current_layer) = current_option {
@@ -631,7 +635,7 @@ impl Layer for InternalLayer {
                 parent_count = parent_count
                     - current_layer.node_dict_len() as u64
                     - current_layer.value_dict_len() as u64;
-                if corrected_id >= parent_count as u64 {
+                if corrected_id > parent_count as u64 {
                     // subject, if it exists, is in this layer
                     corrected_id -= parent_count;
                 } else {
@@ -659,10 +663,10 @@ impl Layer for InternalLayer {
         let mut current_option: Option<&InternalLayer> = Some(self);
         let mut parent_count = self.predicate_count() as u64;
         while let Some(current_layer) = current_option {
-            let mut corrected_id = id - 1;
+            let mut corrected_id = id;
             if let Some(parent) = current_layer.immediate_parent() {
                 parent_count -= current_layer.predicate_dict_len() as u64;
-                if corrected_id >= parent_count as u64 {
+                if corrected_id > parent_count as u64 {
                     // subject, if it exists, is in this layer
                     corrected_id -= parent_count;
                 } else {
@@ -687,7 +691,7 @@ impl Layer for InternalLayer {
         if id == 0 {
             return None;
         }
-        let mut corrected_id = id - 1;
+        let mut corrected_id = id;
         let mut current_option: Option<&InternalLayer> = Some(self);
         let mut parent_count = self.node_and_value_count() as u64;
         while let Some(current_layer) = current_option {
@@ -696,7 +700,7 @@ impl Layer for InternalLayer {
                     - current_layer.node_dict_len() as u64
                     - current_layer.value_dict_len() as u64;
 
-                if corrected_id >= parent_count {
+                if corrected_id > parent_count {
                     // object, if it exists, is in this layer
                     corrected_id -= parent_count;
                 } else {
@@ -709,7 +713,7 @@ impl Layer for InternalLayer {
                 .node_value_id_map()
                 .outer_to_inner(corrected_id);
 
-            if corrected_id >= current_layer.node_dict_len() as u64 {
+            if corrected_id > current_layer.node_dict_len() as u64 {
                 // object, if it exists, must be a value
                 corrected_id -= current_layer.node_dict_len() as u64;
                 return current_layer
@@ -730,7 +734,7 @@ impl Layer for InternalLayer {
             return None;
         }
 
-        let mut corrected_id = id - 1;
+        let mut corrected_id = id;
         let mut current_option: Option<&InternalLayer> = Some(self);
         let mut parent_count = self.node_and_value_count() as u64;
         while let Some(current_layer) = current_option {
@@ -1103,18 +1107,9 @@ mod tests {
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
 
         let mut builder = BaseLayerFileBuilder::from_files(&files).await.unwrap();
-        builder
-            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
-        builder
-            .add_predicates(predicates.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
-        builder
-            .add_values(values.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
+        builder.add_nodes(nodes.into_iter().map(|s| s.to_string()));
+        builder.add_predicates(predicates.into_iter().map(|s| s.to_string()));
+        builder.add_values(values.into_iter().map(|s| s.to_string()));
         let mut builder = builder.into_phase2().await.unwrap();
         builder.add_triple(3, 3, 3).await.unwrap();
         builder.finalize().await.unwrap();

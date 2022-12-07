@@ -1,5 +1,6 @@
 use std::io;
 
+use bytes::{Bytes, BytesMut};
 use futures::stream::TryStreamExt;
 use rayon::prelude::*;
 
@@ -8,32 +9,35 @@ use crate::storage::*;
 use crate::structure::util;
 use crate::structure::*;
 
-pub struct DictionarySetFileBuilder<F: 'static + FileStore> {
-    node_dictionary_builder: PfcDictFileBuilder<F::Write>,
-    predicate_dictionary_builder: PfcDictFileBuilder<F::Write>,
-    value_dictionary_builder: PfcDictFileBuilder<F::Write>,
+pub struct DictionarySetFileBuilder<F: 'static + FileLoad + FileStore> {
+    node_files: DictionaryFiles<F>,
+    predicate_files: DictionaryFiles<F>,
+    value_files: TypedDictionaryFiles<F>,
+    node_dictionary_builder: StringDictBufBuilder<BytesMut, BytesMut>,
+    predicate_dictionary_builder: StringDictBufBuilder<BytesMut, BytesMut>,
+    value_dictionary_builder: TypedDictBufBuilder<BytesMut, BytesMut, BytesMut, BytesMut>,
 }
 
 impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
     pub async fn from_files(
         node_files: DictionaryFiles<F>,
         predicate_files: DictionaryFiles<F>,
-        value_files: DictionaryFiles<F>,
+        value_files: TypedDictionaryFiles<F>,
     ) -> io::Result<Self> {
-        let node_dictionary_builder = PfcDictFileBuilder::new(
-            node_files.blocks_file.open_write().await?,
-            node_files.offsets_file.open_write().await?,
-        );
-        let predicate_dictionary_builder = PfcDictFileBuilder::new(
-            predicate_files.blocks_file.open_write().await?,
-            predicate_files.offsets_file.open_write().await?,
-        );
-        let value_dictionary_builder = PfcDictFileBuilder::new(
-            value_files.blocks_file.open_write().await?,
-            value_files.offsets_file.open_write().await?,
+        let node_dictionary_builder = StringDictBufBuilder::new(BytesMut::new(), BytesMut::new());
+        let predicate_dictionary_builder =
+            StringDictBufBuilder::new(BytesMut::new(), BytesMut::new());
+        let value_dictionary_builder = TypedDictBufBuilder::new(
+            BytesMut::new(),
+            BytesMut::new(),
+            BytesMut::new(),
+            BytesMut::new(),
         );
 
         Ok(Self {
+            node_files,
+            predicate_files,
+            value_files,
             node_dictionary_builder,
             predicate_dictionary_builder,
             value_dictionary_builder,
@@ -43,91 +47,120 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
     /// Add a node string.
     ///
     /// Panics if the given node string is not a lexical successor of the previous node string.
-    pub async fn add_node(&mut self, node: &str) -> io::Result<u64> {
-        let id = self.node_dictionary_builder.add(node).await?;
+    pub fn add_node(&mut self, node: &str) -> u64 {
+        let id = self
+            .node_dictionary_builder
+            .add(Bytes::copy_from_slice(node.as_bytes()));
 
-        Ok(id)
+        id
     }
 
     /// Add a predicate string.
     ///
     /// Panics if the given predicate string is not a lexical successor of the previous node string.
-    pub async fn add_predicate(&mut self, predicate: &str) -> io::Result<u64> {
-        let id = self.predicate_dictionary_builder.add(predicate).await?;
+    pub fn add_predicate(&mut self, predicate: &str) -> u64 {
+        let id = self
+            .predicate_dictionary_builder
+            .add(Bytes::copy_from_slice(predicate.as_bytes()));
 
-        Ok(id)
+        id
     }
 
     /// Add a value string.
     ///
     /// Panics if the given value string is not a lexical successor of the previous value string.
-    pub async fn add_value(&mut self, value: &str) -> io::Result<u64> {
-        let id = self.value_dictionary_builder.add(value).await?;
+    pub fn add_value(&mut self, value: &str) -> u64 {
+        let id = self.value_dictionary_builder.add(TypedDictEntry::new(
+            Datatype::String,
+            Bytes::copy_from_slice(value.as_bytes()).into(),
+        ));
 
-        Ok(id)
+        id
     }
 
     /// Add nodes from an iterable.
     ///
     /// Panics if the nodes are not in lexical order, or if previous added nodes are a lexical succesor of any of these nodes.
-    pub async fn add_nodes<I: 'static + IntoIterator<Item = String> + Unpin + Send + Sync>(
+    pub fn add_nodes<I: 'static + IntoIterator<Item = String> + Unpin + Send + Sync>(
         &mut self,
         nodes: I,
-    ) -> io::Result<Vec<u64>>
+    ) -> Vec<u64>
     where
         <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
     {
         let mut ids = Vec::new();
         for node in nodes {
-            let id = self.add_node(&node).await?;
+            let id = self.add_node(&node);
             ids.push(id);
         }
 
-        Ok(ids)
+        ids
     }
 
     /// Add predicates from an iterable.
     ///
     /// Panics if the predicates are not in lexical order, or if previous added predicates are a lexical succesor of any of these predicates.
-    pub async fn add_predicates<I: 'static + IntoIterator<Item = String> + Unpin + Send + Sync>(
+    pub fn add_predicates<I: 'static + IntoIterator<Item = String> + Unpin + Send + Sync>(
         &mut self,
         predicates: I,
-    ) -> io::Result<Vec<u64>>
+    ) -> Vec<u64>
     where
         <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
     {
         let mut ids = Vec::new();
         for predicate in predicates {
-            let id = self.add_predicate(&predicate).await?;
+            let id = self.add_predicate(&predicate);
             ids.push(id);
         }
 
-        Ok(ids)
+        ids
     }
 
     /// Add values from an iterable.
     ///
     /// Panics if the values are not in lexical order, or if previous added values are a lexical succesor of any of these values.
-    pub async fn add_values<I: 'static + IntoIterator<Item = String> + Unpin + Send + Sync>(
+    pub fn add_values<I: 'static + IntoIterator<Item = String> + Unpin + Send + Sync>(
         &mut self,
         values: I,
-    ) -> io::Result<Vec<u64>>
+    ) -> Vec<u64>
     where
         <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
     {
         let mut ids = Vec::new();
         for value in values {
-            let id = self.add_value(&value).await?;
+            let id = self.add_value(&value);
             ids.push(id);
         }
 
-        Ok(ids)
+        ids
     }
 
     pub async fn finalize(self) -> io::Result<()> {
-        self.node_dictionary_builder.finalize().await?;
-        self.predicate_dictionary_builder.finalize().await?;
-        self.value_dictionary_builder.finalize().await?;
+        let (mut node_offsets_buf, mut node_data_buf) = self.node_dictionary_builder.finalize();
+        let (mut predicate_offsets_buf, mut predicate_data_buf) =
+            self.predicate_dictionary_builder.finalize();
+        let (
+            mut value_types_present_buf,
+            mut value_type_offsets_buf,
+            mut value_offsets_buf,
+            mut value_data_buf,
+        ) = self.value_dictionary_builder.finalize();
+
+        self.node_files
+            .write_all_from_bufs(&mut node_data_buf, &mut node_offsets_buf)
+            .await?;
+        self.predicate_files
+            .write_all_from_bufs(&mut predicate_data_buf, &mut predicate_offsets_buf)
+            .await?;
+
+        self.value_files
+            .write_all_from_bufs(
+                &mut value_types_present_buf,
+                &mut value_type_offsets_buf,
+                &mut value_offsets_buf,
+                &mut value_data_buf,
+            )
+            .await?;
 
         Ok(())
     }

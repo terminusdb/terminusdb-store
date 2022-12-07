@@ -193,11 +193,9 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                     let mut builder =
                         ChildLayerFileBuilder::from_files(parent.clone(), &files).await?;
 
-                    let node_ids = builder.add_nodes(unresolved_nodes.clone()).await?;
-                    let predicate_ids = builder
-                        .add_predicates(unresolved_predicates.clone())
-                        .await?;
-                    let value_ids = builder.add_values(unresolved_values.clone()).await?;
+                    let node_ids = builder.add_nodes(unresolved_nodes.clone());
+                    let predicate_ids = builder.add_predicates(unresolved_predicates.clone());
+                    let value_ids = builder.add_values(unresolved_values.clone());
 
                     let mut builder = builder.into_phase2().await?;
 
@@ -240,11 +238,9 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                     let files = files.into_base();
                     let mut builder = BaseLayerFileBuilder::from_files(&files).await?;
 
-                    let node_ids = builder.add_nodes(unresolved_nodes.clone()).await?;
-                    let predicate_ids = builder
-                        .add_predicates(unresolved_predicates.clone())
-                        .await?;
-                    let value_ids = builder.add_values(unresolved_values.clone()).await?;
+                    let node_ids = builder.add_nodes(unresolved_nodes.clone());
+                    let predicate_ids = builder.add_predicates(unresolved_predicates.clone());
+                    let value_ids = builder.add_values(unresolved_values.clone());
 
                     let mut builder = builder.into_phase2().await?;
 

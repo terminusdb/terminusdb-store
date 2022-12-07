@@ -1,8 +1,6 @@
 use bytes::Buf;
 use rug::Integer;
 
-use crate::structure::tfc::integer;
-
 use super::integer::{bigint_to_storage, storage_to_bigint_and_sign, NEGATIVE_ZERO};
 
 fn encode_fraction(fraction: Option<&str>) -> Vec<u8> {

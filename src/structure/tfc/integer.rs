@@ -91,8 +91,8 @@ pub fn bigint_to_storage(bigint: Integer) -> Vec<u8> {
     }
     number_vec.extend(size_bytes);
     if is_neg {
-        for i in 0..number_vec.len() {
-            number_vec[i] = !number_vec[i]
+        for e in number_vec.iter_mut() {
+            *e = !*e;
         }
     }
     number_vec.reverse();

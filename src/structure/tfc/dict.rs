@@ -4,44 +4,24 @@ use crate::structure::{
     util::calculate_width, LateLogArrayBufBuilder, LogArrayBufBuilder, MonotonicLogArray,
 };
 use bytes::{BufMut, Bytes};
-use itertools::Itertools;
 
 use super::block::*;
 
-pub fn build_dict_unchecked<B: BufMut, R: AsRef<[u8]>, I: Iterator<Item = R>>(
-    record_size: Option<u8>,
-    start_offset: u64,
-    offsets: &mut Vec<u64>,
-    data_buf: &mut B,
-    iter: I,
-) {
-    let chunk_iter = iter.chunks(BLOCK_SIZE);
-
-    let mut offset = start_offset;
-    for chunk in &chunk_iter {
-        let slices: Vec<R> = chunk.collect();
-        let borrows: Vec<&[u8]> = slices.iter().map(|s| s.as_ref()).collect();
-        let size = build_block_unchecked(record_size, data_buf, &borrows);
-        offset += size as u64;
-        offsets.push(offset);
-    }
-}
-
-pub struct SizedDictBufBuilder<'a, B1: BufMut, B2: BufMut> {
+pub struct SizedDictBufBuilder<B1: BufMut, B2: BufMut> {
     pub(crate) record_size: Option<u8>,
     block_offset: u64,
     id_offset: u64,
-    offsets: LateLogArrayBufBuilder<'a, B1>,
+    offsets: LateLogArrayBufBuilder<B1>,
     data_buf: B2,
     current_block: Vec<Bytes>,
 }
 
-impl<'a, B1: BufMut, B2: BufMut> SizedDictBufBuilder<'a, B1, B2> {
+impl<B1: BufMut, B2: BufMut> SizedDictBufBuilder<B1, B2> {
     pub fn new(
         record_size: Option<u8>,
         block_offset: u64,
         id_offset: u64,
-        offsets: LateLogArrayBufBuilder<'a, B1>,
+        offsets: LateLogArrayBufBuilder<B1>,
         data_buf: B2,
     ) -> Self {
         Self {
@@ -85,7 +65,7 @@ impl<'a, B1: BufMut, B2: BufMut> SizedDictBufBuilder<'a, B1, B2> {
         it.map(|val| self.add(val)).collect()
     }
 
-    pub fn finalize(mut self) -> (LateLogArrayBufBuilder<'a, B1>, B2, u64, u64) {
+    pub fn finalize(mut self) -> (LateLogArrayBufBuilder<B1>, B2, u64, u64) {
         if self.current_block.len() > 0 {
             let current_block: Vec<&[u8]> = self.current_block.iter().map(|e| e.as_ref()).collect();
             let size = build_block_unchecked(self.record_size, &mut self.data_buf, &current_block);
@@ -147,6 +127,9 @@ impl SizedDict {
     }
 
     pub fn block_bytes(&self, block_index: usize) -> Bytes {
+        if self.data.is_empty() {
+            panic!("empty dictionary has no block");
+        }
         let offset = self.block_offset(block_index);
         let block_bytes;
         block_bytes = self.data.slice(offset..);
@@ -165,18 +148,28 @@ impl SizedDict {
     }
 
     pub fn block_num_elements(&self, block_index: usize) -> u8 {
-        let offset = self.block_offset(block_index);
-
-        self.data[offset]
+        if self.data.is_empty() {
+            0
+        } else {
+            let offset = self.block_offset(block_index);
+            parse_block_control_records(self.data[offset])
+        }
     }
 
     pub fn num_blocks(&self) -> usize {
-        self.offsets.len() + 1
+        if self.data.is_empty() {
+            0
+        } else {
+            self.offsets.len() + 1
+        }
     }
 
-    pub fn entry(&self, index: u64) -> SizedDictEntry {
+    pub fn entry(&self, index: usize) -> Option<SizedDictEntry> {
+        if index > self.num_entries() {
+            return None;
+        }
         let block = self.block(((index - 1) / 8) as usize);
-        block.entry(((index - 1) % 8) as usize)
+        Some(block.entry(((index - 1) % 8) as usize))
     }
 
     pub fn id(&self, slice: &[u8]) -> IdLookupResult {
@@ -184,10 +177,11 @@ impl SizedDict {
         let mut min = 0;
         let mut max = self.offsets.len();
         let mut mid: usize;
-
+        if self.is_empty() {
+            return IdLookupResult::NotFound;
+        }
         while min <= max {
             mid = (min + max) / 2;
-
             let head_slice = self.block_head(mid);
 
             match slice.cmp(&head_slice[..]) {
@@ -246,6 +240,21 @@ impl SizedDict {
 
     pub fn into_iter(self) -> impl Iterator<Item = SizedDictEntry> + Clone {
         self.into_block_iter().flat_map(|b| b.into_iter())
+    }
+
+    pub fn num_entries(&self) -> usize {
+        let num_blocks = self.num_blocks();
+        if num_blocks == 0 {
+            0
+        } else {
+            let last_block_size = self.block_num_elements(num_blocks - 1);
+
+            (num_blocks - 1) * BLOCK_SIZE + last_block_size as usize
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
     }
 }
 
@@ -308,14 +317,19 @@ mod tests {
     use super::*;
     use bytes::BytesMut;
 
-    fn build_dict_and_offsets<B1: BufMut, B2: BufMut, R: AsRef<[u8]>, I: Iterator<Item = R>>(
-        array_buf: &mut B1,
-        data_buf: &mut B2,
+    fn build_dict_and_offsets<B1: BufMut, B2: BufMut, I: Iterator<Item = Bytes>>(
+        array_buf: B1,
+        data_buf: B2,
         vals: I,
-    ) {
-        let mut offsets = Vec::new();
-        build_dict_unchecked(None, 0, &mut offsets, data_buf, vals);
-        build_offset_logarray(array_buf, offsets);
+    ) -> (B1, B2) {
+        let offsets = LateLogArrayBufBuilder::new(array_buf);
+        let mut builder = SizedDictBufBuilder::new(None, 0, 0, offsets, data_buf);
+        builder.add_all(vals);
+        let (mut array, data_buf, _, _) = builder.finalize();
+        array.pop();
+        let array_buf = array.finalize();
+
+        (array_buf, data_buf)
     }
 
     #[test]
@@ -339,7 +353,11 @@ mod tests {
 
         let mut array_buf = BytesMut::new();
         let mut data_buf = BytesMut::new();
-        build_dict_and_offsets(&mut array_buf, &mut data_buf, strings.clone().into_iter());
+        build_dict_and_offsets(
+            &mut array_buf,
+            &mut data_buf,
+            strings.clone().into_iter().map(|s| Bytes::from(s)),
+        );
 
         let array_bytes = array_buf.freeze();
         let data_bytes = data_buf.freeze();
@@ -356,7 +374,7 @@ mod tests {
         assert_eq!(6, block1.num_entries());
 
         for (ix, s) in strings.into_iter().enumerate() {
-            assert_eq!(s, &dict.entry((ix + 1) as u64).to_bytes()[..]);
+            assert_eq!(s, &dict.entry(ix + 1).unwrap().to_bytes()[..]);
         }
     }
 
@@ -405,7 +423,7 @@ mod tests {
         assert_eq!(6, block1.num_entries());
 
         for (ix, s) in strings.into_iter().enumerate() {
-            assert_eq!(s, &dict.entry((ix + 1) as u64).to_bytes()[..]);
+            assert_eq!(s, &dict.entry(ix + 1).unwrap().to_bytes()[..]);
         }
     }
 
@@ -430,7 +448,11 @@ mod tests {
 
         let mut array_buf = BytesMut::new();
         let mut data_buf = BytesMut::new();
-        build_dict_and_offsets(&mut array_buf, &mut data_buf, strings.clone().into_iter());
+        build_dict_and_offsets(
+            &mut array_buf,
+            &mut data_buf,
+            strings.clone().into_iter().map(Bytes::from),
+        );
 
         let array_bytes = array_buf.freeze();
         let data_bytes = data_buf.freeze();
@@ -462,7 +484,11 @@ mod tests {
 
         let mut array_buf = BytesMut::new();
         let mut data_buf = BytesMut::new();
-        build_dict_and_offsets(&mut array_buf, &mut data_buf, strings.clone().into_iter());
+        build_dict_and_offsets(
+            &mut array_buf,
+            &mut data_buf,
+            strings.clone().into_iter().map(Bytes::from),
+        );
 
         let array_bytes = array_buf.freeze();
         let data_bytes = data_buf.freeze();

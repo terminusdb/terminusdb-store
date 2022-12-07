@@ -2,8 +2,8 @@
 
 use std::io;
 
-use bytes::Bytes;
-use tokio::io::{AsyncRead, AsyncWrite};
+use bytes::{Buf, Bytes};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use async_trait::async_trait;
 
@@ -65,7 +65,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerFiles<F> {
         }
     }
 
-    pub fn value_dictionary_files(&self) -> &DictionaryFiles<F> {
+    pub fn value_dictionary_files(&self) -> &TypedDictionaryFiles<F> {
         match self {
             Self::Base(b) => &b.value_dictionary_files,
             Self::Child(c) => &c.value_dictionary_files,
@@ -91,7 +91,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerFiles<F> {
 pub struct BaseLayerFiles<F: 'static + FileLoad + FileStore> {
     pub node_dictionary_files: DictionaryFiles<F>,
     pub predicate_dictionary_files: DictionaryFiles<F>,
-    pub value_dictionary_files: DictionaryFiles<F>,
+    pub value_dictionary_files: TypedDictionaryFiles<F>,
 
     pub id_map_files: IdMapFiles<F>,
 
@@ -110,7 +110,7 @@ pub struct BaseLayerFiles<F: 'static + FileLoad + FileStore> {
 pub struct BaseLayerMaps {
     pub node_dictionary_maps: DictionaryMaps,
     pub predicate_dictionary_maps: DictionaryMaps,
-    pub value_dictionary_maps: DictionaryMaps,
+    pub value_dictionary_maps: TypedDictionaryMaps,
 
     pub id_map_maps: IdMapMaps,
 
@@ -165,7 +165,7 @@ impl<F: FileLoad + FileStore> BaseLayerFiles<F> {
 pub struct ChildLayerFiles<F: 'static + FileLoad + FileStore + Clone + Send + Sync> {
     pub node_dictionary_files: DictionaryFiles<F>,
     pub predicate_dictionary_files: DictionaryFiles<F>,
-    pub value_dictionary_files: DictionaryFiles<F>,
+    pub value_dictionary_files: TypedDictionaryFiles<F>,
 
     pub id_map_files: IdMapFiles<F>,
 
@@ -189,7 +189,7 @@ pub struct ChildLayerFiles<F: 'static + FileLoad + FileStore + Clone + Send + Sy
 pub struct ChildLayerMaps {
     pub node_dictionary_maps: DictionaryMaps,
     pub predicate_dictionary_maps: DictionaryMaps,
-    pub value_dictionary_maps: DictionaryMaps,
+    pub value_dictionary_maps: TypedDictionaryMaps,
 
     pub id_map_maps: IdMapMaps,
 
@@ -261,6 +261,72 @@ impl<F: FileLoad + FileStore + Clone> ChildLayerFiles<F> {
 }
 
 #[derive(Clone)]
+pub struct TypedDictionaryMaps {
+    pub types_present_map: Bytes,
+    pub type_offsets_map: Bytes,
+    pub blocks_map: Bytes,
+    pub offsets_map: Bytes,
+}
+
+#[derive(Clone)]
+pub struct TypedDictionaryFiles<F: 'static + FileLoad + FileStore> {
+    pub types_present_file: F,
+    pub type_offsets_file: F,
+    pub blocks_file: F,
+    pub offsets_file: F,
+}
+
+impl<F: 'static + FileLoad + FileStore> TypedDictionaryFiles<F> {
+    pub async fn map_all(&self) -> io::Result<TypedDictionaryMaps> {
+        let types_present_map = self.types_present_file.map().await?;
+        let type_offsets_map = self.type_offsets_file.map().await?;
+        let offsets_map = self.offsets_file.map().await?;
+        let blocks_map = self.blocks_file.map().await?;
+
+        Ok(TypedDictionaryMaps {
+            types_present_map,
+            type_offsets_map,
+            offsets_map,
+            blocks_map,
+        })
+    }
+
+    pub async fn write_all_from_bufs<B1: Buf, B2: Buf, B3: Buf, B4: Buf>(
+        &self,
+        types_present_buf: &mut B1,
+        type_offsets_buf: &mut B2,
+        offsets_buf: &mut B3,
+        blocks_buf: &mut B4,
+    ) -> io::Result<()> {
+        let mut types_present_writer = self.types_present_file.open_write().await?;
+        let mut type_offsets_writer = self.type_offsets_file.open_write().await?;
+        let mut offsets_writer = self.offsets_file.open_write().await?;
+        let mut blocks_writer = self.blocks_file.open_write().await?;
+
+        types_present_writer
+            .write_all_buf(types_present_buf)
+            .await?;
+        type_offsets_writer.write_all_buf(type_offsets_buf).await?;
+        offsets_writer.write_all_buf(offsets_buf).await?;
+        blocks_writer.write_all_buf(blocks_buf).await?;
+
+        types_present_writer.flush().await?;
+        types_present_writer.sync_all().await?;
+
+        type_offsets_writer.flush().await?;
+        type_offsets_writer.sync_all().await?;
+
+        offsets_writer.flush().await?;
+        offsets_writer.sync_all().await?;
+
+        blocks_writer.flush().await?;
+        blocks_writer.sync_all().await?;
+
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
 pub struct DictionaryMaps {
     pub blocks_map: Bytes,
     pub offsets_map: Bytes,
@@ -275,13 +341,33 @@ pub struct DictionaryFiles<F: 'static + FileLoad + FileStore> {
 
 impl<F: 'static + FileLoad + FileStore> DictionaryFiles<F> {
     pub async fn map_all(&self) -> io::Result<DictionaryMaps> {
-        let blocks_map = self.blocks_file.map().await?;
         let offsets_map = self.offsets_file.map().await?;
+        let blocks_map = self.blocks_file.map().await?;
 
         Ok(DictionaryMaps {
-            blocks_map,
             offsets_map,
+            blocks_map,
         })
+    }
+
+    pub async fn write_all_from_bufs<B1: Buf, B2: Buf>(
+        &self,
+        blocks_buf: &mut B1,
+        offsets_buf: &mut B2,
+    ) -> io::Result<()> {
+        let mut offsets_writer = self.offsets_file.open_write().await?;
+        let mut blocks_writer = self.blocks_file.open_write().await?;
+
+        offsets_writer.write_all_buf(offsets_buf).await?;
+        blocks_writer.write_all_buf(blocks_buf).await?;
+
+        offsets_writer.flush().await?;
+        offsets_writer.sync_all().await?;
+
+        blocks_writer.flush().await?;
+        blocks_writer.sync_all().await?;
+
+        Ok(())
     }
 }
 

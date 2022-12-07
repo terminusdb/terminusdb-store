@@ -494,18 +494,9 @@ mod tests {
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
 
-        builder
-            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
-        builder
-            .add_predicates(predicates.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
-        builder
-            .add_values(values.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
+        builder.add_nodes(nodes.into_iter().map(|s| s.to_string()));
+        builder.add_predicates(predicates.into_iter().map(|s| s.to_string()));
+        builder.add_values(values.into_iter().map(|s| s.to_string()));
         let mut builder = builder.into_phase2().await.unwrap();
         builder.add_triple(1, 1, 1).await.unwrap();
         builder.add_triple(3, 2, 5).await.unwrap();
@@ -536,18 +527,9 @@ mod tests {
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
 
-        builder
-            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
-        builder
-            .add_predicates(predicates.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
-        builder
-            .add_values(values.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
+        builder.add_nodes(nodes.into_iter().map(|s| s.to_string()));
+        builder.add_predicates(predicates.into_iter().map(|s| s.to_string()));
+        builder.add_values(values.into_iter().map(|s| s.to_string()));
         let mut builder = builder.into_phase2().await.unwrap();
         builder.add_triple(1, 1, 1).await.unwrap();
         builder.add_triple(3, 2, 5).await.unwrap();
@@ -621,18 +603,9 @@ mod tests {
         let predicates = vec!["abcde", "fghij", "klmno", "lll"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
 
-        builder
-            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
-        builder
-            .add_predicates(predicates.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
-        builder
-            .add_values(values.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
+        builder.add_nodes(nodes.into_iter().map(|s| s.to_string()));
+        builder.add_predicates(predicates.into_iter().map(|s| s.to_string()));
+        builder.add_values(values.into_iter().map(|s| s.to_string()));
         let mut builder = builder.into_phase2().await.unwrap();
         builder.add_triple(3, 2, 5).await.unwrap();
         builder.add_triple(3, 3, 5).await.unwrap();
@@ -663,18 +636,9 @@ mod tests {
         let predicates = vec!["abcde", "fghij", "klmno", "lll", "xyz", "yyy"];
         let values = vec!["chicken", "cow", "dog", "pig", "zebra"];
 
-        builder
-            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
-        builder
-            .add_predicates(predicates.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
-        builder
-            .add_values(values.into_iter().map(|s| s.to_string()))
-            .await
-            .unwrap();
+        builder.add_nodes(nodes.into_iter().map(|s| s.to_string()));
+        builder.add_predicates(predicates.into_iter().map(|s| s.to_string()));
+        builder.add_values(values.into_iter().map(|s| s.to_string()));
         let mut builder = builder.into_phase2().await.unwrap();
         builder.add_triple(1, 1, 1).await.unwrap();
         builder.add_triple(3, 2, 4).await.unwrap();
