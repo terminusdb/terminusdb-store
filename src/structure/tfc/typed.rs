@@ -9,7 +9,7 @@ use std::{borrow::Cow, marker::PhantomData};
 use super::{
     block::{IdLookupResult, SizedDictBlock, SizedDictEntry},
     dict::{SizedDict, SizedDictBufBuilder},
-    Datatype, OwnedSizedDictEntryBuf, SizedDictEntryBuf, TdbDataType, ToLexical,
+    Datatype, FromLexical, OwnedSizedDictEntryBuf, SizedDictEntryBuf, TdbDataType, ToLexical,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -32,6 +32,11 @@ impl TypedDictEntry {
 
     pub fn into_buf(self) -> OwnedSizedDictEntryBuf {
         self.entry.into_buf()
+    }
+
+    pub fn as_val<Q: TdbDataType, T: FromLexical<Q>>(&self) -> T {
+        assert_eq!(Q::datatype(), self.datatype);
+        T::from_lexical(self.entry.as_buf())
     }
 }
 
@@ -494,7 +499,6 @@ mod tests {
     use bytes::BytesMut;
     use rug::Integer;
 
-    use super::super::datatypes::FromLexical;
     use crate::structure::Decimal;
 
     use super::*;

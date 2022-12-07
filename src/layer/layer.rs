@@ -591,4 +591,69 @@ mod tests {
             triple_2
         );
     }
+
+    #[tokio::test]
+    async fn find_nonstring_triples() {
+        let files = base_layer_files();
+        let mut builder = SimpleLayerBuilder::new([1, 2, 3, 4, 5], files.clone());
+
+        builder.add_value_triple(ValueTriple::new_value(
+            "duck",
+            "num_feet",
+            u32::make_entry(&2),
+        ));
+        builder.add_value_triple(ValueTriple::new_value(
+            "cow",
+            "num_feet",
+            u32::make_entry(&4),
+        ));
+        builder.add_value_triple(ValueTriple::new_value(
+            "disabled_cow",
+            "num_feet",
+            u32::make_entry(&3),
+        ));
+        builder.add_value_triple(ValueTriple::new_value(
+            "duck",
+            "swims",
+            String::make_entry(&"true"),
+        ));
+        builder.add_value_triple(ValueTriple::new_value(
+            "cow",
+            "swims",
+            String::make_entry(&"false"),
+        ));
+        builder.add_value_triple(ValueTriple::new_value(
+            "disabled_cow",
+            "swims",
+            String::make_entry(&"false"),
+        ));
+
+        builder.commit().await.unwrap();
+
+        let base: Arc<InternalLayer> = Arc::new(
+            BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
+                .await
+                .unwrap()
+                .into(),
+        );
+
+        let mut results: Vec<_> = base
+            .triples_p(base.predicate_id("num_feet").unwrap())
+            .map(|t| {
+                (
+                    base.id_subject(t.subject).unwrap(),
+                    base.id_object_value(t.object).unwrap().as_val::<u32, u32>(),
+                )
+            })
+            .collect();
+        results.sort();
+
+        let expected = vec![
+            ("cow".to_owned(), 4),
+            ("disabled_cow".to_owned(), 3),
+            ("duck".to_owned(), 2),
+        ];
+
+        assert_eq!(expected, results);
+    }
 }
