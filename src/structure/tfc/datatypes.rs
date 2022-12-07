@@ -45,15 +45,8 @@ impl Datatype {
     }
 }
 
-pub trait TdbDataType: FromLexical<Self> {
+pub trait TdbDataType: FromLexical<Self> + ToLexical<Self> {
     fn datatype() -> Datatype;
-
-    fn to_lexical<T>(val: &T) -> Bytes
-    where
-        T: ToLexical<Self> + ?Sized,
-    {
-        val.to_lexical()
-    }
 
     fn make_entry<T>(val: &T) -> TypedDictEntry
     where
@@ -254,6 +247,13 @@ impl TdbDataType for Integer {
 impl FromLexical<Integer> for Integer {
     fn from_lexical<B: Buf>(mut b: B) -> Self {
         storage_to_bigint(&mut b)
+    }
+}
+
+impl FromLexical<Integer> for String {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        // TODO make this better
+        storage_to_bigint(&mut b).to_string()
     }
 }
 

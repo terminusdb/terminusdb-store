@@ -312,7 +312,7 @@ impl<T: TdbDataType> TypedDictSegment<T> {
     }
 
     pub fn id<Q: ToLexical<T>>(&self, val: &Q) -> IdLookupResult {
-        let slice = T::to_lexical(val);
+        let slice = val.to_lexical();
         self.dict.id(&slice[..])
     }
 
@@ -608,7 +608,7 @@ mod tests {
     where
         D: TdbDataType + PartialEq + Debug + ToLexical<D>,
     {
-        let j = D::from_lexical(<D as TdbDataType>::to_lexical(&d));
+        let j = D::from_lexical(d.to_lexical());
         assert_eq!(d, j)
     }
 
