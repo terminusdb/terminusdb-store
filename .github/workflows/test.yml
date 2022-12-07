@@ -24,11 +24,32 @@ jobs:
   build-and-test:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            shell: bash
+          - os: macos-latest
+            shell: bash
+          - os: windows-latest
+            shell: msys2
+    defaults:
+      run:
+        shell: ${{ matrix.shell}} {0}
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
 
+    - name: Install msys2 for Windows
+      if: ${{ matrix.os == 'windows-latest' }}
+      uses: msys2/setup-msys2@v2
+      with:
+        install: >-
+          diffutils
+          m4
+          make
+          gmp
+          gmp-devel
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-rust
     # Create the crate and build it. We use this instead of `cargo build`,
     # because it can help catch errors in the `Cargo.toml`.
     - name: Build the crate
