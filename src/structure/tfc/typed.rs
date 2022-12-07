@@ -38,6 +38,10 @@ impl TypedDictEntry {
         assert_eq!(Q::datatype(), self.datatype);
         T::from_lexical(self.entry.as_buf())
     }
+
+    pub fn datatype(&self) -> Datatype {
+        self.datatype
+    }
 }
 
 #[derive(Clone, Debug)]
