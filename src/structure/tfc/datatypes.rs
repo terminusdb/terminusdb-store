@@ -20,8 +20,16 @@ pub enum Datatype {
     Decimal,
     BigInt,
     Boolean,
-    Token,
     LangString,
+    DateTime,
+    Date,
+    AnyURI,
+    Language,
+    NormalizedString,
+    Token,
+    NMToken,
+    Name,
+    NCName,
 }
 
 impl Datatype {
@@ -47,6 +55,7 @@ impl Datatype {
             Datatype::BigInt => None,
             Datatype::Token => None,
             Datatype::LangString => None,
+            _ => None,
         }
     }
 }
@@ -291,6 +300,16 @@ impl FromLexical<Decimal> for String {
     }
 }
 
+/*
+impl FromLexical<Decimal> for f64 {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        let s = Decimal::from_lexical(b).0;
+        s.parse::<f64>()
+            .expect("Too much precision for cast from decimal to f64")
+    }
+}
+*/
+
 impl ToLexical<Decimal> for Decimal {
     fn to_lexical(&self) -> Bytes {
         Bytes::from(decimal_to_storage(&self.0))
@@ -368,5 +387,54 @@ macro_rules! stringy_type {
     };
 }
 
-stringy_type!(Token);
+/*
+macro_rules! biginty_type {
+    ($ty:ident) => {
+        biginty_type!($ty, $ty);
+    };
+    ($ty:ident, $datatype:ident) => {
+        #[derive(PartialEq, Debug)]
+        pub struct $ty(Integer);
+
+        impl TdbDataType for $ty {
+            fn datatype() -> Datatype {
+                Datatype::$datatype
+            }
+        }
+
+        impl FromLexical<$ty> for $ty {
+            fn from_lexical<B: Buf>(mut b: B) -> Self {
+                $ty(storage_to_bigint(&mut b).to_string())
+            }
+        }
+
+        impl FromLexical<$ty> for String {
+            fn from_lexical<B: Buf>(mut b: B) -> Self {
+                $ty(storage_to_bigint(&mut b).to_string())
+            }
+        }
+
+        impl ToLexical<$ty> for $ty {
+            fn to_lexical(&self) -> Bytes {
+                Bytes::from(bigint_to_storage(self.0.clone()))
+            }
+        }
+    };
+}
+*/
+
 stringy_type!(LangString);
+stringy_type!(NCName);
+stringy_type!(Name);
+stringy_type!(Token);
+stringy_type!(NMToken);
+stringy_type!(NormalizedString);
+stringy_type!(Language);
+stringy_type!(AnyURI);
+
+/*
+biginty_type!(PositiveInteger);
+biginty_type!(NonNegativeInteger);
+biginty_type!(NegativeInteger);
+biginty_type!(NonPositiveInteger);
+*/

@@ -77,22 +77,20 @@ impl TypedDict {
         let mut tally: u64 = 0;
         let mut type_id_offsets = Vec::with_capacity(types_present.len() - 1);
         for type_offset in type_offsets.iter() {
-            let last_block_len;
-            if type_offset == 0 {
-                last_block_len = parse_block_control_records(data[0]);
+            let last_block_len = if type_offset == 0 {
+                parse_block_control_records(data[0])
             } else {
                 let last_block_offset_of_previous_type =
                     block_offsets.entry(type_offset as usize - 1);
-                last_block_len =
-                    parse_block_control_records(data[last_block_offset_of_previous_type as usize]);
-            }
+                parse_block_control_records(data[last_block_offset_of_previous_type as usize])
+            };
 
             let gap = BLOCK_SIZE as u8 - last_block_len;
             tally += gap as u64;
             type_id_offsets.push((type_offset + 1) * 8 - tally);
         }
 
-        let last_gap = if block_offsets.len() == 0 {
+        let last_gap = if block_offsets.is_empty() {
             1
         } else {
             BLOCK_SIZE
@@ -100,7 +98,7 @@ impl TypedDict {
                     data[block_offsets.entry(block_offsets.len() - 1) as usize],
                 ) as usize
         };
-        let num_entries = if block_offsets.len() == 0 {
+        let num_entries = if block_offsets.is_empty() {
             parse_block_control_records(data[0]) as usize
         } else {
             (block_offsets.len() + 1) * BLOCK_SIZE - tally as usize - last_gap
@@ -442,7 +440,7 @@ impl<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<B1, B2,
     }
 
     pub fn add(&mut self, value: TypedDictEntry) -> u64 {
-        if self.current_datatype == None {
+        if self.current_datatype.is_none() {
             self.current_datatype = Some(value.datatype);
             self.types_present_builder.push(value.datatype as u64);
             self.sized_dict_buf_builder
@@ -576,14 +574,21 @@ mod tests {
         let mut offsets = BytesMut::new();
         let mut data = BytesMut::new();
 
-        build_segment_and_offsets(
+        build_segment_and_offsets::<
+            &mut bytes::BytesMut,
+            &mut bytes::BytesMut,
+            String,
+            String,
+            std::vec::IntoIter<String>,
+        >(
             Datatype::String,
             &mut offsets,
             &mut data,
             strings.clone().into_iter(),
         );
 
-        let segment = TypedDictSegment::parse(offsets.freeze(), data.freeze(), 0);
+        let segment: TypedDictSegment<String> =
+            TypedDictSegment::parse(offsets.freeze(), data.freeze(), 0);
 
         for (ix, s) in strings.into_iter().enumerate() {
             assert_eq!(IdLookupResult::Found((ix + 1) as u64), segment.id(&s));
@@ -746,7 +751,7 @@ mod tests {
 
         assert_eq!(13, dict.num_entries());
 
-        let id = dict.id(&"Batty".to_string());
+        let id = dict.id::<String, String>(&"Batty".to_string());
         assert_eq!(IdLookupResult::Found(2), id);
         assert_eq!(IdLookupResult::Found(6), dict.id(&20_u32));
         assert_eq!(IdLookupResult::Found(7), dict.id(&(-500_i32)));
@@ -829,8 +834,14 @@ mod tests {
         assert_eq!(26_u32, dict.get::<u32>(14).unwrap());
         assert_eq!(Decimal("234.8973".to_string()), dict.get(29).unwrap());
 
-        assert_eq!(IdLookupResult::NotFound, dict.id(&"AAAA".to_string()));
-        assert_eq!(IdLookupResult::Closest(2), dict.id(&"Baz".to_string()));
+        assert_eq!(
+            IdLookupResult::NotFound,
+            dict.id::<String, String>(&"AAAA".to_string())
+        );
+        assert_eq!(
+            IdLookupResult::Closest(2),
+            dict.id::<String, String>(&"Baz".to_string())
+        );
 
         assert_eq!(IdLookupResult::Found(17), dict.id(&3000_u32));
 
