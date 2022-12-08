@@ -64,7 +64,7 @@ impl TypedDict {
         let types_present = MonotonicLogArray::parse(types_present).unwrap();
         let type_offsets = MonotonicLogArray::parse(type_offsets).unwrap();
         let block_offsets = MonotonicLogArray::parse(block_offsets).unwrap();
-        if types_present.len() == 0 {
+        if types_present.is_empty() {
             return Self {
                 types_present,
                 type_offsets,
