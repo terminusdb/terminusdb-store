@@ -85,8 +85,28 @@ pub fn decimal_to_storage(decimal: &str) -> Vec<u8> {
     let fraction = parts.next();
     let integer_part = bigint.parse::<Integer>().unwrap();
     let is_neg = decimal.starts_with('-');
-    let prefix = bigint_to_storage(integer_part.clone());
-    let mut prefix = if integer_part == 0 && is_neg {
+    integer_and_fraction_to_storage(is_neg, integer_part, fraction)
+}
+
+pub fn storage_to_decimal<B: Buf>(bytes: &mut B) -> String {
+    let (int, is_pos) = storage_to_bigint_and_sign(bytes);
+    let fraction = decode_fraction(bytes, is_pos);
+    let decimal = if fraction.is_empty() {
+        format!("{int:}")
+    } else {
+        let sign = if int == 0 && !is_pos { "-" } else { "" };
+        format!("{sign:}{int:}.{fraction:}")
+    };
+    decimal
+}
+
+pub fn integer_and_fraction_to_storage(
+    is_neg: bool,
+    integer: Integer,
+    fraction: Option<&str>,
+) -> Vec<u8> {
+    let prefix = bigint_to_storage(integer.clone());
+    let mut prefix = if integer == 0 && is_neg {
         vec![NEGATIVE_ZERO] // negative zero
     } else {
         prefix
@@ -102,16 +122,4 @@ pub fn decimal_to_storage(decimal: &str) -> Vec<u8> {
     };
     prefix.extend(suffix);
     prefix
-}
-
-pub fn storage_to_decimal<B: Buf>(bytes: &mut B) -> String {
-    let (int, is_pos) = storage_to_bigint_and_sign(bytes);
-    let fraction = decode_fraction(bytes, is_pos);
-    let decimal = if fraction.is_empty() {
-        format!("{int:}")
-    } else {
-        let sign = if int == 0 && !is_pos { "-" } else { "" };
-        format!("{sign:}{int:}.{fraction:}")
-    };
-    decimal
 }

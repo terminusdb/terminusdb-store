@@ -5,6 +5,7 @@ use super::{
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use chrono::{DateTime, Utc};
 use num_derive::FromPrimitive;
 use rug::Integer;
 
@@ -437,4 +438,24 @@ biginty_type!(PositiveInteger);
 biginty_type!(NonNegativeInteger);
 biginty_type!(NegativeInteger);
 biginty_type!(NonPositiveInteger);
+*/
+
+/*
+impl TdbDataType for DateTime<Utc> {
+    fn datatype() -> Datatype {
+        Datatype::DateTime
+    }
+}
+
+impl ToLexical<DateTime<Utc>> for DateTime<Utc> {
+    fn to_lexical(&self) -> Bytes {
+        Bytes::from(datetime_to_storage(&self))
+    }
+}
+
+impl FromLexical<DateTime<Utc>> for DateTime<Utc> {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        todo!()
+    }
+}
 */

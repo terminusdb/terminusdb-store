@@ -1,5 +1,6 @@
 pub mod block;
 pub mod datatypes;
+pub mod datetime;
 pub mod decimal;
 pub mod dict;
 pub mod file;
