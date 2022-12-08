@@ -21,6 +21,7 @@ pub enum Datatype {
     BigInt,
     Boolean,
     Token,
+    LangString,
 }
 
 impl Datatype {
@@ -45,6 +46,7 @@ impl Datatype {
             Datatype::Decimal => None,
             Datatype::BigInt => None,
             Datatype::Token => None,
+            Datatype::LangString => None,
         }
     }
 }
@@ -322,39 +324,49 @@ impl ToLexical<bool> for bool {
     }
 }
 
-#[derive(PartialEq, Debug)]
-pub struct Token(pub String);
+macro_rules! stringy_type {
+    ($ty:ident) => {
+        stringy_type!($ty, $ty);
+    };
+    ($ty:ident, $datatype:ident) => {
+        #[derive(PartialEq, Debug)]
+        pub struct $ty(String);
 
-impl AsRef<str> for Token {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
+        impl AsRef<str> for $ty {
+            fn as_ref(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl TdbDataType for $ty {
+            fn datatype() -> Datatype {
+                Datatype::$datatype
+            }
+        }
+
+        impl<T: AsRef<str>> ToLexical<$ty> for T {
+            fn to_lexical(&self) -> Bytes {
+                Bytes::copy_from_slice(self.as_ref().as_bytes())
+            }
+        }
+
+        impl FromLexical<$ty> for $ty {
+            fn from_lexical<B: Buf>(mut b: B) -> Self {
+                let mut vec = vec![0; b.remaining()];
+                b.copy_to_slice(&mut vec);
+                $ty(String::from_utf8(vec).unwrap())
+            }
+        }
+
+        impl FromLexical<$ty> for String {
+            fn from_lexical<B: Buf>(mut b: B) -> Self {
+                let mut vec = vec![0; b.remaining()];
+                b.copy_to_slice(&mut vec);
+                String::from_utf8(vec).unwrap()
+            }
+        }
+    };
 }
 
-impl TdbDataType for Token {
-    fn datatype() -> Datatype {
-        Datatype::Token
-    }
-}
-
-impl ToLexical<Token> for Token {
-    fn to_lexical(&self) -> Bytes {
-        Bytes::copy_from_slice(self.as_ref().as_bytes())
-    }
-}
-
-impl FromLexical<Token> for Token {
-    fn from_lexical<B: Buf>(mut b: B) -> Self {
-        let mut vec = vec![0; b.remaining()];
-        b.copy_to_slice(&mut vec);
-        Token(String::from_utf8(vec).unwrap())
-    }
-}
-
-impl FromLexical<Token> for String {
-    fn from_lexical<B: Buf>(mut b: B) -> Self {
-        let mut vec = vec![0; b.remaining()];
-        b.copy_to_slice(&mut vec);
-        String::from_utf8(vec).unwrap()
-    }
-}
+stringy_type!(Token);
+stringy_type!(LangString);
