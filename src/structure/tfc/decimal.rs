@@ -54,7 +54,7 @@ fn centary_decimal_decode(i: u8) -> String {
     }
 }
 
-fn decode_fraction<B: Buf>(fraction_buf: &mut B, is_pos: bool) -> String {
+pub fn decode_fraction<B: Buf>(fraction_buf: &mut B, is_pos: bool) -> String {
     let mut first_byte = fraction_buf.chunk()[0];
     if !is_pos {
         first_byte = !first_byte;

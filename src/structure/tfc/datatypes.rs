@@ -1,11 +1,12 @@
 use super::{
+    datetime::{datetime_to_storage, storage_to_datetime},
     decimal::{decimal_to_storage, storage_to_decimal},
     integer::{bigint_to_storage, storage_to_bigint},
     TypedDictEntry,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use num_derive::FromPrimitive;
 use rug::Integer;
 
@@ -440,22 +441,20 @@ biginty_type!(NegativeInteger);
 biginty_type!(NonPositiveInteger);
 */
 
-/*
-impl TdbDataType for DateTime<Utc> {
+impl TdbDataType for NaiveDateTime {
     fn datatype() -> Datatype {
         Datatype::DateTime
     }
 }
 
-impl ToLexical<DateTime<Utc>> for DateTime<Utc> {
+impl ToLexical<NaiveDateTime> for NaiveDateTime {
     fn to_lexical(&self) -> Bytes {
-        Bytes::from(datetime_to_storage(&self))
+        Bytes::from(datetime_to_storage(self))
     }
 }
 
-impl FromLexical<DateTime<Utc>> for DateTime<Utc> {
+impl FromLexical<NaiveDateTime> for NaiveDateTime {
     fn from_lexical<B: Buf>(mut b: B) -> Self {
-        todo!()
+        storage_to_datetime(&mut b)
     }
 }
-*/
