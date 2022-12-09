@@ -70,8 +70,6 @@ pub fn storage_to_datetime<B: Buf>(bytes: &mut B) -> NaiveDateTime {
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeZone;
-
     use super::*;
 
     #[test]
