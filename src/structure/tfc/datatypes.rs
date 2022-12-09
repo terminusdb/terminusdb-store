@@ -556,8 +556,8 @@ impl FromLexical<GYear> for String {
 }
 
 pub struct GMonth {
-    month: u8,
-    offset: i16,
+    pub month: u8,
+    pub offset: i16,
 }
 
 impl TdbDataType for GMonth {
@@ -591,9 +591,9 @@ impl FromLexical<GMonth> for String {
     }
 }
 
-struct GDay {
-    day: u8,
-    offset: i16,
+pub struct GDay {
+    pub day: u8,
+    pub offset: i16,
 }
 
 impl TdbDataType for GDay {
@@ -627,10 +627,10 @@ impl FromLexical<GDay> for String {
     }
 }
 
-struct GYearMonth {
-    year: i64,
-    month: u8,
-    offset: i16,
+pub struct GYearMonth {
+    pub year: i64,
+    pub month: u8,
+    pub offset: i16,
 }
 
 impl TdbDataType for GYearMonth {
@@ -671,10 +671,10 @@ impl FromLexical<GYearMonth> for String {
     }
 }
 
-struct GMonthDay {
-    month: u8,
-    day: u8,
-    offset: i16,
+pub struct GMonthDay {
+    pub month: u8,
+    pub day: u8,
+    pub offset: i16,
 }
 
 impl TdbDataType for GMonthDay {
