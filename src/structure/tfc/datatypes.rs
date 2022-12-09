@@ -6,7 +6,7 @@ use super::{
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use chrono::NaiveDateTime;
+use chrono::{NaiveDateTime, NaiveTime};
 use num_derive::FromPrimitive;
 use rug::Integer;
 
@@ -23,8 +23,6 @@ pub enum Datatype {
     BigInt,
     Boolean,
     LangString,
-    DateTime,
-    Date,
     AnyURI,
     Language,
     NormalizedString,
@@ -32,6 +30,33 @@ pub enum Datatype {
     NMToken,
     Name,
     NCName,
+    Notation,
+    QName,
+    ID,
+    IDRef,
+    Entity,
+    PositiveInteger,
+    NonNegativeInteger,
+    NonPositiveInteger,
+    NegativeInteger,
+    Date,
+    DateTime,
+    DateTimeStamp,
+    Time,
+    GYear,
+    GMonth,
+    GDay,
+    GYearMonth,
+    GMonthDay,
+    Duration,
+    YearMonthDuration,
+    DayTimeDuration,
+    UInt8,
+    Int8,
+    UInt16,
+    Int16,
+    Base64Binary,
+    HexBinary,
 }
 
 impl Datatype {
@@ -101,6 +126,48 @@ impl TdbDataType for String {
     }
 }
 
+impl TdbDataType for u8 {
+    fn datatype() -> Datatype {
+        Datatype::UInt32
+    }
+}
+
+impl FromLexical<u8> for u8 {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        b.reader().read_u8().unwrap()
+    }
+}
+
+impl ToLexical<u8> for u8 {
+    fn to_lexical(&self) -> Bytes {
+        let mut buf = BytesMut::new().writer();
+        buf.write_u8(*self).unwrap();
+
+        buf.into_inner().freeze()
+    }
+}
+
+impl TdbDataType for u16 {
+    fn datatype() -> Datatype {
+        Datatype::UInt16
+    }
+}
+
+impl FromLexical<u16> for u16 {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        b.reader().read_u16::<BigEndian>().unwrap()
+    }
+}
+
+impl ToLexical<u16> for u16 {
+    fn to_lexical(&self) -> Bytes {
+        let mut buf = BytesMut::new().writer();
+        buf.write_u16::<BigEndian>(*self).unwrap();
+
+        buf.into_inner().freeze()
+    }
+}
+
 impl TdbDataType for u32 {
     fn datatype() -> Datatype {
         Datatype::UInt32
@@ -118,6 +185,52 @@ impl ToLexical<u32> for u32 {
         let mut buf = BytesMut::new().writer();
         buf.write_u32::<BigEndian>(*self).unwrap();
 
+        buf.into_inner().freeze()
+    }
+}
+
+const I8_BYTE_MASK: u8 = 0b1000_0000;
+impl TdbDataType for i8 {
+    fn datatype() -> Datatype {
+        Datatype::Int8
+    }
+}
+
+impl FromLexical<i8> for i8 {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        let i = b.reader().read_u8().unwrap();
+        (I8_BYTE_MASK ^ i) as i8
+    }
+}
+
+impl ToLexical<i8> for i8 {
+    fn to_lexical(&self) -> Bytes {
+        let sign_flip = I8_BYTE_MASK ^ (*self as u8);
+        let mut buf = BytesMut::new().writer();
+        buf.write_u8(sign_flip).unwrap();
+        buf.into_inner().freeze()
+    }
+}
+
+const I16_BYTE_MASK: u16 = 0b1000_0000 << 8;
+impl TdbDataType for i16 {
+    fn datatype() -> Datatype {
+        Datatype::Int16
+    }
+}
+
+impl FromLexical<i16> for i16 {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        let i = b.reader().read_u16::<BigEndian>().unwrap();
+        (I16_BYTE_MASK ^ i) as i16
+    }
+}
+
+impl ToLexical<i16> for i16 {
+    fn to_lexical(&self) -> Bytes {
+        let sign_flip = I16_BYTE_MASK ^ (*self as u16);
+        let mut buf = BytesMut::new().writer();
+        buf.write_u16::<BigEndian>(sign_flip).unwrap();
         buf.into_inner().freeze()
     }
 }
@@ -302,16 +415,6 @@ impl FromLexical<Decimal> for String {
     }
 }
 
-/*
-impl FromLexical<Decimal> for f64 {
-    fn from_lexical<B: Buf>(b: B) -> Self {
-        let s = Decimal::from_lexical(b).0;
-        s.parse::<f64>()
-            .expect("Too much precision for cast from decimal to f64")
-    }
-}
-*/
-
 impl ToLexical<Decimal> for Decimal {
     fn to_lexical(&self) -> Bytes {
         Bytes::from(decimal_to_storage(&self.0))
@@ -327,11 +430,7 @@ impl TdbDataType for bool {
 impl FromLexical<bool> for bool {
     fn from_lexical<B: Buf>(mut b: B) -> Self {
         let num = b.get_u8();
-        if num == 0 {
-            false
-        } else {
-            true
-        }
+        num != 0
     }
 }
 
@@ -342,6 +441,127 @@ impl ToLexical<bool> for bool {
         } else {
             vec![0].into()
         }
+    }
+}
+
+impl TdbDataType for NaiveDateTime {
+    fn datatype() -> Datatype {
+        Datatype::DateTime
+    }
+}
+
+impl ToLexical<NaiveDateTime> for NaiveDateTime {
+    fn to_lexical(&self) -> Bytes {
+        Bytes::from(datetime_to_storage(self))
+    }
+}
+
+impl FromLexical<NaiveDateTime> for NaiveDateTime {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        storage_to_datetime(&mut b)
+    }
+}
+
+pub struct DateTimeStamp(NaiveDateTime);
+
+impl TdbDataType for DateTimeStamp {
+    fn datatype() -> Datatype {
+        Datatype::DateTimeStamp
+    }
+}
+
+impl ToLexical<DateTimeStamp> for DateTimeStamp {
+    fn to_lexical(&self) -> Bytes {
+        Bytes::from(datetime_to_storage(&self.0))
+    }
+}
+
+impl FromLexical<DateTimeStamp> for DateTimeStamp {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        DateTimeStamp(storage_to_datetime(&mut b))
+    }
+}
+
+impl TdbDataType for NaiveTime {
+    fn datatype() -> Datatype {
+        Datatype::Time
+    }
+}
+
+impl ToLexical<NaiveTime> for NaiveTime {
+    fn to_lexical(&self) -> Bytes {
+        self.to_string().into()
+    }
+}
+
+impl FromLexical<NaiveTime> for NaiveTime {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        let mut vec = vec![0; b.remaining()];
+        b.copy_to_slice(&mut vec);
+        String::from_utf8(vec)
+            .unwrap()
+            .parse::<NaiveTime>()
+            .unwrap()
+    }
+}
+
+struct GYear(i64);
+
+impl TdbDataType for GYear {
+    fn datatype() -> Datatype {
+        Datatype::GYear
+    }
+}
+
+impl ToLexical<GYear> for GYear {
+    fn to_lexical(&self) -> Bytes {
+        self.0.to_lexical()
+    }
+}
+
+impl FromLexical<GYear> for GYear {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        GYear(i64::from_lexical(b))
+    }
+}
+
+struct GMonth(u8);
+
+impl TdbDataType for GMonth {
+    fn datatype() -> Datatype {
+        Datatype::GMonth
+    }
+}
+
+impl ToLexical<GMonth> for GMonth {
+    fn to_lexical(&self) -> Bytes {
+        self.0.to_lexical()
+    }
+}
+
+impl FromLexical<GMonth> for GMonth {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        GMonth(u8::from_lexical(b))
+    }
+}
+
+struct GDay(u8);
+
+impl TdbDataType for GDay {
+    fn datatype() -> Datatype {
+        Datatype::GDay
+    }
+}
+
+impl ToLexical<GDay> for GDay {
+    fn to_lexical(&self) -> Bytes {
+        self.0.to_lexical()
+    }
+}
+
+impl FromLexical<GDay> for GDay {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        GDay(u8::from_lexical(b))
     }
 }
 
@@ -389,7 +609,6 @@ macro_rules! stringy_type {
     };
 }
 
-/*
 macro_rules! biginty_type {
     ($ty:ident) => {
         biginty_type!($ty, $ty);
@@ -406,13 +625,13 @@ macro_rules! biginty_type {
 
         impl FromLexical<$ty> for $ty {
             fn from_lexical<B: Buf>(mut b: B) -> Self {
-                $ty(storage_to_bigint(&mut b).to_string())
+                $ty(storage_to_bigint(&mut b))
             }
         }
 
         impl FromLexical<$ty> for String {
             fn from_lexical<B: Buf>(mut b: B) -> Self {
-                $ty(storage_to_bigint(&mut b).to_string())
+                storage_to_bigint(&mut b).to_string()
             }
         }
 
@@ -423,7 +642,6 @@ macro_rules! biginty_type {
         }
     };
 }
-*/
 
 stringy_type!(LangString);
 stringy_type!(NCName);
@@ -433,28 +651,17 @@ stringy_type!(NMToken);
 stringy_type!(NormalizedString);
 stringy_type!(Language);
 stringy_type!(AnyURI);
+stringy_type!(Notation);
+stringy_type!(QName);
+stringy_type!(ID);
+stringy_type!(IDRef);
+stringy_type!(Entity);
 
-/*
+stringy_type!(Duration);
+stringy_type!(YearMonthDuration);
+stringy_type!(DayTimeDuration);
+
 biginty_type!(PositiveInteger);
 biginty_type!(NonNegativeInteger);
 biginty_type!(NegativeInteger);
 biginty_type!(NonPositiveInteger);
-*/
-
-impl TdbDataType for NaiveDateTime {
-    fn datatype() -> Datatype {
-        Datatype::DateTime
-    }
-}
-
-impl ToLexical<NaiveDateTime> for NaiveDateTime {
-    fn to_lexical(&self) -> Bytes {
-        Bytes::from(datetime_to_storage(self))
-    }
-}
-
-impl FromLexical<NaiveDateTime> for NaiveDateTime {
-    fn from_lexical<B: Buf>(mut b: B) -> Self {
-        storage_to_datetime(&mut b)
-    }
-}
