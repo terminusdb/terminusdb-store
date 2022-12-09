@@ -505,7 +505,10 @@ impl FromLexical<NaiveTime> for NaiveTime {
     }
 }
 
-pub struct GYear(pub i64);
+pub struct GYear {
+    pub year: i64,
+    pub offset: i16,
+}
 
 impl TdbDataType for GYear {
     fn datatype() -> Datatype {
@@ -515,17 +518,47 @@ impl TdbDataType for GYear {
 
 impl ToLexical<GYear> for GYear {
     fn to_lexical(&self) -> Bytes {
-        self.0.to_lexical()
+        let year = self.year.to_lexical();
+        let offset = self.offset.to_lexical();
+        [year, offset].concat().into()
     }
 }
 
 impl FromLexical<GYear> for GYear {
-    fn from_lexical<B: Buf>(b: B) -> Self {
-        GYear(i64::from_lexical(b))
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        let year = i64::from_lexical(&mut b);
+        let offset = i16::from_lexical(b);
+        GYear { year, offset }
     }
 }
 
-pub struct GMonth(pub u8);
+fn offset_string(offset: i16) -> String {
+    if offset == 0 {
+        "".to_string()
+    } else {
+        let hours = offset / 60;
+        let minutes = offset % 60;
+        if hours < 0 {
+            format!("-{hours}:{minutes}")
+        } else {
+            format!("+{hours}:{minutes}")
+        }
+    }
+}
+
+impl FromLexical<GYear> for String {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        let gyear = GYear::from_lexical(b);
+        let year = gyear.year;
+        let offset = offset_string(gyear.offset);
+        format!("{year:04}{offset:}")
+    }
+}
+
+pub struct GMonth {
+    month: u8,
+    offset: i16,
+}
 
 impl TdbDataType for GMonth {
     fn datatype() -> Datatype {
@@ -535,17 +568,33 @@ impl TdbDataType for GMonth {
 
 impl ToLexical<GMonth> for GMonth {
     fn to_lexical(&self) -> Bytes {
-        self.0.to_lexical()
+        let month = self.month.to_lexical();
+        let offset = self.offset.to_lexical();
+        [month, offset].concat().into()
     }
 }
 
 impl FromLexical<GMonth> for GMonth {
-    fn from_lexical<B: Buf>(b: B) -> Self {
-        GMonth(u8::from_lexical(b))
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        let month = u8::from_lexical(&mut b);
+        let offset = i16::from_lexical(b);
+        GMonth { month, offset }
     }
 }
 
-struct GDay(u8);
+impl FromLexical<GMonth> for String {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        let gmonth = GMonth::from_lexical(b);
+        let month = gmonth.month;
+        let offset = offset_string(gmonth.offset);
+        format!("-{month:02}{offset:}")
+    }
+}
+
+struct GDay {
+    day: u8,
+    offset: i16,
+}
 
 impl TdbDataType for GDay {
     fn datatype() -> Datatype {
@@ -555,13 +604,110 @@ impl TdbDataType for GDay {
 
 impl ToLexical<GDay> for GDay {
     fn to_lexical(&self) -> Bytes {
-        self.0.to_lexical()
+        let day = self.day.to_lexical();
+        let offset = self.offset.to_lexical();
+        [day, offset].concat().into()
     }
 }
 
 impl FromLexical<GDay> for GDay {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        let day = u8::from_lexical(&mut b);
+        let offset = i16::from_lexical(b);
+        GDay { day, offset }
+    }
+}
+
+impl FromLexical<GDay> for String {
     fn from_lexical<B: Buf>(b: B) -> Self {
-        GDay(u8::from_lexical(b))
+        let gday = GDay::from_lexical(b);
+        let day = gday.day;
+        let offset = offset_string(gday.offset);
+        format!("--{day:02}{offset:}")
+    }
+}
+
+struct GYearMonth {
+    year: i64,
+    month: u8,
+    offset: i16,
+}
+
+impl TdbDataType for GYearMonth {
+    fn datatype() -> Datatype {
+        Datatype::GYearMonth
+    }
+}
+
+impl ToLexical<GYearMonth> for GYearMonth {
+    fn to_lexical(&self) -> Bytes {
+        let year = self.year.to_lexical();
+        let month = self.month.to_lexical();
+        let offset = self.offset.to_lexical();
+        [year, month, offset].concat().into()
+    }
+}
+
+impl FromLexical<GYearMonth> for GYearMonth {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        let year = i64::from_lexical(&mut b);
+        let month = u8::from_lexical(&mut b);
+        let offset = i16::from_lexical(b);
+        GYearMonth {
+            year,
+            month,
+            offset,
+        }
+    }
+}
+
+impl FromLexical<GYearMonth> for String {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        let gyearmonth = GYearMonth::from_lexical(b);
+        let year = gyearmonth.year;
+        let month = gyearmonth.month;
+        let offset = offset_string(gyearmonth.offset);
+        format!("{year:04}-{month:02}{offset:}")
+    }
+}
+
+struct GMonthDay {
+    month: u8,
+    day: u8,
+    offset: i16,
+}
+
+impl TdbDataType for GMonthDay {
+    fn datatype() -> Datatype {
+        Datatype::GMonthDay
+    }
+}
+
+impl ToLexical<GMonthDay> for GMonthDay {
+    fn to_lexical(&self) -> Bytes {
+        let month = self.month.to_lexical();
+        let day = self.day.to_lexical();
+        let offset = self.offset.to_lexical();
+        [month, day, offset].concat().into()
+    }
+}
+
+impl FromLexical<GMonthDay> for GMonthDay {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        let month = u8::from_lexical(&mut b);
+        let day = u8::from_lexical(&mut b);
+        let offset = i16::from_lexical(b);
+        GMonthDay { month, day, offset }
+    }
+}
+
+impl FromLexical<GMonthDay> for String {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        let gmonthday = GMonthDay::from_lexical(b);
+        let month = gmonthday.month;
+        let day = gmonthday.day;
+        let offset = offset_string(gmonthday.offset);
+        format!("-{month:02}-{day:02}{offset:}")
     }
 }
 
