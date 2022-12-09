@@ -70,7 +70,7 @@ impl Datatype {
 
     pub fn record_size(&self) -> Option<u8> {
         match self {
-            Datatype::Boolean => Some(4), // this is huge
+            Datatype::Boolean => None,
             Datatype::String => None,
             Datatype::UInt32 => Some(4),
             Datatype::Int32 => Some(4),
@@ -505,7 +505,7 @@ impl FromLexical<NaiveTime> for NaiveTime {
     }
 }
 
-struct GYear(i64);
+pub struct GYear(pub i64);
 
 impl TdbDataType for GYear {
     fn datatype() -> Datatype {
@@ -525,7 +525,7 @@ impl FromLexical<GYear> for GYear {
     }
 }
 
-struct GMonth(u8);
+pub struct GMonth(pub u8);
 
 impl TdbDataType for GMonth {
     fn datatype() -> Datatype {
@@ -615,7 +615,7 @@ macro_rules! biginty_type {
     };
     ($ty:ident, $datatype:ident) => {
         #[derive(PartialEq, Debug)]
-        pub struct $ty(Integer);
+        pub struct $ty(pub Integer);
 
         impl TdbDataType for $ty {
             fn datatype() -> Datatype {
