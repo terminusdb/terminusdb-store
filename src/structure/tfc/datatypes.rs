@@ -529,7 +529,7 @@ impl ToLexical<Date> for Date {
     fn to_lexical(&self) -> Bytes {
         let year = self.year.to_lexical();
         let month = self.month.to_lexical();
-        let day = self.month.to_lexical();
+        let day = self.day.to_lexical();
         let offset = self.offset.to_lexical();
         [year, month, day, offset].concat().into()
     }
