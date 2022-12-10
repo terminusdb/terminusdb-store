@@ -30,6 +30,8 @@ rug = {version="1.16", default-features=false, features=["integer","rational"]}
 num-derive = "0.3"
 num-traits = "0.2"
 chrono = "0.4"
+base64 = "0.13"
+hex = "0.4"
 
 [dev-dependencies]
 tempfile = "3.1"

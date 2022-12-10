@@ -4,6 +4,7 @@ use super::{
     integer::{bigint_to_storage, storage_to_bigint},
     TypedDictEntry,
 };
+use base64::display::Base64Display;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use chrono::{NaiveDateTime, NaiveTime};
@@ -462,7 +463,7 @@ impl FromLexical<NaiveDateTime> for NaiveDateTime {
     }
 }
 
-pub struct DateTimeStamp(NaiveDateTime);
+pub struct DateTimeStamp(pub NaiveDateTime);
 
 impl TdbDataType for DateTimeStamp {
     fn datatype() -> Datatype {
@@ -479,6 +480,12 @@ impl ToLexical<DateTimeStamp> for DateTimeStamp {
 impl FromLexical<DateTimeStamp> for DateTimeStamp {
     fn from_lexical<B: Buf>(mut b: B) -> Self {
         DateTimeStamp(storage_to_datetime(&mut b))
+    }
+}
+
+impl FromLexical<DateTimeStamp> for NaiveDateTime {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        storage_to_datetime(&mut b)
     }
 }
 
@@ -502,6 +509,55 @@ impl FromLexical<NaiveTime> for NaiveTime {
             .unwrap()
             .parse::<NaiveTime>()
             .unwrap()
+    }
+}
+
+pub struct Date {
+    pub year: i64,
+    pub month: u8,
+    pub day: u8,
+    pub offset: i16,
+}
+
+impl TdbDataType for Date {
+    fn datatype() -> Datatype {
+        Datatype::Date
+    }
+}
+
+impl ToLexical<Date> for Date {
+    fn to_lexical(&self) -> Bytes {
+        let year = self.year.to_lexical();
+        let month = self.month.to_lexical();
+        let day = self.month.to_lexical();
+        let offset = self.offset.to_lexical();
+        [year, month, day, offset].concat().into()
+    }
+}
+
+impl FromLexical<Date> for Date {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        let year = i64::from_lexical(&mut b);
+        let month = u8::from_lexical(&mut b);
+        let day = u8::from_lexical(&mut b);
+        let offset = i16::from_lexical(b);
+        Date {
+            year,
+            month,
+            day,
+            offset,
+        }
+    }
+}
+
+impl FromLexical<Date> for String {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        let date = Date::from_lexical(b);
+        let year = date.year;
+        let month = date.month;
+        let day = date.day;
+        let offset = offset_string(date.offset);
+        format!("{year:04}-{month:02}-{day:02}{offset:}")
     }
 }
 
@@ -711,6 +767,67 @@ impl FromLexical<GMonthDay> for String {
     }
 }
 
+pub struct Base64Binary(pub Vec<u8>);
+
+impl ToLexical<Base64Binary> for Base64Binary {
+    fn to_lexical(&self) -> Bytes {
+        Bytes::copy_from_slice(&self.0[..])
+    }
+}
+
+impl FromLexical<Base64Binary> for Base64Binary {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        let mut vec = vec![0; b.remaining()];
+        b.copy_to_slice(&mut vec);
+        Base64Binary(vec)
+    }
+}
+
+impl FromLexical<Base64Binary> for String {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        let mut vec = vec![0; b.remaining()];
+        b.copy_to_slice(&mut vec);
+        let wrapper = Base64Display::with_config(&vec, base64::STANDARD);
+        format!("{wrapper}")
+    }
+}
+
+impl TdbDataType for Base64Binary {
+    fn datatype() -> Datatype {
+        Datatype::Base64Binary
+    }
+}
+
+pub struct HexBinary(pub Vec<u8>);
+
+impl ToLexical<HexBinary> for HexBinary {
+    fn to_lexical(&self) -> Bytes {
+        Bytes::copy_from_slice(&self.0[..])
+    }
+}
+
+impl FromLexical<HexBinary> for HexBinary {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        let mut vec = vec![0; b.remaining()];
+        b.copy_to_slice(&mut vec);
+        HexBinary(vec)
+    }
+}
+
+impl FromLexical<HexBinary> for String {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        let mut vec = vec![0; b.remaining()];
+        b.copy_to_slice(&mut vec);
+        hex::encode(vec)
+    }
+}
+
+impl TdbDataType for HexBinary {
+    fn datatype() -> Datatype {
+        Datatype::HexBinary
+    }
+}
+
 macro_rules! stringy_type {
     ($ty:ident) => {
         stringy_type!($ty, $ty);
@@ -778,6 +895,12 @@ macro_rules! biginty_type {
         impl FromLexical<$ty> for String {
             fn from_lexical<B: Buf>(mut b: B) -> Self {
                 storage_to_bigint(&mut b).to_string()
+            }
+        }
+
+        impl FromLexical<$ty> for Integer {
+            fn from_lexical<B: Buf>(mut b: B) -> Self {
+                storage_to_bigint(&mut b)
             }
         }
 
