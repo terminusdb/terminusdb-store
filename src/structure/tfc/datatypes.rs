@@ -129,7 +129,7 @@ impl TdbDataType for String {
 
 impl TdbDataType for u8 {
     fn datatype() -> Datatype {
-        Datatype::UInt32
+        Datatype::UInt8
     }
 }
 
