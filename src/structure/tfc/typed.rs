@@ -799,7 +799,7 @@ mod tests {
             Decimal::make_entry(&Decimal("2".to_string())),
             Decimal::make_entry(&Decimal("0".to_string())),
             f32::make_entry(&4.389832_f32),
-            f32::make_entry(&23434.389832_f32),
+            f32::make_entry(&23434.389_f32),
             Integer::make_entry(&int("239487329872343987")),
         ];
         vec.sort();
@@ -995,7 +995,7 @@ mod tests {
             Decimal::make_entry(&Decimal("2".to_string())),
             Decimal::make_entry(&Decimal("0".to_string())),
             f32::make_entry(&4.389832_f32),
-            f32::make_entry(&23434.389832_f32),
+            f32::make_entry(&23434.389_f32),
             Integer::make_entry(&int("239487329872343987")),
         ];
         vec.sort();
@@ -1040,7 +1040,7 @@ mod tests {
             u32::make_entry(&20_u32),
             i64::make_entry(&-3_i64),
             Decimal::make_entry(&Decimal("-12342343.2348973".to_string())),
-            f32::make_entry(&23434.389832_f32),
+            f32::make_entry(&23434.389_f32),
             Integer::make_entry(&int("239487329872343987")),
         ];
         vec.sort();
@@ -1187,8 +1187,8 @@ mod tests {
             data.freeze(),
         );
 
-        for i in 0..vec.len() {
-            assert_eq!(vec[i], dict.entry(i + 1).unwrap())
+        for (i, e) in vec.into_iter().enumerate() {
+            assert_eq!(e, dict.entry(i + 1).unwrap())
         }
     }
 }
