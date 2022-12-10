@@ -58,6 +58,7 @@ pub enum Datatype {
     Int16,
     Base64Binary,
     HexBinary,
+    AnySimpleType,
 }
 
 impl Datatype {
@@ -930,7 +931,10 @@ stringy_type!(Duration);
 stringy_type!(YearMonthDuration);
 stringy_type!(DayTimeDuration);
 
+stringy_type!(AnySimpleType);
+
 biginty_type!(PositiveInteger);
 biginty_type!(NonNegativeInteger);
 biginty_type!(NegativeInteger);
 biginty_type!(NonPositiveInteger);
+
