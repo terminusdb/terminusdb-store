@@ -370,6 +370,35 @@ impl ToLexical<f64> for f64 {
     }
 }
 
+// Fake f32s to avoid rounding errors
+#[derive(PartialEq, Debug)]
+pub struct Float32(pub f64);
+
+impl TdbDataType for Float32 {
+    fn datatype() -> Datatype {
+        Datatype::Float32
+    }
+}
+
+impl FromLexical<Float32> for Float32 {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        Float32(FromLexical::<f64>::from_lexical(b))
+    }
+}
+
+impl FromLexical<Float32> for f64 {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        // TODO make this better
+        Float32::from_lexical(b).0
+    }
+}
+
+impl ToLexical<Float32> for Float32 {
+    fn to_lexical(&self) -> Bytes {
+        ToLexical::<f64>::to_lexical(&self.0)
+    }
+}
+
 impl TdbDataType for Integer {
     fn datatype() -> Datatype {
         Datatype::BigInt
@@ -937,4 +966,3 @@ biginty_type!(PositiveInteger);
 biginty_type!(NonNegativeInteger);
 biginty_type!(NegativeInteger);
 biginty_type!(NonPositiveInteger);
-
