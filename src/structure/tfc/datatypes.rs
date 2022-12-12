@@ -323,6 +323,12 @@ impl FromLexical<f32> for f32 {
     }
 }
 
+impl FromLexical<f32> for f64 {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        f32::from_lexical(b) as f64
+    }
+}
+
 impl ToLexical<f32> for f32 {
     fn to_lexical(&self) -> Bytes {
         let f = *self;
@@ -367,35 +373,6 @@ impl ToLexical<f64> for f64 {
         let mut buf = BytesMut::new().writer();
         buf.write_u64::<BigEndian>(g).unwrap();
         buf.into_inner().freeze()
-    }
-}
-
-// Fake f32s to avoid rounding errors
-#[derive(PartialEq, Debug)]
-pub struct Float32(pub f64);
-
-impl TdbDataType for Float32 {
-    fn datatype() -> Datatype {
-        Datatype::Float32
-    }
-}
-
-impl FromLexical<Float32> for Float32 {
-    fn from_lexical<B: Buf>(b: B) -> Self {
-        Float32(FromLexical::<f64>::from_lexical(b))
-    }
-}
-
-impl FromLexical<Float32> for f64 {
-    fn from_lexical<B: Buf>(b: B) -> Self {
-        // TODO make this better
-        Float32::from_lexical(b).0
-    }
-}
-
-impl ToLexical<Float32> for Float32 {
-    fn to_lexical(&self) -> Bytes {
-        ToLexical::<f64>::to_lexical(&self.0)
     }
 }
 
