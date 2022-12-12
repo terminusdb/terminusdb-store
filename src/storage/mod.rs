@@ -29,6 +29,7 @@ mod file;
 mod label;
 #[macro_use]
 mod layer;
+pub mod archive;
 pub mod delta;
 mod locking;
 pub mod memory;

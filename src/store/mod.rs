@@ -132,11 +132,17 @@ impl StoreLayerBuilder {
         }
 
         match builder {
-            None => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "builder has already been committed",
-            )),
-            Some(builder) => builder.commit_boxed().await,
+            None => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "builder has already been committed",
+                ))
+            }
+            Some(builder) => {
+                let id = builder.name();
+                builder.commit_boxed().await?;
+                self.store.layer_store.finalize_layer(id).await
+            }
         }
     }
 

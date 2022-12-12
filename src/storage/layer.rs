@@ -73,6 +73,10 @@ pub trait LayerStore: 'static + Packable + Send + Sync {
         self.get_layer_with_cache(name, NOCACHE.clone()).await
     }
 
+    async fn finalize_layer(&self, _name: [u32; 5]) -> io::Result<()> {
+        Ok(())
+    }
+
     async fn get_layer_parent_name(&self, name: [u32; 5]) -> io::Result<Option<[u32; 5]>>;
 
     async fn get_node_dictionary(&self, name: [u32; 5]) -> io::Result<Option<StringDict>>;
@@ -348,6 +352,10 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
     async fn directory_exists(&self, name: [u32; 5]) -> io::Result<bool>;
     async fn get_file(&self, directory: [u32; 5], name: &str) -> io::Result<Self::File>;
     async fn file_exists(&self, directory: [u32; 5], file: &str) -> io::Result<bool>;
+
+    async fn finalize(&self, _directory: [u32; 5]) -> io::Result<()> {
+        Ok(())
+    }
 
     async fn layer_has_rollup(&self, name: [u32; 5]) -> io::Result<bool> {
         self.file_exists(name, FILENAMES.rollup).await
@@ -1544,6 +1552,10 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         debug_assert_eq!(name, ancestor.name());
 
         Ok(Some(ancestor))
+    }
+
+    async fn finalize_layer(&self, name: [u32; 5]) -> io::Result<()> {
+        self.finalize(name).await
     }
 
     async fn get_layer_parent_name(&self, name: [u32; 5]) -> io::Result<Option<[u32; 5]>> {
