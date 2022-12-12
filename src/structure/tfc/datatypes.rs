@@ -774,6 +774,157 @@ impl FromLexical<GMonthDay> for String {
     }
 }
 
+pub struct Duration {
+    pub sign: i8,
+    pub year: i64,
+    pub month: u8,
+    pub day: u8,
+    pub hour: u8,
+    pub minute: u8,
+    pub second: u8,
+}
+
+impl TdbDataType for Duration {
+    fn datatype() -> Datatype {
+        Datatype::Duration
+    }
+}
+
+impl ToLexical<Duration> for Duration {
+    fn to_lexical(&self) -> Bytes {
+        let sign = self.sign.to_lexical();
+        let year = self.year.to_lexical();
+        let month = self.month.to_lexical();
+        let day = self.day.to_lexical();
+        let hour = self.hour.to_lexical();
+        let minute = self.minute.to_lexical();
+        let second = self.second.to_lexical();
+        [sign, year, month, day, hour, minute, second]
+            .concat()
+            .into()
+    }
+}
+
+impl FromLexical<Duration> for Duration {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        let sign = i8::from_lexical(&mut b);
+        let year = i64::from_lexical(&mut b);
+        let month = u8::from_lexical(&mut b);
+        let day = u8::from_lexical(&mut b);
+        let hour = u8::from_lexical(&mut b);
+        let minute = u8::from_lexical(&mut b);
+        let second = u8::from_lexical(b);
+        Duration {
+            sign,
+            year,
+            month,
+            day,
+            hour,
+            minute,
+            second,
+        }
+    }
+}
+
+fn duration_string(duration: &Duration) -> String {
+    let year = if duration.year == 0 {
+        format!("{:04}Y", duration.year)
+    } else {
+        "".to_string()
+    };
+    let month = if duration.month == 0 {
+        format!("{:02}M", duration.month)
+    } else {
+        "".to_string()
+    };
+    let day = if duration.day == 0 {
+        format!("{:04}D", duration.year)
+    } else {
+        "".to_string()
+    };
+    if duration.hour == 0 && duration.minute == 0 && duration.second == 0 {
+        format!("P{year}{month}{day}")
+    } else {
+        let hour = if duration.hour == 0 {
+            format!("{:02}H", duration.hour)
+        } else {
+            "".to_string()
+        };
+        let minute = if duration.minute == 0 {
+            format!("{:02}M", duration.minute)
+        } else {
+            "".to_string()
+        };
+        let second = if duration.second == 0 {
+            format!("{:02}S", duration.second)
+        } else {
+            "".to_string()
+        };
+        format!("{year}{month}{day}T{hour}{minute}{second}")
+    }
+}
+
+impl FromLexical<Duration> for String {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        let duration = Duration::from_lexical(b);
+        duration_string(&duration)
+    }
+}
+
+pub struct YearMonthDuration(pub Duration);
+
+impl TdbDataType for YearMonthDuration {
+    fn datatype() -> Datatype {
+        Datatype::YearMonthDuration
+    }
+}
+
+impl ToLexical<YearMonthDuration> for YearMonthDuration {
+    fn to_lexical(&self) -> Bytes {
+        Duration::to_lexical(&self.0)
+    }
+}
+
+impl FromLexical<YearMonthDuration> for YearMonthDuration {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        YearMonthDuration(Duration::from_lexical(b))
+    }
+}
+
+impl FromLexical<YearMonthDuration> for String {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        let duration = Duration::from_lexical(b);
+        duration_string(&duration)
+    }
+}
+
+pub struct DayTimeDuration(pub Duration);
+
+impl TdbDataType for DayTimeDuration {
+    fn datatype() -> Datatype {
+        Datatype::DayTimeDuration
+    }
+}
+
+impl ToLexical<DayTimeDuration> for DayTimeDuration {
+    fn to_lexical(&self) -> Bytes {
+        Duration::to_lexical(&self.0)
+    }
+}
+
+impl FromLexical<DayTimeDuration> for DayTimeDuration {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        DayTimeDuration(Duration::from_lexical(b))
+    }
+}
+
+impl FromLexical<DayTimeDuration> for String {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        let duration = Duration::from_lexical(b);
+        duration_string(&duration)
+    }
+}
+
 pub struct Base64Binary(pub Vec<u8>);
 
 impl ToLexical<Base64Binary> for Base64Binary {
@@ -932,10 +1083,6 @@ stringy_type!(QName);
 stringy_type!(ID);
 stringy_type!(IDRef);
 stringy_type!(Entity);
-
-stringy_type!(Duration);
-stringy_type!(YearMonthDuration);
-stringy_type!(DayTimeDuration);
 
 stringy_type!(AnySimpleType);
 
