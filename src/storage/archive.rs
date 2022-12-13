@@ -6,7 +6,7 @@
 
 use std::{
     io,
-    ops::Range,
+    ops::{Range, RangeBounds},
     path::PathBuf,
     pin::Pin,
     sync::{Arc, Mutex, RwLock},
@@ -21,7 +21,9 @@ use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite},
 };
 
-use crate::structure::smallbitarray::SmallBitArray;
+use crate::structure::{
+    logarray_length_from_control_word, smallbitarray::SmallBitArray, LogArray, MonotonicLogArray,
+};
 
 use super::{consts::LayerFileEnum, FileLoad, FileStore, PersistentLayerStore, SyncableFile};
 
@@ -118,10 +120,15 @@ impl AsyncRead for ConstructionFile {
         _cx: &mut std::task::Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        let guard = self.0.read().unwrap();
-        match &*guard {
+        let mut guard = self.0.write().unwrap();
+        match &mut *guard {
             ConstructionFileState::Finalized(x) => {
-                buf.put_slice(x.as_ref());
+                let slice = if buf.remaining() > x.len() {
+                    x.split_to(x.len())
+                } else {
+                    x.split_to(buf.remaining())
+                };
+                buf.put_slice(slice.as_ref());
 
                 Poll::Ready(Ok(()))
             }
@@ -178,11 +185,11 @@ impl FileLoad for ConstructionFile {
     }
 }
 
-pub struct ArchiveHeader {
+pub struct ArchiveFilePresenceHeader {
     present_files: SmallBitArray,
 }
 
-impl ArchiveHeader {
+impl ArchiveFilePresenceHeader {
     pub fn new(val: u64) -> Self {
         Self {
             present_files: SmallBitArray::new(val),
@@ -206,6 +213,117 @@ impl ArchiveHeader {
     pub fn inner(&self) -> u64 {
         self.present_files.inner()
     }
+
+    pub fn file_index(&self, file: LayerFileEnum) -> Option<usize> {
+        if !self.is_present(file) {
+            return None;
+        }
+
+        Some(self.present_files.rank1(file as usize) - 1)
+    }
+}
+
+pub struct ArchiveHeader {
+    file_presence: ArchiveFilePresenceHeader,
+    file_offsets: MonotonicLogArray,
+}
+
+impl ArchiveHeader {
+    pub fn parse(mut bytes: Bytes) -> (Self, Bytes) {
+        let file_presence = ArchiveFilePresenceHeader::new(bytes.get_u64());
+        let (file_offsets, remainder) =
+            MonotonicLogArray::parse_header_first(bytes).expect("whatever");
+
+        (
+            Self {
+                file_presence,
+                file_offsets,
+            },
+            remainder,
+        )
+    }
+
+    pub async fn parse_from_reader<R: AsyncRead + Unpin>(reader: &mut R) -> io::Result<Self> {
+        let file_presence = ArchiveFilePresenceHeader::new(reader.read_u64().await?);
+        let mut logarray_bytes = BytesMut::new();
+        logarray_bytes.resize(8, 0);
+        reader.read_exact(&mut logarray_bytes[0..8]).await?;
+        let len = logarray_length_from_control_word(&logarray_bytes[0..8]);
+        unsafe {
+            logarray_bytes.set_len(8 + len);
+        }
+        reader.read_exact(&mut logarray_bytes[8..]).await?;
+
+        let file_offsets =
+            MonotonicLogArray::parse(logarray_bytes.freeze()).expect("what the heck");
+
+        Ok(Self {
+            file_presence,
+            file_offsets,
+        })
+    }
+
+    pub fn range_for(&self, file: LayerFileEnum) -> Option<Range<usize>> {
+        if let Some(file_index) = self.file_presence.file_index(file) {
+            let start: usize = if file_index == 0 {
+                0
+            } else {
+                self.file_offsets.entry(file_index - 1) as usize
+            };
+
+            let end: usize = self.file_offsets.entry(file_index) as usize;
+
+            Some(start..end)
+        } else {
+            None
+        }
+    }
+
+    pub fn size_of(&self, file: LayerFileEnum) -> Option<usize> {
+        if let Some(range) = self.range_for(file) {
+            Some(range.end - range.start)
+        } else {
+            None
+        }
+    }
+}
+
+pub struct Archive {
+    header: ArchiveHeader,
+    data: Bytes,
+}
+
+impl Archive {
+    pub fn parse(bytes: Bytes) -> Self {
+        let (header, data) = ArchiveHeader::parse(bytes);
+
+        Self { header, data }
+    }
+
+    pub async fn parse_from_reader<R: AsyncRead + Unpin>(reader: &mut R) -> io::Result<Self> {
+        let header = ArchiveHeader::parse_from_reader(reader).await?;
+        let data_len = header.file_offsets.entry(header.file_offsets.len() - 1) as usize;
+        let mut data = BytesMut::with_capacity(data_len);
+        unsafe { data.set_len(data_len) };
+        reader.read_exact(&mut data[..]).await?;
+
+        Ok(Self {
+            header,
+            data: data.freeze(),
+        })
+    }
+
+    pub fn slice_for(&self, file: LayerFileEnum) -> Option<Bytes> {
+        if let Some(range) = self.header.range_for(file) {
+            Some(self.data.slice(range))
+        } else {
+            None
+        }
+    }
+
+    pub fn size_of(&self, file: LayerFileEnum) -> Option<usize> {
+        self.header.size_of(file)
+    }
 }
 
 #[derive(Clone)]
@@ -214,9 +332,40 @@ pub struct PersistentFileSlice {
     file_type: LayerFileEnum,
 }
 
+pub struct ArchiveSliceReader {
+    file: File,
+    remaining: usize,
+}
+
+impl AsyncRead for ArchiveSliceReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        if self.remaining == 0 {
+            return Poll::Ready(Ok(()));
+        }
+
+        let read = AsyncRead::poll_read(Pin::new(&mut (*self).file), cx, buf);
+        match read {
+            Poll::Pending => return Poll::Pending,
+            _ => {}
+        }
+
+        if buf.filled().len() > self.remaining {
+            buf.set_filled(self.remaining);
+        }
+
+        self.remaining -= buf.filled().len();
+
+        Poll::Ready(Ok(()))
+    }
+}
+
 #[async_trait]
 impl FileLoad for PersistentFileSlice {
-    type Read = File;
+    type Read = ArchiveSliceReader;
 
     async fn exists(&self) -> io::Result<bool> {
         let metadata = tokio::fs::metadata(&self.path).await;
@@ -231,18 +380,112 @@ impl FileLoad for PersistentFileSlice {
         let mut options = tokio::fs::OpenOptions::new();
         options.read(true);
         let mut file = options.open(&self.path).await?;
-        let header = ArchiveHeader::new(file.read_u64().await?);
+        let header = ArchiveFilePresenceHeader::new(file.read_u64().await?);
 
         Ok(header.is_present(self.file_type))
     }
     async fn size(&self) -> io::Result<usize> {
-        todo!();
+        // read header!
+        let mut options = tokio::fs::OpenOptions::new();
+        options.read(true);
+        let mut file = options.open(&self.path).await?;
+        let header = ArchiveHeader::parse_from_reader(&mut file).await?;
+
+        header
+            .size_of(self.file_type)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "slice not found in archive"))
     }
     async fn open_read_from(&self, offset: usize) -> io::Result<Self::Read> {
-        todo!();
+        let mut options = tokio::fs::OpenOptions::new();
+        options.read(true);
+        let mut file = options.open(&self.path).await?;
+        let header = ArchiveHeader::parse_from_reader(&mut file).await?;
+        let remaining = header
+            .size_of(self.file_type)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "slice not found in archive"))?;
+
+        Ok(ArchiveSliceReader { file, remaining })
     }
+
     async fn map(&self) -> io::Result<Bytes> {
-        todo!();
+        let mut options = tokio::fs::OpenOptions::new();
+        options.read(true);
+        let mut file = options.open(&self.path).await?;
+        let archive = Archive::parse_from_reader(&mut file).await?;
+        archive
+            .slice_for(self.file_type)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "slice not found in archive"))
+    }
+}
+
+#[derive(Clone)]
+pub enum ArchiveLayerHandle {
+    Construction(ConstructionFile),
+    Persistent(PersistentFileSlice),
+}
+
+#[async_trait]
+impl FileStore for ArchiveLayerHandle {
+    type Write = ConstructionFile;
+    async fn open_write(&self) -> io::Result<Self::Write> {
+        match self {
+            Self::Construction(c) => c.open_write().await,
+            _ => panic!("cannot write to a persistent file slice"),
+        }
+    }
+}
+
+#[async_trait]
+impl FileLoad for ArchiveLayerHandle {
+    type Read = ArchiveLayerHandleReader;
+
+    async fn exists(&self) -> io::Result<bool> {
+        match self {
+            Self::Construction(c) => c.exists().await,
+            Self::Persistent(p) => p.exists().await,
+        }
+    }
+    async fn size(&self) -> io::Result<usize> {
+        match self {
+            Self::Construction(c) => c.size().await,
+            Self::Persistent(p) => p.size().await,
+        }
+    }
+
+    async fn open_read_from(&self, offset: usize) -> io::Result<Self::Read> {
+        Ok(match self {
+            Self::Construction(c) => {
+                ArchiveLayerHandleReader::Construction(c.open_read_from(offset).await?)
+            }
+            Self::Persistent(p) => {
+                ArchiveLayerHandleReader::Persistent(p.open_read_from(offset).await?)
+            }
+        })
+    }
+
+    async fn map(&self) -> io::Result<Bytes> {
+        match self {
+            Self::Construction(c) => c.map().await,
+            Self::Persistent(p) => p.map().await,
+        }
+    }
+}
+
+pub enum ArchiveLayerHandleReader {
+    Construction(ConstructionFile),
+    Persistent(ArchiveSliceReader),
+}
+
+impl AsyncRead for ArchiveLayerHandleReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match &mut *self {
+            Self::Construction(c) => AsyncRead::poll_read(Pin::new(c), cx, buf),
+            Self::Persistent(p) => AsyncRead::poll_read(Pin::new(p), cx, buf),
+        }
     }
 }
 
@@ -284,7 +527,7 @@ mod tests {
             LayerFileEnum::NodeDictionaryBlocks,
         ];
 
-        let header = ArchiveHeader::from_present(files_present.iter().cloned());
+        let header = ArchiveFilePresenceHeader::from_present(files_present.iter().cloned());
 
         for file in files_present {
             assert!(header.is_present(file));
