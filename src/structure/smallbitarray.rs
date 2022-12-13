@@ -27,6 +27,19 @@ impl SmallBitArray {
             ix: 0,
         }
     }
+
+    pub fn inner(&self) -> u64 {
+        self.val
+    }
+
+    pub fn rank1(&self, index: usize) -> usize {
+        if index >= Self::LEN {
+            panic!("index too high");
+        }
+
+        let mask = !(u64::MAX >> (index as u32 + 1));
+        (self.val & mask).count_ones() as usize
+    }
 }
 
 #[derive(Clone)]
@@ -109,6 +122,31 @@ mod tests {
 
         for (&expected, actual) in expecteds.iter().zip(iter) {
             assert_eq!(expected, actual);
+        }
+    }
+
+    #[test]
+    fn small_bit_array_rank() {
+        let val: u64 = 0b01101011_10111001_10010010_00000111_10010001_01100101_00000000_11111110;
+
+        let arr = SmallBitArray::new(val);
+
+        #[rustfmt::skip]
+        let expecteds = [
+            0, 1, 2, 2, 3, 3, 4, 5,
+            6, 6, 7, 8, 9, 9, 9, 10,
+            11, 11, 11, 12, 12, 12, 13, 13,
+            13, 13, 13, 13, 13, 14, 15, 16,
+            17, 17, 17, 18, 18, 18, 18, 19,
+            19, 20, 21, 21, 21, 22, 22, 23,
+            23, 23, 23, 23, 23, 23, 23, 23,
+            24, 25, 26, 27, 28, 29, 30
+        ];
+
+        for (ix, &expected) in expecteds.iter().enumerate() {
+            dbg!(ix);
+            let rank = arr.rank1(ix);
+            assert_eq!(expected, rank);
         }
     }
 }
