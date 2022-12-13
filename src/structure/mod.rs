@@ -7,6 +7,7 @@ pub mod bitarray;
 pub mod bitindex;
 pub mod bititer;
 pub mod logarray;
+pub mod smallbitarray;
 //pub mod mapped_dict;
 //pub mod pfc;
 pub mod tfc;
