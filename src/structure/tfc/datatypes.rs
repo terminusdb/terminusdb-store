@@ -470,6 +470,13 @@ impl FromLexical<NaiveDateTime> for NaiveDateTime {
     }
 }
 
+impl FromLexical<NaiveDateTime> for String {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        let ndt = storage_to_datetime(&mut b);
+        ndt.format("%Y-%m-%dT%H:%M:%S%.fZ").to_string()
+    }
+}
+
 pub struct DateTimeStamp(pub NaiveDateTime);
 
 impl TdbDataType for DateTimeStamp {
@@ -496,6 +503,13 @@ impl FromLexical<DateTimeStamp> for NaiveDateTime {
     }
 }
 
+impl FromLexical<DateTimeStamp> for String {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        let ndt = storage_to_datetime(&mut b);
+        ndt.format("%Y-%m-%dT%H:%M:%S%.fZ").to_string()
+    }
+}
+
 impl TdbDataType for NaiveTime {
     fn datatype() -> Datatype {
         Datatype::Time
@@ -516,6 +530,13 @@ impl FromLexical<NaiveTime> for NaiveTime {
             .unwrap()
             .parse::<NaiveTime>()
             .unwrap()
+    }
+}
+
+impl FromLexical<NaiveTime> for String {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        let ndt = NaiveTime::from_lexical(&mut b);
+        ndt.format("%H:%M:%S%.fZ").to_string()
     }
 }
 

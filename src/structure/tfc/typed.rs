@@ -681,7 +681,7 @@ mod tests {
         cycle(f64::NEG_INFINITY);
         cycle(f64::INFINITY);
 
-        let j = f64::from_lexical(f64::NAN.to_lexical());
+        let j = <f64 as FromLexical<f64>>::from_lexical(f64::NAN.to_lexical());
         assert!(j.is_nan())
     }
 
