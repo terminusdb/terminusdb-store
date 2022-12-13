@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use num_derive::FromPrimitive;
+
 pub struct Filenames {
     pub node_dictionary_blocks: &'static str,
     pub node_dictionary_offsets: &'static str,
@@ -90,8 +92,9 @@ pub struct Filenames {
     pub rollup: &'static str,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug, FromPrimitive)]
 pub enum LayerFileEnum {
-    NodeDictionaryBlocks,
+    NodeDictionaryBlocks = 0,
     NodeDictionaryOffsets,
     PredicateDictionaryBlocks,
     PredicateDictionaryOffsets,
