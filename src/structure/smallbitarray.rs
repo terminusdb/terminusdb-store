@@ -4,6 +4,7 @@ pub struct SmallBitArray {
 }
 
 impl SmallBitArray {
+    pub const LEN: usize = u64::BITS as usize - 1;
     pub fn new(val: u64) -> Self {
         if val & 1 != 0 {
             panic!("lsb set for a small bit array. this is reserved for future expansion");
@@ -13,11 +14,11 @@ impl SmallBitArray {
     }
 
     pub fn get(&self, index: usize) -> bool {
-        if index >= u64::BITS as usize - 1 {
+        if index >= Self::LEN {
             panic!("index too high");
         }
 
-        ((self.val >> dbg!((u64::BITS - index as u32 - 1))) & 1) != 0
+        (self.val >> (Self::LEN - index) & 1) != 0
     }
 
     pub fn iter(&self) -> impl Iterator<Item = bool> {
@@ -38,7 +39,7 @@ impl Iterator for SmallBitArrayIter {
     type Item = bool;
 
     fn next(&mut self) -> Option<bool> {
-        if self.ix >= u64::BITS as usize - 1 {
+        if self.ix >= SmallBitArray::LEN {
             return None;
         }
 
