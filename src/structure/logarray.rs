@@ -211,6 +211,18 @@ impl LogArray {
         })
     }
 
+    pub fn parse_header_first(input_buf: Bytes) -> Result<LogArray, LogArrayError> {
+        let input_buf_size = input_buf.len();
+        LogArrayError::validate_input_buf_size(input_buf_size)?;
+        let (len, width) = read_control_word(&input_buf[..8], input_buf_size)?;
+        Ok(LogArray {
+            first: 0,
+            len,
+            width,
+            input_buf: input_buf.slice(8..),
+        })
+    }
+
     /// Returns the number of elements.
     pub fn len(&self) -> usize {
         // `usize::try_from` succeeds if `std::mem::size_of::<usize>()` >= 4.
@@ -403,13 +415,21 @@ impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
     }
 
     pub fn finalize(mut self) {
+        self.finalize_data();
+
+        self.write_control_word();
+    }
+
+    pub fn finalize_header_first(mut self) {
+        self.write_control_word();
+
+        self.finalize_data();
+    }
+
+    fn write_control_word(&mut self) {
         let len = self.count;
         let width = self.width;
 
-        // Write the final data word.
-        self.finalize_data();
-
-        // Write the control word.
         let mut buf = [0; 8];
         BigEndian::write_u32(&mut buf, len);
         buf[4] = width;
@@ -461,12 +481,16 @@ impl<B: BufMut> LateLogArrayBufBuilder<B> {
     }
 
     pub fn finalize(mut self) -> B {
-        /*if self.width == 0 {
-            self.width = 1
-        }*/
         let mut builder = LogArrayBufBuilder::new(&mut self.buf, self.width);
         builder.push_vec(self.vals);
         builder.finalize();
+        self.buf
+    }
+
+    pub fn finalize_header_first(mut self) -> B {
+        let mut builder = LogArrayBufBuilder::new(&mut self.buf, self.width);
+        builder.push_vec(self.vals);
+        builder.finalize_header_first();
         self.buf
     }
 }
@@ -772,6 +796,12 @@ impl MonotonicLogArray {
 
     pub fn parse(bytes: Bytes) -> Result<MonotonicLogArray, LogArrayError> {
         let logarray = LogArray::parse(bytes)?;
+
+        Ok(Self::from_logarray(logarray))
+    }
+
+    pub fn parse_header_first(bytes: Bytes) -> Result<MonotonicLogArray, LogArrayError> {
+        let logarray = LogArray::parse_header_first(bytes)?;
 
         Ok(Self::from_logarray(logarray))
     }
