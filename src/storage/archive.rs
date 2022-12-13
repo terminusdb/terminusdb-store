@@ -4,14 +4,14 @@
 //  [<offsets>]*
 //
 
-use std::{io, sync::{Mutex, Arc, RwLock}, task::Poll, pin::Pin};
+use std::{io, sync::{Mutex, Arc, RwLock}, task::Poll, pin::Pin, path::PathBuf, ops::Range};
 
 use async_trait::async_trait;
 use bytes::{buf, Buf, Bytes, BytesMut, BufMut};
 use tokio::io::{AsyncWrite, AsyncRead};
 use std::io::Write;
 
-use super::{PersistentLayerStore, FileStore, FileLoad, SyncableFile};
+use super::{PersistentLayerStore, FileStore, FileLoad, SyncableFile, consts::LayerFileEnum};
 
 #[async_trait]
 pub trait ArchiveLayerStoreBackend: Clone+Send+Sync {
@@ -24,14 +24,14 @@ pub trait ArchiveLayerStoreBackend: Clone+Send+Sync {
     async fn set_rollup(&self, id: [u32; 5], rollup: [u32; 5]) -> io::Result<()>;
 }
 
-enum ConstructionFileState {
+pub enum ConstructionFileState {
     UnderConstruction(BytesMut),
     Finalizing,
     Finalized(Bytes)
 }
 
 #[derive(Clone)]
-struct ConstructionFile(Arc<RwLock<ConstructionFileState>>);
+pub struct ConstructionFile(Arc<RwLock<ConstructionFileState>>);
 
 #[async_trait]
 impl FileStore for ConstructionFile {
@@ -143,6 +143,11 @@ impl FileLoad for ConstructionFile {
             _ => Err(io::Error::new(io::ErrorKind::NotFound, "file not finalized"))
         }
     }
+}
+
+pub struct PersistentFileSlice {
+    path: PathBuf,
+    file_type: LayerFileEnum,
 }
 
 /*
