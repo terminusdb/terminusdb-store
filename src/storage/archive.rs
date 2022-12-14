@@ -18,11 +18,12 @@ use async_trait::async_trait;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio::{
     fs::{self, File},
-    io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWrite},
+    io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWrite, AsyncWriteExt},
 };
 
 use crate::structure::{
-    logarray_length_from_control_word, smallbitarray::SmallBitArray, MonotonicLogArray,
+    logarray_length_from_control_word, smallbitarray::SmallBitArray, LateLogArrayBufBuilder,
+    MonotonicLogArray,
 };
 
 use super::{
@@ -55,6 +56,15 @@ impl ConstructionFile {
         Self(Arc::new(RwLock::new(
             ConstructionFileState::UnderConstruction(BytesMut::new()),
         )))
+    }
+
+    fn finalized_buf(self) -> Bytes {
+        let guard = self.0.read().unwrap();
+        if let ConstructionFileState::Finalized(bytes) = &*guard {
+            bytes.clone()
+        } else {
+            panic!("tried to get the finalized buf from an unfinalized ConstructionFile");
+        }
     }
 }
 
@@ -690,6 +700,48 @@ impl PersistentLayerStore for ArchiveLayerStore {
         let header = ArchiveFilePresenceHeader::new(file.read_u64().await?);
 
         Ok(header.is_present(file_type))
+    }
+
+    async fn finalize(&self, directory: [u32; 5]) -> io::Result<()> {
+        let files = {
+            let mut guard = self.construction.write().unwrap();
+            guard
+                .remove(&directory)
+                .expect("layer to be finalized was not found in construction map")
+        };
+
+        let presence_header = ArchiveFilePresenceHeader::from_present(files.keys().cloned());
+
+        let mut files: Vec<(_, _)> = files
+            .into_iter()
+            .map(|(file_type, file)| (file_type, file.finalized_buf()))
+            .collect();
+        files.sort();
+        let mut offsets = LateLogArrayBufBuilder::new(BytesMut::new());
+        for (_file_type, data) in files.iter() {
+            offsets.push(data.len() as u64);
+        }
+
+        let offsets_buf = offsets.finalize_header_first();
+
+        let mut data_buf = BytesMut::new();
+        data_buf.put_u64(presence_header.inner());
+        data_buf.extend(offsets_buf);
+        for (_file_type, data) in files {
+            data_buf.extend(data);
+        }
+
+        let path = self.path_for_layer(directory);
+        let mut options = tokio::fs::OpenOptions::new();
+        options.create_new(true).write(true);
+        let mut file = options.open(path).await?;
+
+        while data_buf.has_remaining() {
+            file.write_buf(&mut data_buf).await?;
+        }
+
+        file.flush().await?;
+        file.sync_all().await
     }
 }
 
