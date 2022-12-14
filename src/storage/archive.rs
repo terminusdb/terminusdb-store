@@ -5,27 +5,30 @@
 //
 
 use std::{
-    io,
-    ops::{Range, RangeBounds},
+    collections::HashMap,
+    io::{self, SeekFrom},
+    ops::Range,
     path::PathBuf,
     pin::Pin,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
     task::Poll,
 };
 
 use async_trait::async_trait;
-use bytes::{buf, Buf, BufMut, Bytes, BytesMut};
-use std::io::Write;
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio::{
-    fs::File,
-    io::{AsyncRead, AsyncReadExt, AsyncWrite},
+    fs::{self, File},
+    io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWrite},
 };
 
 use crate::structure::{
-    logarray_length_from_control_word, smallbitarray::SmallBitArray, LogArray, MonotonicLogArray,
+    logarray_length_from_control_word, smallbitarray::SmallBitArray, MonotonicLogArray,
 };
 
-use super::{consts::LayerFileEnum, FileLoad, FileStore, PersistentLayerStore, SyncableFile};
+use super::{
+    consts::{LayerFileEnum, FILENAME_ENUM_MAP},
+    name_to_string, string_to_name, FileLoad, FileStore, PersistentLayerStore, SyncableFile,
+};
 
 #[async_trait]
 pub trait ArchiveLayerStoreBackend: Clone + Send + Sync {
@@ -46,6 +49,14 @@ pub enum ConstructionFileState {
 
 #[derive(Clone)]
 pub struct ConstructionFile(Arc<RwLock<ConstructionFileState>>);
+
+impl ConstructionFile {
+    fn new() -> Self {
+        Self(Arc::new(RwLock::new(
+            ConstructionFileState::UnderConstruction(BytesMut::new()),
+        )))
+    }
+}
 
 #[async_trait]
 impl FileStore for ConstructionFile {
@@ -147,7 +158,7 @@ impl FileLoad for ConstructionFile {
     async fn exists(&self) -> io::Result<bool> {
         let guard = self.0.read().unwrap();
         Ok(match &*guard {
-            ConstructionFileState::Finalized(x) => true,
+            ConstructionFileState::Finalized(_) => true,
             _ => false,
         })
     }
@@ -165,7 +176,21 @@ impl FileLoad for ConstructionFile {
     async fn open_read_from(&self, offset: usize) -> io::Result<Self::Read> {
         let guard = self.0.read().unwrap();
         match &*guard {
-            ConstructionFileState::Finalized(_) => Ok(self.clone()),
+            ConstructionFileState::Finalized(data) => {
+                let mut data = data.clone();
+                if data.len() < offset {
+                    Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "offset is beyond end of file",
+                    ))
+                } else {
+                    data.advance(offset);
+                    // this is suspicious, why would we need a lock here? Maybe we should have a different reader type from the file type
+                    Ok(ConstructionFile(Arc::new(RwLock::new(
+                        ConstructionFileState::Finalized(data),
+                    ))))
+                }
+            }
             _ => Err(io::Error::new(
                 io::ErrorKind::NotFound,
                 "file not finalized",
@@ -332,6 +357,15 @@ pub struct PersistentFileSlice {
     file_type: LayerFileEnum,
 }
 
+impl PersistentFileSlice {
+    fn new<P: Into<PathBuf>>(path: P, file_type: LayerFileEnum) -> Self {
+        Self {
+            path: path.into(),
+            file_type,
+        }
+    }
+}
+
 pub struct ArchiveSliceReader {
     file: File,
     remaining: usize,
@@ -400,11 +434,21 @@ impl FileLoad for PersistentFileSlice {
         options.read(true);
         let mut file = options.open(&self.path).await?;
         let header = ArchiveHeader::parse_from_reader(&mut file).await?;
-        let remaining = header
+        let mut remaining = header
             .size_of(self.file_type)
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "slice not found in archive"))?;
 
-        Ok(ArchiveSliceReader { file, remaining })
+        if remaining < offset {
+            Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "offset is past end of file slice",
+            ))
+        } else {
+            file.seek(SeekFrom::Start(offset as u64)).await?;
+
+            remaining -= offset;
+            Ok(ArchiveSliceReader { file, remaining })
+        }
     }
 
     async fn map(&self) -> io::Result<Bytes> {
@@ -489,28 +533,165 @@ impl AsyncRead for ArchiveLayerHandleReader {
     }
 }
 
-/*
-
 #[derive(Clone)]
-pub struct ArchiveLayerStore<T:ArchiveLayerStoreBackend> {
-    backend: T,
-    construction: Arc<RwLock<HashMap<[u32;5], HashMap<LayerFileEnum, ConstructionFile>
+pub struct ArchiveLayerStore {
+    path: PathBuf,
+    construction: Arc<RwLock<HashMap<[u32; 5], HashMap<LayerFileEnum, ConstructionFile>>>>,
 }
+
+impl ArchiveLayerStore {
+    pub fn new<P: Into<PathBuf>>(path: P) -> ArchiveLayerStore {
+        ArchiveLayerStore {
+            path: path.into(),
+            construction: Default::default(),
+        }
+    }
+
+    fn path_for_layer(&self, name: [u32; 5]) -> PathBuf {
+        let mut p = self.path.clone();
+        let name_str = name_to_string(name);
+        p.push(&name_str[0..PREFIX_DIR_SIZE]);
+        p.push(&format!("{}.larch", name_str));
+
+        p
+    }
+}
+
+const PREFIX_DIR_SIZE: usize = 2;
 
 #[async_trait]
-impl<T:ArchiveLayerStoreBackend+'static> PersistentLayerStore for ArchiveLayerStore<T> {
-    type File = T::File;
+impl PersistentLayerStore for ArchiveLayerStore {
+    type File = ArchiveLayerHandle;
 
     async fn directories(&self) -> io::Result<Vec<[u32; 5]>> {
-        self.backend.get_layer_names().await
+        let mut stream = fs::read_dir(&self.path).await?;
+        let mut result = Vec::new();
+        while let Some(direntry) = stream.next_entry().await? {
+            let os_name = direntry.file_name();
+            let name = os_name.to_str().ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "unexpected non-utf8 directory name",
+                )
+            })?;
+            if name.ends_with(".larch") && direntry.file_type().await?.is_file() {
+                let name_component = &name[..name.len() - 6];
+                result.push(string_to_name(name_component)?);
+            }
+        }
+
+        {
+            let guard = self.construction.read().unwrap();
+
+            for name in guard.keys() {
+                result.push(*name);
+            }
+        }
+
+        result.sort();
+        result.dedup();
+
+        Ok(result)
     }
 
-    async fn create_named_directory(&self, id: [u32; 5]) -> io::Result<()> {
+    async fn create_named_directory(&self, name: [u32; 5]) -> io::Result<[u32; 5]> {
+        let p = self.path_for_layer(name);
+        let meta = fs::metadata(p).await;
+        if meta.is_err() && meta.as_ref().unwrap_err().kind() == io::ErrorKind::NotFound {
+            // layer does not exist yet on disk, good.
+            let mut guard = self.construction.write().unwrap();
+            if guard.contains_key(&name) {
+                // whoops! Looks like layer is already under construction!
+                panic!("tried to create a new layer which is already under construction");
+            }
 
+            // layer is neither on disk nor in the construction map. Let's create it.
+            guard.insert(name, HashMap::new());
+            return Ok(name);
+        } else {
+            // return error if it is there
+            meta?;
+
+            // still here? That means the file existed, even though it shouldn't!
+            panic!("tried to create a new layer which already exists");
+        }
+    }
+
+    async fn directory_exists(&self, name: [u32; 5]) -> io::Result<bool> {
+        {
+            let guard = self.construction.read().unwrap();
+            if guard.contains_key(&name) {
+                return Ok(true);
+            }
+        }
+
+        let p = self.path_for_layer(name);
+        let meta = fs::metadata(p).await;
+
+        if meta.is_err() && meta.as_ref().unwrap_err().kind() == io::ErrorKind::NotFound {
+            return Ok(false);
+        }
+        let meta = meta?;
+
+        if !meta.is_file() {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "layer was not a file",
+            ))
+        } else {
+            Ok(true)
+        }
+    }
+
+    async fn get_file(&self, directory: [u32; 5], name: &str) -> io::Result<Self::File> {
+        let file_type = FILENAME_ENUM_MAP[name];
+        {
+            let guard = self.construction.read().unwrap();
+            if let Some(map) = guard.get(&directory) {
+                if let Some(file) = map.get(&file_type) {
+                    return Ok(ArchiveLayerHandle::Construction(file.clone()));
+                }
+
+                // the directory is there but the file is not. We'll have to construct it.
+                let mut guard = self.construction.write().unwrap();
+                let map = guard.get_mut(&directory).unwrap();
+                let file = ConstructionFile::new();
+                map.insert(file_type, file.clone());
+
+                Ok(ArchiveLayerHandle::Construction(file))
+            } else {
+                // layer does not appear to be under construction so it has to be on disk
+                let p = self.path_for_layer(directory);
+
+                Ok(ArchiveLayerHandle::Persistent(PersistentFileSlice::new(
+                    p, file_type,
+                )))
+            }
+        }
+    }
+
+    async fn file_exists(&self, directory: [u32; 5], file: &str) -> io::Result<bool> {
+        let file_type = FILENAME_ENUM_MAP[file];
+        {
+            let guard = self.construction.read().unwrap();
+            if let Some(map) = guard.get(&directory) {
+                return Ok(map.contains_key(&file_type));
+            }
+        }
+        let p = self.path_for_layer(directory);
+
+        let mut options = tokio::fs::OpenOptions::new();
+        options.read(true);
+        let file = options.open(p).await;
+        if file.is_err() && file.as_ref().err().unwrap().kind() == io::ErrorKind::NotFound {
+            return Ok(false);
+        }
+        let mut file = file?;
+        let header = ArchiveFilePresenceHeader::new(file.read_u64().await?);
+
+        Ok(header.is_present(file_type))
     }
 }
-
-*/
 
 #[cfg(test)]
 mod tests {
