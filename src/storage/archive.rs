@@ -718,8 +718,10 @@ impl PersistentLayerStore for ArchiveLayerStore {
             .collect();
         files.sort();
         let mut offsets = LateLogArrayBufBuilder::new(BytesMut::new());
+        let mut tally = 0;
         for (_file_type, data) in files.iter() {
-            offsets.push(data.len() as u64);
+            tally += data.len();
+            offsets.push(tally as u64);
         }
 
         let offsets_buf = offsets.finalize_header_first();
