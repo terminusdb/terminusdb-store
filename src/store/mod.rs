@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use crate::layer::{IdTriple, Layer, LayerBuilder, LayerCounts, ObjectType, ValueTriple};
+use crate::storage::archive::ArchiveLayerStore;
 use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore};
 use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
 use crate::storage::{CachedLayerStore, LabelStore, LayerStore, LockingHashMapLayerCache};
@@ -14,6 +15,7 @@ use crate::structure::TypedDictEntry;
 
 use std::io;
 
+use async_trait::async_trait;
 use rayon::prelude::*;
 
 /// A store, storing a set of layers and database labels pointing to these layers.
@@ -555,6 +557,7 @@ impl PartialEq for StoreLayer {
 
 impl Eq for StoreLayer {}
 
+#[async_trait]
 impl Layer for StoreLayer {
     fn name(&self) -> [u32; 5] {
         self.layer.name()
@@ -874,6 +877,14 @@ pub fn open_memory_store() -> Store {
     Store::new(
         MemoryLabelStore::new(),
         CachedLayerStore::new(MemoryLayerStore::new(), LockingHashMapLayerCache::new()),
+    )
+}
+
+pub fn open_archive_store<P: Into<PathBuf>>(path: P) -> Store {
+    let p = path.into();
+    Store::new(
+        DirectoryLabelStore::new(p.clone()),
+        CachedLayerStore::new(ArchiveLayerStore::new(p), LockingHashMapLayerCache::new()),
     )
 }
 

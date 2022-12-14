@@ -441,9 +441,7 @@ impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
         self.write_control_word();
     }
 
-    pub fn finalize_header_first(mut self) {
-        self.write_control_word();
-
+    pub(crate) fn finalize_without_control_word(mut self) {
         self.finalize_data();
     }
 
@@ -451,11 +449,17 @@ impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
         let len = self.count;
         let width = self.width;
 
-        let mut buf = [0; 8];
-        BigEndian::write_u32(&mut buf, len);
-        buf[4] = width;
+        let buf = control_word(len, width);
         self.buf.put_slice(&buf);
     }
+}
+
+pub(crate) fn control_word(len: u32, width: u8) -> [u8; 8] {
+    let mut buf = [0; 8];
+    BigEndian::write_u32(&mut buf, len);
+    buf[4] = width;
+
+    buf
 }
 
 pub struct LateLogArrayBufBuilder<B: BufMut> {
@@ -509,9 +513,11 @@ impl<B: BufMut> LateLogArrayBufBuilder<B> {
     }
 
     pub fn finalize_header_first(mut self) -> B {
+        let control_word = control_word(self.count(), self.width);
+        self.buf.put(control_word.as_ref());
         let mut builder = LogArrayBufBuilder::new(&mut self.buf, self.width);
         builder.push_vec(self.vals);
-        builder.finalize_header_first();
+        builder.finalize_without_control_word();
         self.buf
     }
 }

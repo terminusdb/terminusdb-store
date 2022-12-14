@@ -3,6 +3,12 @@ pub struct SmallBitArray {
     val: u64,
 }
 
+impl std::fmt::Debug for SmallBitArray {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<{:b}>", self.val)
+    }
+}
+
 impl SmallBitArray {
     pub const LEN: usize = u64::BITS as usize - 1;
     pub fn new(val: u64) -> Self {
@@ -144,7 +150,6 @@ mod tests {
         ];
 
         for (ix, &expected) in expecteds.iter().enumerate() {
-            dbg!(ix);
             let rank = arr.rank1(ix);
             assert_eq!(expected, rank);
         }

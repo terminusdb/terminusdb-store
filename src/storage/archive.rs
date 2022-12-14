@@ -58,6 +58,15 @@ impl ConstructionFile {
         )))
     }
 
+    fn is_finalized(&self) -> bool {
+        let guard = self.0.read().unwrap();
+        if let ConstructionFileState::Finalized(_) = &*guard {
+            true
+        } else {
+            false
+        }
+    }
+
     fn finalized_buf(self) -> Bytes {
         let guard = self.0.read().unwrap();
         if let ConstructionFileState::Finalized(bytes) = &*guard {
@@ -220,6 +229,7 @@ impl FileLoad for ConstructionFile {
     }
 }
 
+#[derive(Debug)]
 pub struct ArchiveFilePresenceHeader {
     present_files: SmallBitArray,
 }
@@ -258,6 +268,7 @@ impl ArchiveFilePresenceHeader {
     }
 }
 
+#[derive(Debug)]
 pub struct ArchiveHeader {
     file_presence: ArchiveFilePresenceHeader,
     file_offsets: MonotonicLogArray,
@@ -284,13 +295,14 @@ impl ArchiveHeader {
         logarray_bytes.resize(8, 0);
         reader.read_exact(&mut logarray_bytes[0..8]).await?;
         let len = logarray_length_from_control_word(&logarray_bytes[0..8]);
+        logarray_bytes.reserve(len);
         unsafe {
             logarray_bytes.set_len(8 + len);
         }
         reader.read_exact(&mut logarray_bytes[8..]).await?;
 
-        let file_offsets =
-            MonotonicLogArray::parse(logarray_bytes.freeze()).expect("what the heck");
+        let (file_offsets, _) =
+            MonotonicLogArray::parse_header_first(logarray_bytes.freeze()).expect("what the heck");
 
         Ok(Self {
             file_presence,
@@ -339,6 +351,7 @@ impl Archive {
         let header = ArchiveHeader::parse_from_reader(reader).await?;
         let data_len = header.file_offsets.entry(header.file_offsets.len() - 1) as usize;
         let mut data = BytesMut::with_capacity(data_len);
+        data.reserve(data_len);
         unsafe { data.set_len(data_len) };
         reader.read_exact(&mut data[..]).await?;
 
@@ -663,6 +676,7 @@ impl PersistentLayerStore for ArchiveLayerStore {
                 }
 
                 // the directory is there but the file is not. We'll have to construct it.
+                std::mem::drop(guard);
                 let mut guard = self.construction.write().unwrap();
                 let map = guard.get_mut(&directory).unwrap();
                 let file = ConstructionFile::new();
@@ -710,13 +724,15 @@ impl PersistentLayerStore for ArchiveLayerStore {
                 .expect("layer to be finalized was not found in construction map")
         };
 
-        let presence_header = ArchiveFilePresenceHeader::from_present(files.keys().cloned());
-
         let mut files: Vec<(_, _)> = files
             .into_iter()
+            .filter(|(_file_type, file)| file.is_finalized())
             .map(|(file_type, file)| (file_type, file.finalized_buf()))
             .collect();
         files.sort();
+        let presence_header =
+            ArchiveFilePresenceHeader::from_present(files.iter().map(|(t, _)| t).cloned());
+
         let mut offsets = LateLogArrayBufBuilder::new(BytesMut::new());
         let mut tally = 0;
         for (_file_type, data) in files.iter() {
