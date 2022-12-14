@@ -1364,7 +1364,10 @@ pub fn name_to_string(name: [u32; 5]) -> String {
 
 pub fn string_to_name(string: &str) -> Result<[u32; 5], std::io::Error> {
     if string.len() != 40 {
-        return Err(io::Error::new(io::ErrorKind::Other, "string not len 40"));
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("string not len 40: {}", string),
+        ));
     }
     let n1 = u32::from_str_radix(&string[..8], 16)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -1724,6 +1727,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         let dir_name = self.create_directory().await?;
         let files = self.base_layer_files(dir_name).await?;
         delta_rollup(&layer, files).await?;
+        self.finalize(dir_name).await?;
 
         Ok(dir_name)
     }
@@ -1759,6 +1763,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             .create_child_layer_files_with_cache(upto, cache)
             .await?;
         delta_rollup_upto(self, &layer, upto, child_layer_files).await?;
+        self.finalize(layer_dir).await?;
         Ok(layer_dir)
     }
 
@@ -1793,6 +1798,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             .create_child_layer_files_with_cache(upto, cache)
             .await?;
         imprecise_delta_rollup_upto(self, &layer, upto, child_layer_files).await?;
+        self.finalize(layer_dir).await?;
         Ok(layer_dir)
     }
 

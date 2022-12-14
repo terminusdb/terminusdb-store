@@ -18,7 +18,7 @@ use async_trait::async_trait;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio::{
     fs::{self, File},
-    io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWrite, AsyncWriteExt},
+    io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWrite, AsyncWriteExt, BufWriter},
 };
 
 use crate::structure::{
@@ -28,6 +28,7 @@ use crate::structure::{
 
 use super::{
     consts::{LayerFileEnum, FILENAME_ENUM_MAP},
+    directory::FileBackedStore,
     name_to_string, string_to_name, FileLoad, FileStore, PersistentLayerStore, SyncableFile,
 };
 
@@ -467,7 +468,8 @@ impl FileLoad for PersistentFileSlice {
                 "offset is past end of file slice",
             ))
         } else {
-            file.seek(SeekFrom::Start(offset as u64)).await?;
+            let total_offset = header.range_for(self.file_type).unwrap().start + offset;
+            file.seek(SeekFrom::Current(total_offset as i64)).await?;
 
             remaining -= offset;
             Ok(ArchiveSliceReader { file, remaining })
@@ -489,16 +491,18 @@ impl FileLoad for PersistentFileSlice {
 pub enum ArchiveLayerHandle {
     Construction(ConstructionFile),
     Persistent(PersistentFileSlice),
+    Rollup(FileBackedStore),
 }
 
 #[async_trait]
 impl FileStore for ArchiveLayerHandle {
-    type Write = ConstructionFile;
+    type Write = ArchiveLayerHandleWriter;
     async fn open_write(&self) -> io::Result<Self::Write> {
-        match self {
-            Self::Construction(c) => c.open_write().await,
+        Ok(match self {
+            Self::Construction(c) => ArchiveLayerHandleWriter::Construction(c.open_write().await?),
+            Self::Rollup(r) => ArchiveLayerHandleWriter::Rollup(r.open_write().await?),
             _ => panic!("cannot write to a persistent file slice"),
-        }
+        })
     }
 }
 
@@ -510,12 +514,14 @@ impl FileLoad for ArchiveLayerHandle {
         match self {
             Self::Construction(c) => c.exists().await,
             Self::Persistent(p) => p.exists().await,
+            Self::Rollup(r) => r.exists().await,
         }
     }
     async fn size(&self) -> io::Result<usize> {
         match self {
             Self::Construction(c) => c.size().await,
             Self::Persistent(p) => p.size().await,
+            Self::Rollup(r) => r.size().await,
         }
     }
 
@@ -527,6 +533,7 @@ impl FileLoad for ArchiveLayerHandle {
             Self::Persistent(p) => {
                 ArchiveLayerHandleReader::Persistent(p.open_read_from(offset).await?)
             }
+            Self::Rollup(r) => ArchiveLayerHandleReader::Rollup(r.open_read_from(offset).await?),
         })
     }
 
@@ -534,6 +541,7 @@ impl FileLoad for ArchiveLayerHandle {
         match self {
             Self::Construction(c) => c.map().await,
             Self::Persistent(p) => p.map().await,
+            Self::Rollup(r) => r.map().await,
         }
     }
 }
@@ -541,6 +549,7 @@ impl FileLoad for ArchiveLayerHandle {
 pub enum ArchiveLayerHandleReader {
     Construction(ConstructionFile),
     Persistent(ArchiveSliceReader),
+    Rollup(File),
 }
 
 impl AsyncRead for ArchiveLayerHandleReader {
@@ -552,6 +561,55 @@ impl AsyncRead for ArchiveLayerHandleReader {
         match &mut *self {
             Self::Construction(c) => AsyncRead::poll_read(Pin::new(c), cx, buf),
             Self::Persistent(p) => AsyncRead::poll_read(Pin::new(p), cx, buf),
+            Self::Rollup(r) => AsyncRead::poll_read(Pin::new(r), cx, buf),
+        }
+    }
+}
+
+pub enum ArchiveLayerHandleWriter {
+    Construction(ConstructionFile),
+    Rollup(BufWriter<File>),
+}
+
+impl AsyncWrite for ArchiveLayerHandleWriter {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, io::Error>> {
+        match &mut *self {
+            Self::Construction(c) => AsyncWrite::poll_write(Pin::new(c), cx, buf),
+            Self::Rollup(r) => AsyncWrite::poll_write(Pin::new(r), cx, buf),
+        }
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), io::Error>> {
+        match &mut *self {
+            Self::Construction(c) => AsyncWrite::poll_flush(Pin::new(c), cx),
+            Self::Rollup(r) => AsyncWrite::poll_flush(Pin::new(r), cx),
+        }
+    }
+
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), io::Error>> {
+        match &mut *self {
+            Self::Construction(c) => AsyncWrite::poll_shutdown(Pin::new(c), cx),
+            Self::Rollup(r) => AsyncWrite::poll_shutdown(Pin::new(r), cx),
+        }
+    }
+}
+
+#[async_trait]
+impl SyncableFile for ArchiveLayerHandleWriter {
+    async fn sync_all(self) -> io::Result<()> {
+        match self {
+            Self::Construction(c) => c.sync_all().await,
+            Self::Rollup(r) => r.sync_all().await,
         }
     }
 }
@@ -575,6 +633,15 @@ impl ArchiveLayerStore {
         let name_str = name_to_string(name);
         p.push(&name_str[0..PREFIX_DIR_SIZE]);
         p.push(&format!("{}.larch", name_str));
+
+        p
+    }
+
+    fn path_for_rollup(&self, name: [u32; 5]) -> PathBuf {
+        let mut p = self.path.clone();
+        let name_str = name_to_string(name);
+        p.push(&name_str[0..PREFIX_DIR_SIZE]);
+        p.push(&format!("{}.rollup.hex", name_str));
 
         p
     }
@@ -668,6 +735,13 @@ impl PersistentLayerStore for ArchiveLayerStore {
 
     async fn get_file(&self, directory: [u32; 5], name: &str) -> io::Result<Self::File> {
         let file_type = FILENAME_ENUM_MAP[name];
+        if file_type == LayerFileEnum::Rollup {
+            // special case! This is always coming from disk, in its own file
+            let p = self.path_for_rollup(directory);
+
+            return Ok(ArchiveLayerHandle::Rollup(FileBackedStore::new(p)));
+        }
+
         {
             let guard = self.construction.read().unwrap();
             if let Some(map) = guard.get(&directory) {
@@ -696,6 +770,21 @@ impl PersistentLayerStore for ArchiveLayerStore {
 
     async fn file_exists(&self, directory: [u32; 5], file: &str) -> io::Result<bool> {
         let file_type = FILENAME_ENUM_MAP[file];
+        if file_type == LayerFileEnum::Rollup {
+            // special case! This is always coming from disk, in its own file
+            let p = self.path_for_rollup(directory);
+
+            let mut options = tokio::fs::OpenOptions::new();
+            options.read(true);
+            let file = options.open(p).await;
+            if file.is_err() && file.as_ref().err().unwrap().kind() == io::ErrorKind::NotFound {
+                return Ok(false);
+            }
+            file?;
+
+            return Ok(true);
+        }
+
         {
             let guard = self.construction.read().unwrap();
             if let Some(map) = guard.get(&directory) {
