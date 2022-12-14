@@ -734,6 +734,9 @@ impl PersistentLayerStore for ArchiveLayerStore {
         }
 
         let path = self.path_for_layer(directory);
+        let mut directory_path = path.clone();
+        directory_path.pop();
+        fs::create_dir_all(directory_path).await?;
         let mut options = tokio::fs::OpenOptions::new();
         options.create_new(true).write(true);
         let mut file = options.open(path).await?;
