@@ -326,7 +326,7 @@ impl SizedDictEntry {
     pub fn buf_eq<B: Buf>(&self, mut b: B) -> bool {
         if self.len() != b.remaining() {
             false
-        } else if self.len() == 0 {
+        } else if self.is_empty() {
             true
         } else {
             let mut it = self.chunks();
@@ -384,7 +384,7 @@ impl Hash for SizedDictEntry {
 impl Ord for SizedDictEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         // both are empty, so equal
-        if self.len() == 0 && other.len() == 0 {
+        if self.is_empty() && other.is_empty() {
             return Ordering::Equal;
         }
 
@@ -861,20 +861,19 @@ pub(crate) fn build_block_unchecked<B: BufMut>(
             let mut last = first;
 
             let mut suffixes: Vec<&[u8]> = Vec::with_capacity(slices.len());
-            for i in 1..slices.len() {
-                let cur = slices[i];
-                let common_prefix = find_common_prefix(last, cur);
+            for slice in slices.iter().skip(1) {
+                let common_prefix = find_common_prefix(last, slice);
                 let (vbyte, vbyte_len) = encode_array(common_prefix as u64);
                 buf.put_slice(&vbyte[..vbyte_len]);
                 size += vbyte_len;
 
-                let suffix_len = cur.len() - common_prefix;
+                let suffix_len = slice.len() - common_prefix;
                 let (vbyte, vbyte_len) = encode_array(suffix_len as u64);
                 buf.put_slice(&vbyte[..vbyte_len]);
                 size += vbyte_len;
 
-                suffixes.push(&cur[common_prefix..]);
-                last = cur;
+                suffixes.push(&slice[common_prefix..]);
+                last = slice;
             }
 
             // write the rest of the slices
@@ -891,15 +890,14 @@ pub(crate) fn build_block_unchecked<B: BufMut>(
             let mut last = first;
 
             let mut suffixes: Vec<&[u8]> = Vec::with_capacity(slices.len());
-            for i in 1..slices.len() {
-                let cur = slices[i];
-                let common_prefix = find_common_prefix(last, cur);
+            for slice in slices.iter().skip(1) {
+                let common_prefix = find_common_prefix(last, slice);
                 let (vbyte, vbyte_len) = encode_array(common_prefix as u64);
                 buf.put_slice(&vbyte[..vbyte_len]);
                 size += vbyte_len;
 
-                suffixes.push(&cur[common_prefix..]);
-                last = cur;
+                suffixes.push(&slice[common_prefix..]);
+                last = slice;
             }
 
             // write the rest of the slices
@@ -910,7 +908,7 @@ pub(crate) fn build_block_unchecked<B: BufMut>(
         }
         RecordType::Inline(_) => {
             // write the rest of the slices
-            for slice in slices.into_iter() {
+            for slice in slices.iter() {
                 buf.put_slice(slice);
                 size += slice.len();
             }
@@ -940,7 +938,7 @@ mod tests {
 
     fn build_block_bytes(strings: &[&[u8]]) -> Bytes {
         let mut buf = BytesMut::new();
-        build_block_unchecked(&RecordType::Arbitrary, &mut buf, &strings);
+        build_block_unchecked(&RecordType::Arbitrary, &mut buf, strings);
 
         buf.freeze()
     }
