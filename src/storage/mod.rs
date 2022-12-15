@@ -23,7 +23,7 @@
 //! `foo.label`, for database `foo`. This file contains the name of
 //! the layer this label is pointing at.
 mod cache;
-mod consts;
+pub mod consts;
 pub mod directory;
 mod file;
 mod label;

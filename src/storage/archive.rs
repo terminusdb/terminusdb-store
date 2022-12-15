@@ -59,6 +59,12 @@ impl ConstructionFile {
         )))
     }
 
+    fn new_finalized(bytes: Bytes) -> Self {
+        Self(Arc::new(RwLock::new(
+            ConstructionFileState::Finalized(bytes),
+        )))
+    }
+
     fn is_finalized(&self) -> bool {
         let guard = self.0.read().unwrap();
         if let ConstructionFileState::Finalized(_) = &*guard {
@@ -625,6 +631,20 @@ impl ArchiveLayerStore {
         ArchiveLayerStore {
             path: path.into(),
             construction: Default::default(),
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn write_bytes(&self, name: [u32;5], file: LayerFileEnum, bytes: Bytes) {
+        let mut guard = self.construction.write().unwrap();
+        if let Some(map) = guard.get_mut(&name) {
+            if map.contains_key(&file) {
+                panic!("tried to write bytes to an archive, but file is already open");
+            }
+
+            map.insert(file, ConstructionFile::new_finalized(bytes));
+        } else {
+            panic!("tried to write bytes to an archive, but layer is not under construction");
         }
     }
 
