@@ -173,7 +173,7 @@ impl TypedDict {
 
         (
             SizedDict::from_parts(logarray_slice, data_slice, block_offset as u64),
-            id_offset as u64,
+            id_offset,
         )
     }
 
@@ -230,9 +230,9 @@ impl TypedDict {
         self.num_entries
     }
 
-    pub fn segment_iter<'a>(&'a self) -> DictSegmentIterator<'a> {
+    pub fn segment_iter(&self) -> DictSegmentIterator {
         DictSegmentIterator {
-            dict: Cow::Borrowed(&self),
+            dict: Cow::Borrowed(self),
             type_index: 0,
         }
     }
@@ -244,9 +244,7 @@ impl TypedDict {
         }
     }
 
-    pub fn block_iter<'a>(
-        &'a self,
-    ) -> impl Iterator<Item = (Datatype, SizedDictBlock)> + 'a + Clone {
+    pub fn block_iter(&self) -> impl Iterator<Item = (Datatype, SizedDictBlock)> + '_ + Clone {
         self.segment_iter().flat_map(|(datatype, segment)| {
             segment
                 .into_block_iter()
@@ -262,7 +260,7 @@ impl TypedDict {
         })
     }
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = TypedDictEntry> + 'a + Clone {
+    pub fn iter(&self) -> impl Iterator<Item = TypedDictEntry> + '_ + Clone {
         self.block_iter().flat_map(|(datatype, segment)| {
             segment
                 .into_iter()
@@ -332,7 +330,7 @@ impl<T: TdbDataType> TypedDictSegment<T> {
         self.dict.num_entries()
     }
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = SizedDictEntry> + 'a + Clone {
+    pub fn iter(&self) -> impl Iterator<Item = SizedDictEntry> + '_ + Clone {
         self.dict.iter()
     }
 
@@ -365,7 +363,7 @@ impl StringDict {
         self.0.num_entries()
     }
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = SizedDictEntry> + 'a + Clone {
+    pub fn iter(&self) -> impl Iterator<Item = SizedDictEntry> + Clone + '_ {
         self.0.iter()
     }
 
@@ -730,7 +728,7 @@ mod tests {
             Decimal::make_entry(&Decimal("2348973".to_string())),
             f32::make_entry(&4.389832_f32),
             String::make_entry(&"apple"),
-            f32::make_entry(&23434.389832_f32),
+            f32::make_entry(&23434.38_f32),
             String::make_entry(&"apply"),
             i32::make_entry(&-500_i32),
             u32::make_entry(&20_u32),
