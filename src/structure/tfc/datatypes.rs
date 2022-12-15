@@ -1,4 +1,5 @@
 use super::{
+    block::RecordType,
     datetime::{datetime_to_storage, storage_to_datetime},
     decimal::{decimal_to_storage, storage_to_decimal},
     integer::{bigint_to_storage, storage_to_bigint},
@@ -59,6 +60,7 @@ pub enum Datatype {
     Base64Binary,
     HexBinary,
     AnySimpleType,
+    Null,
 }
 
 impl Datatype {
@@ -70,21 +72,22 @@ impl Datatype {
         T::from_lexical(b)
     }
 
-    pub fn record_size(&self) -> Option<u8> {
+    pub fn record_type(&self) -> RecordType {
         match self {
-            Datatype::Boolean => None,
-            Datatype::String => None,
-            Datatype::UInt32 => Some(4),
-            Datatype::Int32 => Some(4),
-            Datatype::UInt64 => Some(8),
-            Datatype::Int64 => Some(8),
-            Datatype::Float32 => Some(4),
-            Datatype::Float64 => Some(8),
-            Datatype::Decimal => None,
-            Datatype::BigInt => None,
-            Datatype::Token => None,
-            Datatype::LangString => None,
-            _ => None,
+            Datatype::String => RecordType::Arbitrary,
+            Datatype::Null => RecordType::Inline(0),
+            Datatype::Boolean => RecordType::Inline(1),
+            Datatype::Int8 => RecordType::Inline(1),
+            Datatype::UInt8 => RecordType::Inline(1),
+            Datatype::Int16 => RecordType::Inline(2),
+            Datatype::UInt16 => RecordType::Inline(2),
+            Datatype::UInt32 => RecordType::Fixed(4),
+            Datatype::Int32 => RecordType::Fixed(4),
+            Datatype::Float32 => RecordType::Fixed(4),
+            Datatype::UInt64 => RecordType::Fixed(8),
+            Datatype::Int64 => RecordType::Fixed(8),
+            Datatype::Float64 => RecordType::Fixed(8),
+            _ => RecordType::Arbitrary,
         }
     }
 }
@@ -1004,6 +1007,23 @@ impl FromLexical<HexBinary> for String {
 impl TdbDataType for HexBinary {
     fn datatype() -> Datatype {
         Datatype::HexBinary
+    }
+}
+
+impl TdbDataType for () {
+    fn datatype() -> Datatype {
+        Datatype::Null
+    }
+}
+
+impl FromLexical<()> for () {
+    fn from_lexical<B: Buf>(_: B) -> Self {}
+}
+
+impl ToLexical<()> for () {
+    fn to_lexical(&self) -> Bytes {
+        let buf = BytesMut::new().writer();
+        buf.into_inner().freeze()
     }
 }
 

@@ -8,7 +8,7 @@ use bytes::{BufMut, Bytes};
 use super::block::*;
 
 pub struct SizedDictBufBuilder<B1: BufMut, B2: BufMut> {
-    pub(crate) record_size: Option<u8>,
+    pub(crate) record_type: RecordType,
     block_offset: u64,
     id_offset: u64,
     offsets: LateLogArrayBufBuilder<B1>,
@@ -18,14 +18,14 @@ pub struct SizedDictBufBuilder<B1: BufMut, B2: BufMut> {
 
 impl<B1: BufMut, B2: BufMut> SizedDictBufBuilder<B1, B2> {
     pub fn new(
-        record_size: Option<u8>,
+        record_type: RecordType,
         block_offset: u64,
         id_offset: u64,
         offsets: LateLogArrayBufBuilder<B1>,
         data_buf: B2,
     ) -> Self {
         Self {
-            record_size,
+            record_type,
             block_offset,
             id_offset,
             offsets,
@@ -47,7 +47,7 @@ impl<B1: BufMut, B2: BufMut> SizedDictBufBuilder<B1, B2> {
         self.id_offset += 1;
         if self.current_block.len() == BLOCK_SIZE {
             let current_block: Vec<&[u8]> = self.current_block.iter().map(|e| e.as_ref()).collect();
-            let size = build_block_unchecked(self.record_size, &mut self.data_buf, &current_block);
+            let size = build_block_unchecked(&self.record_type, &mut self.data_buf, &current_block);
             self.block_offset += size as u64;
             self.offsets.push(self.block_offset);
 
@@ -66,9 +66,9 @@ impl<B1: BufMut, B2: BufMut> SizedDictBufBuilder<B1, B2> {
     }
 
     pub fn finalize(mut self) -> (LateLogArrayBufBuilder<B1>, B2, u64, u64) {
-        if self.current_block.len() > 0 {
+        if !self.current_block.is_empty() {
             let current_block: Vec<&[u8]> = self.current_block.iter().map(|e| e.as_ref()).collect();
-            let size = build_block_unchecked(self.record_size, &mut self.data_buf, &current_block);
+            let size = build_block_unchecked(&self.record_type, &mut self.data_buf, &current_block);
             self.block_offset += size as u64;
             self.offsets.push(self.block_offset);
         }
@@ -131,10 +131,7 @@ impl SizedDict {
             panic!("empty dictionary has no block");
         }
         let offset = self.block_offset(block_index);
-        let block_bytes;
-        block_bytes = self.data.slice(offset..);
-
-        block_bytes
+        self.data.slice(offset..)
     }
 
     pub fn block(&self, block_index: usize) -> SizedDictBlock {
@@ -168,8 +165,8 @@ impl SizedDict {
         if index > self.num_entries() {
             return None;
         }
-        let block = self.block(((index - 1) / 8) as usize);
-        Some(block.entry(((index - 1) % 8) as usize))
+        let block = self.block((index - 1) / 8);
+        Some(block.entry((index - 1) % 8))
     }
 
     pub fn id(&self, slice: &[u8]) -> IdLookupResult {
@@ -323,7 +320,7 @@ mod tests {
         vals: I,
     ) -> (B1, B2) {
         let offsets = LateLogArrayBufBuilder::new(array_buf);
-        let mut builder = SizedDictBufBuilder::new(None, 0, 0, offsets, data_buf);
+        let mut builder = SizedDictBufBuilder::new(RecordType::Arbitrary, 0, 0, offsets, data_buf);
         builder.add_all(vals);
         let (mut array, data_buf, _, _) = builder.finalize();
         array.pop();
@@ -402,7 +399,8 @@ mod tests {
 
         let logarray_builder = LateLogArrayBufBuilder::new(&mut array_buf);
 
-        let mut builder = SizedDictBufBuilder::new(None, 0, 0, logarray_builder, data_buf);
+        let mut builder =
+            SizedDictBufBuilder::new(RecordType::Arbitrary, 0, 0, logarray_builder, data_buf);
         builder.add_all(strings.clone().into_iter().map(|v| Bytes::from_static(v)));
         let (mut logarray_builder, data_buf, _, _) = builder.finalize();
         logarray_builder.pop();

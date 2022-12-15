@@ -7,7 +7,7 @@ use num_traits::FromPrimitive;
 use std::{borrow::Cow, marker::PhantomData};
 
 use super::{
-    block::{IdLookupResult, SizedDictBlock, SizedDictEntry},
+    block::{IdLookupResult, RecordType, SizedDictBlock, SizedDictEntry},
     dict::{SizedDict, SizedDictBufBuilder},
     Datatype, FromLexical, OwnedSizedDictEntryBuf, SizedDictEntryBuf, TdbDataType, ToLexical,
 };
@@ -379,7 +379,13 @@ pub struct StringDictBufBuilder<B1: BufMut, B2: BufMut>(SizedDictBufBuilder<B1, 
 impl<B1: BufMut, B2: BufMut> StringDictBufBuilder<B1, B2> {
     pub fn new(offsets_buf: B1, data_buf: B2) -> Self {
         let offsets = LateLogArrayBufBuilder::new(offsets_buf);
-        Self(SizedDictBufBuilder::new(None, 0, 0, offsets, data_buf))
+        Self(SizedDictBufBuilder::new(
+            RecordType::Arbitrary,
+            0,
+            0,
+            offsets,
+            data_buf,
+        ))
     }
 
     pub fn id_offset(&self) -> u64 {
@@ -425,7 +431,7 @@ impl<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<B1, B2,
         let type_offsets_builder = LateLogArrayBufBuilder::new(type_offsets);
         let block_offset_builder = LateLogArrayBufBuilder::new(block_offsets);
         let sized_dict_buf_builder = Some(SizedDictBufBuilder::new(
-            None,
+            RecordType::Arbitrary,
             0,
             0,
             block_offset_builder,
@@ -445,7 +451,7 @@ impl<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<B1, B2,
             self.types_present_builder.push(value.datatype as u64);
             self.sized_dict_buf_builder
                 .as_mut()
-                .map(|b| b.record_size = value.datatype.record_size());
+                .map(|b| b.record_type = value.datatype.record_type());
         }
 
         if self.current_datatype != Some(value.datatype) {
@@ -455,7 +461,7 @@ impl<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<B1, B2,
             self.type_offsets_builder
                 .push(block_offset_builder.count() as u64 - 1);
             self.sized_dict_buf_builder = Some(SizedDictBufBuilder::new(
-                value.datatype.record_size(),
+                value.datatype.record_type(),
                 block_offset,
                 id_offset,
                 block_offset_builder,
@@ -540,7 +546,7 @@ mod tests {
         iter: I,
     ) -> (B1, B2) {
         let offsets = LateLogArrayBufBuilder::new(array_buf);
-        let mut builder = SizedDictBufBuilder::new(dt.record_size(), 0, 0, offsets, data_buf);
+        let mut builder = SizedDictBufBuilder::new(dt.record_type(), 0, 0, offsets, data_buf);
         builder.add_all(iter.map(|v| v.to_lexical()));
         let (mut offsets_array, data_buf, _, _) = builder.finalize();
         offsets_array.pop();
@@ -656,8 +662,8 @@ mod tests {
         cycle(-23423423_f32);
         cycle(0_f32);
         cycle(324323_f32);
-        cycle(324323.2343_f32);
-        cycle(-324323.2343_f32);
+        cycle(324323.23_f32);
+        cycle(-324323.23_f32);
         cycle(f32::MAX);
         cycle(f32::MIN);
         cycle(f32::NEG_INFINITY);
@@ -903,7 +909,7 @@ mod tests {
             Decimal::make_entry(&Decimal("2".to_string())),
             Decimal::make_entry(&Decimal("0".to_string())),
             f32::make_entry(&4.389832_f32),
-            f32::make_entry(&23434.389832_f32),
+            f32::make_entry(&23434.38_f32),
             Integer::make_entry(&int("239487329872343987")),
         ];
         vec.sort();
@@ -1033,6 +1039,64 @@ mod tests {
     }
 
     #[test]
+    fn bool_short_int_builder() {
+        let mut vec: Vec<TypedDictEntry> = vec![
+            bool::make_entry(&true),
+            bool::make_entry(&false),
+            <()>::make_entry(&()),
+            u8::make_entry(&20_u8),
+            u8::make_entry(&22_u8),
+            u8::make_entry(&23_u8),
+            u8::make_entry(&24_u8),
+            u8::make_entry(&25_u8),
+            u8::make_entry(&26_u8),
+            u8::make_entry(&27_u8),
+            u8::make_entry(&28_u8),
+            u16::make_entry(&20_u16),
+            u16::make_entry(&22_u16),
+            u16::make_entry(&23_u16),
+            u16::make_entry(&24_u16),
+            u16::make_entry(&25_u16),
+            u16::make_entry(&26_u16),
+            u16::make_entry(&27_u16),
+            u16::make_entry(&28_u16),
+        ];
+        vec.sort();
+
+        let used_types_buf = BytesMut::new();
+        let type_offsets_buf = BytesMut::new();
+        let block_offsets_buf = BytesMut::new();
+        let data_buf = BytesMut::new();
+
+        let mut typed_builder = TypedDictBufBuilder::new(
+            used_types_buf,
+            type_offsets_buf,
+            block_offsets_buf,
+            data_buf,
+        );
+
+        let _results: Vec<u64> = vec
+            .clone()
+            .into_iter()
+            .map(|entry| typed_builder.add(entry))
+            .collect();
+
+        let (used_types, type_offsets, block_offsets, data) = typed_builder.finalize();
+
+        let dict = TypedDict::from_parts(
+            used_types.freeze(),
+            type_offsets.freeze(),
+            block_offsets.freeze(),
+            data.freeze(),
+        );
+        for (i, v) in vec.iter().enumerate() {
+            assert_eq!(*v, dict.entry(i + 1).unwrap())
+        }
+        eprintln!("{dict:?}");
+        panic!("Hello");
+    }
+
+    #[test]
     fn test_incremental_builder_small_dicts() {
         let mut vec: Vec<TypedDictEntry> = vec![
             String::make_entry(&"fdsa"),
@@ -1072,8 +1136,8 @@ mod tests {
             data.freeze(),
         );
 
-        for i in 0..vec.len() {
-            assert_eq!(vec[i], dict.entry(i + 1).unwrap())
+        for (i, elt) in vec.iter().enumerate() {
+            assert_eq!(*elt, dict.entry(i + 1).unwrap())
         }
     }
 
@@ -1114,8 +1178,8 @@ mod tests {
             data.freeze(),
         );
 
-        for i in 0..vec.len() {
-            assert_eq!(vec[i], dict.entry(i + 1).unwrap())
+        for (i, elt) in vec.iter().enumerate() {
+            assert_eq!(*elt, dict.entry(i + 1).unwrap())
         }
     }
 
