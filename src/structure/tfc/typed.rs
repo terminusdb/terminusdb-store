@@ -1093,6 +1093,103 @@ mod tests {
     }
 
     #[test]
+    fn multiblock_bool_short_int_builder() {
+        let mut vec: Vec<TypedDictEntry> = vec![
+            bool::make_entry(&true),
+            bool::make_entry(&false),
+            <()>::make_entry(&()),
+            u8::make_entry(&20_u8),
+            u8::make_entry(&22_u8),
+            u8::make_entry(&23_u8),
+            u8::make_entry(&24_u8),
+            u8::make_entry(&25_u8),
+            u8::make_entry(&26_u8),
+            u8::make_entry(&27_u8),
+            u8::make_entry(&28_u8),
+            u8::make_entry(&30_u8),
+            u8::make_entry(&32_u8),
+            u8::make_entry(&33_u8),
+            u8::make_entry(&34_u8),
+            u8::make_entry(&35_u8),
+            u8::make_entry(&36_u8),
+            u8::make_entry(&37_u8),
+            u8::make_entry(&38_u8),
+            u8::make_entry(&40_u8),
+            u8::make_entry(&42_u8),
+            u8::make_entry(&43_u8),
+            u8::make_entry(&44_u8),
+            u8::make_entry(&45_u8),
+            u8::make_entry(&46_u8),
+            u8::make_entry(&47_u8),
+            u8::make_entry(&48_u8),
+            u16::make_entry(&20_u16),
+            u16::make_entry(&22_u16),
+            u16::make_entry(&23_u16),
+            u16::make_entry(&24_u16),
+            u16::make_entry(&25_u16),
+            u16::make_entry(&26_u16),
+            u16::make_entry(&27_u16),
+            u16::make_entry(&28_u16),
+            u16::make_entry(&30_u16),
+            u16::make_entry(&32_u16),
+            u16::make_entry(&33_u16),
+            u16::make_entry(&34_u16),
+            u16::make_entry(&35_u16),
+            u16::make_entry(&36_u16),
+            u16::make_entry(&37_u16),
+            u16::make_entry(&38_u16),
+            u16::make_entry(&40_u16),
+            u16::make_entry(&42_u16),
+            u16::make_entry(&43_u16),
+            u16::make_entry(&44_u16),
+            u16::make_entry(&45_u16),
+            u16::make_entry(&46_u16),
+            u16::make_entry(&47_u16),
+            u16::make_entry(&48_u16),
+            u16::make_entry(&50_u16),
+            u16::make_entry(&52_u16),
+            u16::make_entry(&53_u16),
+            u16::make_entry(&54_u16),
+            u16::make_entry(&55_u16),
+            u16::make_entry(&56_u16),
+            u16::make_entry(&57_u16),
+            u16::make_entry(&58_u16),
+            u16::make_entry(&300_u16),
+        ];
+        vec.sort();
+
+        let used_types_buf = BytesMut::new();
+        let type_offsets_buf = BytesMut::new();
+        let block_offsets_buf = BytesMut::new();
+        let data_buf = BytesMut::new();
+
+        let mut typed_builder = TypedDictBufBuilder::new(
+            used_types_buf,
+            type_offsets_buf,
+            block_offsets_buf,
+            data_buf,
+        );
+
+        let _results: Vec<u64> = vec
+            .clone()
+            .into_iter()
+            .map(|entry| typed_builder.add(entry))
+            .collect();
+
+        let (used_types, type_offsets, block_offsets, data) = typed_builder.finalize();
+
+        let dict = TypedDict::from_parts(
+            used_types.freeze(),
+            type_offsets.freeze(),
+            block_offsets.freeze(),
+            data.freeze(),
+        );
+        for (i, v) in vec.iter().enumerate() {
+            assert_eq!(*v, dict.entry(i + 1).unwrap())
+        }
+    }
+
+    #[test]
     fn test_incremental_builder_small_dicts() {
         let mut vec: Vec<TypedDictEntry> = vec![
             String::make_entry(&"fdsa"),
