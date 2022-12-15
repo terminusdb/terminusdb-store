@@ -85,12 +85,16 @@ impl SizedBlockHeader {
             RecordType::Fixed(entry_size) => {
                 let mut shareds = [0_usize; BLOCK_SIZE - 1];
                 let head = buf.split_to(entry_size as usize);
-                for sref in shareds.iter_mut().take((num_entries - 1) as usize) {
+                for sref in shareds.iter_mut().take(num_entries as usize - 1) {
                     let (shared, _) = vbyte::decode_buf(buf)?;
                     *sref = shared as usize;
                 }
 
-                let buffer_length = num_entries as usize * entry_size as usize;
+                let buffer_length = shareds
+                    .iter()
+                    .take(num_entries as usize - 1)
+                    .map(|shared| entry_size as usize - shared)
+                    .sum();
 
                 Ok(SizedBlockHeader::Fixed {
                     head,
@@ -103,7 +107,7 @@ impl SizedBlockHeader {
             RecordType::Inline(entry_size) => {
                 let head = buf.split_to(entry_size as usize);
 
-                let buffer_length = num_entries as usize * entry_size as usize;
+                let buffer_length = (num_entries - 1) as usize * entry_size as usize;
 
                 Ok(SizedBlockHeader::Small {
                     head,
@@ -126,20 +130,32 @@ impl SizedBlockHeader {
     pub fn get_size(&self, i: usize) -> usize {
         match *self {
             SizedBlockHeader::Variable { sizes, .. } => sizes[i],
-            SizedBlockHeader::Fixed { size, .. } => size,
+            SizedBlockHeader::Fixed { shareds, size, .. } => size - shareds[i],
             SizedBlockHeader::Small { size, .. } => size,
         }
     }
 
-    pub fn sizes(&self) -> impl Iterator<Item = &usize> {
+    pub fn sizes(&self) -> impl Iterator<Item = usize> + '_ {
         match self {
-            SizedBlockHeader::Variable { sizes, .. } => Either::Left(sizes.iter()),
+            SizedBlockHeader::Variable {
+                sizes, num_entries, ..
+            } => Either::Left(sizes.iter().take(*num_entries as usize - 1).cloned()),
             SizedBlockHeader::Fixed {
-                size, num_entries, ..
-            } => Either::Right(iter::repeat(size).take(*num_entries as usize)),
+                size,
+                shareds,
+                num_entries,
+                ..
+            } => Either::Right(Either::Left(
+                shareds
+                    .iter()
+                    .take(*num_entries as usize - 1)
+                    .map(move |shared| *size - shared),
+            )),
             SizedBlockHeader::Small {
                 size, num_entries, ..
-            } => Either::Right(iter::repeat(size).take(*num_entries as usize)),
+            } => Either::Right(Either::Right(
+                iter::repeat(*size).take(*num_entries as usize - 1),
+            )),
         }
     }
 
@@ -153,10 +169,18 @@ impl SizedBlockHeader {
 
     pub fn shareds(&self) -> impl Iterator<Item = &usize> {
         match self {
-            SizedBlockHeader::Variable { shareds, .. } => Either::Left(shareds.iter()),
-            SizedBlockHeader::Fixed { shareds, .. } => Either::Left(shareds.iter()),
+            SizedBlockHeader::Variable {
+                shareds,
+                num_entries,
+                ..
+            } => Either::Left(shareds.iter().take(*num_entries as usize - 1)),
+            SizedBlockHeader::Fixed {
+                shareds,
+                num_entries,
+                ..
+            } => Either::Left(shareds.iter().take(*num_entries as usize - 1)),
             SizedBlockHeader::Small { num_entries, .. } => {
-                Either::Right(iter::repeat(&0_usize).take(*num_entries as usize))
+                Either::Right(iter::repeat(&0_usize).take(*num_entries as usize - 1))
             }
         }
     }
@@ -174,17 +198,6 @@ impl SizedBlockHeader {
             SizedBlockHeader::Variable { num_entries, .. } => num_entries,
             SizedBlockHeader::Fixed { num_entries, .. } => num_entries,
             SizedBlockHeader::Small { num_entries, .. } => num_entries,
-        }
-    }
-
-    pub fn size_up_to(&self, start: usize) -> usize {
-        if start == 0 {
-            return 0;
-        }
-        match *self {
-            SizedBlockHeader::Variable { sizes, .. } => sizes.iter().take(start - 1).sum(),
-            SizedBlockHeader::Fixed { size, .. } => size * (start - 1),
-            SizedBlockHeader::Small { size, .. } => size * (start - 1),
         }
     }
 }
@@ -539,7 +552,7 @@ pub struct SizedDictBlock {
 
 impl SizedDictBlock {
     pub fn parse(bytes: &mut Bytes) -> Result<Self, SizedDictError> {
-        let header = dbg!(SizedBlockHeader::parse(bytes)?);
+        let header = SizedBlockHeader::parse(bytes)?;
         if bytes.remaining() < header.buffer_length() {
             return Err(SizedDictError::NotEnoughData);
         }
@@ -592,7 +605,7 @@ impl SizedDictBlock {
         if start == 0 {
             offset = 0;
         } else {
-            offset = self.header.size_up_to(start)
+            offset = self.header.sizes().take(start - 1).sum();
         }
         for (ix, shared) in v.iter().rev().enumerate() {
             let have_to_take = shared - taken;
@@ -624,7 +637,7 @@ impl SizedDictBlock {
         SizedDictEntry::new_optimized(slices)
     }
 
-    fn suffixes<'a>(&'a self) -> impl Iterator<Item = Bytes> + 'a {
+    fn suffixes(&self) -> impl Iterator<Item = Bytes> + '_ {
         let head = Some(self.header.head().clone());
         let mut offset = 0;
         let tail = self.header.sizes().map(move |s| {
@@ -638,7 +651,7 @@ impl SizedDictBlock {
     }
 
     pub fn id(&self, slice: &[u8]) -> IdLookupResult {
-        let (mut common_prefix, ordering) = find_common_prefix_ord(slice, &self.header.head());
+        let (mut common_prefix, ordering) = find_common_prefix_ord(slice, self.header.head());
         match ordering {
             Ordering::Equal => return IdLookupResult::Found(0),
             Ordering::Less => return IdLookupResult::NotFound,

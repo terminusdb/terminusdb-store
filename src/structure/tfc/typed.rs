@@ -141,7 +141,7 @@ impl TypedDict {
         } else {
             type_offset = self.type_offsets.entry(i - 1) as usize;
             id_offset = self.type_id_offsets[i - 1];
-            block_offset = self.block_offsets.entry(type_offset as usize) as usize;
+            block_offset = self.block_offsets.entry(type_offset) as usize;
         }
 
         let len;
@@ -1033,8 +1033,8 @@ mod tests {
             data.freeze(),
         );
 
-        for i in 0..vec.len() {
-            assert_eq!(vec[i], dict.entry(i + 1).unwrap())
+        for (i, v) in vec.iter().enumerate() {
+            assert_eq!(*v, dict.entry(i + 1).unwrap())
         }
     }
 
@@ -1092,8 +1092,6 @@ mod tests {
         for (i, v) in vec.iter().enumerate() {
             assert_eq!(*v, dict.entry(i + 1).unwrap())
         }
-        eprintln!("{dict:?}");
-        panic!("Hello");
     }
 
     #[test]
