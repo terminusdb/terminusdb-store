@@ -8,23 +8,26 @@ In rough order of priority we've outlined the following features that we hope to
 
 We have vaguely divided the tasks into "Now", "Next", and "Later" depending on when we plan to work on them. However this should not discourage people from working on our future priorities now!
 
-# Now
+# Done
 
 * Delta Rollups
 
     Delta rollups are performance optimisations that allow multiple delta layers to be "rolled-up" into a single layer which gives us effective access to the top layer of the delta-rollup with much better performance, while retaining all of the individual commits in a queryable manner.
+
+* Lexical xsd type storage
+
+    Previously we stored all datatypes in a canonical xsd format. The lexical ordering is unfortunately not the same as the natural ordering of the domain. Lexical types make range based searches faster and significantly reduce storage space.
+
+    More on this issue can be found at [here](./LEXICAL.md).
+
+# Now
+
 
 * Content addressable hashing
 
     Layers are currently addressed using a randomly generated identifier. It would be much better to generate this from a hash of the data. This will simplify much of layer management and avoid duplication.
 
     More on this issue can be found at [here](./CONTENT.md).
-
-* Lexical xsd type storage
-
-    Currently we store all datatypes in a canonical xsd format. The lexical ordering is unfortunately not the same as the natural ordering of the domain. This will make range based searches fast and will significantly reduce storage space.
-
-    More on this issue can be found at [here](./LEXICAL.md).
 
 # Next
 
