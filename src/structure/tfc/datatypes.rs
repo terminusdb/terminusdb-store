@@ -623,9 +623,9 @@ fn offset_string(offset: i16) -> String {
         let hours = offset / 60;
         let minutes = offset % 60;
         if hours < 0 {
-            format!("-{hours}:{minutes}")
+            format!("-{hours:02}:{minutes:02}")
         } else {
-            format!("+{hours}:{minutes}")
+            format!("+{hours:02}:{minutes:02}")
         }
     }
 }
@@ -791,7 +791,7 @@ impl FromLexical<GMonthDay> for String {
         let month = gmonthday.month;
         let day = gmonthday.day;
         let offset = offset_string(gmonthday.offset);
-        format!("-{month:02}-{day:02}{offset:}")
+        format!("--{month:02}-{day:02}{offset:}")
     }
 }
 
