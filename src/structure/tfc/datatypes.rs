@@ -497,12 +497,6 @@ impl FromLexical<DateTimeStamp> for DateTimeStamp {
     }
 }
 
-impl FromLexical<DateTimeStamp> for NaiveDateTime {
-    fn from_lexical<B: Buf>(mut b: B) -> Self {
-        storage_to_datetime(&mut b)
-    }
-}
-
 impl FromLexical<DateTimeStamp> for String {
     fn from_lexical<B: Buf>(mut b: B) -> Self {
         let ndt = storage_to_datetime(&mut b);
@@ -671,7 +665,7 @@ impl FromLexical<GMonth> for String {
         let gmonth = GMonth::from_lexical(b);
         let month = gmonth.month;
         let offset = offset_string(gmonth.offset);
-        format!("-{month:02}{offset:}")
+        format!("--{month:02}{offset:}")
     }
 }
 
@@ -707,7 +701,7 @@ impl FromLexical<GDay> for String {
         let gday = GDay::from_lexical(b);
         let day = gday.day;
         let offset = offset_string(gday.offset);
-        format!("--{day:02}{offset:}")
+        format!("---{day:02}{offset:}")
     }
 }
 
@@ -848,40 +842,40 @@ impl FromLexical<Duration> for Duration {
 }
 
 fn duration_string(duration: &Duration) -> String {
-    let year = if duration.year == 0 {
-        format!("{:04}Y", duration.year)
+    let year = if duration.year != 0 {
+        format!("{}Y", duration.year)
     } else {
         "".to_string()
     };
-    let month = if duration.month == 0 {
-        format!("{:02}M", duration.month)
+    let month = if duration.month != 0 {
+        format!("{}M", duration.month)
     } else {
         "".to_string()
     };
-    let day = if duration.day == 0 {
-        format!("{:04}D", duration.year)
+    let day = if duration.day != 0 {
+        format!("{}D", duration.day)
     } else {
         "".to_string()
     };
     if duration.hour == 0 && duration.minute == 0 && duration.second == 0 {
         format!("P{year}{month}{day}")
     } else {
-        let hour = if duration.hour == 0 {
-            format!("{:02}H", duration.hour)
+        let hour = if duration.hour != 0 {
+            format!("{}H", duration.hour)
         } else {
             "".to_string()
         };
-        let minute = if duration.minute == 0 {
-            format!("{:02}M", duration.minute)
+        let minute = if duration.minute != 0 {
+            format!("{}M", duration.minute)
         } else {
             "".to_string()
         };
-        let second = if duration.second == 0 {
-            format!("{:02}S", duration.second)
+        let second = if duration.second != 0 {
+            format!("{}S", duration.second)
         } else {
             "".to_string()
         };
-        format!("{year}{month}{day}T{hour}{minute}{second}")
+        format!("P{year}{month}{day}T{hour}{minute}{second}")
     }
 }
 
