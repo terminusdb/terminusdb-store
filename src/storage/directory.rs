@@ -13,7 +13,7 @@ use super::*;
 
 const PREFIX_DIR_SIZE: usize = 3;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FileBackedStore {
     path: PathBuf,
 }
@@ -274,7 +274,7 @@ impl LabelStore for DirectoryLabelStore {
                     )
                 })?;
                 if name.ends_with(".label") {
-                    let label = get_label_from_file(name).await?;
+                    let label = get_label_from_file(direntry.path()).await?;
                     result.push(label);
                 }
             }
