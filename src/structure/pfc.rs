@@ -786,10 +786,12 @@ impl Decoder for PfcDecoder {
 
         match self.index % 8 == 0 {
             true => {
+                // this is the start of a block. we expect a 0-delimited cstring
                 pos = bytes.iter().position(|&b| b == 0);
                 vbyte = None;
             }
             false => {
+                // This is in the middle of some block. we expect a vbyte followed by some 0-delimited cstring
                 match vbyte::decode(&bytes) {
                     Ok((prefix_len, vbyte_len)) => {
                         pos = bytes.iter().skip(vbyte_len).position(|&b| b == 0);
@@ -814,7 +816,6 @@ impl Decoder for PfcDecoder {
                 bytes.advance(1);
                 match vbyte {
                     None => {
-                        // this is the start of a block. we expect a 0-delimited cstring
                         let s = String::from_utf8(b.to_vec()).expect("expected utf8 string");
                         self.last = Some(b);
                         self.index += 1;
@@ -822,7 +823,6 @@ impl Decoder for PfcDecoder {
                         Ok(Some(s))
                     }
                     Some(prefix_len) => {
-                        // This is in the middle of some block. we expect a vbyte followed by some 0-delimited cstring
                         let last = self.last.as_ref().unwrap();
                         let mut full = BytesMut::with_capacity(prefix_len as usize + b.len());
                         full.extend_from_slice(&last[..prefix_len as usize]);
