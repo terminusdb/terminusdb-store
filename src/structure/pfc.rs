@@ -767,7 +767,7 @@ impl PfcDecoder {
         Self {
             last: None,
             index: 0,
-            total
+            total,
         }
     }
 }
@@ -788,7 +788,7 @@ impl Decoder for PfcDecoder {
             true => {
                 pos = bytes.iter().position(|&b| b == 0);
                 vbyte = None;
-            },
+            }
             false => {
                 match vbyte::decode(&bytes) {
                     Ok((prefix_len, vbyte_len)) => {
@@ -800,17 +800,15 @@ impl Decoder for PfcDecoder {
 
                         bytes.advance(vbyte_len);
                         vbyte = Some(prefix_len);
-                    },
+                    }
                     Err(vbyte::DecodeError::UnexpectedEndOfBuffer) => return Ok(None),
-                    Err(e) => panic!("error decoding vbyte in pfc block: {:?}", e)
+                    Err(e) => panic!("error decoding vbyte in pfc block: {:?}", e),
                 }
             }
         };
 
         match pos {
-            None => {
-                Ok(None)
-            },
+            None => Ok(None),
             Some(pos) => {
                 let b = bytes.split_to(pos);
                 bytes.advance(1);
@@ -837,7 +835,7 @@ impl Decoder for PfcDecoder {
                         Ok(Some(s))
                     }
                 }
-            },
+            }
         }
     }
 }
@@ -851,7 +849,9 @@ pub async fn dict_file_get_count<F: 'static + FileLoad>(file: F) -> io::Result<u
     Ok(BigEndian::read_u64(&result))
 }
 
-pub async fn dict_file_to_stream<F: 'static + FileLoad>(file: F) -> io::Result<impl Stream<Item = io::Result<String>> + Unpin + Send> {
+pub async fn dict_file_to_stream<F: 'static + FileLoad>(
+    file: F,
+) -> io::Result<impl Stream<Item = io::Result<String>> + Unpin + Send> {
     let total = dict_file_get_count(file.clone()).await?;
     Ok(dict_reader_to_stream(file.open_read().await?, total))
 }
@@ -863,9 +863,16 @@ pub fn dict_reader_to_stream<A: 'static + AsyncRead + Unpin + Send>(
     FramedRead::new(r, PfcDecoder::new(total))
 }
 
-pub async fn dict_file_to_indexed_stream<F: 'static + FileLoad>(file: F, offset: u64) -> io::Result<impl Stream<Item = io::Result<(u64, String)>> + Unpin + Send> {
+pub async fn dict_file_to_indexed_stream<F: 'static + FileLoad>(
+    file: F,
+    offset: u64,
+) -> io::Result<impl Stream<Item = io::Result<(u64, String)>> + Unpin + Send> {
     let total = dict_file_get_count(file.clone()).await?;
-    Ok(dict_reader_to_indexed_stream(file.open_read().await?, offset, total))
+    Ok(dict_reader_to_indexed_stream(
+        file.open_read().await?,
+        offset,
+        total,
+    ))
 }
 
 pub fn dict_reader_to_indexed_stream<A: 'static + AsyncRead + Unpin + Send>(
