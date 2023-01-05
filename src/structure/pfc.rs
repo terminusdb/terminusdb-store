@@ -803,6 +803,7 @@ impl Decoder for PfcDecoder {
                         bytes.advance(vbyte_len);
                         vbyte = Some(prefix_len);
                     }
+                    // The buffer might be in the middle of a vbyte. If that's the case, prompt for more data.
                     Err(vbyte::DecodeError::UnexpectedEndOfBuffer) => return Ok(None),
                     Err(e) => panic!("error decoding vbyte in pfc block: {:?}", e),
                 }
