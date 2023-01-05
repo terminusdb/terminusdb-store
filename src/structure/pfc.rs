@@ -759,15 +759,15 @@ impl<W: 'static + SyncableFile> PfcDictFileBuilder<W> {
 struct PfcDecoder {
     last: Option<BytesMut>,
     index: usize,
-    done: bool,
+    total: u64,
 }
 
 impl PfcDecoder {
-    fn new() -> Self {
+    fn new(total: u64) -> Self {
         Self {
             last: None,
             index: 0,
-            done: false,
+            total
         }
     }
 }
@@ -776,48 +776,66 @@ impl Decoder for PfcDecoder {
     type Item = String;
     type Error = io::Error;
     fn decode(&mut self, bytes: &mut BytesMut) -> Result<Option<String>, io::Error> {
-        if self.done {
+        if self.index as u64 == self.total {
             bytes.clear();
             return Ok(None);
         }
 
-        // once bytes contains a 0-byte, enough has been read to actually extract a string.
-        let pos = bytes.iter().position(|&b| b == 0);
-        if pos == Some(0) {
-            self.done = true;
-            bytes.clear();
-            return Ok(None);
-        }
+        let pos;
+        let vbyte;
+
+        match self.index % 8 == 0 {
+            true => {
+                pos = bytes.iter().position(|&b| b == 0);
+                vbyte = None;
+            },
+            false => {
+                match vbyte::decode(&bytes) {
+                    Ok((prefix_len, vbyte_len)) => {
+                        pos = bytes.iter().skip(vbyte_len).position(|&b| b == 0);
+                        if pos.is_none() {
+                            // we haven't read enough yet to extract a full string. don't advance anything.
+                            return Ok(None);
+                        }
+
+                        bytes.advance(vbyte_len);
+                        vbyte = Some(prefix_len);
+                    },
+                    Err(vbyte::DecodeError::UnexpectedEndOfBuffer) => return Ok(None),
+                    Err(e) => panic!("error decoding vbyte in pfc block: {:?}", e)
+                }
+            }
+        };
 
         match pos {
-            None => Ok(None),
-            Some(pos) => match self.index % 8 == 0 {
-                true => {
-                    // this is the start of a block. we expect a 0-delimited cstring
-                    let b = bytes.split_to(pos);
-                    bytes.advance(1);
-                    let s = String::from_utf8(b.to_vec()).expect("expected utf8 string");
-                    self.last = Some(b);
-                    self.index += 1;
+            None => {
+                Ok(None)
+            },
+            Some(pos) => {
+                let b = bytes.split_to(pos);
+                bytes.advance(1);
+                match vbyte {
+                    None => {
+                        // this is the start of a block. we expect a 0-delimited cstring
+                        let s = String::from_utf8(b.to_vec()).expect("expected utf8 string");
+                        self.last = Some(b);
+                        self.index += 1;
 
-                    Ok(Some(s))
-                }
-                false => {
-                    // This is in the middle of some block. we expect a vbyte followed by some 0-delimited cstring
-                    let last = self.last.as_ref().unwrap();
-                    let (prefix_len, vbyte_len) = vbyte::decode(&bytes).expect("expected vbyte");
-                    bytes.advance(vbyte_len);
-                    let b = bytes.split_to(pos - vbyte_len);
-                    bytes.advance(1);
-                    let mut full = BytesMut::with_capacity(prefix_len as usize + b.len());
-                    full.extend_from_slice(&last[..prefix_len as usize]);
-                    full.extend_from_slice(&b);
+                        Ok(Some(s))
+                    }
+                    Some(prefix_len) => {
+                        // This is in the middle of some block. we expect a vbyte followed by some 0-delimited cstring
+                        let last = self.last.as_ref().unwrap();
+                        let mut full = BytesMut::with_capacity(prefix_len as usize + b.len());
+                        full.extend_from_slice(&last[..prefix_len as usize]);
+                        full.extend_from_slice(&b);
 
-                    let s = String::from_utf8(full.to_vec()).expect("expected utf8 string");
-                    self.last = Some(full);
-                    self.index += 1;
+                        let s = String::from_utf8(full.to_vec()).expect("expected utf8 string");
+                        self.last = Some(full);
+                        self.index += 1;
 
-                    Ok(Some(s))
+                        Ok(Some(s))
+                    }
                 }
             },
         }
@@ -833,17 +851,29 @@ pub async fn dict_file_get_count<F: 'static + FileLoad>(file: F) -> io::Result<u
     Ok(BigEndian::read_u64(&result))
 }
 
+pub async fn dict_file_to_stream<F: 'static + FileLoad>(file: F) -> io::Result<impl Stream<Item = io::Result<String>> + Unpin + Send> {
+    let total = dict_file_get_count(file.clone()).await?;
+    Ok(dict_reader_to_stream(file.open_read().await?, total))
+}
+
 pub fn dict_reader_to_stream<A: 'static + AsyncRead + Unpin + Send>(
     r: A,
+    total: u64,
 ) -> impl Stream<Item = io::Result<String>> + Unpin + Send {
-    FramedRead::new(r, PfcDecoder::new())
+    FramedRead::new(r, PfcDecoder::new(total))
+}
+
+pub async fn dict_file_to_indexed_stream<F: 'static + FileLoad>(file: F, offset: u64) -> io::Result<impl Stream<Item = io::Result<(u64, String)>> + Unpin + Send> {
+    let total = dict_file_get_count(file.clone()).await?;
+    Ok(dict_reader_to_indexed_stream(file.open_read().await?, offset, total))
 }
 
 pub fn dict_reader_to_indexed_stream<A: 'static + AsyncRead + Unpin + Send>(
     r: A,
     offset: u64,
+    total: u64,
 ) -> impl Stream<Item = io::Result<(u64, String)>> + Send {
-    let dict_stream = dict_reader_to_stream(r);
+    let dict_stream = dict_reader_to_stream(r, total);
 
     dict_stream.enumerate().map(move |(i, x)| match x {
         Ok(x) => Ok(((i + 1) as u64 + offset, x)),
@@ -1069,7 +1099,7 @@ mod tests {
         builder.add_all(contents.clone().into_iter()).await.unwrap();
         builder.finalize().await.unwrap();
 
-        let stream = dict_reader_to_stream(blocks.open_read().await.unwrap());
+        let stream = dict_file_to_stream(blocks).await.unwrap();
 
         let result: Vec<String> = stream.try_collect().await.unwrap();
         assert_eq!(contents, result);
@@ -1106,7 +1136,7 @@ mod tests {
         builder.add_all(contents.clone().into_iter()).await.unwrap();
         builder.finalize().await.unwrap();
 
-        let stream = dict_reader_to_stream(blocks.open_read().await.unwrap());
+        let stream = dict_file_to_stream(blocks).await.unwrap();
 
         let result: Vec<String> = stream.try_collect().await.unwrap();
         assert_eq!(contents, result);
@@ -1145,7 +1175,7 @@ mod tests {
         builder.add_all(contents.clone().into_iter()).await.unwrap();
         builder.finalize().await.unwrap();
 
-        let stream = dict_reader_to_indexed_stream(blocks.open_read().await.unwrap(), 0);
+        let stream = dict_file_to_indexed_stream(blocks, 0).await.unwrap();
 
         let result: Vec<(u64, String)> = stream.try_collect().await.unwrap();
         assert_eq!((1, "aaaaa".to_string()), result[0]);
