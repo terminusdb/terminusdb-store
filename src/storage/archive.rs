@@ -667,7 +667,7 @@ impl ArchiveLayerStore {
     }
 }
 
-const PREFIX_DIR_SIZE: usize = 2;
+const PREFIX_DIR_SIZE: usize = 3;
 
 #[async_trait]
 impl PersistentLayerStore for ArchiveLayerStore {
