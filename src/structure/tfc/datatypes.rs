@@ -1,6 +1,6 @@
 use super::{
     datetime::{datetime_to_storage, storage_to_datetime},
-    decimal::{decimal_to_storage, storage_to_decimal},
+    decimal::{decimal_to_storage, storage_to_decimal, Decimal},
     integer::{bigint_to_storage, storage_to_bigint},
     TypedDictEntry,
 };
@@ -400,9 +400,6 @@ impl ToLexical<Integer> for Integer {
         Bytes::from(bigint_to_storage(self.clone()))
     }
 }
-
-#[derive(PartialEq, Debug)]
-pub struct Decimal(pub String);
 
 impl TdbDataType for Decimal {
     fn datatype() -> Datatype {

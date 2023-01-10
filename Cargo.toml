@@ -32,10 +32,10 @@ num-traits = "0.2"
 chrono = "0.4"
 base64 = "0.13"
 hex = "0.4"
+regex = "1.5"
 
 [dev-dependencies]
 tempfile = "3.1"
-regex = "1.5"
 
 [features]
 noreadlock = []

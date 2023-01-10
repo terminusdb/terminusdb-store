@@ -18,6 +18,7 @@ pub mod wavelettree;
 pub use adjacencylist::*;
 pub use bitarray::*;
 pub use bitindex::*;
+pub use decimal::{Decimal, DecimalValidationError};
 pub use logarray::*;
 pub use tfc::*;
 pub use wavelettree::*;
