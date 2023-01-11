@@ -23,7 +23,7 @@ impl Decimal {
 
 pub fn validate_decimal(s: &str) -> Result<(), DecimalValidationError> {
     lazy_static! {
-        static ref RE: Regex = Regex::new(r"-?\d+(\.\d+)?)").unwrap();
+        static ref RE: Regex = Regex::new(r"-?\d+(\.\d+)?").unwrap();
     }
     if RE.is_match(s) {
         Ok(())
