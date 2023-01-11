@@ -11,13 +11,13 @@ pub struct Decimal(pub(crate) String);
 #[derive(Debug, Error)]
 #[error("Invalid format for decimal: `{value}`")]
 pub struct DecimalValidationError {
-    value: String,
+    pub value: String,
 }
 
 impl Decimal {
-    pub fn new(s: &str) -> Result<Self, DecimalValidationError> {
-        validate_decimal(s)?;
-        Ok(Decimal(s.to_string()))
+    pub fn new(s: String) -> Result<Self, DecimalValidationError> {
+        validate_decimal(&s)?;
+        Ok(Decimal(s))
     }
 }
 
