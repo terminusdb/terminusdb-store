@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1672928951182,
+  "lastUpdate": 1673610747130,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -15311,6 +15311,126 @@ window.BENCHMARK_DATA = {
             "name": "logarray_w5_empty",
             "value": 356,
             "range": "± 1",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "gavin@terminusdb.com",
+            "name": "Gavin Mendel-Gleason",
+            "username": "GavinMendelGleason"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "76c56d077a8f9d2e054376d50ac9a57c2b2d4354",
+          "message": "Merge pull request #113 from terminusdb/archive_format\n\nArchive format",
+          "timestamp": "2023-01-13T12:43:03+01:00",
+          "tree_id": "795e9785f9a227f1dd340683eb6bc4865b80be37",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/76c56d077a8f9d2e054376d50ac9a57c2b2d4354"
+        },
+        "date": 1673610745796,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 390,
+            "range": "± 62",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 34765123,
+            "range": "± 7465373",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 24701419,
+            "range": "± 8555627",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 31145047,
+            "range": "± 8097126",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 40056411,
+            "range": "± 6735106",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 36970713,
+            "range": "± 7963220",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w10_1000",
+            "value": 12325,
+            "range": "± 3003",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1",
+            "value": 422,
+            "range": "± 156",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10",
+            "value": 503,
+            "range": "± 73",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_100",
+            "value": 1682,
+            "range": "± 423",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1000",
+            "value": 10736,
+            "range": "± 2621",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000",
+            "value": 103579,
+            "range": "± 44898",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_as_stream",
+            "value": 110880,
+            "range": "± 19141",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent",
+            "value": 1115514,
+            "range": "± 254110",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent_as_stream",
+            "value": 1125011,
+            "range": "± 417445",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_empty",
+            "value": 350,
+            "range": "± 78",
             "unit": "ns/iter"
           }
         ]
