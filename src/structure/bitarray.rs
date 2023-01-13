@@ -34,7 +34,7 @@ use super::util;
 use crate::storage::*;
 use crate::structure::bititer::BitIter;
 use byteorder::{BigEndian, ByteOrder};
-use bytes::{Bytes, BytesMut};
+use bytes::{Buf, Bytes, BytesMut};
 use futures::io;
 use futures::stream::{Stream, StreamExt, TryStreamExt};
 use std::{convert::TryFrom, error, fmt};
@@ -291,29 +291,49 @@ impl Decoder for BitArrayBlockDecoder {
 
     /// Decode the next block of the bit array.
     fn decode(&mut self, bytes: &mut BytesMut) -> Result<Option<u64>, io::Error> {
-        // If there isn't a full word available in the buffer, stop.
-        if bytes.len() < 8 {
-            return Ok(None);
-        }
+        Ok(decode_next_bitarray_block(bytes, &mut self.readahead))
+    }
+}
 
-        // Read the next word. If `self.readahead` was `Some`, return that value; otherwise,
-        // recurse to read a second word and then return the first word.
-        //
-        // This trick means that we don't return the last word in the buffer, which is the control
-        // word. The consequence is that we read an extra word at the beginning of the decoding
-        // process.
-        match self
-            .readahead
-            .replace(BigEndian::read_u64(&bytes.split_to(8)))
-        {
-            Some(word) => Ok(Some(word)),
-            None => self.decode(bytes),
-        }
+fn decode_next_bitarray_block<B: Buf>(bytes: &mut B, readahead: &mut Option<u64>) -> Option<u64> {
+    // If there isn't a full word available in the buffer, stop.
+    if bytes.remaining() < 8 {
+        return None;
+    }
+
+    // Read the next word. If `readahead` was `Some`, return that value; otherwise,
+    // recurse to read a second word and then return the first word.
+    //
+    // This trick means that we don't return the last word in the buffer, which is the control
+    // word. The consequence is that we read an extra word at the beginning of the decoding
+    // process.
+    match readahead.replace(bytes.get_u64()) {
+        Some(word) => Some(word),
+        None => decode_next_bitarray_block(bytes, readahead),
     }
 }
 
 pub fn bitarray_stream_blocks<R: AsyncRead + Unpin>(r: R) -> FramedRead<R, BitArrayBlockDecoder> {
     FramedRead::new(r, BitArrayBlockDecoder { readahead: None })
+}
+
+pub fn bitarray_iter_blocks<B: Buf>(b: &mut B) -> BitArrayBlockIterator<B> {
+    BitArrayBlockIterator {
+        buf: b,
+        readahead: None,
+    }
+}
+
+pub struct BitArrayBlockIterator<'a, B: Buf> {
+    buf: &'a mut B,
+    readahead: Option<u64>,
+}
+
+impl<'a, B: Buf> Iterator for BitArrayBlockIterator<'a, B> {
+    type Item = u64;
+    fn next(&mut self) -> Option<u64> {
+        decode_next_bitarray_block(self.buf, &mut self.readahead)
+    }
 }
 
 /// Read the length (number of bits) from a `FileLoad`.

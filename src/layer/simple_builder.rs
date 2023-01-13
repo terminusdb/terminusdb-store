@@ -12,6 +12,7 @@
 use super::internal::*;
 use super::layer::*;
 use crate::storage::*;
+use crate::structure::TypedDictEntry;
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::pin::Pin;
@@ -31,11 +32,11 @@ pub trait LayerBuilder: Send + Sync {
     /// Return the parent if it exists
     fn parent(&self) -> Option<Arc<dyn Layer>>;
     /// Add a string triple
-    fn add_string_triple(&mut self, triple: StringTriple);
+    fn add_value_triple(&mut self, triple: ValueTriple);
     /// Add an id triple
     fn add_id_triple(&mut self, triple: IdTriple);
     /// Remove a string triple
-    fn remove_string_triple(&mut self, triple: StringTriple);
+    fn remove_value_triple(&mut self, triple: ValueTriple);
     /// Remove an id triple
     fn remove_id_triple(&mut self, triple: IdTriple);
     /// Commit the layer to storage
@@ -53,9 +54,9 @@ pub struct SimpleLayerBuilder<F: 'static + FileLoad + FileStore + Clone> {
     name: [u32; 5],
     parent: Option<Arc<dyn Layer>>,
     files: LayerFiles<F>,
-    additions: Vec<StringTriple>,
+    additions: Vec<ValueTriple>,
     id_additions: Vec<IdTriple>,
-    removals: Vec<StringTriple>,
+    removals: Vec<ValueTriple>,
     id_removals: Vec<IdTriple>,
 }
 
@@ -96,7 +97,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
         self.parent.clone()
     }
 
-    fn add_string_triple(&mut self, triple: StringTriple) {
+    fn add_value_triple(&mut self, triple: ValueTriple) {
         self.additions.push(triple);
     }
 
@@ -104,7 +105,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
         self.id_additions.push(triple);
     }
 
-    fn remove_string_triple(&mut self, triple: StringTriple) {
+    fn remove_value_triple(&mut self, triple: ValueTriple) {
         self.removals.push(triple);
     }
 
@@ -132,7 +133,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                         .collect(),
                     Some(parent) => additions
                         .into_par_iter()
-                        .map(move |triple| parent.string_triple_to_partially_resolved(triple))
+                        .map(move |triple| parent.value_triple_to_partially_resolved(triple))
                         .collect(),
                 };
 
@@ -150,7 +151,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                         .collect(),
                     Some(parent) => removals
                         .into_par_iter()
-                        .map(move |triple| parent.string_triple_to_partially_resolved(triple))
+                        .map(move |triple| parent.value_triple_to_partially_resolved(triple))
                         .collect(),
                 };
 
@@ -193,11 +194,9 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                     let mut builder =
                         ChildLayerFileBuilder::from_files(parent.clone(), &files).await?;
 
-                    let node_ids = builder.add_nodes(unresolved_nodes.clone()).await?;
-                    let predicate_ids = builder
-                        .add_predicates(unresolved_predicates.clone())
-                        .await?;
-                    let value_ids = builder.add_values(unresolved_values.clone()).await?;
+                    let node_ids = builder.add_nodes(unresolved_nodes.clone());
+                    let predicate_ids = builder.add_predicates(unresolved_predicates.clone());
+                    let value_ids = builder.add_values(unresolved_values.clone());
 
                     let mut builder = builder.into_phase2().await?;
 
@@ -240,11 +239,9 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                     let files = files.into_base();
                     let mut builder = BaseLayerFileBuilder::from_files(&files).await?;
 
-                    let node_ids = builder.add_nodes(unresolved_nodes.clone()).await?;
-                    let predicate_ids = builder
-                        .add_predicates(unresolved_predicates.clone())
-                        .await?;
-                    let value_ids = builder.add_values(unresolved_values.clone()).await?;
+                    let node_ids = builder.add_nodes(unresolved_nodes.clone());
+                    let predicate_ids = builder.add_predicates(unresolved_predicates.clone());
+                    let value_ids = builder.add_values(unresolved_values.clone());
 
                     let mut builder = builder.into_phase2().await?;
 
@@ -322,7 +319,7 @@ fn zero_equivalents(
 
 fn collect_unresolved_strings(
     triples: &[PartiallyResolvedTriple],
-) -> (Vec<String>, Vec<String>, Vec<String>) {
+) -> (Vec<String>, Vec<String>, Vec<TypedDictEntry>) {
     let (unresolved_nodes, (unresolved_predicates, unresolved_values)) = rayon::join(
         || {
             let unresolved_nodes_set: HashSet<_> = triples
@@ -398,6 +395,7 @@ mod tests {
     use super::*;
     use crate::layer::internal::InternalLayer;
     use crate::storage::memory::*;
+    use crate::structure::TdbDataType;
 
     fn new_base_files() -> BaseLayerFiles<MemoryBackedStore> {
         // TODO inline
@@ -414,9 +412,9 @@ mod tests {
         let files = new_base_files();
         let mut builder = SimpleLayerBuilder::new(name, files.clone());
 
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
-        builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
-        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("pig", "says", "oink"));
+        builder.add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
 
         builder.commit().await.unwrap();
 
@@ -428,9 +426,9 @@ mod tests {
     async fn simple_base_layer_construction() {
         let layer = example_base_layer().await;
 
-        assert!(layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
-        assert!(layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
-        assert!(layer.string_triple_exists(&StringTriple::new_value("duck", "says", "quack")));
+        assert!(layer.value_triple_exists(&ValueTriple::new_string_value("cow", "says", "moo")));
+        assert!(layer.value_triple_exists(&ValueTriple::new_string_value("pig", "says", "oink")));
+        assert!(layer.value_triple_exists(&ValueTriple::new_string_value("duck", "says", "quack")));
     }
 
     #[tokio::test]
@@ -440,9 +438,9 @@ mod tests {
         let name = [0, 0, 0, 0, 0];
         let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
 
-        builder.add_string_triple(StringTriple::new_value("horse", "says", "neigh"));
-        builder.add_string_triple(StringTriple::new_node("horse", "likes", "cow"));
-        builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_string_value("horse", "says", "neigh"));
+        builder.add_value_triple(ValueTriple::new_node("horse", "likes", "cow"));
+        builder.remove_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
 
         let child_layer = Arc::new(
             async {
@@ -454,15 +452,17 @@ mod tests {
             .unwrap(),
         );
 
+        assert!(child_layer
+            .value_triple_exists(&ValueTriple::new_string_value("horse", "says", "neigh")));
+        assert!(child_layer.value_triple_exists(&ValueTriple::new_node("horse", "likes", "cow")));
         assert!(
-            child_layer.string_triple_exists(&StringTriple::new_value("horse", "says", "neigh"))
+            child_layer.value_triple_exists(&ValueTriple::new_string_value("cow", "says", "moo"))
         );
-        assert!(child_layer.string_triple_exists(&StringTriple::new_node("horse", "likes", "cow")));
-        assert!(child_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
-        assert!(child_layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
         assert!(
-            !child_layer.string_triple_exists(&StringTriple::new_value("duck", "says", "quack"))
+            child_layer.value_triple_exists(&ValueTriple::new_string_value("pig", "says", "oink"))
         );
+        assert!(!child_layer
+            .value_triple_exists(&ValueTriple::new_string_value("duck", "says", "quack")));
     }
 
     #[tokio::test]
@@ -473,9 +473,9 @@ mod tests {
         let mut builder =
             SimpleLayerBuilder::from_parent(name2, base_layer.clone(), files2.clone());
 
-        builder.add_string_triple(StringTriple::new_value("horse", "says", "neigh"));
-        builder.add_string_triple(StringTriple::new_node("horse", "likes", "cow"));
-        builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_string_value("horse", "says", "neigh"));
+        builder.add_value_triple(ValueTriple::new_node("horse", "likes", "cow"));
+        builder.remove_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
 
         builder.commit().await.unwrap();
         let layer2: Arc<InternalLayer> = Arc::new(
@@ -488,9 +488,9 @@ mod tests {
         let name3 = [0, 0, 0, 0, 1];
         let files3 = new_child_files();
         builder = SimpleLayerBuilder::from_parent(name3, layer2.clone(), files3.clone());
-        builder.remove_string_triple(StringTriple::new_node("horse", "likes", "cow"));
-        builder.add_string_triple(StringTriple::new_node("horse", "likes", "pig"));
-        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
+        builder.remove_value_triple(ValueTriple::new_node("horse", "likes", "cow"));
+        builder.add_value_triple(ValueTriple::new_node("horse", "likes", "pig"));
+        builder.add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
 
         builder.commit().await.unwrap();
         let layer3: Arc<InternalLayer> = Arc::new(
@@ -503,8 +503,8 @@ mod tests {
         let name4 = [0, 0, 0, 0, 1];
         let files4 = new_child_files();
         builder = SimpleLayerBuilder::from_parent(name4, layer3.clone(), files4.clone());
-        builder.remove_string_triple(StringTriple::new_value("pig", "says", "oink"));
-        builder.add_string_triple(StringTriple::new_node("cow", "likes", "horse"));
+        builder.remove_value_triple(ValueTriple::new_string_value("pig", "says", "oink"));
+        builder.add_value_triple(ValueTriple::new_node("cow", "likes", "horse"));
         builder.commit().await.unwrap();
         let layer4: Arc<InternalLayer> = Arc::new(
             ChildLayer::load_from_files(name4, layer3, &files4)
@@ -513,14 +513,16 @@ mod tests {
                 .into(),
         );
 
-        assert!(layer4.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
-        assert!(layer4.string_triple_exists(&StringTriple::new_value("duck", "says", "quack")));
-        assert!(layer4.string_triple_exists(&StringTriple::new_value("horse", "says", "neigh")));
-        assert!(layer4.string_triple_exists(&StringTriple::new_node("horse", "likes", "pig")));
-        assert!(layer4.string_triple_exists(&StringTriple::new_node("cow", "likes", "horse")));
+        assert!(layer4.value_triple_exists(&ValueTriple::new_string_value("cow", "says", "moo")));
+        assert!(layer4.value_triple_exists(&ValueTriple::new_string_value("duck", "says", "quack")));
+        assert!(
+            layer4.value_triple_exists(&ValueTriple::new_string_value("horse", "says", "neigh"))
+        );
+        assert!(layer4.value_triple_exists(&ValueTriple::new_node("horse", "likes", "pig")));
+        assert!(layer4.value_triple_exists(&ValueTriple::new_node("cow", "likes", "horse")));
 
-        assert!(!layer4.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
-        assert!(!layer4.string_triple_exists(&StringTriple::new_node("horse", "likes", "cow")));
+        assert!(!layer4.value_triple_exists(&ValueTriple::new_string_value("pig", "says", "oink")));
+        assert!(!layer4.value_triple_exists(&ValueTriple::new_node("horse", "likes", "cow")));
     }
 
     #[tokio::test]
@@ -529,8 +531,8 @@ mod tests {
         let name = [0, 0, 0, 0, 0];
         let mut builder = SimpleLayerBuilder::new(name, files.clone());
 
-        builder.remove_string_triple(StringTriple::new_value("crow", "says", "caw"));
-        builder.add_string_triple(StringTriple::new_value("crow", "says", "caw"));
+        builder.remove_value_triple(ValueTriple::new_string_value("crow", "says", "caw"));
+        builder.add_value_triple(ValueTriple::new_string_value("crow", "says", "caw"));
 
         builder.commit().await.unwrap();
         let base_layer: Arc<InternalLayer> = Arc::new(
@@ -540,7 +542,9 @@ mod tests {
                 .into(),
         );
 
-        assert!(!base_layer.string_triple_exists(&StringTriple::new_value("crow", "says", "caw")));
+        assert!(
+            !base_layer.value_triple_exists(&ValueTriple::new_string_value("crow", "says", "caw"))
+        );
     }
 
     #[tokio::test]
@@ -549,8 +553,8 @@ mod tests {
         let name = [0, 0, 0, 0, 0];
         let mut builder = SimpleLayerBuilder::new(name, files.clone());
 
-        builder.add_string_triple(StringTriple::new_value("crow", "says", "caw"));
-        builder.remove_string_triple(StringTriple::new_value("crow", "says", "caw"));
+        builder.add_value_triple(ValueTriple::new_string_value("crow", "says", "caw"));
+        builder.remove_value_triple(ValueTriple::new_string_value("crow", "says", "caw"));
 
         builder.commit().await.unwrap();
         let base_layer: Arc<InternalLayer> = Arc::new(
@@ -560,7 +564,9 @@ mod tests {
                 .into(),
         );
 
-        assert!(!base_layer.string_triple_exists(&StringTriple::new_value("crow", "says", "caw")));
+        assert!(
+            !base_layer.value_triple_exists(&ValueTriple::new_string_value("crow", "says", "caw"))
+        );
     }
 
     #[tokio::test]
@@ -570,8 +576,8 @@ mod tests {
         let name = [0, 0, 0, 0, 0];
         let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
 
-        builder.remove_string_triple(StringTriple::new_value("cow", "says", "moo"));
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.remove_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
 
         builder.commit().await.unwrap();
         let child_layer: Arc<InternalLayer> = Arc::new(
@@ -581,7 +587,9 @@ mod tests {
                 .into(),
         );
 
-        assert!(child_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+        assert!(
+            child_layer.value_triple_exists(&ValueTriple::new_string_value("cow", "says", "moo"))
+        );
     }
 
     #[tokio::test]
@@ -591,8 +599,8 @@ mod tests {
         let name = [0, 0, 0, 0, 0];
         let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
 
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
-        builder.remove_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
+        builder.remove_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
 
         builder.commit().await.unwrap();
         let child_layer: Arc<InternalLayer> = Arc::new(
@@ -602,7 +610,9 @@ mod tests {
                 .into(),
         );
 
-        assert!(child_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+        assert!(
+            child_layer.value_triple_exists(&ValueTriple::new_string_value("cow", "says", "moo"))
+        );
     }
 
     #[tokio::test]
@@ -612,8 +622,8 @@ mod tests {
         let name = [0, 0, 0, 0, 0];
         let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
 
-        builder.remove_string_triple(StringTriple::new_value("crow", "says", "caw"));
-        builder.add_string_triple(StringTriple::new_value("crow", "says", "caw"));
+        builder.remove_value_triple(ValueTriple::new_string_value("crow", "says", "caw"));
+        builder.add_value_triple(ValueTriple::new_string_value("crow", "says", "caw"));
 
         builder.commit().await.unwrap();
         let child_layer: Arc<InternalLayer> = Arc::new(
@@ -623,7 +633,9 @@ mod tests {
                 .into(),
         );
 
-        assert!(!child_layer.string_triple_exists(&StringTriple::new_value("crow", "says", "caw")));
+        assert!(
+            !child_layer.value_triple_exists(&ValueTriple::new_string_value("crow", "says", "caw"))
+        );
     }
 
     #[tokio::test]
@@ -633,8 +645,8 @@ mod tests {
         let name = [0, 0, 0, 0, 0];
         let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
 
-        builder.add_string_triple(StringTriple::new_value("crow", "says", "caw"));
-        builder.remove_string_triple(StringTriple::new_value("crow", "says", "caw"));
+        builder.add_value_triple(ValueTriple::new_string_value("crow", "says", "caw"));
+        builder.remove_value_triple(ValueTriple::new_string_value("crow", "says", "caw"));
 
         builder.commit().await.unwrap();
         let child_layer: Arc<InternalLayer> = Arc::new(
@@ -644,7 +656,9 @@ mod tests {
                 .into(),
         );
 
-        assert!(!child_layer.string_triple_exists(&StringTriple::new_value("crow", "says", "caw")));
+        assert!(
+            !child_layer.value_triple_exists(&ValueTriple::new_string_value("crow", "says", "caw"))
+        );
     }
 
     #[tokio::test]
@@ -654,10 +668,12 @@ mod tests {
         let name = [0, 0, 0, 0, 0];
         let node_id = base_layer.subject_id("cow").unwrap();
         let predicate_id = base_layer.predicate_id("says").unwrap();
-        let value_id = base_layer.object_value_id("moo").unwrap();
+        let value_id = base_layer
+            .object_value_id(&String::make_entry(&"moo"))
+            .unwrap();
         let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
 
-        builder.remove_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.remove_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
         builder.add_id_triple(IdTriple::new(node_id, predicate_id, value_id));
 
         builder.commit().await.unwrap();
@@ -668,7 +684,9 @@ mod tests {
                 .into(),
         );
 
-        assert!(child_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+        assert!(
+            child_layer.value_triple_exists(&ValueTriple::new_string_value("cow", "says", "moo"))
+        );
     }
 
     #[tokio::test]
@@ -678,11 +696,13 @@ mod tests {
         let name = [0, 0, 0, 0, 0];
         let node_id = base_layer.subject_id("cow").unwrap();
         let predicate_id = base_layer.predicate_id("says").unwrap();
-        let value_id = base_layer.object_value_id("moo").unwrap();
+        let value_id = base_layer
+            .object_value_id(&String::make_entry(&"moo"))
+            .unwrap();
         let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
 
         builder.remove_id_triple(IdTriple::new(node_id, predicate_id, value_id));
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
 
         builder.commit().await.unwrap();
         let child_layer: Arc<InternalLayer> = Arc::new(
@@ -692,7 +712,9 @@ mod tests {
                 .into(),
         );
 
-        assert!(child_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+        assert!(
+            child_layer.value_triple_exists(&ValueTriple::new_string_value("cow", "says", "moo"))
+        );
     }
 
     #[tokio::test]
@@ -702,10 +724,12 @@ mod tests {
         let name = [0, 0, 0, 0, 0];
         let node_id = base_layer.subject_id("cow").unwrap();
         let predicate_id = base_layer.predicate_id("says").unwrap();
-        let value_id = base_layer.object_value_id("moo").unwrap();
+        let value_id = base_layer
+            .object_value_id(&String::make_entry(&"moo"))
+            .unwrap();
         let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
 
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
         builder.remove_id_triple(IdTriple::new(node_id, predicate_id, value_id));
 
         builder.commit().await.unwrap();
@@ -716,7 +740,9 @@ mod tests {
                 .into(),
         );
 
-        assert!(child_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+        assert!(
+            child_layer.value_triple_exists(&ValueTriple::new_string_value("cow", "says", "moo"))
+        );
     }
 
     #[tokio::test]
@@ -726,11 +752,13 @@ mod tests {
         let name = [0, 0, 0, 0, 0];
         let node_id = base_layer.subject_id("cow").unwrap();
         let predicate_id = base_layer.predicate_id("says").unwrap();
-        let value_id = base_layer.object_value_id("moo").unwrap();
+        let value_id = base_layer
+            .object_value_id(&String::make_entry(&"moo"))
+            .unwrap();
         let mut builder = SimpleLayerBuilder::from_parent(name, base_layer.clone(), files.clone());
 
         builder.add_id_triple(IdTriple::new(node_id, predicate_id, value_id));
-        builder.remove_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.remove_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
 
         builder.commit().await.unwrap();
         let child_layer: Arc<InternalLayer> = Arc::new(
@@ -740,6 +768,8 @@ mod tests {
                 .into(),
         );
 
-        assert!(child_layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
+        assert!(
+            child_layer.value_triple_exists(&ValueTriple::new_string_value("cow", "says", "moo"))
+        );
     }
 }

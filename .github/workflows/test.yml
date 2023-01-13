@@ -42,6 +42,7 @@ jobs:
       if: ${{ matrix.os == 'windows-latest' }}
       uses: msys2/setup-msys2@v2
       with:
+        update: true
         install: >-
           diffutils
           m4

@@ -1,6 +1,6 @@
 use super::layer::*;
 use crate::layer::*;
-use crate::structure::PfcDict;
+use crate::structure::{StringDict, TypedDict};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::io;
@@ -126,6 +126,10 @@ impl LayerStore for CachedLayerStore {
         self.inner.get_layer_with_cache(name, cache).await
     }
 
+    async fn finalize_layer(&self, name: [u32; 5]) -> io::Result<()> {
+        self.inner.finalize_layer(name).await
+    }
+
     async fn get_layer_parent_name(&self, name: [u32; 5]) -> io::Result<Option<[u32; 5]>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
@@ -135,7 +139,7 @@ impl LayerStore for CachedLayerStore {
         }
     }
 
-    async fn get_node_dictionary(&self, name: [u32; 5]) -> io::Result<Option<PfcDict>> {
+    async fn get_node_dictionary(&self, name: [u32; 5]) -> io::Result<Option<StringDict>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
@@ -147,7 +151,7 @@ impl LayerStore for CachedLayerStore {
         self.inner.get_node_dictionary(name).await
     }
 
-    async fn get_predicate_dictionary(&self, name: [u32; 5]) -> io::Result<Option<PfcDict>> {
+    async fn get_predicate_dictionary(&self, name: [u32; 5]) -> io::Result<Option<StringDict>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
@@ -159,7 +163,7 @@ impl LayerStore for CachedLayerStore {
         self.inner.get_predicate_dictionary(name).await
     }
 
-    async fn get_value_dictionary(&self, name: [u32; 5]) -> io::Result<Option<PfcDict>> {
+    async fn get_value_dictionary(&self, name: [u32; 5]) -> io::Result<Option<TypedDict>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
@@ -176,7 +180,7 @@ impl LayerStore for CachedLayerStore {
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
             if !layer.is_rollup() {
-                return Ok(Some(layer.node_dictionary().len() as u64));
+                return Ok(Some(layer.node_dictionary().num_entries() as u64));
             }
         }
 
@@ -188,7 +192,7 @@ impl LayerStore for CachedLayerStore {
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
             if !layer.is_rollup() {
-                return Ok(Some(layer.predicate_dictionary().len() as u64));
+                return Ok(Some(layer.predicate_dictionary().num_entries() as u64));
             }
         }
 
@@ -200,7 +204,7 @@ impl LayerStore for CachedLayerStore {
         if let Some(layer) = self.cache.get_layer_from_cache(name) {
             // unless it is a rollup
             if !layer.is_rollup() {
-                return Ok(Some(layer.value_dictionary().len() as u64));
+                return Ok(Some(layer.value_dictionary().num_entries() as u64));
             }
         }
 
@@ -557,17 +561,17 @@ pub mod tests {
         let mut builder = store.create_base_layer().await.unwrap();
         let base_name = builder.name();
 
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
-        builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
-        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("pig", "says", "oink"));
+        builder.add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
 
         builder.commit_boxed().await.unwrap();
 
         builder = store.create_child_layer(base_name).await.unwrap();
         let child_name = builder.name();
 
-        builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
-        builder.add_string_triple(StringTriple::new_node("cow", "likes", "pig"));
+        builder.remove_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_node("cow", "likes", "pig"));
 
         builder.commit_boxed().await.unwrap();
 
@@ -591,17 +595,17 @@ pub mod tests {
         let mut builder = store.create_base_layer().await.unwrap();
         let base_name = builder.name();
 
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
-        builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
-        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("pig", "says", "oink"));
+        builder.add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
 
         builder.commit_boxed().await.unwrap();
 
         builder = store.create_child_layer(base_name).await.unwrap();
         let child_name = builder.name();
 
-        builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
-        builder.add_string_triple(StringTriple::new_node("cow", "likes", "pig"));
+        builder.remove_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_node("cow", "likes", "pig"));
 
         builder.commit_boxed().await.unwrap();
 
@@ -621,9 +625,9 @@ pub mod tests {
         let mut builder = store.create_base_layer().await.unwrap();
         let base_name = builder.name();
 
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
-        builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
-        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("pig", "says", "oink"));
+        builder.add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
 
         builder.commit_boxed().await.unwrap();
 

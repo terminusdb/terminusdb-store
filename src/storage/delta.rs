@@ -1,5 +1,7 @@
 use std::io;
 
+use tfc::file::{merge_string_dictionaries, merge_typed_dictionaries};
+
 use crate::layer::builder::{build_indexes, TripleFileBuilder};
 use crate::layer::*;
 use crate::storage::*;
@@ -48,7 +50,7 @@ async fn get_node_dicts_from_disk<S: LayerStore>(
     store: &S,
     name: [u32; 5],
     upto: [u32; 5],
-) -> io::Result<Vec<PfcDict>> {
+) -> io::Result<Vec<StringDict>> {
     let mut result = Vec::new();
     walk_backwards_from_disk_upto!(store, name, upto, current, {
         let dict = store
@@ -67,7 +69,7 @@ async fn get_predicate_dicts_from_disk<S: LayerStore>(
     store: &S,
     name: [u32; 5],
     upto: [u32; 5],
-) -> io::Result<Vec<PfcDict>> {
+) -> io::Result<Vec<StringDict>> {
     let mut result = Vec::new();
     walk_backwards_from_disk_upto!(store, name, upto, current, {
         let dict = store
@@ -86,7 +88,7 @@ async fn get_value_dicts_from_disk<S: LayerStore>(
     store: &S,
     name: [u32; 5],
     upto: [u32; 5],
-) -> io::Result<Vec<PfcDict>> {
+) -> io::Result<Vec<TypedDict>> {
     let mut result = Vec::new();
     walk_backwards_from_disk_upto!(store, name, upto, current, {
         let dict = store
@@ -199,18 +201,18 @@ async fn dictionary_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore
         )
         .collect();
 
-    merge_dictionaries(node_dicts.iter(), files.node_dictionary_files.clone()).await?;
-    merge_dictionaries(
+    merge_string_dictionaries(node_dicts.iter(), files.node_dictionary_files.clone()).await?;
+    merge_string_dictionaries(
         predicate_dicts.iter(),
         files.predicate_dictionary_files.clone(),
     )
     .await?;
-    merge_dictionaries(value_dicts.iter(), files.value_dictionary_files.clone()).await?;
+    merge_typed_dictionaries(value_dicts.iter(), files.value_dictionary_files.clone()).await?;
 
     construct_idmaps_from_structures(
-        &node_dicts,
-        &predicate_dicts,
-        &value_dicts,
+        node_dicts,
+        predicate_dicts,
+        value_dicts,
         &node_value_idmaps,
         &predicate_idmaps,
         files.id_map_files.clone(),
@@ -235,9 +237,9 @@ pub async fn dictionary_rollup<F: 'static + FileLoad + FileStore>(
         .into_iter()
         .map(|l| l.value_dictionary());
 
-    merge_dictionaries(node_dicts, files.node_dictionary_files.clone()).await?;
-    merge_dictionaries(predicate_dicts, files.predicate_dictionary_files.clone()).await?;
-    merge_dictionaries(value_dicts, files.value_dictionary_files.clone()).await?;
+    merge_string_dictionaries(node_dicts, files.node_dictionary_files.clone()).await?;
+    merge_string_dictionaries(predicate_dicts, files.predicate_dictionary_files.clone()).await?;
+    merge_typed_dictionaries(value_dicts, files.value_dictionary_files.clone()).await?;
 
     memory_construct_idmaps(layer, files.id_map_files.clone()).await
 }
@@ -260,9 +262,9 @@ async fn memory_dictionary_rollup_upto<F: 'static + FileLoad + FileStore>(
         .into_iter()
         .map(|l| l.value_dictionary());
 
-    merge_dictionaries(node_dicts, files.node_dictionary_files.clone()).await?;
-    merge_dictionaries(predicate_dicts, files.predicate_dictionary_files.clone()).await?;
-    merge_dictionaries(value_dicts, files.value_dictionary_files.clone()).await?;
+    merge_string_dictionaries(node_dicts, files.node_dictionary_files.clone()).await?;
+    merge_string_dictionaries(predicate_dicts, files.predicate_dictionary_files.clone()).await?;
+    merge_typed_dictionaries(value_dicts, files.value_dictionary_files.clone()).await?;
 
     memory_construct_idmaps_upto(layer, upto, files.id_map_files.clone()).await
 }
@@ -443,30 +445,30 @@ mod tests {
     ) -> io::Result<(Arc<InternalLayer>, Arc<InternalLayer>, Arc<InternalLayer>)> {
         let mut builder = store.create_base_layer().await?;
         let base_name = builder.name();
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
-        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
-        builder.add_string_triple(StringTriple::new_node("cow", "likes", "duck"));
-        builder.add_string_triple(StringTriple::new_node("duck", "hates", "cow"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_node("cow", "likes", "duck"));
+        builder.add_value_triple(ValueTriple::new_node("duck", "hates", "cow"));
 
         builder.commit_boxed().await?;
         let base_layer = store.get_layer(base_name).await?.unwrap();
 
         builder = store.create_child_layer(base_name).await?;
         let child1_name = builder.name();
-        builder.remove_string_triple(StringTriple::new_node("duck", "hates", "cow"));
-        builder.add_string_triple(StringTriple::new_node("duck", "likes", "cow"));
-        builder.add_string_triple(StringTriple::new_value("horse", "says", "neigh"));
-        builder.add_string_triple(StringTriple::new_node("pig", "likes", "pig"));
+        builder.remove_value_triple(ValueTriple::new_node("duck", "hates", "cow"));
+        builder.add_value_triple(ValueTriple::new_node("duck", "likes", "cow"));
+        builder.add_value_triple(ValueTriple::new_string_value("horse", "says", "neigh"));
+        builder.add_value_triple(ValueTriple::new_node("pig", "likes", "pig"));
 
         builder.commit_boxed().await?;
         let child1_layer = store.get_layer(child1_name).await?.unwrap();
 
         builder = store.create_child_layer(child1_name).await?;
         let child2_name = builder.name();
-        builder.remove_string_triple(StringTriple::new_node("pig", "likes", "pig"));
-        builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
-        builder.add_string_triple(StringTriple::new_value("sheep", "says", "baah"));
-        builder.add_string_triple(StringTriple::new_value("pig", "likes", "sheep"));
+        builder.remove_value_triple(ValueTriple::new_node("pig", "likes", "pig"));
+        builder.add_value_triple(ValueTriple::new_string_value("pig", "says", "oink"));
+        builder.add_value_triple(ValueTriple::new_string_value("sheep", "says", "baah"));
+        builder.add_value_triple(ValueTriple::new_string_value("pig", "likes", "sheep"));
         builder.commit_boxed().await?;
 
         let child2_layer = store.get_layer(child2_name).await?.unwrap();
@@ -503,7 +505,7 @@ mod tests {
         );
 
         for t in expected {
-            assert!(delta_layer.string_triple_exists(&t));
+            assert!(delta_layer.value_triple_exists(&t));
         }
     }
 
@@ -539,7 +541,7 @@ mod tests {
         );
 
         for t in expected {
-            assert!(delta_layer.string_triple_exists(&t));
+            assert!(delta_layer.value_triple_exists(&t));
         }
 
         let change_expected: Vec<_> =
@@ -602,50 +604,50 @@ mod tests {
         );
 
         for t in expected {
-            assert!(delta_layer2.string_triple_exists(&t));
+            assert!(delta_layer2.value_triple_exists(&t));
         }
     }
 
     async fn create_layer_stack<S: LayerStore>(store: &S) -> Vec<[u32; 5]> {
         let mut builder = store.create_base_layer().await.unwrap();
         let base_name = builder.name();
-        builder.add_string_triple(StringTriple::new_value("a", "a", "a"));
-        builder.add_string_triple(StringTriple::new_value("a", "b", "c"));
+        builder.add_value_triple(ValueTriple::new_string_value("a", "a", "a"));
+        builder.add_value_triple(ValueTriple::new_string_value("a", "b", "c"));
         builder.commit_boxed().await.unwrap();
 
         let mut builder = store.create_child_layer(base_name).await.unwrap();
         let child1_name = builder.name();
-        builder.add_string_triple(StringTriple::new_value("a", "a", "b"));
-        builder.add_string_triple(StringTriple::new_value("a", "b", "a"));
-        builder.add_string_triple(StringTriple::new_value("b", "a", "a"));
-        builder.add_string_triple(StringTriple::new_value("d", "d", "d"));
-        builder.remove_string_triple(StringTriple::new_value("a", "a", "a"));
+        builder.add_value_triple(ValueTriple::new_string_value("a", "a", "b"));
+        builder.add_value_triple(ValueTriple::new_string_value("a", "b", "a"));
+        builder.add_value_triple(ValueTriple::new_string_value("b", "a", "a"));
+        builder.add_value_triple(ValueTriple::new_string_value("d", "d", "d"));
+        builder.remove_value_triple(ValueTriple::new_string_value("a", "a", "a"));
         builder.commit_boxed().await.unwrap();
 
         let mut builder = store.create_child_layer(child1_name).await.unwrap();
-        builder.add_string_triple(StringTriple::new_value("a", "b", "b"));
-        builder.add_string_triple(StringTriple::new_value("b", "a", "b"));
-        builder.add_string_triple(StringTriple::new_value("e", "e", "e"));
-        builder.remove_string_triple(StringTriple::new_value("a", "a", "b"));
+        builder.add_value_triple(ValueTriple::new_string_value("a", "b", "b"));
+        builder.add_value_triple(ValueTriple::new_string_value("b", "a", "b"));
+        builder.add_value_triple(ValueTriple::new_string_value("e", "e", "e"));
+        builder.remove_value_triple(ValueTriple::new_string_value("a", "a", "b"));
         let child2_name = builder.name();
         builder.commit_boxed().await.unwrap();
 
         let mut builder = store.create_child_layer(child2_name).await.unwrap();
-        builder.add_string_triple(StringTriple::new_value("a", "a", "b"));
-        builder.add_string_triple(StringTriple::new_value("b", "b", "a"));
-        builder.add_string_triple(StringTriple::new_value("f", "f", "f"));
+        builder.add_value_triple(ValueTriple::new_string_value("a", "a", "b"));
+        builder.add_value_triple(ValueTriple::new_string_value("b", "b", "a"));
+        builder.add_value_triple(ValueTriple::new_string_value("f", "f", "f"));
         let child3_name = builder.name();
         builder.commit_boxed().await.unwrap();
 
         let mut builder = store.create_child_layer(child3_name).await.unwrap();
-        builder.add_string_triple(StringTriple::new_value("b", "b", "c"));
-        builder.add_string_triple(StringTriple::new_value("g", "g", "g"));
+        builder.add_value_triple(ValueTriple::new_string_value("b", "b", "c"));
+        builder.add_value_triple(ValueTriple::new_string_value("g", "g", "g"));
         let child4_name = builder.name();
         builder.commit_boxed().await.unwrap();
 
         let mut builder = store.create_child_layer(child4_name).await.unwrap();
-        builder.add_string_triple(StringTriple::new_value("c", "a", "b"));
-        builder.add_string_triple(StringTriple::new_value("h", "h", "h"));
+        builder.add_value_triple(ValueTriple::new_string_value("c", "a", "b"));
+        builder.add_value_triple(ValueTriple::new_string_value("h", "h", "h"));
         let child5_name = builder.name();
         builder.commit_boxed().await.unwrap();
 

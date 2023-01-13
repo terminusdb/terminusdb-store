@@ -1,6 +1,9 @@
 //! Logic for building and using an index over a bitarray which provides rank and select.
 use byteorder::{BigEndian, ByteOrder};
+use bytes::Buf;
+use bytes::BufMut;
 use bytes::Bytes;
+use itertools::Itertools;
 
 use super::bitarray::*;
 use super::logarray::*;
@@ -432,6 +435,51 @@ pub async fn build_bitindex<
     sblocks_builder.finalize().await?;
 
     Ok(())
+}
+
+pub fn build_bitindex_from_block_iter<'a, I: Iterator<Item = u64>, B1: BufMut, B2: BufMut>(
+    blocks_iter: &'a mut I,
+    blocks: &mut B1,
+    sblocks: &mut B2,
+) {
+    // the following widths are unoptimized, but should always be large enough
+    let mut blocks_builder =
+        LogArrayBufBuilder::new(blocks, 64 - (SBLOCK_SIZE * 64).leading_zeros() as u8);
+    let mut sblocks_builder = LogArrayBufBuilder::new(sblocks, 64);
+
+    // we chunk block_stream into blocks of SBLOCK size for further processing
+    let mut sblock_rank = 0;
+    let chunks = blocks_iter.chunks(SBLOCK_SIZE);
+    let mut iter = chunks.into_iter();
+    while let Some(chunk) = iter.next() {
+        let chunk: Vec<_> = chunk.collect();
+        let mut block_ranks = Vec::with_capacity(chunk.len());
+        for num in chunk {
+            block_ranks.push(num.count_ones() as u64);
+        }
+
+        let mut sblock_subrank = block_ranks.iter().sum();
+        sblock_rank += sblock_subrank;
+
+        for block_rank in block_ranks {
+            blocks_builder.push(sblock_subrank);
+            sblock_subrank -= block_rank;
+        }
+
+        sblocks_builder.push(sblock_rank);
+    }
+
+    blocks_builder.finalize();
+    sblocks_builder.finalize();
+}
+
+pub fn build_bitindex_from_buf<B1: Buf, B2: BufMut, B3: BufMut>(
+    bitarray: &mut B1,
+    blocks: &mut B2,
+    sblocks: &mut B3,
+) {
+    let mut iter = bitarray_iter_blocks(bitarray);
+    build_bitindex_from_block_iter(&mut iter, blocks, sblocks)
 }
 
 #[cfg(test)]

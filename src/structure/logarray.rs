@@ -49,14 +49,16 @@
 //!
 //! * length: the number of elements in the log array
 
-use super::util;
+use super::util::{self, calculate_width};
 use crate::storage::*;
 use byteorder::{BigEndian, ByteOrder};
-use bytes::{Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures::stream::{Stream, StreamExt};
 use std::{cmp::Ordering, convert::TryFrom, error, fmt, io};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::codec::{Decoder, FramedRead};
+
+use itertools::Itertools;
 
 // Static assertion: We expect the system architecture bus width to be >= 32 bits. If it is not,
 // the following line will cause a compiler error. (Ignore the unrelated error message itself.)
@@ -84,6 +86,12 @@ pub struct LogArray {
     ///
     /// Index 0 points to the first byte of the first element. The last word is the control word.
     input_buf: Bytes,
+}
+
+impl std::fmt::Debug for LogArray {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "LogArray([{}])", self.iter().format(", "))
+    }
 }
 
 /// An error that occurred during a log array operation.
@@ -189,6 +197,21 @@ fn read_control_word(buf: &[u8], input_buf_size: usize) -> Result<(u32, u8), Log
     Ok((len, width))
 }
 
+fn logarray_length_from_len_width(len: u32, width: u8) -> usize {
+    let num_bits = width as usize * len as usize;
+    let num_u64 = num_bits / 64 + (if num_bits % 64 == 0 { 0 } else { 1 });
+    let num_bytes = num_u64 * 8;
+
+    num_bytes
+}
+
+pub fn logarray_length_from_control_word(buf: &[u8]) -> usize {
+    let len = BigEndian::read_u32(buf);
+    let width = buf[4];
+
+    logarray_length_from_len_width(len, width)
+}
+
 impl LogArray {
     /// Construct a `LogArray` by parsing a `Bytes` buffer.
     pub fn parse(input_buf: Bytes) -> Result<LogArray, LogArrayError> {
@@ -201,6 +224,24 @@ impl LogArray {
             width,
             input_buf,
         })
+    }
+
+    pub fn parse_header_first(mut input_buf: Bytes) -> Result<(LogArray, Bytes), LogArrayError> {
+        let input_buf_size = input_buf.len();
+        LogArrayError::validate_input_buf_size(input_buf_size)?;
+        let (len, width) = read_control_word(&input_buf[..8], input_buf_size)?;
+        let num_bytes = logarray_length_from_len_width(len, width);
+        input_buf.advance(8);
+        let rest = input_buf.split_off(num_bytes);
+        Ok((
+            LogArray {
+                first: 0,
+                len,
+                width,
+                input_buf,
+            },
+            rest,
+        ))
     }
 
     /// Returns the number of elements.
@@ -308,6 +349,176 @@ impl LogArray {
             width: self.width,
             input_buf: self.input_buf.clone(),
         }
+    }
+}
+
+/// write a logarray directly to an AsyncWrite
+pub struct LogArrayBufBuilder<'a, B: BufMut> {
+    /// Destination of the log array data
+    buf: &'a mut B,
+    /// Bit width of an element
+    width: u8,
+    /// Storage for the next word to be written to the buffer
+    current: u64,
+    /// Bit offset in `current` for the msb of the next encoded element
+    offset: u8,
+    /// Number of elements written to the buffer
+    count: u32,
+}
+
+impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
+    pub fn new(buf: &'a mut B, width: u8) -> Self {
+        Self {
+            buf,
+            width,
+            // Zero is needed for bitwise OR-ing new values.
+            current: 0,
+            // Start at the beginning of `current`.
+            offset: 0,
+            // No elements have been written.
+            count: 0,
+        }
+    }
+
+    pub fn count(&self) -> u32 {
+        self.count
+    }
+
+    pub fn push(&mut self, val: u64) {
+        // This is the minimum number of leading zeros that a decoded value should have.
+        let leading_zeros = u64::BITS - self.width as u32;
+
+        // If `val` does not fit in the `width`, return an error.
+        if val.leading_zeros() < u32::from(leading_zeros) {
+            panic!("expected value ({}) to fit in {} bits", val, self.width);
+        }
+
+        // Otherwise, push `val` onto the log array.
+        // Advance the element count since we know we're going to write `val`.
+        self.count += 1;
+
+        // Write the first part of `val` to `current`, putting the msb of `val` at the `offset`
+        // bit. This may be either the upper bits of `val` only or all of it. We check later.
+        self.current |= val << leading_zeros >> self.offset;
+
+        // Increment `offset` past `val`.
+        self.offset += self.width;
+
+        // Check if the new `offset` is larger than 64.
+        if self.offset >= 64 {
+            // We have filled `current`, so write it to the destination.
+            //util::write_u64(&mut self.file, self.current).await?;
+            self.buf.put_u64(self.current);
+            // Wrap the offset with the word size.
+            self.offset -= 64;
+
+            // Initialize the new `current`.
+            self.current = if self.offset == 0 {
+                // Zero is needed for bitwise OR-ing new values.
+                0
+            } else {
+                // This is the second part of `val`: the lower bits.
+                val << 64 - self.offset
+            };
+        }
+    }
+
+    pub fn push_vec(&mut self, vals: Vec<u64>) {
+        for val in vals {
+            self.push(val);
+        }
+    }
+
+    fn finalize_data(&mut self) {
+        if u64::from(self.count) * u64::from(self.width) & 0b11_1111 != 0 {
+            self.buf.put_u64(self.current);
+        }
+    }
+
+    pub fn finalize(mut self) {
+        self.finalize_data();
+
+        self.write_control_word();
+    }
+
+    pub(crate) fn finalize_without_control_word(mut self) {
+        self.finalize_data();
+    }
+
+    fn write_control_word(&mut self) {
+        let len = self.count;
+        let width = self.width;
+
+        let buf = control_word(len, width);
+        self.buf.put_slice(&buf);
+    }
+}
+
+pub(crate) fn control_word(len: u32, width: u8) -> [u8; 8] {
+    let mut buf = [0; 8];
+    BigEndian::write_u32(&mut buf, len);
+    buf[4] = width;
+
+    buf
+}
+
+pub struct LateLogArrayBufBuilder<B: BufMut> {
+    /// Destination of the log array data
+    buf: B,
+    /// NOTE: remove pub
+    pub vals: Vec<u64>,
+    width: u8,
+}
+
+impl<B: BufMut> LateLogArrayBufBuilder<B> {
+    pub fn new(buf: B) -> Self {
+        Self {
+            buf,
+            vals: Vec::new(),
+            width: 0,
+        }
+    }
+
+    pub fn count(&self) -> u32 {
+        self.vals.len() as u32
+    }
+
+    pub fn push(&mut self, val: u64) {
+        self.vals.push(val);
+        let width = calculate_width(val);
+        if self.width < width {
+            self.width = width;
+        }
+    }
+
+    pub fn push_vec(&mut self, vals: Vec<u64>) {
+        for val in vals {
+            self.push(val)
+        }
+    }
+
+    pub fn last(&mut self) -> Option<u64> {
+        self.vals.last().copied()
+    }
+
+    pub fn pop(&mut self) -> Option<u64> {
+        self.vals.pop()
+    }
+
+    pub fn finalize(mut self) -> B {
+        let mut builder = LogArrayBufBuilder::new(&mut self.buf, self.width);
+        builder.push_vec(self.vals);
+        builder.finalize();
+        self.buf
+    }
+
+    pub fn finalize_header_first(mut self) -> B {
+        let control_word = control_word(self.count(), self.width);
+        self.buf.put(control_word.as_ref());
+        let mut builder = LogArrayBufBuilder::new(&mut self.buf, self.width);
+        builder.push_vec(self.vals);
+        builder.finalize_without_control_word();
+        self.buf
     }
 }
 
@@ -583,6 +794,12 @@ pub async fn logarray_stream_entries<F: 'static + FileLoad>(
 #[derive(Clone)]
 pub struct MonotonicLogArray(LogArray);
 
+impl std::fmt::Debug for MonotonicLogArray {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MonotonicLogArray([{}])", self.iter().format(", "))
+    }
+}
+
 impl MonotonicLogArray {
     pub fn from_logarray(logarray: LogArray) -> MonotonicLogArray {
         if cfg!(debug_assertions) {
@@ -602,6 +819,18 @@ impl MonotonicLogArray {
         }
 
         MonotonicLogArray(logarray)
+    }
+
+    pub fn parse(bytes: Bytes) -> Result<MonotonicLogArray, LogArrayError> {
+        let logarray = LogArray::parse(bytes)?;
+
+        Ok(Self::from_logarray(logarray))
+    }
+
+    pub fn parse_header_first(bytes: Bytes) -> Result<(MonotonicLogArray, Bytes), LogArrayError> {
+        let (logarray, remainder) = LogArray::parse_header_first(bytes)?;
+
+        Ok((Self::from_logarray(logarray), remainder))
     }
 
     pub fn len(&self) -> usize {
@@ -651,6 +880,10 @@ impl MonotonicLogArray {
         }
 
         (min + max) / 2 + 1
+    }
+
+    pub fn slice(&self, offset: usize, len: usize) -> MonotonicLogArray {
+        Self(self.0.slice(offset, len))
     }
 }
 
@@ -754,6 +987,16 @@ mod tests {
         let logarray = LogArray::parse(Bytes::from([0u8; 8].as_ref())).unwrap();
         assert!(logarray.is_empty());
         assert!(MonotonicLogArray::from_logarray(logarray).is_empty());
+    }
+
+    #[test]
+    pub fn late_logarray_just_zero() {
+        let buf = BytesMut::new();
+        let mut builder = LateLogArrayBufBuilder::new(buf);
+        builder.push(0);
+        let logarray_buf = builder.finalize().freeze();
+        let logarray = LogArray::parse(logarray_buf).unwrap();
+        assert_eq!(logarray.entry(0_usize), 0_u64);
     }
 
     #[tokio::test]

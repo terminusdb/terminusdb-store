@@ -326,7 +326,9 @@ pub fn base_layer_memory_files() -> BaseLayerFiles<MemoryBackedStore> {
             blocks_file: MemoryBackedStore::new(),
             offsets_file: MemoryBackedStore::new(),
         },
-        value_dictionary_files: DictionaryFiles {
+        value_dictionary_files: TypedDictionaryFiles {
+            types_present_file: MemoryBackedStore::new(),
+            type_offsets_file: MemoryBackedStore::new(),
             blocks_file: MemoryBackedStore::new(),
             offsets_file: MemoryBackedStore::new(),
         },
@@ -390,7 +392,9 @@ pub fn child_layer_memory_files() -> ChildLayerFiles<MemoryBackedStore> {
             blocks_file: MemoryBackedStore::new(),
             offsets_file: MemoryBackedStore::new(),
         },
-        value_dictionary_files: DictionaryFiles {
+        value_dictionary_files: TypedDictionaryFiles {
+            types_present_file: MemoryBackedStore::new(),
+            type_offsets_file: MemoryBackedStore::new(),
             blocks_file: MemoryBackedStore::new(),
             offsets_file: MemoryBackedStore::new(),
         },
@@ -516,26 +520,24 @@ mod tests {
         let mut builder = store.create_base_layer().await.unwrap();
         let base_name = builder.name();
 
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
-        builder.add_string_triple(StringTriple::new_value("pig", "says", "oink"));
-        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("pig", "says", "oink"));
+        builder.add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
 
         builder.commit_boxed().await.unwrap();
-
         builder = store.create_child_layer(base_name).await.unwrap();
         let child_name = builder.name();
 
-        builder.remove_string_triple(StringTriple::new_value("duck", "says", "quack"));
-        builder.add_string_triple(StringTriple::new_node("cow", "likes", "pig"));
+        builder.remove_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_node("cow", "likes", "pig"));
 
         builder.commit_boxed().await.unwrap();
-
         let layer = store.get_layer(child_name).await.unwrap().unwrap();
 
-        assert!(layer.string_triple_exists(&StringTriple::new_value("cow", "says", "moo")));
-        assert!(layer.string_triple_exists(&StringTriple::new_value("pig", "says", "oink")));
-        assert!(layer.string_triple_exists(&StringTriple::new_node("cow", "likes", "pig")));
-        assert!(!layer.string_triple_exists(&StringTriple::new_value("duck", "says", "quack")));
+        assert!(layer.value_triple_exists(&ValueTriple::new_string_value("cow", "says", "moo")));
+        assert!(layer.value_triple_exists(&ValueTriple::new_string_value("pig", "says", "oink")));
+        assert!(layer.value_triple_exists(&ValueTriple::new_node("cow", "likes", "pig")));
+        assert!(!layer.value_triple_exists(&ValueTriple::new_string_value("duck", "says", "quack")));
     }
 
     #[tokio::test]

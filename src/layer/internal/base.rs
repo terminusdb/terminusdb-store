@@ -22,9 +22,9 @@ use std::pin::Pin;
 #[derive(Clone)]
 pub struct BaseLayer {
     pub(super) name: [u32; 5],
-    pub(super) node_dictionary: PfcDict,
-    pub(super) predicate_dictionary: PfcDict,
-    pub(super) value_dictionary: PfcDict,
+    pub(super) node_dictionary: StringDict,
+    pub(super) predicate_dictionary: StringDict,
+    pub(super) value_dictionary: TypedDict,
 
     pub(super) node_value_idmap: IdMap,
     pub(super) predicate_idmap: IdMap,
@@ -49,27 +49,28 @@ impl BaseLayer {
     }
 
     pub fn load(name: [u32; 5], maps: BaseLayerMaps) -> InternalLayer {
-        let node_dictionary = PfcDict::parse(
-            maps.node_dictionary_maps.blocks_map,
+        let node_dictionary = StringDict::parse(
             maps.node_dictionary_maps.offsets_map,
-        )
-        .unwrap();
-        let predicate_dictionary = PfcDict::parse(
-            maps.predicate_dictionary_maps.blocks_map,
+            maps.node_dictionary_maps.blocks_map,
+        );
+        let predicate_dictionary = StringDict::parse(
             maps.predicate_dictionary_maps.offsets_map,
-        )
-        .unwrap();
-        let value_dictionary = PfcDict::parse(
-            maps.value_dictionary_maps.blocks_map,
+            maps.predicate_dictionary_maps.blocks_map,
+        );
+        let value_dictionary = TypedDict::from_parts(
+            maps.value_dictionary_maps.types_present_map,
+            maps.value_dictionary_maps.type_offsets_map,
             maps.value_dictionary_maps.offsets_map,
-        )
-        .unwrap();
+            maps.value_dictionary_maps.blocks_map,
+        );
 
         let node_value_idmap = match maps.id_map_maps.node_value_idmap_maps {
             None => IdMap::default(),
             Some(maps) => IdMap::from_maps(
                 maps,
-                util::calculate_width((node_dictionary.len() + value_dictionary.len()) as u64),
+                util::calculate_width(
+                    (node_dictionary.num_entries() + value_dictionary.num_entries()) as u64,
+                ),
             ),
         };
 
@@ -77,7 +78,7 @@ impl BaseLayer {
             None => IdMap::default(),
             Some(map) => IdMap::from_maps(
                 map,
-                util::calculate_width(predicate_dictionary.len() as u64),
+                util::calculate_width(predicate_dictionary.num_entries() as u64),
             ),
         };
 
@@ -170,76 +171,76 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     /// Add a node string.
     ///
     /// Panics if the given node string is not a lexical successor of the previous node string.
-    pub async fn add_node(&mut self, node: &str) -> io::Result<u64> {
-        let id = self.builder.add_node(node).await?;
+    pub fn add_node(&mut self, node: &str) -> u64 {
+        let id = self.builder.add_node(node);
 
-        Ok(id)
+        id
     }
 
     /// Add a predicate string.
     ///
     /// Panics if the given predicate string is not a lexical successor of the previous node string.
-    pub async fn add_predicate(&mut self, predicate: &str) -> io::Result<u64> {
-        let id = self.builder.add_predicate(predicate).await?;
+    pub fn add_predicate(&mut self, predicate: &str) -> u64 {
+        let id = self.builder.add_predicate(predicate);
 
-        Ok(id)
+        id
     }
 
     /// Add a value string.
     ///
     /// Panics if the given value string is not a lexical successor of the previous value string.
-    pub async fn add_value(&mut self, value: &str) -> io::Result<u64> {
-        let id = self.builder.add_value(value).await?;
+    pub fn add_value(&mut self, value: TypedDictEntry) -> u64 {
+        let id = self.builder.add_value(value);
 
-        Ok(id)
+        id
     }
 
     /// Add nodes from an iterable.
     ///
     /// Panics if the nodes are not in lexical order, or if previous added nodes are a lexical succesor of any of these nodes.
-    pub async fn add_nodes<I: 'static + IntoIterator<Item = String> + Send>(
+    pub fn add_nodes<I: 'static + IntoIterator<Item = String> + Send>(
         &mut self,
         nodes: I,
-    ) -> io::Result<Vec<u64>>
+    ) -> Vec<u64>
     where
         <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
         I: Unpin + Sync,
     {
-        let ids = self.builder.add_nodes(nodes).await?;
+        let ids = self.builder.add_nodes(nodes);
 
-        Ok(ids)
+        ids
     }
 
     /// Add predicates from an iterable.
     ///
     /// Panics if the predicates are not in lexical order, or if previous added predicates are a lexical succesor of any of these predicates.
-    pub async fn add_predicates<I: 'static + IntoIterator<Item = String> + Send>(
+    pub fn add_predicates<I: 'static + IntoIterator<Item = String> + Send>(
         &mut self,
         predicates: I,
-    ) -> io::Result<Vec<u64>>
+    ) -> Vec<u64>
     where
         <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
         I: Unpin + Sync,
     {
-        let ids = self.builder.add_predicates(predicates).await?;
+        let ids = self.builder.add_predicates(predicates);
 
-        Ok(ids)
+        ids
     }
 
     /// Add values from an iterable.
     ///
     /// Panics if the values are not in lexical order, or if previous added values are a lexical succesor of any of these values.
-    pub async fn add_values<I: 'static + IntoIterator<Item = String> + Send>(
+    pub fn add_values<I: 'static + IntoIterator<Item = TypedDictEntry> + Send>(
         &mut self,
         values: I,
-    ) -> io::Result<Vec<u64>>
+    ) -> Vec<u64>
     where
         <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
         I: Unpin + Sync,
     {
-        let ids = self.builder.add_values(values).await?;
+        let ids = self.builder.add_values(values);
 
-        Ok(ids)
+        ids
     }
 
     /// Turn this builder into a phase 2 builder that will take triple data.
@@ -253,17 +254,29 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
         let predicate_dict_blocks_map = files.predicate_dictionary_files.blocks_file.map().await?;
         let predicate_dict_offsets_map =
             files.predicate_dictionary_files.offsets_file.map().await?;
+        let value_dict_types_present_map = files
+            .value_dictionary_files
+            .types_present_file
+            .map()
+            .await?;
+        let value_dict_type_offsets_map =
+            files.value_dictionary_files.type_offsets_file.map().await?;
         let value_dict_blocks_map = files.value_dictionary_files.blocks_file.map().await?;
         let value_dict_offsets_map = files.value_dictionary_files.offsets_file.map().await?;
 
-        let node_dict = PfcDict::parse(node_dict_blocks_map, node_dict_offsets_map)?;
-        let pred_dict = PfcDict::parse(predicate_dict_blocks_map, predicate_dict_offsets_map)?;
-        let val_dict = PfcDict::parse(value_dict_blocks_map, value_dict_offsets_map)?;
+        let node_dict = StringDict::parse(node_dict_offsets_map, node_dict_blocks_map);
+        let pred_dict = StringDict::parse(predicate_dict_offsets_map, predicate_dict_blocks_map);
+        let val_dict = TypedDict::from_parts(
+            value_dict_types_present_map,
+            value_dict_type_offsets_map,
+            value_dict_offsets_map,
+            value_dict_blocks_map,
+        );
 
         // TODO: it is a bit silly to parse the dictionaries just for this. surely we can get the counts in an easier way?
-        let num_nodes = node_dict.len();
-        let num_predicates = pred_dict.len();
-        let num_values = val_dict.len();
+        let num_nodes = node_dict.num_entries();
+        let num_predicates = pred_dict.num_entries();
+        let num_values = val_dict.num_entries();
 
         BaseLayerFileBuilderPhase2::new(files, num_nodes, num_predicates, num_values).await
     }
@@ -451,15 +464,9 @@ pub mod tests {
 
         let mut builder = BaseLayerFileBuilder::from_files(&base_layer_files).await?;
 
-        builder
-            .add_nodes(nodes.into_iter().map(|s| s.to_string()))
-            .await?;
-        builder
-            .add_predicates(predicates.into_iter().map(|s| s.to_string()))
-            .await?;
-        builder
-            .add_values(values.into_iter().map(|s| s.to_string()))
-            .await?;
+        builder.add_nodes(nodes.into_iter().map(|s| s.to_string()));
+        builder.add_predicates(predicates.into_iter().map(|s| s.to_string()));
+        builder.add_values(values.into_iter().map(|s| String::make_entry(&s)));
 
         let mut builder = builder.into_phase2().await?;
 
@@ -506,7 +513,12 @@ pub mod tests {
         assert_eq!(3, base_layer.subject_id("bbbbb").unwrap());
         assert_eq!(2, base_layer.predicate_id("fghij").unwrap());
         assert_eq!(1, base_layer.object_node_id("aaaaa").unwrap());
-        assert_eq!(6, base_layer.object_value_id("chicken").unwrap());
+        assert_eq!(
+            6,
+            base_layer
+                .object_value_id(&String::make_entry(&"chicken"))
+                .unwrap()
+        );
 
         assert_eq!("bbbbb", base_layer.id_subject(3).unwrap());
         assert_eq!("fghij", base_layer.id_predicate(2).unwrap());
@@ -515,7 +527,7 @@ pub mod tests {
             base_layer.id_object(1).unwrap()
         );
         assert_eq!(
-            ObjectType::Value("chicken".to_string()),
+            ObjectType::Value(String::make_entry(&"chicken")),
             base_layer.id_object(6).unwrap()
         );
     }

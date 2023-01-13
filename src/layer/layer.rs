@@ -2,6 +2,8 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
+use crate::structure::{TdbDataType, TypedDictEntry};
+
 /// A layer containing dictionary entries and triples.
 ///
 /// A layer can be queried. To answer queries, layers will check their
@@ -26,7 +28,7 @@ pub trait Layer: Send + Sync {
     /// The numerical id of a node object, or None if the node object cannot be found.
     fn object_node_id(&self, object: &str) -> Option<u64>;
     /// The numerical id of a value object, or None if the value object cannot be found.
-    fn object_value_id(&self, object: &str) -> Option<u64>;
+    fn object_value_id(&self, object: &TypedDictEntry) -> Option<u64>;
     /// The subject corresponding to a numerical id, or None if it cannot be found.
     fn id_subject(&self, id: u64) -> Option<String>;
 
@@ -44,7 +46,7 @@ pub trait Layer: Send + Sync {
     }
 
     /// The object value corresponding to a numerical id, or None if it cannot be found. Panics if the object is actually a node.
-    fn id_object_value(&self, id: u64) -> Option<String> {
+    fn id_object_value(&self, id: u64) -> Option<TypedDictEntry> {
         self.id_object(id).map(|o| {
             o.value()
                 .expect("Expected ObjectType to be value but got a node")
@@ -78,8 +80,8 @@ pub trait Layer: Send + Sync {
     }
 
     /// Returns true if the given triple exists, and false otherwise.
-    fn string_triple_exists(&self, triple: &StringTriple) -> bool {
-        self.string_triple_to_id(triple)
+    fn value_triple_exists(&self, triple: &ValueTriple) -> bool {
+        self.value_triple_to_id(triple)
             .map(|t| self.id_triple_exists(t))
             .unwrap_or(false)
     }
@@ -91,8 +93,8 @@ pub trait Layer: Send + Sync {
     fn triples_sp(&self, subject: u64, predicate: u64)
         -> Box<dyn Iterator<Item = IdTriple> + Send>;
 
-    /// Convert a `StringTriple` to an `IdTriple`, returning None if any of the strings in the triple could not be resolved.
-    fn string_triple_to_id(&self, triple: &StringTriple) -> Option<IdTriple> {
+    /// Convert a `ValueTriple` to an `IdTriple`, returning None if any of the strings in the triple could not be resolved.
+    fn value_triple_to_id(&self, triple: &ValueTriple) -> Option<IdTriple> {
         self.subject_id(&triple.subject).and_then(|subject| {
             self.predicate_id(&triple.predicate).and_then(|predicate| {
                 match &triple.object {
@@ -113,7 +115,7 @@ pub trait Layer: Send + Sync {
     fn triples_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
 
     /// Convert all known strings in the given string triple to ids.
-    fn string_triple_to_partially_resolved(&self, triple: StringTriple) -> PartiallyResolvedTriple {
+    fn value_triple_to_partially_resolved(&self, triple: ValueTriple) -> PartiallyResolvedTriple {
         PartiallyResolvedTriple {
             subject: self
                 .subject_id(&triple.subject)
@@ -137,10 +139,10 @@ pub trait Layer: Send + Sync {
     }
 
     /// Convert an id triple to the corresponding string version, returning None if any of those ids could not be converted.
-    fn id_triple_to_string(&self, triple: &IdTriple) -> Option<StringTriple> {
+    fn id_triple_to_string(&self, triple: &IdTriple) -> Option<ValueTriple> {
         self.id_subject(triple.subject).and_then(|subject| {
             self.id_predicate(triple.predicate).and_then(|predicate| {
-                self.id_object(triple.object).map(|object| StringTriple {
+                self.id_object(triple.object).map(|object| ValueTriple {
                     subject,
                     predicate,
                     object,
@@ -199,18 +201,18 @@ impl IdTriple {
 
 /// A triple stored as strings.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StringTriple {
+pub struct ValueTriple {
     pub subject: String,
     pub predicate: String,
     pub object: ObjectType,
 }
 
-impl StringTriple {
+impl ValueTriple {
     /// Construct a triple with a node object.
     ///
     /// Nodes may appear in both the subject and object position.
-    pub fn new_node(subject: &str, predicate: &str, object: &str) -> StringTriple {
-        StringTriple {
+    pub fn new_node(subject: &str, predicate: &str, object: &str) -> ValueTriple {
+        ValueTriple {
             subject: subject.to_owned(),
             predicate: predicate.to_owned(),
             object: ObjectType::Node(object.to_owned()),
@@ -220,11 +222,22 @@ impl StringTriple {
     /// Construct a triple with a value object.
     ///
     /// Values may only appear in the object position.
-    pub fn new_value(subject: &str, predicate: &str, object: &str) -> StringTriple {
-        StringTriple {
+    pub fn new_value(subject: &str, predicate: &str, object: TypedDictEntry) -> ValueTriple {
+        ValueTriple {
             subject: subject.to_owned(),
             predicate: predicate.to_owned(),
-            object: ObjectType::Value(object.to_owned()),
+            object: ObjectType::Value(object),
+        }
+    }
+
+    /// Construct a triple with a string value object.
+    ///
+    /// Values may only appear in the object position.
+    pub fn new_string_value(subject: &str, predicate: &str, object: &str) -> ValueTriple {
+        ValueTriple {
+            subject: subject.to_owned(),
+            predicate: predicate.to_owned(),
+            object: ObjectType::Value(String::make_entry(&object)),
         }
     }
 
@@ -293,7 +306,7 @@ impl PartiallyResolvedTriple {
         &self,
         node_map: &HashMap<String, u64>,
         predicate_map: &HashMap<String, u64>,
-        value_map: &HashMap<String, u64>,
+        value_map: &HashMap<TypedDictEntry, u64>,
     ) -> Option<IdTriple> {
         let subject = match self.subject.as_ref() {
             PossiblyResolved::Unresolved(s) => *node_map.get(s)?,
@@ -356,7 +369,7 @@ impl PartiallyResolvedTriple {
 #[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Ord, Hash)]
 pub enum ObjectType {
     Node(String),
-    Value(String),
+    Value(TypedDictEntry),
 }
 
 impl ObjectType {
@@ -374,17 +387,17 @@ impl ObjectType {
         }
     }
 
-    pub fn value(self) -> Option<String> {
+    pub fn value(self) -> Option<TypedDictEntry> {
         match self {
             ObjectType::Node(_) => None,
-            ObjectType::Value(s) => Some(s),
+            ObjectType::Value(v) => Some(v),
         }
     }
 
-    pub fn value_ref(&self) -> Option<&str> {
+    pub fn value_ref(&self) -> Option<&TypedDictEntry> {
         match self {
             ObjectType::Node(_) => None,
-            ObjectType::Value(s) => Some(s),
+            ObjectType::Value(v) => Some(v),
         }
     }
 }
@@ -405,8 +418,8 @@ mod tests {
         let files = base_layer_files();
         let mut builder = SimpleLayerBuilder::new([1, 2, 3, 4, 5], files.clone());
 
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "sniff"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "sniff"));
 
         builder.commit().await.unwrap();
 
@@ -420,7 +433,7 @@ mod tests {
         let files = child_layer_files();
         let mut builder =
             SimpleLayerBuilder::from_parent([5, 4, 3, 2, 1], base.clone(), files.clone());
-        builder.remove_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.remove_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
         builder.commit().await.unwrap();
 
         let child: Arc<InternalLayer> = Arc::new(
@@ -452,7 +465,7 @@ mod tests {
             .collect();
 
         assert_eq!(
-            vec![StringTriple::new_value("cow", "says", "sniff")],
+            vec![ValueTriple::new_string_value("cow", "says", "sniff")],
             triples
         );
     }
@@ -462,7 +475,7 @@ mod tests {
         let files = base_layer_files();
         let mut builder = SimpleLayerBuilder::new([1, 2, 3, 4, 5], files.clone());
 
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
 
         builder.commit().await.unwrap();
 
@@ -476,7 +489,7 @@ mod tests {
         let files = child_layer_files();
         let mut builder =
             SimpleLayerBuilder::from_parent([5, 4, 3, 2, 1], base.clone(), files.clone());
-        builder.remove_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.remove_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
         builder.commit().await.unwrap();
 
         let child: Arc<InternalLayer> = Arc::new(
@@ -489,7 +502,7 @@ mod tests {
         let files = child_layer_files();
         let mut builder =
             SimpleLayerBuilder::from_parent([5, 4, 3, 2, 2], child.clone(), files.clone());
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
         builder.commit().await.unwrap();
 
         let child: Arc<InternalLayer> = Arc::new(
@@ -504,7 +517,10 @@ mod tests {
             .map(|t| child.id_triple_to_string(&t).unwrap())
             .collect();
 
-        assert_eq!(vec![StringTriple::new_value("cow", "says", "moo")], triples);
+        assert_eq!(
+            vec![ValueTriple::new_string_value("cow", "says", "moo")],
+            triples
+        );
     }
 
     #[tokio::test]
@@ -512,8 +528,8 @@ mod tests {
         let files = base_layer_files();
         let mut builder = SimpleLayerBuilder::new([1, 2, 3, 4, 5], files.clone());
 
-        builder.add_string_triple(StringTriple::new_value("duck", "says", "quack"));
-        builder.add_string_triple(StringTriple::new_value("duck", "says", "neigh"));
+        builder.add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"));
+        builder.add_value_triple(ValueTriple::new_string_value("duck", "says", "neigh"));
 
         builder.commit().await.unwrap();
 
@@ -527,7 +543,7 @@ mod tests {
         let files = child_layer_files();
         let mut builder =
             SimpleLayerBuilder::from_parent([5, 4, 3, 2, 1], base.clone(), files.clone());
-        builder.remove_string_triple(StringTriple::new_value("duck", "says", "neigh"));
+        builder.remove_value_triple(ValueTriple::new_string_value("duck", "says", "neigh"));
         builder.commit().await.unwrap();
 
         let child: Arc<InternalLayer> = Arc::new(
@@ -540,7 +556,7 @@ mod tests {
         let files = child_layer_files();
         let mut builder =
             SimpleLayerBuilder::from_parent([5, 4, 3, 2, 2], child.clone(), files.clone());
-        builder.add_string_triple(StringTriple::new_value("cow", "says", "moo"));
+        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"));
         builder.commit().await.unwrap();
 
         let child: Arc<InternalLayer> = Arc::new(
@@ -566,7 +582,78 @@ mod tests {
             .unwrap();
         let triple_2 = child.id_triple_to_string(&id_triple_2).unwrap();
 
-        assert_eq!(StringTriple::new_value("cow", "says", "moo"), triple_1);
-        assert_eq!(StringTriple::new_value("duck", "says", "quack"), triple_2);
+        assert_eq!(
+            ValueTriple::new_string_value("cow", "says", "moo"),
+            triple_1
+        );
+        assert_eq!(
+            ValueTriple::new_string_value("duck", "says", "quack"),
+            triple_2
+        );
+    }
+
+    #[tokio::test]
+    async fn find_nonstring_triples() {
+        let files = base_layer_files();
+        let mut builder = SimpleLayerBuilder::new([1, 2, 3, 4, 5], files.clone());
+
+        builder.add_value_triple(ValueTriple::new_value(
+            "duck",
+            "num_feet",
+            u32::make_entry(&2),
+        ));
+        builder.add_value_triple(ValueTriple::new_value(
+            "cow",
+            "num_feet",
+            u32::make_entry(&4),
+        ));
+        builder.add_value_triple(ValueTriple::new_value(
+            "disabled_cow",
+            "num_feet",
+            u32::make_entry(&3),
+        ));
+        builder.add_value_triple(ValueTriple::new_value(
+            "duck",
+            "swims",
+            String::make_entry(&"true"),
+        ));
+        builder.add_value_triple(ValueTriple::new_value(
+            "cow",
+            "swims",
+            String::make_entry(&"false"),
+        ));
+        builder.add_value_triple(ValueTriple::new_value(
+            "disabled_cow",
+            "swims",
+            String::make_entry(&"false"),
+        ));
+
+        builder.commit().await.unwrap();
+
+        let base: Arc<InternalLayer> = Arc::new(
+            BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
+                .await
+                .unwrap()
+                .into(),
+        );
+
+        let mut results: Vec<_> = base
+            .triples_p(base.predicate_id("num_feet").unwrap())
+            .map(|t| {
+                (
+                    base.id_subject(t.subject).unwrap(),
+                    base.id_object_value(t.object).unwrap().as_val::<u32, u32>(),
+                )
+            })
+            .collect();
+        results.sort();
+
+        let expected = vec![
+            ("cow".to_owned(), 4),
+            ("disabled_cow".to_owned(), 3),
+            ("duck".to_owned(), 2),
+        ];
+
+        assert_eq!(expected, results);
     }
 }

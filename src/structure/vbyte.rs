@@ -17,6 +17,8 @@
 use futures::io;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
+use bytes::Buf;
+
 /// The maximum number of bytes required for any `u64` in a variable-byte encoding.
 pub const MAX_ENCODING_LEN: usize = 10;
 
@@ -74,19 +76,40 @@ fn max_byte_too_large(shift: u32, byte: u8) -> bool {
 /// This function expects the encoded value to start at the beginning of the slice; and the slice
 /// must be large enough to include all of the encoded bytes of one value. Decoding stops at the
 /// end of the encoded value, so it doesn't matter if the slice is longer.
-pub fn decode(buf: &[u8]) -> Result<(u64, usize), DecodeError> {
+pub fn decode(mut buf: &[u8]) -> Result<(u64, usize), DecodeError> {
+    decode_buf(&mut buf)
+}
+
+/// Decodes a `u64` from a variable-byte-encoded slice.
+///
+/// On success, this function returns `Ok` with the decoded value and encoding length. Otherwise,
+/// the slice data is invalid, and the function returns `Err` with the corresponding `DecodeError`
+/// giving the reason.
+///
+/// This function expects the encoded value to start at the beginning of the slice; and the slice
+/// must be large enough to include all of the encoded bytes of one value. Decoding stops at the
+/// end of the encoded value, so it doesn't matter if the slice is longer.
+pub fn decode_buf<B: Buf>(buf: &mut B) -> Result<(u64, usize), DecodeError> {
     // This will be the decoded result.
     let mut num: u64 = 0;
     // This is how many bits we shift `num` by on each iteration in increments of 7.
     let mut shift: u32 = 0;
     // Loop through each 8-bit byte value with its index.
-    for (i, &b) in buf.iter().enumerate() {
+    let mut count = 0;
+    loop {
+        if !buf.has_remaining() {
+            return Err(DecodeError::UnexpectedEndOfBuffer);
+        }
+
+        let b = buf.get_u8();
+        count += 1;
+
         if is_last_encoded_byte(b) {
             return if max_byte_too_large(shift, b) {
                 Err(DecodeError::EncodedValueTooLarge)
             } else {
                 // Return the result (clearing the msb) and the encoding length.
-                Ok((num | ((clear_msb(b) as u64) << shift), i + 1))
+                Ok((num | ((clear_msb(b) as u64) << shift), count))
             };
         }
         // This is not the last byte. Update the result.
@@ -100,8 +123,6 @@ pub fn decode(buf: &[u8]) -> Result<(u64, usize), DecodeError> {
             return Err(DecodeError::UnexpectedEncodingLen);
         }
     }
-    // We have reached the end of the buffer without encountering the last encoded byte.
-    Err(DecodeError::UnexpectedEndOfBuffer)
 }
 
 /// Returns `true` if more than 7 bits remain to be encoded.
@@ -162,6 +183,37 @@ pub fn encode_vec(num: u64) -> Vec<u8> {
     unsafe { encode_unchecked(&mut vec, num) };
     vec
 }
+
+/// Encodes a `u64` with a variable-byte encoding in an array.
+///
+/// The array is always length 10. Additinally, the actual size of the vbyte is returned.
+pub fn encode_array(num: u64) -> ([u8; 10], usize) {
+    // Allocate a `Vec` of the right size.
+    let mut buf = [0; 10];
+    // Safety: We have created `vec` with the length of the encoded bytes of `num`.
+    let size = unsafe { encode_unchecked(&mut buf, num) };
+    (buf, size)
+}
+
+/*
+pub fn encode_into_writer<W:Write>(writer: &mut W, mut num: u64) -> std::io::Result<usize> {
+    let mut i = 0;
+    // Loop through all 7-bit strings of the number.
+    while more_than_7bits_remain(num) {
+        // This is not the last encoded byte.
+        let b = clear_msb(num as u8);
+        writer.write_u8(b)?;
+        // Get the next 7 bits.
+        num >>= 7;
+        i+=1;
+    }
+    // This is the last encoded byte.
+    let b = set_msb(num as u8);
+    // Return the encoding length.
+    writer.write_u8(b)?;
+    Ok(i + 1)
+}
+*/
 
 /// Encodes a `u64` with a variable-byte encoding in a `Vec` and writes that `Vec` to the
 /// destination `dest` in a future.
