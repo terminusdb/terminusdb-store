@@ -126,6 +126,10 @@ impl LayerStore for CachedLayerStore {
         self.inner.get_layer_with_cache(name, cache).await
     }
 
+    async fn finalize_layer(&self, name: [u32; 5]) -> io::Result<()> {
+        self.inner.finalize_layer(name).await
+    }
+
     async fn get_layer_parent_name(&self, name: [u32; 5]) -> io::Result<Option<[u32; 5]>> {
         // is layer in cache? if so, we can use the cached version
         if let Some(layer) = self.cache.get_layer_from_cache(name) {

@@ -17,6 +17,8 @@ use crate::store::{
 };
 use crate::structure::TypedDictEntry;
 
+use super::open_archive_store;
+
 lazy_static! {
     static ref RUNTIME: Runtime = Runtime::new().unwrap();
 }
@@ -587,6 +589,11 @@ pub fn open_sync_memory_store() -> SyncStore {
 /// Open a store that stores its data in the given directory.
 pub fn open_sync_directory_store<P: Into<PathBuf>>(path: P) -> SyncStore {
     SyncStore::wrap(open_directory_store(path))
+}
+
+/// Open a store that stores its data in the given directory as archive files.
+pub fn open_sync_archive_store<P: Into<PathBuf>>(path: P) -> SyncStore {
+    SyncStore::wrap(open_archive_store(path))
 }
 
 #[cfg(test)]

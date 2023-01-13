@@ -1,3 +1,7 @@
+use std::collections::HashMap;
+
+use num_derive::FromPrimitive;
+
 pub struct Filenames {
     pub node_dictionary_blocks: &'static str,
     pub node_dictionary_offsets: &'static str,
@@ -86,6 +90,72 @@ pub struct Filenames {
 
     pub parent: &'static str,
     pub rollup: &'static str,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug, FromPrimitive)]
+pub enum LayerFileEnum {
+    NodeDictionaryBlocks = 0,
+    NodeDictionaryOffsets,
+    PredicateDictionaryBlocks,
+    PredicateDictionaryOffsets,
+    ValueDictionaryTypesPresent,
+    ValueDictionaryTypeOffsets,
+    ValueDictionaryBlocks,
+    ValueDictionaryOffsets,
+
+    NodeValueIdMapBits,
+    NodeValueIdMapBitIndexBlocks,
+    NodeValueIdMapBitIndexSBlocks,
+
+    PredicateIdMapBits,
+    PredicateIdMapBitIndexBlocks,
+    PredicateIdMapBitIndexSBlocks,
+
+    PosSubjects,
+    PosObjects,
+    NegSubjects,
+    NegObjects,
+
+    PosSPAdjacencyListNums,
+    PosSPAdjacencyListBits,
+    PosSPAdjacencyListBitIndexBlocks,
+    PosSPAdjacencyListBitIndexSBlocks,
+
+    PosSpOAdjacencyListNums,
+    PosSpOAdjacencyListBits,
+    PosSpOAdjacencyListBitIndexBlocks,
+    PosSpOAdjacencyListBitIndexSBlocks,
+
+    PosOPsAdjacencyListNums,
+    PosOPsAdjacencyListBits,
+    PosOPsAdjacencyListBitIndexBlocks,
+    PosOPsAdjacencyListBitIndexSBlocks,
+
+    PosPredicateWaveletTreeBits,
+    PosPredicateWaveletTreeBitIndexBlocks,
+    PosPredicateWaveletTreeBitIndexSBlocks,
+
+    NegSPAdjacencyListNums,
+    NegSPAdjacencyListBits,
+    NegSPAdjacencyListBitIndexBlocks,
+    NegSPAdjacencyListBitIndexSBlocks,
+
+    NegSpOAdjacencyListNums,
+    NegSpOAdjacencyListBits,
+    NegSpOAdjacencyListBitIndexBlocks,
+    NegSpOAdjacencyListBitIndexSBlocks,
+
+    NegOPsAdjacencyListNums,
+    NegOPsAdjacencyListBits,
+    NegOPsAdjacencyListBitIndexBlocks,
+    NegOPsAdjacencyListBitIndexSBlocks,
+
+    NegPredicateWaveletTreeBits,
+    NegPredicateWaveletTreeBitIndexBlocks,
+    NegPredicateWaveletTreeBitIndexSBlocks,
+
+    Parent,
+    Rollup,
 }
 
 pub const FILENAMES: Filenames = Filenames {
@@ -185,6 +255,255 @@ pub const FILENAMES: Filenames = Filenames {
     parent: "parent.hex",
     rollup: "rollup.hex",
 };
+
+lazy_static! {
+    pub static ref FILENAME_ENUM_MAP: HashMap<&'static str, LayerFileEnum> = HashMap::from([
+        (
+            "node_dictionary_blocks.tfc",
+            LayerFileEnum::NodeDictionaryBlocks
+        ),
+        (
+            "node_dictionary_offsets.logarray",
+            LayerFileEnum::NodeDictionaryOffsets
+        ),
+        (
+            "predicate_dictionary_blocks.tfc",
+            LayerFileEnum::PredicateDictionaryBlocks
+        ),
+        (
+            "predicate_dictionary_offsets.logarray",
+            LayerFileEnum::PredicateDictionaryOffsets
+        ),
+        (
+            "value_dictionary_types.logarray",
+            LayerFileEnum::ValueDictionaryTypesPresent
+        ),
+        (
+            "value_dictionary_type_offsets.logarray",
+            LayerFileEnum::ValueDictionaryTypeOffsets
+        ),
+        (
+            "value_dictionary_blocks.tfc",
+            LayerFileEnum::ValueDictionaryBlocks
+        ),
+        (
+            "value_dictionary_offsets.logarray",
+            LayerFileEnum::ValueDictionaryOffsets
+        ),
+        (
+            "node_value_idmap_bits.bitarray",
+            LayerFileEnum::NodeValueIdMapBits
+        ),
+        (
+            "node_value_idmap_bit_index_blocks.bitarray",
+            LayerFileEnum::NodeValueIdMapBitIndexBlocks
+        ),
+        (
+            "node_value_idmap_bit_index_sblocks.bitarray",
+            LayerFileEnum::NodeValueIdMapBitIndexSBlocks
+        ),
+        (
+            "predicate_idmap_bits.bitarray",
+            LayerFileEnum::PredicateIdMapBits
+        ),
+        (
+            "predicate_idmap_bit_index_blocks.bitarray",
+            LayerFileEnum::PredicateIdMapBitIndexBlocks
+        ),
+        (
+            "predicate_idmap_bit_index_sblocks.bitarray",
+            LayerFileEnum::PredicateIdMapBitIndexSBlocks
+        ),
+        ("base_subjects.logarray", LayerFileEnum::PosSubjects),
+        ("base_objects.logarray", LayerFileEnum::PosObjects),
+        ("child_pos_subjects.logarray", LayerFileEnum::PosSubjects),
+        ("child_pos_objects.logarray", LayerFileEnum::PosObjects),
+        ("child_neg_subjects.logarray", LayerFileEnum::NegSubjects),
+        ("child_neg_objects.logarray", LayerFileEnum::NegObjects),
+        (
+            "base_s_p_adjacency_list_nums.logarray",
+            LayerFileEnum::PosSPAdjacencyListNums
+        ),
+        (
+            "base_s_p_adjacency_list_bits.bitarray",
+            LayerFileEnum::PosSPAdjacencyListBits
+        ),
+        (
+            "base_s_p_adjacency_list_bit_index_blocks.logarray",
+            LayerFileEnum::PosSPAdjacencyListBitIndexBlocks
+        ),
+        (
+            "base_s_p_adjacency_list_bit_index_sblocks.logarray",
+            LayerFileEnum::PosSPAdjacencyListBitIndexSBlocks
+        ),
+        (
+            "base_sp_o_adjacency_list_nums.logarray",
+            LayerFileEnum::PosSpOAdjacencyListNums
+        ),
+        (
+            "base_sp_o_adjacency_list_bits.bitarray",
+            LayerFileEnum::PosSpOAdjacencyListBits
+        ),
+        (
+            "base_sp_o_adjacency_list_bit_index_blocks.logarray",
+            LayerFileEnum::PosSpOAdjacencyListBitIndexBlocks
+        ),
+        (
+            "base_sp_o_adjacency_list_bit_index_sblocks.logarray",
+            LayerFileEnum::PosSpOAdjacencyListBitIndexSBlocks
+        ),
+        (
+            "base_o_ps_adjacency_list_nums.logarray",
+            LayerFileEnum::PosOPsAdjacencyListNums
+        ),
+        (
+            "base_o_ps_adjacency_list_bits.bitarray",
+            LayerFileEnum::PosOPsAdjacencyListBits
+        ),
+        (
+            "base_o_ps_adjacency_list_bit_index_blocks.logarray",
+            LayerFileEnum::PosOPsAdjacencyListBitIndexBlocks
+        ),
+        (
+            "base_o_ps_adjacency_list_bit_index_sblocks.logarray",
+            LayerFileEnum::PosOPsAdjacencyListBitIndexSBlocks
+        ),
+        (
+            "base_predicate_wavelet_tree_bits.bitarray",
+            LayerFileEnum::PosPredicateWaveletTreeBits
+        ),
+        (
+            "base_predicate_wavelet_tree_bit_index_blocks.logarray",
+            LayerFileEnum::PosPredicateWaveletTreeBitIndexBlocks
+        ),
+        (
+            "base_predicate_wavelet_tree_bit_index_sblocks.logarray",
+            LayerFileEnum::PosPredicateWaveletTreeBitIndexSBlocks
+        ),
+        (
+            "pos_s_p_adjacency_list_nums.logarray",
+            LayerFileEnum::PosSPAdjacencyListNums
+        ),
+        (
+            "pos_s_p_adjacency_list_bits.bitarray",
+            LayerFileEnum::PosSPAdjacencyListBits
+        ),
+        (
+            "pos_s_p_adjacency_list_bit_index_blocks.logarray",
+            LayerFileEnum::PosSPAdjacencyListBitIndexBlocks
+        ),
+        (
+            "pos_s_p_adjacency_list_bit_index_sblocks.logarray",
+            LayerFileEnum::PosSPAdjacencyListBitIndexSBlocks
+        ),
+        (
+            "pos_sp_o_adjacency_list_nums.logarray",
+            LayerFileEnum::PosSpOAdjacencyListNums
+        ),
+        (
+            "pos_sp_o_adjacency_list_bits.bitarray",
+            LayerFileEnum::PosSpOAdjacencyListBits
+        ),
+        (
+            "pos_sp_o_adjacency_list_bit_index_blocks.logarray",
+            LayerFileEnum::PosSpOAdjacencyListBitIndexBlocks
+        ),
+        (
+            "pos_sp_o_adjacency_list_bit_index_sblocks.logarray",
+            LayerFileEnum::PosSpOAdjacencyListBitIndexSBlocks
+        ),
+        (
+            "pos_o_ps_adjacency_list_nums.logarray",
+            LayerFileEnum::PosOPsAdjacencyListNums
+        ),
+        (
+            "pos_o_ps_adjacency_list_bits.bitarray",
+            LayerFileEnum::PosOPsAdjacencyListBits
+        ),
+        (
+            "pos_o_ps_adjacency_list_bit_index_blocks.logarray",
+            LayerFileEnum::PosOPsAdjacencyListBitIndexBlocks
+        ),
+        (
+            "pos_o_ps_adjacency_list_bit_index_sblocks.logarray",
+            LayerFileEnum::PosOPsAdjacencyListBitIndexSBlocks
+        ),
+        (
+            "pos_predicate_wavelet_tree_bits.bitarray",
+            LayerFileEnum::PosPredicateWaveletTreeBits
+        ),
+        (
+            "pos_predicate_wavelet_tree_bit_index_blocks.logarray",
+            LayerFileEnum::PosPredicateWaveletTreeBitIndexBlocks
+        ),
+        (
+            "pos_predicate_wavelet_tree_bit_index_sblocks.logarray",
+            LayerFileEnum::PosPredicateWaveletTreeBitIndexSBlocks
+        ),
+        (
+            "neg_s_p_adjacency_list_nums.logarray",
+            LayerFileEnum::NegSPAdjacencyListNums
+        ),
+        (
+            "neg_s_p_adjacency_list_bits.bitarray",
+            LayerFileEnum::NegSPAdjacencyListBits
+        ),
+        (
+            "neg_s_p_adjacency_list_bit_index_blocks.logarray",
+            LayerFileEnum::NegSPAdjacencyListBitIndexBlocks
+        ),
+        (
+            "neg_s_p_adjacency_list_bit_index_sblocks.logarray",
+            LayerFileEnum::NegSPAdjacencyListBitIndexSBlocks
+        ),
+        (
+            "neg_sp_o_adjacency_list_nums.logarray",
+            LayerFileEnum::NegSpOAdjacencyListNums
+        ),
+        (
+            "neg_sp_o_adjacency_list_bits.bitarray",
+            LayerFileEnum::NegSpOAdjacencyListBits
+        ),
+        (
+            "neg_sp_o_adjacency_list_bit_index_blocks.logarray",
+            LayerFileEnum::NegSpOAdjacencyListBitIndexBlocks
+        ),
+        (
+            "neg_sp_o_adjacency_list_bit_index_sblocks.logarray",
+            LayerFileEnum::NegSpOAdjacencyListBitIndexSBlocks
+        ),
+        (
+            "neg_o_ps_adjacency_list_nums.logarray",
+            LayerFileEnum::NegOPsAdjacencyListNums
+        ),
+        (
+            "neg_o_ps_adjacency_list_bits.bitarray",
+            LayerFileEnum::NegOPsAdjacencyListBits
+        ),
+        (
+            "neg_o_ps_adjacency_list_bit_index_blocks.logarray",
+            LayerFileEnum::NegOPsAdjacencyListBitIndexBlocks
+        ),
+        (
+            "neg_o_ps_adjacency_list_bit_index_sblocks.logarray",
+            LayerFileEnum::NegOPsAdjacencyListBitIndexSBlocks
+        ),
+        (
+            "neg_predicate_wavelet_tree_bits.bitarray",
+            LayerFileEnum::NegPredicateWaveletTreeBits
+        ),
+        (
+            "neg_predicate_wavelet_tree_bit_index_blocks.logarray",
+            LayerFileEnum::NegPredicateWaveletTreeBitIndexBlocks
+        ),
+        (
+            "neg_predicate_wavelet_tree_bit_index_sblocks.logarray",
+            LayerFileEnum::NegPredicateWaveletTreeBitIndexSBlocks
+        ),
+        ("parent.hex", LayerFileEnum::Parent),
+        ("rollup.hex", LayerFileEnum::Rollup),
+    ]);
+}
 
 pub const SHARED_REQUIRED_FILES: [&'static str; 8] = [
     FILENAMES.node_dictionary_blocks,

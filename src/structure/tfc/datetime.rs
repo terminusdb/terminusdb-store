@@ -75,7 +75,7 @@ mod tests {
     #[test]
     fn a_few_nanos_before_epoch() {
         let dt = NaiveDateTime::from_timestamp_opt(-1, 234).unwrap();
-        let result = dbg!(datetime_to_parts(&dt));
+        let result = datetime_to_parts(&dt);
         assert_eq!((true, Integer::from(0), 999999766_u32), result)
     }
 }

@@ -73,6 +73,10 @@ pub trait LayerStore: 'static + Packable + Send + Sync {
         self.get_layer_with_cache(name, NOCACHE.clone()).await
     }
 
+    async fn finalize_layer(&self, _name: [u32; 5]) -> io::Result<()> {
+        Ok(())
+    }
+
     async fn get_layer_parent_name(&self, name: [u32; 5]) -> io::Result<Option<[u32; 5]>>;
 
     async fn get_node_dictionary(&self, name: [u32; 5]) -> io::Result<Option<StringDict>>;
@@ -348,6 +352,10 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
     async fn directory_exists(&self, name: [u32; 5]) -> io::Result<bool>;
     async fn get_file(&self, directory: [u32; 5], name: &str) -> io::Result<Self::File>;
     async fn file_exists(&self, directory: [u32; 5], file: &str) -> io::Result<bool>;
+
+    async fn finalize(&self, _directory: [u32; 5]) -> io::Result<()> {
+        Ok(())
+    }
 
     async fn layer_has_rollup(&self, name: [u32; 5]) -> io::Result<bool> {
         self.file_exists(name, FILENAMES.rollup).await
@@ -1356,7 +1364,10 @@ pub fn name_to_string(name: [u32; 5]) -> String {
 
 pub fn string_to_name(string: &str) -> Result<[u32; 5], std::io::Error> {
     if string.len() != 40 {
-        return Err(io::Error::new(io::ErrorKind::Other, "string not len 40"));
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("string not len 40: {}", string),
+        ));
     }
     let n1 = u32::from_str_radix(&string[..8], 16)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -1546,6 +1557,10 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         Ok(Some(ancestor))
     }
 
+    async fn finalize_layer(&self, name: [u32; 5]) -> io::Result<()> {
+        self.finalize(name).await
+    }
+
     async fn get_layer_parent_name(&self, name: [u32; 5]) -> io::Result<Option<[u32; 5]>> {
         if self.directory_exists(name).await? {
             if self.layer_has_parent(name).await? {
@@ -1712,6 +1727,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         let dir_name = self.create_directory().await?;
         let files = self.base_layer_files(dir_name).await?;
         delta_rollup(&layer, files).await?;
+        self.finalize(dir_name).await?;
 
         Ok(dir_name)
     }
@@ -1747,6 +1763,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             .create_child_layer_files_with_cache(upto, cache)
             .await?;
         delta_rollup_upto(self, &layer, upto, child_layer_files).await?;
+        self.finalize(layer_dir).await?;
         Ok(layer_dir)
     }
 
@@ -1781,6 +1798,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             .create_child_layer_files_with_cache(upto, cache)
             .await?;
         imprecise_delta_rollup_upto(self, &layer, upto, child_layer_files).await?;
+        self.finalize(layer_dir).await?;
         Ok(layer_dir)
     }
 

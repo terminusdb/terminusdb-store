@@ -52,7 +52,7 @@
 use super::util::{self, calculate_width};
 use crate::storage::*;
 use byteorder::{BigEndian, ByteOrder};
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures::stream::{Stream, StreamExt};
 use std::{cmp::Ordering, convert::TryFrom, error, fmt, io};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -197,6 +197,21 @@ fn read_control_word(buf: &[u8], input_buf_size: usize) -> Result<(u32, u8), Log
     Ok((len, width))
 }
 
+fn logarray_length_from_len_width(len: u32, width: u8) -> usize {
+    let num_bits = width as usize * len as usize;
+    let num_u64 = num_bits / 64 + (if num_bits % 64 == 0 { 0 } else { 1 });
+    let num_bytes = num_u64 * 8;
+
+    num_bytes
+}
+
+pub fn logarray_length_from_control_word(buf: &[u8]) -> usize {
+    let len = BigEndian::read_u32(buf);
+    let width = buf[4];
+
+    logarray_length_from_len_width(len, width)
+}
+
 impl LogArray {
     /// Construct a `LogArray` by parsing a `Bytes` buffer.
     pub fn parse(input_buf: Bytes) -> Result<LogArray, LogArrayError> {
@@ -209,6 +224,24 @@ impl LogArray {
             width,
             input_buf,
         })
+    }
+
+    pub fn parse_header_first(mut input_buf: Bytes) -> Result<(LogArray, Bytes), LogArrayError> {
+        let input_buf_size = input_buf.len();
+        LogArrayError::validate_input_buf_size(input_buf_size)?;
+        let (len, width) = read_control_word(&input_buf[..8], input_buf_size)?;
+        let num_bytes = logarray_length_from_len_width(len, width);
+        input_buf.advance(8);
+        let rest = input_buf.split_off(num_bytes);
+        Ok((
+            LogArray {
+                first: 0,
+                len,
+                width,
+                input_buf,
+            },
+            rest,
+        ))
     }
 
     /// Returns the number of elements.
@@ -403,18 +436,30 @@ impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
     }
 
     pub fn finalize(mut self) {
+        self.finalize_data();
+
+        self.write_control_word();
+    }
+
+    pub(crate) fn finalize_without_control_word(mut self) {
+        self.finalize_data();
+    }
+
+    fn write_control_word(&mut self) {
         let len = self.count;
         let width = self.width;
 
-        // Write the final data word.
-        self.finalize_data();
-
-        // Write the control word.
-        let mut buf = [0; 8];
-        BigEndian::write_u32(&mut buf, len);
-        buf[4] = width;
+        let buf = control_word(len, width);
         self.buf.put_slice(&buf);
     }
+}
+
+pub(crate) fn control_word(len: u32, width: u8) -> [u8; 8] {
+    let mut buf = [0; 8];
+    BigEndian::write_u32(&mut buf, len);
+    buf[4] = width;
+
+    buf
 }
 
 pub struct LateLogArrayBufBuilder<B: BufMut> {
@@ -461,12 +506,18 @@ impl<B: BufMut> LateLogArrayBufBuilder<B> {
     }
 
     pub fn finalize(mut self) -> B {
-        /*if self.width == 0 {
-            self.width = 1
-        }*/
         let mut builder = LogArrayBufBuilder::new(&mut self.buf, self.width);
         builder.push_vec(self.vals);
         builder.finalize();
+        self.buf
+    }
+
+    pub fn finalize_header_first(mut self) -> B {
+        let control_word = control_word(self.count(), self.width);
+        self.buf.put(control_word.as_ref());
+        let mut builder = LogArrayBufBuilder::new(&mut self.buf, self.width);
+        builder.push_vec(self.vals);
+        builder.finalize_without_control_word();
         self.buf
     }
 }
@@ -774,6 +825,12 @@ impl MonotonicLogArray {
         let logarray = LogArray::parse(bytes)?;
 
         Ok(Self::from_logarray(logarray))
+    }
+
+    pub fn parse_header_first(bytes: Bytes) -> Result<(MonotonicLogArray, Bytes), LogArrayError> {
+        let (logarray, remainder) = LogArray::parse_header_first(bytes)?;
+
+        Ok((Self::from_logarray(logarray), remainder))
     }
 
     pub fn len(&self) -> usize {

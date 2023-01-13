@@ -1,7 +1,38 @@
-use bytes::Buf;
-use rug::Integer;
-
 use super::integer::{bigint_to_storage, storage_to_bigint_and_sign, NEGATIVE_ZERO};
+use bytes::Buf;
+use lazy_static::lazy_static;
+use regex::Regex;
+use rug::Integer;
+use thiserror::Error;
+
+#[derive(PartialEq, Debug)]
+pub struct Decimal(pub(crate) String);
+
+#[derive(Debug, Error)]
+#[error("Invalid format for decimal: `{value}`")]
+pub struct DecimalValidationError {
+    pub value: String,
+}
+
+impl Decimal {
+    pub fn new(s: String) -> Result<Self, DecimalValidationError> {
+        validate_decimal(&s)?;
+        Ok(Decimal(s))
+    }
+}
+
+pub fn validate_decimal(s: &str) -> Result<(), DecimalValidationError> {
+    lazy_static! {
+        static ref RE: Regex = Regex::new(r"-?\d+(\.\d+)?").unwrap();
+    }
+    if RE.is_match(s) {
+        Ok(())
+    } else {
+        Err(DecimalValidationError {
+            value: s.to_string(),
+        })
+    }
+}
 
 fn encode_fraction(fraction: Option<&str>) -> Vec<u8> {
     if let Some(f) = fraction {
