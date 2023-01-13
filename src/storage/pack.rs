@@ -124,6 +124,11 @@ impl<T: PersistentLayerStore> Packable for T {
                 }
             }
 
+            for layer_id in layer_id_set {
+                let layer_id_arr = string_to_name(&layer_id).unwrap();
+                handle.block_on(self.finalize_layer(layer_id_arr))?;
+            }
+
             Ok(())
         })
     }
