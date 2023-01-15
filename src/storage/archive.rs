@@ -183,10 +183,7 @@ impl FileLoad for ConstructionFile {
 
     async fn exists(&self) -> io::Result<bool> {
         let guard = self.0.read().unwrap();
-        Ok(match &*guard {
-            ConstructionFileState::Finalized(_) => true,
-            _ => false,
-        })
+        Ok(matches!(&*guard, ConstructionFileState::Finalized(_)))
     }
     async fn size(&self) -> io::Result<usize> {
         let guard = self.0.read().unwrap();
@@ -334,11 +331,7 @@ impl ArchiveHeader {
     }
 
     pub fn size_of(&self, file: LayerFileEnum) -> Option<usize> {
-        if let Some(range) = self.range_for(file) {
-            Some(range.end - range.start)
-        } else {
-            None
-        }
+        self.range_for(file).map(|range| range.end - range.start)
     }
 }
 
@@ -369,11 +362,9 @@ impl Archive {
     }
 
     pub fn slice_for(&self, file: LayerFileEnum) -> Option<Bytes> {
-        if let Some(range) = self.header.range_for(file) {
-            Some(self.data.slice(range))
-        } else {
-            None
-        }
+        self.header
+            .range_for(file)
+            .map(|range| self.data.slice(range))
     }
 
     pub fn size_of(&self, file: LayerFileEnum) -> Option<usize> {
@@ -411,10 +402,9 @@ impl AsyncRead for ArchiveSliceReader {
             return Poll::Ready(Ok(()));
         }
 
-        let read = AsyncRead::poll_read(Pin::new(&mut (*self).file), cx, buf);
-        match read {
-            Poll::Pending => return Poll::Pending,
-            _ => {}
+        let read = AsyncRead::poll_read(Pin::new(&mut self.file), cx, buf);
+        if let Poll::Pending = read {
+            return Poll::Pending;
         }
 
         if buf.filled().len() > self.remaining {
@@ -620,10 +610,13 @@ impl SyncableFile for ArchiveLayerHandleWriter {
     }
 }
 
+type ArchiveLayerConstructionMap =
+    Arc<RwLock<HashMap<[u32; 5], HashMap<LayerFileEnum, ConstructionFile>>>>;
+
 #[derive(Clone)]
 pub struct ArchiveLayerStore {
     path: PathBuf,
-    construction: Arc<RwLock<HashMap<[u32; 5], HashMap<LayerFileEnum, ConstructionFile>>>>,
+    construction: ArchiveLayerConstructionMap,
 }
 
 impl ArchiveLayerStore {
