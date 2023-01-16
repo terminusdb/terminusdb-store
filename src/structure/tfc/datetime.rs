@@ -25,21 +25,14 @@ pub fn datetime_to_storage(datetime: &NaiveDateTime) -> Vec<u8> {
     let fraction = if nanos == 0 {
         None
     } else if nanos % 1_000_000 == 0 {
-        Some(format!("{:02}", nanos / 1_000_000))
+        Some(format!("{:03}", nanos / 1_000_000))
     } else if nanos % 1_000 == 0 {
-        Some(format!("{:05}", nanos / 1_000))
+        Some(format!("{:06}", nanos / 1_000))
     } else {
-        Some(format!("{nanos:08}"))
+        Some(format!("{nanos:09}"))
     };
-    integer_and_fraction_to_storage(is_neg, seconds, fraction.as_ref().map(|b| b.as_ref()))
-}
 
-fn count_leading_zeros(string: &str) -> usize {
-    string
-        .chars()
-        .take_while(|ch| *ch == '0')
-        .map(|ch| ch.len_utf8())
-        .sum()
+    integer_and_fraction_to_storage(is_neg, seconds, fraction.as_ref().map(|b| b.as_ref()))
 }
 
 pub fn storage_to_datetime<B: Buf>(bytes: &mut B) -> NaiveDateTime {
@@ -55,11 +48,11 @@ pub fn storage_to_datetime<B: Buf>(bytes: &mut B) -> NaiveDateTime {
             NaiveDateTime::from_timestamp_opt(-seconds, 0).unwrap()
         }
     } else {
-        let leading_zeros = count_leading_zeros(&fraction);
+        let zeros = "0".repeat(9 - fraction.len());
+        let fraction = format!("{fraction}{zeros}");
         let nanos = fraction
             .parse::<u32>()
-            .expect("Nano seconds should actually fit in u32")
-            * u32::pow(10, leading_zeros as u32);
+            .expect("Nano seconds should actually fit in u32");
         if is_pos {
             NaiveDateTime::from_timestamp_opt(seconds, nanos).unwrap()
         } else {
@@ -70,6 +63,8 @@ pub fn storage_to_datetime<B: Buf>(bytes: &mut B) -> NaiveDateTime {
 
 #[cfg(test)]
 mod tests {
+    use chrono::NaiveDate;
+
     use super::*;
 
     #[test]
@@ -77,5 +72,45 @@ mod tests {
         let dt = NaiveDateTime::from_timestamp_opt(-1, 234).unwrap();
         let result = datetime_to_parts(&dt);
         assert_eq!((true, Integer::from(0), 999999766_u32), result)
+    }
+
+    #[test]
+    fn a_few_ms() {
+        let year: i32 = 2002;
+        let month: u32 = 11;
+        let day: u32 = 4;
+        let hour: u32 = 11;
+        let minute: u32 = 30;
+        let second: u32 = 12;
+        let nano: u32 = 333_000_000;
+        let dt = NaiveDate::from_ymd_opt(year, month, day)
+            .unwrap()
+            .and_hms_nano_opt(hour, minute, second, nano)
+            .unwrap();
+        let result = datetime_to_parts(&dt);
+        assert_eq!((false, Integer::from(1036409412), 333_000_000_u32), result);
+        let storage = datetime_to_storage(&dt);
+        let dt_storage = storage_to_datetime(&mut storage.as_slice());
+        assert_eq!(dt, dt_storage)
+    }
+
+    #[test]
+    fn a_few_ns() {
+        let year: i32 = 2002;
+        let month: u32 = 11;
+        let day: u32 = 4;
+        let hour: u32 = 11;
+        let minute: u32 = 30;
+        let second: u32 = 12;
+        let nano: u32 = 333;
+        let dt = NaiveDate::from_ymd_opt(year, month, day)
+            .unwrap()
+            .and_hms_nano_opt(hour, minute, second, nano)
+            .unwrap();
+        let result = datetime_to_parts(&dt);
+        assert_eq!((false, Integer::from(1036409412), 333_u32), result);
+        let storage = datetime_to_storage(&dt);
+        let dt_storage = storage_to_datetime(&mut storage.as_slice());
+        assert_eq!(dt, dt_storage)
     }
 }

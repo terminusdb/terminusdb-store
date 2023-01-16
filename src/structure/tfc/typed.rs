@@ -499,6 +499,7 @@ impl<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<B1, B2,
 #[cfg(test)]
 mod tests {
     use bytes::BytesMut;
+    use chrono::{NaiveDate, NaiveDateTime};
     use rug::Integer;
 
     use crate::structure::Decimal;
@@ -1190,5 +1191,77 @@ mod tests {
         for (i, e) in vec.into_iter().enumerate() {
             assert_eq!(e, dict.entry(i + 1).unwrap())
         }
+    }
+
+    #[test]
+    fn test_datetime() {
+        let year = 2002;
+        let month = 11;
+        let day = 4;
+        let hour = 11;
+        let minute = 30;
+        let second = 12;
+        let nano = 300_000_000;
+        let dt1 = NaiveDate::from_ymd_opt(year, month as u32, day as u32)
+            .unwrap()
+            .and_hms_nano_opt(hour as u32, minute as u32, second as u32, nano as u32)
+            .unwrap();
+
+        let year = 2002;
+        let month = 11;
+        let day = 4;
+        let hour = 11;
+        let minute = 30;
+        let second = 12;
+        let nano = 3;
+        let dt2 = NaiveDate::from_ymd_opt(year, month as u32, day as u32)
+            .unwrap()
+            .and_hms_nano_opt(hour as u32, minute as u32, second as u32, nano as u32)
+            .unwrap();
+
+        let vec: Vec<TypedDictEntry> = vec![
+            NaiveDateTime::make_entry(&dt1),
+            NaiveDateTime::make_entry(&dt2),
+        ];
+
+        let used_types_buf = BytesMut::new();
+        let type_offsets_buf = BytesMut::new();
+        let block_offsets_buf = BytesMut::new();
+        let data_buf = BytesMut::new();
+
+        let mut typed_builder = TypedDictBufBuilder::new(
+            used_types_buf,
+            type_offsets_buf,
+            block_offsets_buf,
+            data_buf,
+        );
+
+        let _results: Vec<u64> = vec
+            .clone()
+            .into_iter()
+            .map(|entry| typed_builder.add(entry))
+            .collect();
+
+        let (used_types, type_offsets, block_offsets, data) = typed_builder.finalize();
+
+        let dict = TypedDict::from_parts(
+            used_types.freeze(),
+            type_offsets.freeze(),
+            block_offsets.freeze(),
+            data.freeze(),
+        );
+
+        for (i, _) in vec.iter().enumerate() {
+            assert_eq!(vec[i], dict.entry(i + 1).unwrap())
+        }
+
+        assert_eq!(
+            dict.entry(1).unwrap().as_val::<NaiveDateTime, String>(),
+            "2002-11-04T11:30:12.300Z".to_string()
+        );
+        assert_eq!(
+            dict.entry(2).unwrap().as_val::<NaiveDateTime, String>(),
+            "2002-11-04T11:30:12.000000003Z".to_string()
+        )
     }
 }
