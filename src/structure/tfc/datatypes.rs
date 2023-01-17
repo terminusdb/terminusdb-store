@@ -793,7 +793,7 @@ pub struct Duration {
     pub day: u8,
     pub hour: u8,
     pub minute: u8,
-    pub second: u8,
+    pub second: f64,
 }
 
 impl TdbDataType for Duration {
@@ -825,7 +825,7 @@ impl FromLexical<Duration> for Duration {
         let day = u8::from_lexical(&mut b);
         let hour = u8::from_lexical(&mut b);
         let minute = u8::from_lexical(&mut b);
-        let second = u8::from_lexical(b);
+        let second: f64 = <f64 as FromLexical<f64>>::from_lexical(&mut b);
         Duration {
             sign,
             year,
@@ -854,7 +854,7 @@ fn duration_string(duration: &Duration) -> String {
     } else {
         "".to_string()
     };
-    if duration.hour == 0 && duration.minute == 0 && duration.second == 0 {
+    if duration.hour == 0 && duration.minute == 0 && duration.second == 0.0 {
         format!("P{year}{month}{day}")
     } else {
         let hour = if duration.hour != 0 {
@@ -867,7 +867,7 @@ fn duration_string(duration: &Duration) -> String {
         } else {
             "".to_string()
         };
-        let second = if duration.second != 0 {
+        let second = if duration.second != 0.0 {
             format!("{}S", duration.second)
         } else {
             "".to_string()
