@@ -66,7 +66,7 @@ impl<B1: BufMut, B2: BufMut> SizedDictBufBuilder<B1, B2> {
     }
 
     pub fn finalize(mut self) -> (LateLogArrayBufBuilder<B1>, B2, u64, u64) {
-        if self.current_block.len() > 0 {
+        if !self.current_block.is_empty() {
             let current_block: Vec<&[u8]> = self.current_block.iter().map(|e| e.as_ref()).collect();
             let size = build_block_unchecked(self.record_size, &mut self.data_buf, &current_block);
             self.block_offset += size as u64;
@@ -116,12 +116,11 @@ impl SizedDict {
     }
 
     fn block_offset(&self, block_index: usize) -> usize {
-        let offset: usize;
-        if block_index == 0 {
-            offset = 0;
+        let offset: usize = if block_index == 0 {
+            0
         } else {
-            offset = (self.offsets.entry(block_index - 1) - self.dict_offset) as usize;
-        }
+            (self.offsets.entry(block_index - 1) - self.dict_offset) as usize
+        };
 
         offset
     }
@@ -131,10 +130,7 @@ impl SizedDict {
             panic!("empty dictionary has no block");
         }
         let offset = self.block_offset(block_index);
-        let block_bytes;
-        block_bytes = self.data.slice(offset..);
-
-        block_bytes
+        self.data.slice(offset..)
     }
 
     pub fn block(&self, block_index: usize) -> SizedDictBlock {
@@ -168,8 +164,8 @@ impl SizedDict {
         if index > self.num_entries() {
             return None;
         }
-        let block = self.block(((index - 1) / 8) as usize);
-        Some(block.entry(((index - 1) % 8) as usize))
+        let block = self.block((index - 1) / 8);
+        Some(block.entry((index - 1) % 8))
     }
 
     pub fn id(&self, slice: &[u8]) -> IdLookupResult {
@@ -204,23 +200,10 @@ impl SizedDict {
         let block = self.block(found);
         let block_id = block.id(slice);
         let offset = (found * BLOCK_SIZE) as u64 + 1;
-        let result = block_id.offset(offset).default(offset - 1);
-        /*
-        if found != 0 {
-            // the default value will fill in the last index of the
-            // previous block if the entry was not found in the
-            // current block. This is only possible if the block as
-            // not the very first one.
-            result.default(self.block_num_elements(found - 1) as u64 + offset - 1)
-        } else {
-            result
-        }
-         */
-
-        result
+        block_id.offset(offset).default(offset - 1)
     }
 
-    pub fn block_iter<'a>(&'a self) -> SizedDictBlockIterator<'a> {
+    pub fn block_iter(&self) -> SizedDictBlockIterator {
         SizedDictBlockIterator {
             dict: Cow::Borrowed(self),
             index: 0,
@@ -234,7 +217,7 @@ impl SizedDict {
         }
     }
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = SizedDictEntry> + 'a + Clone {
+    pub fn iter(&self) -> impl Iterator<Item = SizedDictEntry> + '_ + Clone {
         self.block_iter().flat_map(|b| b.into_iter())
     }
 
@@ -356,7 +339,7 @@ mod tests {
         build_dict_and_offsets(
             &mut array_buf,
             &mut data_buf,
-            strings.clone().into_iter().map(|s| Bytes::from(s)),
+            strings.clone().into_iter().map(Bytes::from),
         );
 
         let array_bytes = array_buf.freeze();

@@ -49,11 +49,10 @@ impl SizedBlockHeader {
 
         for i in 0..(num_entries - 1) as usize {
             let (shared, _) = vbyte::decode_buf(buf)?;
-            let size = if record_size == None {
-                let (size, _) = vbyte::decode_buf(buf)?;
-                size
+            let size = if let Some(record_size) = record_size {
+                record_size as u64 - shared
             } else {
-                record_size.unwrap() as u64 - shared
+                vbyte::decode_buf(buf)?.0
             };
             sizes[i] = size as usize;
             shareds[i] = shared as usize;
@@ -163,6 +162,10 @@ impl SizedDictEntry {
         self.chunks().map(|s| s.len()).sum()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.chunks().next().is_none()
+    }
+
     fn rope_len(&self) -> usize {
         match self {
             Self::Single(_) => 1,
@@ -191,7 +194,7 @@ impl SizedDictEntry {
     pub fn buf_eq<B: Buf>(&self, mut b: B) -> bool {
         if self.len() != b.remaining() {
             false
-        } else if self.len() == 0 {
+        } else if self.is_empty() {
             true
         } else {
             let mut it = self.chunks();
@@ -249,7 +252,7 @@ impl Hash for SizedDictEntry {
 impl Ord for SizedDictEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         // both are empty, so equal
-        if self.len() == 0 && other.len() == 0 {
+        if self.is_empty() && other.is_empty() {
             return Ordering::Equal;
         }
 
