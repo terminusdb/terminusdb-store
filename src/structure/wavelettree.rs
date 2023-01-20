@@ -118,7 +118,7 @@ impl WaveletTree {
         let len = self.len() as u64;
         let mut offset = index as u64;
         let mut alphabet_start = 0;
-        let mut alphabet_end = 2_u64.pow(self.num_layers as u32) as u64;
+        let mut alphabet_end = 2_u64.pow(self.num_layers as u32);
         let mut range_start = 0;
         let mut range_end = len;
         for i in 0..self.num_layers as u64 {
@@ -164,7 +164,7 @@ impl WaveletTree {
         let width = self.len() as u64;
         let mut slices = Vec::with_capacity(self.num_layers as usize);
         let mut alphabet_start = 0;
-        let mut alphabet_end = 2_u64.pow(self.num_layers as u32) as u64;
+        let mut alphabet_end = 2_u64.pow(self.num_layers as u32);
 
         if entry >= alphabet_end {
             return None;
@@ -259,7 +259,7 @@ fn create_fragments(width: u8) -> Vec<FragmentBuilder> {
     result
 }
 
-fn push_to_fragments(num: u64, width: u8, fragments: &mut Vec<FragmentBuilder>) {
+fn push_to_fragments(num: u64, width: u8, fragments: &mut [FragmentBuilder]) {
     let mut num_it: usize = num.try_into().unwrap(); // this will ensure that we get some sort of error on 32 bit for large nums
     for i in 0..width {
         num_it >>= 1;

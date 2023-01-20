@@ -141,7 +141,7 @@ impl TypedDict {
         } else {
             type_offset = self.type_offsets.entry(i - 1) as usize;
             id_offset = self.type_id_offsets[i - 1];
-            block_offset = self.block_offsets.entry(type_offset as usize) as usize;
+            block_offset = self.block_offsets.entry(type_offset) as usize;
         }
 
         let len;
@@ -173,16 +173,12 @@ impl TypedDict {
 
         (
             SizedDict::from_parts(logarray_slice, data_slice, block_offset as u64),
-            id_offset as u64,
+            id_offset,
         )
     }
 
     pub fn type_segment(&self, dt: Datatype) -> Option<(SizedDict, u64)> {
-        if let Some(i) = self.types_present.index_of(dt as u64) {
-            Some(self.inner_type_segment(i))
-        } else {
-            None
-        }
+        self.types_present.index_of(dt as u64).map(|i| self.inner_type_segment(i))
     }
 
     // TOOD: would be nice if this worked on a buf instead of a slice
@@ -230,9 +226,9 @@ impl TypedDict {
         self.num_entries
     }
 
-    pub fn segment_iter<'a>(&'a self) -> DictSegmentIterator<'a> {
+    pub fn segment_iter(&self) -> DictSegmentIterator<'_> {
         DictSegmentIterator {
-            dict: Cow::Borrowed(&self),
+            dict: Cow::Borrowed(self),
             type_index: 0,
         }
     }
@@ -244,9 +240,7 @@ impl TypedDict {
         }
     }
 
-    pub fn block_iter<'a>(
-        &'a self,
-    ) -> impl Iterator<Item = (Datatype, SizedDictBlock)> + 'a + Clone {
+    pub fn block_iter(&self) -> impl Iterator<Item = (Datatype, SizedDictBlock)> + '_ + Clone {
         self.segment_iter().flat_map(|(datatype, segment)| {
             segment
                 .into_block_iter()
@@ -262,7 +256,7 @@ impl TypedDict {
         })
     }
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = TypedDictEntry> + 'a + Clone {
+    pub fn iter(&self) -> impl Iterator<Item = TypedDictEntry> + '_ + Clone {
         self.block_iter().flat_map(|(datatype, segment)| {
             segment
                 .into_iter()
@@ -332,7 +326,7 @@ impl<T: TdbDataType> TypedDictSegment<T> {
         self.dict.num_entries()
     }
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = SizedDictEntry> + 'a + Clone {
+    pub fn iter(&self) -> impl Iterator<Item = SizedDictEntry> + '_ + Clone {
         self.dict.iter()
     }
 
@@ -365,7 +359,7 @@ impl StringDict {
         self.0.num_entries()
     }
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = SizedDictEntry> + 'a + Clone {
+    pub fn iter(&self) -> impl Iterator<Item = SizedDictEntry> + '_ + Clone {
         self.0.iter()
     }
 
@@ -443,9 +437,9 @@ impl<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<B1, B2,
         if self.current_datatype.is_none() {
             self.current_datatype = Some(value.datatype);
             self.types_present_builder.push(value.datatype as u64);
-            self.sized_dict_buf_builder
-                .as_mut()
-                .map(|b| b.record_size = value.datatype.record_size());
+            if let Some(b) = self.sized_dict_buf_builder.as_mut() {
+                b.record_size = value.datatype.record_size()
+            }
         }
 
         if self.current_datatype != Some(value.datatype) {
@@ -657,8 +651,8 @@ mod tests {
         cycle(-23423423_f32);
         cycle(0_f32);
         cycle(324323_f32);
-        cycle(324323.2343_f32);
-        cycle(-324323.2343_f32);
+        cycle(324323.23_f32);
+        cycle(-324323.23_f32);
         cycle(f32::MAX);
         cycle(f32::MIN);
         cycle(f32::NEG_INFINITY);
