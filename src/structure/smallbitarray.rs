@@ -62,7 +62,7 @@ impl Iterator for SmallBitArrayIter {
             return None;
         }
 
-        let result = (self.val & 0x80000000_00000000) != 0;
+        let result = (self.val & 0x8000_0000_0000_0000) != 0;
 
         self.val <<= 1;
         self.ix += 1;
@@ -79,13 +79,15 @@ mod tests {
         expected = "lsb set for a small bit array. this is reserved for future expansion"
     )]
     fn panic_with_set_lsb() {
-        let val: u64 = 0b01101011_10111001_10010010_00000111_10010001_01100101_00000000_11111111;
+        let val: u64 =
+            0b0110_1011_1011_1001_1001_0010_0000_0111_1001_0001_0110_0101_0000_0000_1111_1111;
 
         let _x = SmallBitArray::new(val);
     }
     #[test]
     fn get_from_small_bit_array() {
-        let val: u64 = 0b01101011_10111001_10010010_00000111_10010001_01100101_00000000_11111110;
+        let val: u64 =
+            0b0110_1011_1011_1001_1001_0010_0000_0111_1001_0001_0110_0101_0000_0000_1111_1110;
 
         let arr = SmallBitArray::new(val);
 
@@ -108,7 +110,8 @@ mod tests {
     #[test]
 
     fn iterate_small_bit_array() {
-        let val: u64 = 0b01101011_10111001_10010010_00000111_10010001_01100101_00000000_11111110;
+        let val: u64 =
+            0b0110_1011_1011_1001_1001_0010_0000_0111_1001_0001_0110_0101_0000_0000_1111_1110;
 
         let arr = SmallBitArray::new(val);
 
@@ -133,7 +136,8 @@ mod tests {
 
     #[test]
     fn small_bit_array_rank() {
-        let val: u64 = 0b01101011_10111001_10010010_00000111_10010001_01100101_00000000_11111110;
+        let val: u64 =
+            0b0110_1011_1011_1001_1001_0010_0000_0111_1001_0001_0110_0101_0000_0000_1111_1110;
 
         let arr = SmallBitArray::new(val);
 

@@ -52,11 +52,9 @@ impl Future for LockedFileLockFuture {
                     if exclusive {
                         file.lock_exclusive()
                             .expect("failed to acquire exclusive lock")
-                    } else {
-                        if !cfg!(feature = "noreadlock") {
-                            file.lock_shared()
-                                .expect("failed to acquire exclusive lock")
-                        }
+                    } else if !cfg!(feature = "noreadlock") {
+                        file.lock_shared()
+                            .expect("failed to acquire exclusive lock")
                     }
                 }));
             }
