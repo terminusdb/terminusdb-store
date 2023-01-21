@@ -66,6 +66,10 @@ impl BitIndex {
         self.array.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.array.is_empty()
+    }
+
     /// Returns the bit at the given index.
     pub fn get(&self, index: u64) -> bool {
         self.array.get(index as usize)
@@ -243,7 +247,7 @@ impl BitIndex {
                 subrank -= 1;
 
                 if subrank == 0 {
-                    return Some(i as u64);
+                    return Some(i);
                 }
             }
         }
@@ -450,8 +454,7 @@ pub fn build_bitindex_from_block_iter<'a, I: Iterator<Item = u64>, B1: BufMut, B
     // we chunk block_stream into blocks of SBLOCK size for further processing
     let mut sblock_rank = 0;
     let chunks = blocks_iter.chunks(SBLOCK_SIZE);
-    let mut iter = chunks.into_iter();
-    while let Some(chunk) = iter.next() {
+    for chunk in chunks.into_iter() {
         let chunk: Vec<_> = chunk.collect();
         let mut block_ranks = Vec::with_capacity(chunk.len());
         for num in chunk {

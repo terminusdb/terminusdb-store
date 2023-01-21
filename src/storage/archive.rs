@@ -67,11 +67,7 @@ impl ConstructionFile {
 
     fn is_finalized(&self) -> bool {
         let guard = self.0.read().unwrap();
-        if let ConstructionFileState::Finalized(_) = &*guard {
-            true
-        } else {
-            false
-        }
+        matches!(&*guard, ConstructionFileState::Finalized(_))
     }
 
     fn finalized_buf(self) -> Bytes {
@@ -403,7 +399,7 @@ impl AsyncRead for ArchiveSliceReader {
         }
 
         let read = AsyncRead::poll_read(Pin::new(&mut self.file), cx, buf);
-        if let Poll::Pending = read {
+        if read.is_pending() {
             return Poll::Pending;
         }
 

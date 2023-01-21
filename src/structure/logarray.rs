@@ -199,10 +199,8 @@ fn read_control_word(buf: &[u8], input_buf_size: usize) -> Result<(u32, u8), Log
 
 fn logarray_length_from_len_width(len: u32, width: u8) -> usize {
     let num_bits = width as usize * len as usize;
-    let num_u64 = num_bits / 64 + (if num_bits % 64 == 0 { 0 } else { 1 });
-    let num_bytes = num_u64 * 8;
-
-    num_bytes
+    let num_u64 = num_bits / 64 + (usize::from(num_bits % 64 != 0));
+    num_u64 * 8
 }
 
 pub fn logarray_length_from_control_word(buf: &[u8]) -> usize {
@@ -389,7 +387,7 @@ impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
         let leading_zeros = u64::BITS - self.width as u32;
 
         // If `val` does not fit in the `width`, return an error.
-        if val.leading_zeros() < u32::from(leading_zeros) {
+        if val.leading_zeros() < leading_zeros {
             panic!("expected value ({}) to fit in {} bits", val, self.width);
         }
 
@@ -930,7 +928,7 @@ mod tests {
 
     #[test]
     fn validate_input_buf_size() {
-        let val = |buf_size| LogArrayError::validate_input_buf_size(buf_size);
+        let val = LogArrayError::validate_input_buf_size;
         let err = |buf_size| Err(LogArrayError::InputBufferTooSmall(buf_size));
         assert_eq!(err(7), val(7));
         assert_eq!(Ok(()), val(8));
@@ -941,7 +939,7 @@ mod tests {
     #[test]
     fn validate_len_and_width() {
         let val =
-            |buf_size, len, width| LogArrayError::validate_len_and_width(buf_size, len, width);
+            LogArrayError::validate_len_and_width;
 
         let err = |width| Err(LogArrayError::WidthTooLarge(width));
 
@@ -1037,22 +1035,22 @@ mod tests {
     const TEST0_DATA: [u8; 8] = [
         0b00000000,
         0b00000000,
-        0b1_0000000,
+        0b10000000,
         0b00000000,
-        0b10_000000,
+        0b10000000,
         0b00000000,
-        0b011_00000,
+        0b01100000,
         0b00000000,
     ];
     const TEST0_CONTROL: [u8; 8] = [0, 0, 0, 3, 17, 0, 0, 0];
     const TEST1_DATA: [u8; 8] = [
         0b0100_0000,
         0b00000000,
-        0b00101_000,
+        0b00101000,
         0b00000000,
         0b000110_00,
         0b00000000,
-        0b0000111_0,
+        0b00001110,
         0b00000000,
     ];
 

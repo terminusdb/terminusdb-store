@@ -33,6 +33,12 @@ impl MemoryBackedStore {
     }
 }
 
+impl Default for MemoryBackedStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct MemoryBackedStoreWriter {
     file: MemoryBackedStore,
     bytes: BytesMut,

@@ -524,10 +524,7 @@ impl InternalLayer {
     }
 
     pub fn is_rollup(&self) -> bool {
-        match self {
-            Rollup(_) => true,
-            _ => false,
-        }
+        matches!(self, Rollup(_))
     }
 }
 
@@ -635,7 +632,7 @@ impl Layer for InternalLayer {
                 parent_count = parent_count
                     - current_layer.node_dict_len() as u64
                     - current_layer.value_dict_len() as u64;
-                if corrected_id > parent_count as u64 {
+                if corrected_id > parent_count {
                     // subject, if it exists, is in this layer
                     corrected_id -= parent_count;
                 } else {

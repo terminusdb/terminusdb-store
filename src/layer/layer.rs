@@ -98,8 +98,8 @@ pub trait Layer: Send + Sync {
         self.subject_id(&triple.subject).and_then(|subject| {
             self.predicate_id(&triple.predicate).and_then(|predicate| {
                 match &triple.object {
-                    ObjectType::Node(node) => self.object_node_id(&node),
-                    ObjectType::Value(value) => self.object_value_id(&value),
+                    ObjectType::Node(node) => self.object_node_id(node),
+                    ObjectType::Value(value) => self.object_value_id(value),
                 }
                 .map(|object| IdTriple {
                     subject,
@@ -127,11 +127,11 @@ pub trait Layer: Send + Sync {
                 .unwrap_or(PossiblyResolved::Unresolved(triple.predicate)),
             object: match &triple.object {
                 ObjectType::Node(node) => self
-                    .object_node_id(&node)
+                    .object_node_id(node)
                     .map(PossiblyResolved::Resolved)
                     .unwrap_or(PossiblyResolved::Unresolved(triple.object)),
                 ObjectType::Value(value) => self
-                    .object_value_id(&value)
+                    .object_value_id(value)
                     .map(PossiblyResolved::Resolved)
                     .unwrap_or(PossiblyResolved::Unresolved(triple.object)),
             },
@@ -270,7 +270,7 @@ impl<T: Clone + PartialEq + Eq + PartialOrd + Ord + Hash> PossiblyResolved<T> {
     /// Return a PossiblyResolved with the inner value as a reference.
     pub fn as_ref(&self) -> PossiblyResolved<&T> {
         match self {
-            Self::Unresolved(u) => PossiblyResolved::Unresolved(&u),
+            Self::Unresolved(u) => PossiblyResolved::Unresolved(u),
             Self::Resolved(id) => PossiblyResolved::Resolved(*id),
         }
     }
@@ -426,8 +426,7 @@ mod tests {
         let base: Arc<InternalLayer> = Arc::new(
             BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
                 .await
-                .unwrap()
-                .into(),
+                .unwrap(),
         );
 
         let files = child_layer_files();
@@ -439,8 +438,7 @@ mod tests {
         let child: Arc<InternalLayer> = Arc::new(
             ChildLayer::load_from_files([5, 4, 3, 2, 1], base.clone(), &files)
                 .await
-                .unwrap()
-                .into(),
+                .unwrap(),
         );
 
         // TODO why are we not using these results?
@@ -633,8 +631,7 @@ mod tests {
         let base: Arc<InternalLayer> = Arc::new(
             BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
                 .await
-                .unwrap()
-                .into(),
+                .unwrap(),
         );
 
         let mut results: Vec<_> = base

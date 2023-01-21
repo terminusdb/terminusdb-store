@@ -59,20 +59,15 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
     ///
     /// Panics if the given predicate string is not a lexical successor of the previous node string.
     pub fn add_predicate(&mut self, predicate: &str) -> u64 {
-        let id = self
-            .predicate_dictionary_builder
-            .add(Bytes::copy_from_slice(predicate.as_bytes()));
-
-        id
+        self.predicate_dictionary_builder
+            .add(Bytes::copy_from_slice(predicate.as_bytes()))
     }
 
     /// Add a value string.
     ///
     /// Panics if the given value string is not a lexical successor of the previous value string.
     pub fn add_value(&mut self, value: TypedDictEntry) -> u64 {
-        let id = self.value_dictionary_builder.add(value);
-
-        id
+        self.value_dictionary_builder.add(value)
     }
 
     /// Add nodes from an iterable.

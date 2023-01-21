@@ -52,7 +52,7 @@ impl AdjacencyList {
     }
 
     pub fn left_count(&self) -> usize {
-        if self.bits.len() == 0 {
+        if self.bits.is_empty() {
             0
         } else {
             self.bits.rank1((self.bits.len() as u64) - 1) as usize

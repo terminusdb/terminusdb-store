@@ -19,7 +19,7 @@ async fn safe_upto_bound<S: LayerStore>(
         .retrieve_layer_stack_names_upto(layer.name(), upto)
         .await?;
 
-    let mut l = &*layer;
+    let mut l = layer;
     loop {
         let parent = match l.immediate_parent() {
             None => {
@@ -487,8 +487,7 @@ mod tests {
         let delta_layer: Arc<InternalLayer> = Arc::new(
             BaseLayer::load_from_files([0, 0, 0, 0, 4], &delta_files)
                 .await
-                .unwrap()
-                .into(),
+                .unwrap(),
         );
 
         let expected: Vec<_> = layer

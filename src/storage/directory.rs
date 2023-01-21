@@ -190,7 +190,7 @@ impl DirectoryLabelStore {
 }
 
 fn get_label_from_data(name: String, data: &[u8]) -> io::Result<Label> {
-    let s = String::from_utf8_lossy(&data);
+    let s = String::from_utf8_lossy(data);
     let lines: Vec<&str> = s.lines().collect();
     if lines.len() != 2 {
         return Err(io::Error::new(
@@ -205,7 +205,7 @@ fn get_label_from_data(name: String, data: &[u8]) -> io::Result<Label> {
     let version_str = &lines[0];
     let layer_str = &lines[1];
 
-    let version = u64::from_str_radix(version_str, 10);
+    let version = version_str.parse::<u64>();
     if version.is_err() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -409,7 +409,7 @@ mod tests {
 
         let map = file.map().await.unwrap();
 
-        assert_eq!(&vec![1, 2, 3][..], &map.as_ref()[..]);
+        assert_eq!(&vec![1, 2, 3][..], map.as_ref());
     }
 
     #[tokio::test]

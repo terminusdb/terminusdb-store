@@ -287,7 +287,7 @@ fn zero_equivalents(
     let mut removals_iter = removals.iter_mut().peekable();
     'outer: for mut addition in additions {
         let mut next = removals_iter.peek();
-        if next == None {
+        if next.is_none() {
             break;
         }
 
@@ -296,7 +296,7 @@ fn zero_equivalents(
                 removals_iter.next().unwrap();
                 next = removals_iter.peek();
 
-                if next == None {
+                if next.is_none() {
                     break 'outer;
                 } else if next >= Some(&addition) {
                     break;

@@ -144,8 +144,8 @@ pub fn integer_and_fraction_to_storage(
     };
     let suffix = if is_neg {
         let mut suffix = encode_fraction(fraction);
-        for i in 0..suffix.len() {
-            suffix[i] = !suffix[i]
+        for item in &mut suffix {
+            *item = !*item
         }
         suffix
     } else {

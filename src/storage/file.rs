@@ -402,9 +402,9 @@ pub struct BitIndexMaps {
     pub sblocks_map: Bytes,
 }
 
-impl Into<BitIndex> for BitIndexMaps {
-    fn into(self) -> BitIndex {
-        BitIndex::from_maps(self.bits_map, self.blocks_map, self.sblocks_map)
+impl From<BitIndexMaps> for BitIndex {
+    fn from(val: BitIndexMaps) -> Self {
+        BitIndex::from_maps(val.bits_map, val.blocks_map, val.sblocks_map)
     }
 }
 
@@ -443,13 +443,13 @@ pub struct AdjacencyListMaps {
     pub nums_map: Bytes,
 }
 
-impl Into<AdjacencyList> for AdjacencyListMaps {
-    fn into(self) -> AdjacencyList {
+impl From<AdjacencyListMaps> for AdjacencyList {
+    fn from(val: AdjacencyListMaps) -> Self {
         AdjacencyList::parse(
-            self.nums_map,
-            self.bitindex_maps.bits_map,
-            self.bitindex_maps.blocks_map,
-            self.bitindex_maps.sblocks_map,
+            val.nums_map,
+            val.bitindex_maps.bits_map,
+            val.bitindex_maps.blocks_map,
+            val.bitindex_maps.sblocks_map,
         )
     }
 }
