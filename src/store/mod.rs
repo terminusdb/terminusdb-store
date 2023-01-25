@@ -8,7 +8,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::layer::{IdTriple, Layer, LayerBuilder, LayerCounts, ObjectType, ValueTriple};
 use crate::storage::archive::ArchiveLayerStore;
-use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore};
+use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore, NoLockDirectoryLabelStore};
 use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
 use crate::storage::{CachedLayerStore, LabelStore, LayerStore, LockingHashMapLayerCache};
 use crate::structure::TypedDictEntry;
@@ -886,6 +886,14 @@ pub fn open_archive_store<P: Into<PathBuf>>(path: P) -> Store {
         DirectoryLabelStore::new(p.clone()),
         CachedLayerStore::new(ArchiveLayerStore::new(p), LockingHashMapLayerCache::new()),
     )
+}
+
+pub async fn open_nolock_archive_store<P: Into<PathBuf>>(path: P) -> io::Result<Store> {
+    let p = path.into();
+    Ok(Store::new(
+        NoLockDirectoryLabelStore::open(p.clone()).await?,
+        CachedLayerStore::new(ArchiveLayerStore::new(p), LockingHashMapLayerCache::new()),
+    ))
 }
 
 /// Open a store that stores its data in the given directory.
