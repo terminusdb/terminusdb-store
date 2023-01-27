@@ -538,6 +538,11 @@ impl SyncStore {
         task_sync(self.inner.delete(label))
     }
 
+    /// Return list of names of all existing databases.
+    pub fn labels(&self) -> Result<Vec<String>, io::Error> {
+        task_sync(self.inner.labels())
+    }
+
     /// Retrieve a layer with the given name from the layer store this Store was initialized with.
     pub fn get_layer_from_id(
         &self,

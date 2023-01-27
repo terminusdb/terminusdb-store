@@ -835,6 +835,12 @@ impl Store {
         self.label_store.delete_label(label).await
     }
 
+    /// Return list of names of all existing databases.
+    pub async fn labels(&self) -> io::Result<Vec<String>> {
+        let labels = self.label_store.labels().await?;
+        Ok(labels.iter().map(|label| label.name.to_string()).collect())
+    }
+
     /// Retrieve a layer with the given name from the layer store this Store was initialized with.
     pub async fn get_layer_from_id(&self, layer: [u32; 5]) -> io::Result<Option<StoreLayer>> {
         let layer = self.layer_store.get_layer(layer).await?;
