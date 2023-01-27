@@ -1300,4 +1300,19 @@ mod tests {
         store.create("foo").await.unwrap();
         assert!(graph.head().await.unwrap().is_none());
     }
+
+    #[tokio::test]
+    async fn list_databases() {
+        let dir = tempdir().unwrap();
+        let store = open_directory_store(dir.path());
+        assert!(store.labels().await.unwrap().is_empty());
+        let _ = store.create("foo").await.unwrap();
+        let one = vec!["foo".to_string()];
+        assert_eq!(store.labels().await.unwrap(), one);
+        let _ = store.create("bar").await.unwrap();
+        let two = vec!["bar".to_string(), "foo".to_string()];
+        let mut left = store.labels().await.unwrap();
+        left.sort();
+        assert_eq!(left, two);
+    }
 }
