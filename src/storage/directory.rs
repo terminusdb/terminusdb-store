@@ -2,13 +2,13 @@
 
 use bytes::{Bytes, BytesMut};
 use locking::*;
-use tokio::sync::RwLock;
 use std::collections::HashMap;
 use std::io::{self, SeekFrom};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs::{self, *};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufWriter};
+use tokio::sync::RwLock;
 
 use async_trait::async_trait;
 
@@ -383,7 +383,7 @@ impl LabelStore for DirectoryLabelStore {
 /// file system locking.
 pub struct CachedDirectoryLabelStore {
     path: PathBuf,
-    labels: Arc<RwLock<HashMap<String, Label>>>
+    labels: Arc<RwLock<HashMap<String, Label>>>,
 }
 
 impl CachedDirectoryLabelStore {
@@ -396,7 +396,8 @@ impl CachedDirectoryLabelStore {
         let labels = get_all_labels_from_dir(&path).await?;
 
         Ok(Self {
-            path, labels: Arc::new(RwLock::new(labels))
+            path,
+            labels: Arc::new(RwLock::new(labels)),
         })
     }
 }
@@ -414,7 +415,7 @@ async fn get_all_labels_from_dir(p: &PathBuf) -> io::Result<HashMap<String, Labe
                 continue;
             }
 
-            let label_name = file_name[..file_name.len()-6].to_string();
+            let label_name = file_name[..file_name.len() - 6].to_string();
             let label = get_label_from_file(entry.path()).await?;
 
             result.insert(label_name, label);
@@ -503,10 +504,8 @@ impl LabelStore for CachedDirectoryLabelStore {
             } else {
                 Ok(None)
             }
-        }
-        else {
-            Err(io::Error::new(io::ErrorKind::NotFound,
-                               "label not found"))
+        } else {
+            Err(io::Error::new(io::ErrorKind::NotFound, "label not found"))
         }
     }
 
