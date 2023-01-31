@@ -383,7 +383,7 @@ impl LabelStore for DirectoryLabelStore {
 /// file system locking.
 pub struct CachedDirectoryLabelStore {
     path: PathBuf,
-    labels: Arc<RwLock<HashMap<String, Label>>>,
+    labels: Arc<RwLock<HashMap<String, RwLock<Label>>>>,
 }
 
 impl CachedDirectoryLabelStore {
@@ -394,6 +394,7 @@ impl CachedDirectoryLabelStore {
     pub async fn open<P: Into<PathBuf>>(path: P) -> io::Result<Self> {
         let path: PathBuf = path.into();
         let labels = get_all_labels_from_dir(&path).await?;
+        let labels = labels.into_iter().map(|(k,v)|(k,RwLock::new(v))).collect();
 
         Ok(Self {
             path,
@@ -429,7 +430,13 @@ async fn get_all_labels_from_dir(p: &PathBuf) -> io::Result<HashMap<String, Labe
 impl LabelStore for CachedDirectoryLabelStore {
     async fn labels(&self) -> io::Result<Vec<Label>> {
         let labels = self.labels.read().await;
-        Ok(labels.values().cloned().collect())
+        let mut result = Vec::with_capacity(labels.len());
+        for value in labels.values() {
+            let guard = value.read().await;
+            result.push((*guard).clone());
+        }
+
+        Ok(result)
     }
 
     async fn create_label(&self, label: &str) -> io::Result<Label> {
@@ -460,7 +467,7 @@ impl LabelStore for CachedDirectoryLabelStore {
                     file.sync_all().await?;
 
                     let l = Label::new_empty(label);
-                    labels.insert(label.to_string(), l.clone());
+                    labels.insert(label.to_string(), RwLock::new(l.clone()));
 
                     Ok(l)
                 }
@@ -470,7 +477,12 @@ impl LabelStore for CachedDirectoryLabelStore {
     }
     async fn get_label(&self, label: &str) -> io::Result<Option<Label>> {
         let labels = self.labels.read().await;
-        Ok(labels.get(label).cloned())
+        if let Some(label) = labels.get(label) {
+            let guard = label.read().await;
+            Ok(Some((*guard).clone()))
+        } else {
+            Ok(None)
+        }
     }
     async fn set_label_option(
         &self,
@@ -485,9 +497,10 @@ impl LabelStore for CachedDirectoryLabelStore {
             }
         };
 
-        let mut labels = self.labels.write().await;
+        let labels = self.labels.read().await;
         if let Some(retrieved_label) = labels.get(&label.name) {
-            if retrieved_label == label {
+            let guard = retrieved_label.read().await;
+            if &*guard == label {
                 // all good, let's a go
                 let mut p = self.path.clone();
                 p.push(format!("{}.label", label.name));
@@ -499,7 +512,9 @@ impl LabelStore for CachedDirectoryLabelStore {
                 file.flush().await?;
                 file.sync_data().await?;
 
-                labels.insert(label.name.clone(), new_label.clone());
+                std::mem::drop(guard);
+                let mut guard = retrieved_label.write().await;
+                *guard = new_label.clone();
                 Ok(Some(new_label))
             } else {
                 Ok(None)
