@@ -373,12 +373,24 @@ impl LabelStore for DirectoryLabelStore {
     }
 }
 
-pub struct NoLockDirectoryLabelStore {
+/// A version of the directory label store that keeps all labels in
+/// memory and doesn't lock.
+///
+/// This is useful for situations where we can be sure that only one
+/// process is working with a set of label files. In that case, we can
+/// keep all label files cached in memory in order to process reads as
+/// quickly as possible, and we can perform writes without any sort of
+/// file system locking.
+pub struct CachedDirectoryLabelStore {
     path: PathBuf,
     labels: Arc<RwLock<HashMap<String, Label>>>
 }
 
-impl NoLockDirectoryLabelStore {
+impl CachedDirectoryLabelStore {
+    /// Open a new label store.
+    ///
+    /// This will read in all label files on startup, which is why
+    /// this is an async operation.
     pub async fn open<P: Into<PathBuf>>(path: P) -> io::Result<Self> {
         let path: PathBuf = path.into();
         let labels = get_all_labels_from_dir(&path).await?;
@@ -413,7 +425,7 @@ async fn get_all_labels_from_dir(p: &PathBuf) -> io::Result<HashMap<String, Labe
 }
 
 #[async_trait]
-impl LabelStore for NoLockDirectoryLabelStore {
+impl LabelStore for CachedDirectoryLabelStore {
     async fn labels(&self) -> io::Result<Vec<Label>> {
         let labels = self.labels.read().await;
         Ok(labels.values().cloned().collect())
