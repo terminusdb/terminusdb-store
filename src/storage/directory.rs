@@ -1,6 +1,7 @@
 //! Directory-based implementation of storage traits.
 
 use bytes::{Bytes, BytesMut};
+use dashmap::DashMap;
 use locking::*;
 use std::collections::HashMap;
 use std::io::{self, SeekFrom};
@@ -383,7 +384,7 @@ impl LabelStore for DirectoryLabelStore {
 /// file system locking.
 pub struct CachedDirectoryLabelStore {
     path: PathBuf,
-    labels: Arc<RwLock<HashMap<String, RwLock<Label>>>>,
+    labels: Arc<DashMap<String, RwLock<Label>>>,
 }
 
 impl CachedDirectoryLabelStore {
@@ -394,11 +395,14 @@ impl CachedDirectoryLabelStore {
     pub async fn open<P: Into<PathBuf>>(path: P) -> io::Result<Self> {
         let path: PathBuf = path.into();
         let labels = get_all_labels_from_dir(&path).await?;
-        let labels = labels.into_iter().map(|(k,v)|(k,RwLock::new(v))).collect();
+        let labels = labels
+            .into_iter()
+            .map(|(k, v)| (k, RwLock::new(v)))
+            .collect();
 
         Ok(Self {
             path,
-            labels: Arc::new(RwLock::new(labels)),
+            labels: Arc::new(labels),
         })
     }
 }
@@ -429,10 +433,9 @@ async fn get_all_labels_from_dir(p: &PathBuf) -> io::Result<HashMap<String, Labe
 #[async_trait]
 impl LabelStore for CachedDirectoryLabelStore {
     async fn labels(&self) -> io::Result<Vec<Label>> {
-        let labels = self.labels.read().await;
-        let mut result = Vec::with_capacity(labels.len());
-        for value in labels.values() {
-            let guard = value.read().await;
+        let mut result = Vec::with_capacity(self.labels.len());
+        for entry in self.labels.iter() {
+            let guard = entry.value().read().await;
             result.push((*guard).clone());
         }
 
@@ -440,8 +443,7 @@ impl LabelStore for CachedDirectoryLabelStore {
     }
 
     async fn create_label(&self, label: &str) -> io::Result<Label> {
-        let mut labels = self.labels.write().await;
-        if labels.contains_key(label) {
+        if self.labels.contains_key(label) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "database already exists",
@@ -467,7 +469,8 @@ impl LabelStore for CachedDirectoryLabelStore {
                     file.sync_all().await?;
 
                     let l = Label::new_empty(label);
-                    labels.insert(label.to_string(), RwLock::new(l.clone()));
+                    self.labels
+                        .insert(label.to_string(), RwLock::new(l.clone()));
 
                     Ok(l)
                 }
@@ -476,8 +479,7 @@ impl LabelStore for CachedDirectoryLabelStore {
         }
     }
     async fn get_label(&self, label: &str) -> io::Result<Option<Label>> {
-        let labels = self.labels.read().await;
-        if let Some(label) = labels.get(label) {
+        if let Some(label) = self.labels.get(label) {
             let guard = label.read().await;
             Ok(Some((*guard).clone()))
         } else {
@@ -497,8 +499,7 @@ impl LabelStore for CachedDirectoryLabelStore {
             }
         };
 
-        let labels = self.labels.read().await;
-        if let Some(retrieved_label) = labels.get(&label.name) {
+        if let Some(retrieved_label) = self.labels.get(&label.name) {
             let guard = retrieved_label.read().await;
             if &*guard == label {
                 // all good, let's a go
@@ -525,8 +526,7 @@ impl LabelStore for CachedDirectoryLabelStore {
     }
 
     async fn delete_label(&self, name: &str) -> io::Result<bool> {
-        let mut labels = self.labels.write().await;
-        if labels.remove(name).is_some() {
+        if self.labels.remove(name).is_some() {
             let mut p = self.path.clone();
             p.push(format!("{}.label", name));
             tokio::fs::remove_file(p).await?;
