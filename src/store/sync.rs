@@ -17,7 +17,7 @@ use crate::store::{
 };
 use crate::structure::TypedDictEntry;
 
-use super::{open_archive_store, open_nolock_archive_store};
+use super::open_archive_store;
 
 lazy_static! {
     static ref RUNTIME: Runtime = Runtime::new().unwrap();
@@ -594,12 +594,6 @@ pub fn open_sync_directory_store<P: Into<PathBuf>>(path: P) -> SyncStore {
 /// Open a store that stores its data in the given directory as archive files.
 pub fn open_sync_archive_store<P: Into<PathBuf>>(path: P) -> SyncStore {
     SyncStore::wrap(open_archive_store(path))
-}
-
-/// Open a store that stores its data in the given directory as archive files.
-pub fn open_sync_nolock_archive_store<P: Into<PathBuf>+Send>(path: P) -> io::Result<SyncStore> {
-    let store = task_sync(open_nolock_archive_store(path))?;
-    Ok(SyncStore::wrap(store))
 }
 
 #[cfg(test)]
