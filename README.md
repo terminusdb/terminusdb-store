@@ -60,6 +60,9 @@ For more information, [visit the documentation on docs.rs](https://docs.rs/termi
 
 See also the `examples/` directory for some basic examples.
 
+## Upgrading from 0.19 or earlier
+Starting with version 0.20.0, terminus-store uses a new storage format, which bundles all files into a single archive, and also supports value types. Stores created using 0.19 or earlier will not work with 0.20 or later. However, there is a conversion tool to convert existing pre-v20 stores: [terminusdb-10-to-11](https://github.com/terminusdb/terminusdb-10-to-11/).
+
 ## Roadmap
 
 We are constantly developing terminusdb-store to make it a high quality succinct graph representation versioned datastorage layer. To help facilitate understanding of our aims for this project we have laid out a [Roadmap](./docs/ROADMAP.md). If you would like to assist in the development of terminusdb-store, or you think something should be added to the roadmap please contact us.
