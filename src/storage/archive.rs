@@ -18,7 +18,7 @@ use async_trait::async_trait;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio::{
     fs::{self, File},
-    io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWrite, AsyncWriteExt, BufWriter},
+    io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWrite, AsyncWriteExt},
 };
 
 use crate::structure::{
@@ -28,13 +28,12 @@ use crate::structure::{
 
 use super::{
     consts::{LayerFileEnum, FILENAME_ENUM_MAP},
-    directory::FileBackedStore,
     name_to_string, string_to_name, FileLoad, FileStore, PersistentLayerStore, SyncableFile,
 };
 
 #[async_trait]
 pub trait ArchiveLayerStoreBackend: Clone + Send + Sync {
-    type Read: AsyncRead;
+    type Read: AsyncRead + Unpin + Send;
     async fn get_layer_bytes(&self, id: [u32; 5]) -> io::Result<Bytes>;
     async fn get_layer_structure_bytes(&self, id: [u32; 5], file_type: LayerFileEnum) -> io::Result<Bytes>;
     async fn store_layer_file<B: Buf+Send>(&self, id: [u32; 5], bytes: B) -> io::Result<()>;
@@ -52,7 +51,7 @@ pub trait ArchiveLayerStoreMetadataBackend: Clone + Send + Sync {
     async fn set_rollup(&self, id: [u32; 5], rollup: [u32; 5]) -> io::Result<()>;
 }
 
-struct BytesAsyncReader(Bytes);
+pub struct BytesAsyncReader(Bytes);
 
 impl AsyncRead for BytesAsyncReader{
     fn poll_read(
@@ -74,11 +73,14 @@ impl AsyncRead for BytesAsyncReader{
 }
 
 #[derive(Clone)]
-struct DirectoryArchiveLayerStoreBackend {
+pub struct DirectoryArchiveLayerStoreBackend {
     path: PathBuf
 }
 
 impl DirectoryArchiveLayerStoreBackend {
+    pub fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
     fn path_for_layer(&self, name: [u32; 5]) -> PathBuf {
         let mut p = self.path.clone();
         let name_str = name_to_string(name);
@@ -126,6 +128,10 @@ impl ArchiveLayerStoreBackend for DirectoryArchiveLayerStoreBackend {
 
     async fn store_layer_file<B: Buf+Send>(&self, id: [u32; 5], mut bytes: B) -> io::Result<()> {
         let path = self.path_for_layer(id);
+        let mut directory_path = path.clone();
+        directory_path.pop();
+        fs::create_dir_all(directory_path).await?;
+
         let mut options = tokio::fs::OpenOptions::new();
         options.create(true);
         options.write(true);
@@ -154,7 +160,7 @@ impl ArchiveLayerStoreBackend for DirectoryArchiveLayerStoreBackend {
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "slice not found in archive"))?;
 
         let remaining = range.len() - read_from;
-        file.seek(SeekFrom::Start((range.start+read_from) as u64)).await?;
+        file.seek(SeekFrom::Current((range.start+read_from) as i64)).await?;
 
         Ok(ArchiveSliceReader {
             file,
@@ -207,7 +213,7 @@ impl ArchiveLayerStoreMetadataBackend for DirectoryArchiveLayerStoreBackend {
 
     async fn layer_file_exists(&self, id: [u32; 5], file_type: LayerFileEnum) -> io::Result<bool> {
         let path = self.path_for_layer(id);
-        let metadata = tokio::fs::metadata(path).await;
+        let metadata = tokio::fs::metadata(&path).await;
         if metadata.is_err() && metadata.as_ref().err().unwrap().kind() == io::ErrorKind::NotFound {
             // layer itself not found
             return Ok(false);
@@ -218,7 +224,7 @@ impl ArchiveLayerStoreMetadataBackend for DirectoryArchiveLayerStoreBackend {
         // read header!
         let mut options = tokio::fs::OpenOptions::new();
         options.read(true);
-        let mut file = options.open(&self.path).await?;
+        let mut file = options.open(path).await?;
         let header = ArchiveFilePresenceHeader::new(file.read_u64().await?);
 
         Ok(header.is_present(file_type))
@@ -244,13 +250,17 @@ impl ArchiveLayerStoreMetadataBackend for DirectoryArchiveLayerStoreBackend {
         if result.is_err() && result.as_ref().err().unwrap().kind() == ErrorKind::NotFound {
             return Ok(None);
         }
-        let name = result?;
+        let data = result?;
+        let name = data.lines().skip(1).next().unwrap();
         Ok(Some(string_to_name(&name)?))
     }
 
     async fn set_rollup(&self, id: [u32; 5], rollup: [u32; 5]) -> io::Result<()> {
         let path = self.path_for_rollup(id);
-        let data = name_to_string(rollup).into_bytes();
+        let mut data = Vec::with_capacity(43);
+        data.extend_from_slice(b"1\n");
+        data.extend_from_slice(name_to_string(rollup).as_bytes());
+        data.extend_from_slice(b"\n");
         fs::write(path, data).await
     }
 }
@@ -585,15 +595,19 @@ impl Archive {
 }
 
 #[derive(Clone)]
-pub struct PersistentFileSlice {
-    path: PathBuf,
+pub struct PersistentFileSlice<M,D> {
+    metadata_backend: M,
+    data_backend: D,
+    layer_id: [u32;5],
     file_type: LayerFileEnum,
 }
 
-impl PersistentFileSlice {
-    fn new<P: Into<PathBuf>>(path: P, file_type: LayerFileEnum) -> Self {
+impl<M,D> PersistentFileSlice<M,D> {
+    fn new(metadata_backend: M, data_backend: D, layer_id: [u32;5], file_type: LayerFileEnum) -> Self {
         Self {
-            path: path.into(),
+            metadata_backend,
+            data_backend,
+            layer_id,
             file_type,
         }
     }
@@ -630,81 +644,128 @@ impl AsyncRead for ArchiveSliceReader {
 }
 
 #[async_trait]
-impl FileLoad for PersistentFileSlice {
-    type Read = ArchiveSliceReader;
+impl<M:ArchiveLayerStoreMetadataBackend,D:ArchiveLayerStoreBackend> FileLoad for PersistentFileSlice<M,D> {
+    type Read = D::Read;
 
     async fn exists(&self) -> io::Result<bool> {
-        let metadata = tokio::fs::metadata(&self.path).await;
-        if metadata.is_err() && metadata.as_ref().err().unwrap().kind() == io::ErrorKind::NotFound {
-            // layer itself not found
-            return Ok(false);
-        }
-        // propagate error if it was anything but NotFound
-        metadata?;
-
-        // read header!
-        let mut options = tokio::fs::OpenOptions::new();
-        options.read(true);
-        let mut file = options.open(&self.path).await?;
-        let header = ArchiveFilePresenceHeader::new(file.read_u64().await?);
-
-        Ok(header.is_present(self.file_type))
+        self.metadata_backend.layer_file_exists(self.layer_id, self.file_type).await
     }
+
     async fn size(&self) -> io::Result<usize> {
-        // read header!
-        let mut options = tokio::fs::OpenOptions::new();
-        options.read(true);
-        let mut file = options.open(&self.path).await?;
-        let header = ArchiveHeader::parse_from_reader(&mut file).await?;
-
-        header
-            .size_of(self.file_type)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "slice not found in archive"))
+        self.metadata_backend.get_layer_structure_size(self.layer_id, self.file_type).await
     }
+
     async fn open_read_from(&self, offset: usize) -> io::Result<Self::Read> {
-        let mut options = tokio::fs::OpenOptions::new();
-        options.read(true);
-        let mut file = options.open(&self.path).await?;
-        let header = ArchiveHeader::parse_from_reader(&mut file).await?;
-        let mut remaining = header
-            .size_of(self.file_type)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "slice not found in archive"))?;
-
-        if remaining < offset {
-            Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "offset is past end of file slice",
-            ))
-        } else {
-            let total_offset = header.range_for(self.file_type).unwrap().start + offset;
-            file.seek(SeekFrom::Current(total_offset as i64)).await?;
-
-            remaining -= offset;
-            Ok(ArchiveSliceReader { file, remaining })
-        }
+        self.data_backend.read_layer_structure_bytes_from(self.layer_id, self.file_type, offset).await
     }
 
     async fn map(&self) -> io::Result<Bytes> {
-        let mut options = tokio::fs::OpenOptions::new();
-        options.read(true);
-        let mut file = options.open(&self.path).await?;
-        let archive = Archive::parse_from_reader(&mut file).await?;
-        archive
-            .slice_for(self.file_type)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "slice not found in archive"))
+        self.data_backend.get_layer_structure_bytes(self.layer_id, self.file_type).await
+    }
+}
+
+// This is some pretty ridiculous contrived logic but it saves having to refactor some other places which should just take a rollup id in the first place.
+#[derive(Clone)]
+pub struct ArchiveRollupFile<M> {
+    layer_id: [u32;5],
+    metadata_backend: M
+}
+
+#[async_trait]
+impl<M:ArchiveLayerStoreMetadataBackend> FileLoad for ArchiveRollupFile<M> {
+    type Read = BytesAsyncReader;
+
+    async fn exists(&self) -> io::Result<bool> {
+        Ok(self.metadata_backend.get_rollup(self.layer_id).await?.is_some())
+    }
+
+    async fn size(&self) -> io::Result<usize> {
+        if self.metadata_backend.get_rollup(self.layer_id).await?.is_some() {
+            Ok(std::mem::size_of::<[u32;5]>()+2)
+        } else {
+            Err(io::Error::new(io::ErrorKind::NotFound, "layer has no rollup"))
+        }
+    }
+
+    async fn open_read_from(&self, offset: usize) -> io::Result<Self::Read> {
+        let mut bytes = self.map().await?;
+        bytes.advance(offset);
+        Ok(BytesAsyncReader(bytes))
+    }
+
+    async fn map(&self) -> io::Result<Bytes> {
+        let id = self.metadata_backend.get_rollup(self.layer_id).await?;
+        if let Some(id) = id {
+            let mut bytes = Vec::with_capacity(42);
+            bytes.extend_from_slice(b"1\n");
+            bytes.extend_from_slice(name_to_string(id).as_bytes());
+            Ok(bytes.into())
+        } else {
+            Err(io::Error::new(io::ErrorKind::NotFound, "layer has no rollup"))
+        }
+    }
+}
+
+#[async_trait]
+impl<M:ArchiveLayerStoreMetadataBackend+Unpin> FileStore for ArchiveRollupFile<M> {
+    type Write = ArchiveRollupFileWriter<M>;
+    async fn open_write(&self) -> io::Result<Self::Write> {
+        Ok(ArchiveRollupFileWriter {
+            layer_id: self.layer_id,
+            data: BytesMut::new(),
+            metadata_backend: self.metadata_backend.clone()
+        })
+    }
+}
+
+pub struct ArchiveRollupFileWriter<M> {
+    layer_id: [u32;5],
+    data: BytesMut,
+    metadata_backend: M
+}
+
+impl<M:ArchiveLayerStoreMetadataBackend+Unpin> AsyncWrite for ArchiveRollupFileWriter<M> {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, io::Error>> {
+        self.get_mut().data.extend_from_slice(buf);
+
+        Poll::Ready(Ok(buf.len()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> Poll<Result<(), io::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> Poll<Result<(), io::Error>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+#[async_trait]
+impl<M:ArchiveLayerStoreMetadataBackend+Unpin> SyncableFile for ArchiveRollupFileWriter<M> {
+    async fn sync_all(self) -> io::Result<()> {
+        let rollup_string = String::from_utf8(self.data.to_vec()).expect("rollup id was not a string");
+        // first line of this string is going to be a version number. it should be discarded.
+        let line = rollup_string.lines().skip(1).next().unwrap();
+        let rollup_id = string_to_name(&line)?;
+
+        self.metadata_backend.set_rollup(self.layer_id, rollup_id).await
     }
 }
 
 #[derive(Clone)]
-pub enum ArchiveLayerHandle {
+pub enum ArchiveLayerHandle<M,D> {
     Construction(ConstructionFile),
-    Persistent(PersistentFileSlice),
-    Rollup(FileBackedStore),
+    Persistent(PersistentFileSlice<M,D>),
+    Rollup(ArchiveRollupFile<M>),
 }
 
 #[async_trait]
-impl FileStore for ArchiveLayerHandle {
-    type Write = ArchiveLayerHandleWriter;
+impl<M:ArchiveLayerStoreMetadataBackend+Unpin,D:ArchiveLayerStoreBackend> FileStore for ArchiveLayerHandle<M,D> {
+    type Write = ArchiveLayerHandleWriter<M>;
     async fn open_write(&self) -> io::Result<Self::Write> {
         Ok(match self {
             Self::Construction(c) => ArchiveLayerHandleWriter::Construction(c.open_write().await?),
@@ -715,8 +776,8 @@ impl FileStore for ArchiveLayerHandle {
 }
 
 #[async_trait]
-impl FileLoad for ArchiveLayerHandle {
-    type Read = ArchiveLayerHandleReader;
+impl<M:ArchiveLayerStoreMetadataBackend,D:ArchiveLayerStoreBackend> FileLoad for ArchiveLayerHandle<M,D> {
+    type Read = ArchiveLayerHandleReader<D::Read,BytesAsyncReader>;
 
     async fn exists(&self) -> io::Result<bool> {
         match self {
@@ -754,13 +815,13 @@ impl FileLoad for ArchiveLayerHandle {
     }
 }
 
-pub enum ArchiveLayerHandleReader {
+pub enum ArchiveLayerHandleReader<P,R> {
     Construction(ConstructionFile),
-    Persistent(ArchiveSliceReader),
-    Rollup(File),
+    Persistent(P),
+    Rollup(R),
 }
 
-impl AsyncRead for ArchiveLayerHandleReader {
+impl<P:AsyncRead+Unpin,R:AsyncRead+Unpin> AsyncRead for ArchiveLayerHandleReader<P,R> {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -774,12 +835,12 @@ impl AsyncRead for ArchiveLayerHandleReader {
     }
 }
 
-pub enum ArchiveLayerHandleWriter {
+pub enum ArchiveLayerHandleWriter<M> {
     Construction(ConstructionFile),
-    Rollup(BufWriter<File>),
+    Rollup(ArchiveRollupFileWriter<M>),
 }
 
-impl AsyncWrite for ArchiveLayerHandleWriter {
+impl<M:ArchiveLayerStoreMetadataBackend+Unpin> AsyncWrite for ArchiveLayerHandleWriter<M> {
     fn poll_write(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -813,7 +874,7 @@ impl AsyncWrite for ArchiveLayerHandleWriter {
 }
 
 #[async_trait]
-impl SyncableFile for ArchiveLayerHandleWriter {
+impl<M:ArchiveLayerStoreMetadataBackend+Unpin> SyncableFile for ArchiveLayerHandleWriter<M> {
     async fn sync_all(self) -> io::Result<()> {
         match self {
             Self::Construction(c) => c.sync_all().await,
@@ -826,15 +887,17 @@ type ArchiveLayerConstructionMap =
     Arc<RwLock<HashMap<[u32; 5], HashMap<LayerFileEnum, ConstructionFile>>>>;
 
 #[derive(Clone)]
-pub struct ArchiveLayerStore {
-    path: PathBuf,
+pub struct ArchiveLayerStore<M,D> {
+    metadata_backend: M,
+    data_backend: D,
     construction: ArchiveLayerConstructionMap,
 }
 
-impl ArchiveLayerStore {
-    pub fn new<P: Into<PathBuf>>(path: P) -> ArchiveLayerStore {
+impl<M,D> ArchiveLayerStore<M,D> {
+    pub fn new(metadata_backend: M, data_backend: D) -> ArchiveLayerStore<M,D> {
         ArchiveLayerStore {
-            path: path.into(),
+            metadata_backend,
+            data_backend,
             construction: Default::default(),
         }
     }
@@ -852,48 +915,16 @@ impl ArchiveLayerStore {
             panic!("tried to write bytes to an archive, but layer is not under construction");
         }
     }
-
-    fn path_for_layer(&self, name: [u32; 5]) -> PathBuf {
-        let mut p = self.path.clone();
-        let name_str = name_to_string(name);
-        p.push(&name_str[0..PREFIX_DIR_SIZE]);
-        p.push(&format!("{}.larch", name_str));
-
-        p
-    }
-
-    fn path_for_rollup(&self, name: [u32; 5]) -> PathBuf {
-        let mut p = self.path.clone();
-        let name_str = name_to_string(name);
-        p.push(&name_str[0..PREFIX_DIR_SIZE]);
-        p.push(&format!("{}.rollup.hex", name_str));
-
-        p
-    }
 }
 
 const PREFIX_DIR_SIZE: usize = 3;
 
 #[async_trait]
-impl PersistentLayerStore for ArchiveLayerStore {
-    type File = ArchiveLayerHandle;
+impl<M:ArchiveLayerStoreMetadataBackend+Unpin+'static,D:ArchiveLayerStoreBackend+'static> PersistentLayerStore for ArchiveLayerStore<M,D> {
+    type File = ArchiveLayerHandle<M,D>;
 
     async fn directories(&self) -> io::Result<Vec<[u32; 5]>> {
-        let mut stream = fs::read_dir(&self.path).await?;
-        let mut result = Vec::new();
-        while let Some(direntry) = stream.next_entry().await? {
-            let os_name = direntry.file_name();
-            let name = os_name.to_str().ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "unexpected non-utf8 directory name",
-                )
-            })?;
-            if name.ends_with(".larch") && direntry.file_type().await?.is_file() {
-                let name_component = &name[..name.len() - 6];
-                result.push(string_to_name(name_component)?);
-            }
-        }
+        let mut result = self.metadata_backend.get_layer_names().await?;
 
         {
             let guard = self.construction.read().unwrap();
@@ -910,9 +941,7 @@ impl PersistentLayerStore for ArchiveLayerStore {
     }
 
     async fn create_named_directory(&self, name: [u32; 5]) -> io::Result<[u32; 5]> {
-        let p = self.path_for_layer(name);
-        let meta = fs::metadata(p).await;
-        if meta.is_err() && meta.as_ref().unwrap_err().kind() == io::ErrorKind::NotFound {
+        if !self.metadata_backend.layer_exists(name).await? {
             // layer does not exist yet on disk, good.
             let mut guard = self.construction.write().unwrap();
             if guard.contains_key(&name) {
@@ -924,9 +953,6 @@ impl PersistentLayerStore for ArchiveLayerStore {
             guard.insert(name, HashMap::new());
             return Ok(name);
         } else {
-            // return error if it is there
-            meta?;
-
             // still here? That means the file existed, even though it shouldn't!
             panic!("tried to create a new layer which already exists");
         }
@@ -940,31 +966,17 @@ impl PersistentLayerStore for ArchiveLayerStore {
             }
         }
 
-        let p = self.path_for_layer(name);
-        let meta = fs::metadata(p).await;
-
-        if meta.is_err() && meta.as_ref().unwrap_err().kind() == io::ErrorKind::NotFound {
-            return Ok(false);
-        }
-        let meta = meta?;
-
-        if !meta.is_file() {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "layer was not a file",
-            ))
-        } else {
-            Ok(true)
-        }
+        self.metadata_backend.layer_exists(name).await
     }
 
     async fn get_file(&self, directory: [u32; 5], name: &str) -> io::Result<Self::File> {
         let file_type = FILENAME_ENUM_MAP[name];
         if file_type == LayerFileEnum::Rollup {
             // special case! This is always coming from disk, in its own file
-            let p = self.path_for_rollup(directory);
-
-            return Ok(ArchiveLayerHandle::Rollup(FileBackedStore::new(p)));
+            return Ok(ArchiveLayerHandle::Rollup(ArchiveRollupFile {
+                layer_id: directory,
+                metadata_backend: self.metadata_backend.clone()
+            }));
         }
 
         {
@@ -983,11 +995,11 @@ impl PersistentLayerStore for ArchiveLayerStore {
 
                 Ok(ArchiveLayerHandle::Construction(file))
             } else {
-                // layer does not appear to be under construction so it has to be on disk
-                let p = self.path_for_layer(directory);
-
+                // layer does not appear to be under construction so it has to be in persistent storage
                 Ok(ArchiveLayerHandle::Persistent(PersistentFileSlice::new(
-                    p, file_type,
+                    self.metadata_backend.clone(),
+                    self.data_backend.clone(),
+                    directory, file_type,
                 )))
             }
         }
@@ -996,18 +1008,8 @@ impl PersistentLayerStore for ArchiveLayerStore {
     async fn file_exists(&self, directory: [u32; 5], file: &str) -> io::Result<bool> {
         let file_type = FILENAME_ENUM_MAP[file];
         if file_type == LayerFileEnum::Rollup {
-            // special case! This is always coming from disk, in its own file
-            let p = self.path_for_rollup(directory);
-
-            let mut options = tokio::fs::OpenOptions::new();
-            options.read(true);
-            let file = options.open(p).await;
-            if file.is_err() && file.as_ref().err().unwrap().kind() == io::ErrorKind::NotFound {
-                return Ok(false);
-            }
-            file?;
-
-            return Ok(true);
+            // special case! This is always coming out of the persistent metadata
+            return Ok(self.metadata_backend.get_rollup(directory).await?.is_some())
         }
 
         {
@@ -1016,18 +1018,8 @@ impl PersistentLayerStore for ArchiveLayerStore {
                 return Ok(map.contains_key(&file_type));
             }
         }
-        let p = self.path_for_layer(directory);
 
-        let mut options = tokio::fs::OpenOptions::new();
-        options.read(true);
-        let file = options.open(p).await;
-        if file.is_err() && file.as_ref().err().unwrap().kind() == io::ErrorKind::NotFound {
-            return Ok(false);
-        }
-        let mut file = file?;
-        let header = ArchiveFilePresenceHeader::new(file.read_u64().await?);
-
-        Ok(header.is_present(file_type))
+        self.metadata_backend.layer_file_exists(directory, file_type).await
     }
 
     async fn finalize(&self, directory: [u32; 5]) -> io::Result<()> {
@@ -1063,20 +1055,7 @@ impl PersistentLayerStore for ArchiveLayerStore {
             data_buf.extend(data);
         }
 
-        let path = self.path_for_layer(directory);
-        let mut directory_path = path.clone();
-        directory_path.pop();
-        fs::create_dir_all(directory_path).await?;
-        let mut options = tokio::fs::OpenOptions::new();
-        options.create_new(true).write(true);
-        let mut file = options.open(path).await?;
-
-        while data_buf.has_remaining() {
-            file.write_buf(&mut data_buf).await?;
-        }
-
-        file.flush().await?;
-        file.sync_all().await
+        self.data_backend.store_layer_file(directory, data_buf).await
     }
 }
 
