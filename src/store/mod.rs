@@ -835,6 +835,12 @@ impl Store {
         self.label_store.delete_label(label).await
     }
 
+    /// Return list of names of all existing databases.
+    pub async fn labels(&self) -> io::Result<Vec<String>> {
+        let labels = self.label_store.labels().await?;
+        Ok(labels.iter().map(|label| label.name.to_string()).collect())
+    }
+
     /// Retrieve a layer with the given name from the layer store this Store was initialized with.
     pub async fn get_layer_from_id(&self, layer: [u32; 5]) -> io::Result<Option<StoreLayer>> {
         let layer = self.layer_store.get_layer(layer).await?;
@@ -1293,5 +1299,20 @@ mod tests {
         graph.delete().await.unwrap();
         store.create("foo").await.unwrap();
         assert!(graph.head().await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn list_databases() {
+        let dir = tempdir().unwrap();
+        let store = open_directory_store(dir.path());
+        assert!(store.labels().await.unwrap().is_empty());
+        let _ = store.create("foo").await.unwrap();
+        let one = vec!["foo".to_string()];
+        assert_eq!(store.labels().await.unwrap(), one);
+        let _ = store.create("bar").await.unwrap();
+        let two = vec!["bar".to_string(), "foo".to_string()];
+        let mut left = store.labels().await.unwrap();
+        left.sort();
+        assert_eq!(left, two);
     }
 }
