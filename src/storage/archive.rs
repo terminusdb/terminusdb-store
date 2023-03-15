@@ -16,6 +16,7 @@ use std::{
 
 use async_trait::async_trait;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use lru::LruCache;
 use tokio::{
     fs::{self, File},
     io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWrite, AsyncWriteExt},
@@ -265,6 +266,169 @@ impl ArchiveMetadataBackend for DirectoryArchiveBackend {
     }
 }
 
+#[derive(Clone)]
+pub struct LruArchiveBackend<T> {
+    cache: Arc<tokio::sync::Mutex<LruCache<[u32;5],CacheEntry>>>,
+    limit: usize,
+    current: usize,
+    origin: T
+}
+
+#[derive(Clone)]
+enum CacheEntry {
+    Resolving(Arc<tokio::sync::RwLock<Option<Result<Bytes, io::ErrorKind>>>>),
+    Resolved(Bytes)
+}
+
+impl CacheEntry {
+    fn is_resolving(&self) -> bool {
+        if let Self::Resolving(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl<T> LruArchiveBackend<T> {
+    pub fn new(origin: T, limit: usize) -> Self {
+        let cache = Arc::new(tokio::sync::Mutex::new(LruCache::unbounded()));
+
+        Self {
+            cache,
+            limit,
+            current: 0,
+            origin
+        }
+    }
+}
+
+fn ensure_additional_cache_space(cache: &mut LruCache<[u32;5],CacheEntry>, mut required: usize) {
+    if required == 0 {
+        return;
+    }
+
+    loop {
+        let peek = cache.peek_lru().expect("cache is empty but stored entries were expected");
+        if peek.1.is_resolving() {
+            // this is a resolving entry, we don't want to pop it.
+            let id = peek.0.clone();
+            std::mem::drop(peek);
+            cache.promote(&id);
+            continue;
+        }
+        // at this point the lru item is not resolving
+        let entry = cache.pop_lru().expect("cache is empty but stored entries were expected").1;
+        if let CacheEntry::Resolved(entry) = entry {
+            if entry.len() >= required {
+                // done!
+                return;
+            }
+
+            // more needs to be popped
+            required -= entry.len();
+        } else {
+            panic!("expected resolved entry but got a resolving");
+        }
+    }
+}
+
+fn ensure_enough_cache_space(cache: &mut LruCache<[u32;5],CacheEntry>, limit: usize, current: usize, required: usize) -> bool {
+    if required > limit {
+        // this entry is too big for the cache
+        return false;
+    }
+
+    let remaining = limit - current;
+    if remaining < required {
+        // we need to clean up some cache spacew to fit this entry
+        ensure_additional_cache_space(cache, required-remaining);
+    }
+
+    true
+}
+
+fn drop_from_cache(cache: &mut LruCache<[u32;5], CacheEntry>, id: [u32;5]) {
+    assert!(cache.contains(&id));
+    cache.demote(&id);
+    cache.pop_lru();
+}
+
+#[async_trait]
+impl<T:ArchiveBackend> ArchiveBackend for LruArchiveBackend<T> {
+    type Read = BytesAsyncReader;
+    async fn get_layer_bytes(&self, id: [u32; 5]) -> io::Result<Bytes> {
+        let mut cache = self.cache.lock().await;
+        let cached = cache.get(&id).cloned();
+
+        match cached {
+            Some(CacheEntry::Resolved(bytes)) => {
+                Ok(bytes)
+            },
+            Some(CacheEntry::Resolving(barrier)) => {
+                // someone is already looking up this layer. we'll wait for them to be done.
+                std::mem::drop(cache);
+                let guard = barrier.read().await;
+                match guard.as_ref().unwrap() {
+                    Ok(bytes) => Ok(bytes.clone()),
+                    Err(kind) => Err(io::Error::new(*kind,
+                                                    "layer resolve failed"))
+                }
+            },
+            None => {
+                // nobody is looking this up yet, it is up to us.
+                let barrier = Arc::new(tokio::sync::RwLock::new(None));
+                let mut result = barrier.write().await;
+                cache.get_or_insert(id, || CacheEntry::Resolving(barrier.clone()));
+
+                // drop the cache while doing the lookup
+                std::mem::drop(cache);
+                let lookup = self.origin.get_layer_bytes(id).await;
+
+                *result = Some(lookup.as_ref().map_err(|e|e.kind()).cloned());
+
+                // reacquire cache
+                let mut cache = self.cache.lock().await;
+                match lookup {
+                    Ok(bytes) => {
+                        if ensure_enough_cache_space(&mut *cache, self.limit, self.current, bytes.len()) {
+                            let cached = cache.get_mut(&id).expect("layer resolving entry not found in cache");
+                            *cached = CacheEntry::Resolved(bytes.clone());
+                        } else {
+                            // this entry is uncachable. Just remove the resolving entry
+                            drop_from_cache(&mut *cache, id);
+                        }
+                        Ok(bytes)
+                    },
+                    Err(e) => {
+                        drop_from_cache(&mut *cache, id);
+
+                        Err(e)
+                    }
+                }
+            }
+        }
+    }
+    async fn get_layer_structure_bytes(&self, id: [u32; 5], file_type: LayerFileEnum) -> io::Result<Bytes> {
+        let bytes = self.get_layer_bytes(id).await?;
+        let archive = Archive::parse(bytes);
+        archive
+            .slice_for(file_type)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "slice not found in archive"))
+    }
+    async fn store_layer_file<B: Buf+Send>(&self, id: [u32; 5], bytes: B) -> io::Result<()> {
+        // TODO immediately cache ?
+        self.origin.store_layer_file(id, bytes).await
+    }
+    async fn read_layer_structure_bytes_from(&self, id: [u32; 5], file_type: LayerFileEnum, read_from: usize) -> io::Result<Self::Read> {
+        let mut bytes = self.get_layer_structure_bytes(id, file_type).await?;
+        bytes.advance(read_from);
+
+        Ok(BytesAsyncReader(bytes))
+    }
+}
+
+
 pub enum ConstructionFileState {
     UnderConstruction(BytesMut),
     Finalizing,
@@ -455,7 +619,7 @@ impl FileLoad for ConstructionFile {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ArchiveFilePresenceHeader {
     present_files: SmallBitArray,
 }
@@ -494,7 +658,7 @@ impl ArchiveFilePresenceHeader {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ArchiveHeader {
     file_presence: ArchiveFilePresenceHeader,
     file_offsets: MonotonicLogArray,
@@ -504,7 +668,7 @@ impl ArchiveHeader {
     pub fn parse(mut bytes: Bytes) -> (Self, Bytes) {
         let file_presence = ArchiveFilePresenceHeader::new(bytes.get_u64());
         let (file_offsets, remainder) =
-            MonotonicLogArray::parse_header_first(bytes).expect("whatever");
+            MonotonicLogArray::parse_header_first(bytes).expect("unable to parse structure offsets");
 
         (
             Self {
