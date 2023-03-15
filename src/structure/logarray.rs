@@ -148,7 +148,11 @@ impl LogArrayError {
     /// The input buffer size should be at least the appropriate
     /// multiple of 8 to include the exact number of encoded elements
     /// plus the control word. It is allowed to be larger.
-    fn validate_len_and_width_trailing(input_buf_size: usize, len: u32, width: u8) -> Result<(), Self> {
+    fn validate_len_and_width_trailing(
+        input_buf_size: usize,
+        len: u32,
+        width: u8,
+    ) -> Result<(), Self> {
         if width > 64 {
             return Err(LogArrayError::WidthTooLarge(width));
         }
@@ -228,7 +232,10 @@ fn read_control_word(buf: &[u8], input_buf_size: usize) -> Result<(u32, u8), Log
 
 /// Read the length and bit width from the control word buffer. `buf` must start at the first word
 /// after the data buffer. `input_buf_size` is used for validation, where it is allowed to be larger than expected.
-fn read_control_word_trailing(buf: &[u8], input_buf_size: usize) -> Result<(u32, u8), LogArrayError> {
+fn read_control_word_trailing(
+    buf: &[u8],
+    input_buf_size: usize,
+) -> Result<(u32, u8), LogArrayError> {
     let len = BigEndian::read_u32(buf);
     let width = buf[4];
     LogArrayError::validate_len_and_width_trailing(input_buf_size, len, width)?;
