@@ -301,6 +301,10 @@ impl<T> LruArchiveBackend<T> {
             origin
         }
     }
+
+    fn limit_bytes(&self) -> usize {
+        self.limit * 1024 * 1024
+    }
 }
 
 fn ensure_additional_cache_space(cache: &mut LruCache<[u32;5],CacheEntry>, mut required: usize) {
@@ -391,7 +395,7 @@ impl<T:ArchiveBackend> ArchiveBackend for LruArchiveBackend<T> {
                 let mut cache = self.cache.lock().await;
                 match lookup {
                     Ok(bytes) => {
-                        if ensure_enough_cache_space(&mut *cache, self.limit, self.current, bytes.len()) {
+                        if ensure_enough_cache_space(&mut *cache, self.limit_bytes(), self.current, bytes.len()) {
                             let cached = cache.get_mut(&id).expect("layer resolving entry not found in cache");
                             *cached = CacheEntry::Resolved(bytes.clone());
                         } else {
@@ -428,6 +432,69 @@ impl<T:ArchiveBackend> ArchiveBackend for LruArchiveBackend<T> {
     }
 }
 
+#[derive(Clone)]
+pub struct LruMetadataArchiveBackend<M, D> {
+    metadata_backend: M,
+    data_backend: LruArchiveBackend<D>,
+}
+
+impl<M,D> LruMetadataArchiveBackend<M,D> {
+    pub fn new(metadata_backend: M, data_backend: LruArchiveBackend<D>) -> Self{
+        Self {
+            metadata_backend,
+            data_backend
+        }
+    }
+}
+
+#[async_trait]
+impl<M: ArchiveMetadataBackend, D:ArchiveBackend> ArchiveMetadataBackend for LruMetadataArchiveBackend<M,D> {
+    async fn get_layer_names(&self) -> io::Result<Vec<[u32; 5]>> {
+        self.metadata_backend.get_layer_names().await
+    }
+    async fn layer_exists(&self, id: [u32; 5]) -> io::Result<bool> {
+        if let Some(CacheEntry::Resolved(_)) = self.data_backend.cache.lock().await.peek(&id) {
+            Ok(true)
+        } else {
+            self.metadata_backend.layer_exists(id).await
+        }
+    }
+    async fn layer_size(&self, id: [u32; 5]) -> io::Result<u64> {
+        if let Some(CacheEntry::Resolved(bytes)) = self.data_backend.cache.lock().await.peek(&id) {
+            Ok(bytes.len() as u64)
+        } else {
+            self.metadata_backend.layer_size(id).await
+        }
+    }
+    async fn layer_file_exists(&self, id: [u32; 5], file_type: LayerFileEnum) -> io::Result<bool> {
+        if let Some(CacheEntry::Resolved(bytes)) = self.data_backend.cache.lock().await.peek(&id) {
+            let header = ArchiveFilePresenceHeader::new(bytes.clone().get_u64());
+            Ok(header.is_present(file_type))
+        } else {
+            self.metadata_backend.layer_file_exists(id, file_type).await
+        }
+    }
+    async fn get_layer_structure_size(&self, id: [u32; 5], file_type: LayerFileEnum) -> io::Result<usize> {
+        if let Some(CacheEntry::Resolved(bytes)) = self.data_backend.cache.lock().await.peek(&id) {
+            let (header, _) = ArchiveHeader::parse(bytes.clone());
+
+            if let Some(size) = header.size_of(file_type) {
+                Ok(size)
+            } else {
+                Err(io::Error::new(io::ErrorKind::NotFound,
+                                   format!("structure {file_type:?} not found in layer {}", name_to_string(id))))
+            }
+        } else {
+            self.metadata_backend.get_layer_structure_size(id, file_type).await
+        }
+    }
+    async fn get_rollup(&self, id: [u32; 5]) -> io::Result<Option<[u32; 5]>> {
+        self.metadata_backend.get_rollup(id).await
+    }
+    async fn set_rollup(&self, id: [u32; 5], rollup: [u32; 5]) -> io::Result<()> {
+        self.metadata_backend.set_rollup(id, rollup).await
+    }
+}
 
 pub enum ConstructionFileState {
     UnderConstruction(BytesMut),
