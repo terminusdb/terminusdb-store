@@ -32,7 +32,7 @@ use super::{
 };
 
 #[async_trait]
-pub trait ArchiveLayerStoreBackend: Clone + Send + Sync {
+pub trait ArchiveBackend: Clone + Send + Sync {
     type Read: AsyncRead + Unpin + Send;
     async fn get_layer_bytes(&self, id: [u32; 5]) -> io::Result<Bytes>;
     async fn get_layer_structure_bytes(&self, id: [u32; 5], file_type: LayerFileEnum) -> io::Result<Bytes>;
@@ -41,7 +41,7 @@ pub trait ArchiveLayerStoreBackend: Clone + Send + Sync {
 }
 
 #[async_trait]
-pub trait ArchiveLayerStoreMetadataBackend: Clone + Send + Sync {
+pub trait ArchiveMetadataBackend: Clone + Send + Sync {
     async fn get_layer_names(&self) -> io::Result<Vec<[u32; 5]>>;
     async fn layer_exists(&self, id: [u32; 5]) -> io::Result<bool>;
     async fn layer_size(&self, id: [u32; 5]) -> io::Result<u64>;
@@ -73,11 +73,11 @@ impl AsyncRead for BytesAsyncReader{
 }
 
 #[derive(Clone)]
-pub struct DirectoryArchiveLayerStoreBackend {
+pub struct DirectoryArchiveBackend {
     path: PathBuf
 }
 
-impl DirectoryArchiveLayerStoreBackend {
+impl DirectoryArchiveBackend {
     pub fn new(path: PathBuf) -> Self {
         Self { path }
     }
@@ -101,7 +101,7 @@ impl DirectoryArchiveLayerStoreBackend {
 }
 
 #[async_trait]
-impl ArchiveLayerStoreBackend for DirectoryArchiveLayerStoreBackend {
+impl ArchiveBackend for DirectoryArchiveBackend {
     type Read = ArchiveSliceReader;
     async fn get_layer_bytes(&self, id: [u32; 5]) -> io::Result<Bytes> {
         let path = self.path_for_layer(id);
@@ -170,7 +170,7 @@ impl ArchiveLayerStoreBackend for DirectoryArchiveLayerStoreBackend {
 }
 
 #[async_trait]
-impl ArchiveLayerStoreMetadataBackend for DirectoryArchiveLayerStoreBackend {
+impl ArchiveMetadataBackend for DirectoryArchiveBackend {
     async fn get_layer_names(&self) -> io::Result<Vec<[u32; 5]>> {
         let mut stream = fs::read_dir(&self.path).await?;
         let mut result = Vec::new();
@@ -644,7 +644,7 @@ impl AsyncRead for ArchiveSliceReader {
 }
 
 #[async_trait]
-impl<M:ArchiveLayerStoreMetadataBackend,D:ArchiveLayerStoreBackend> FileLoad for PersistentFileSlice<M,D> {
+impl<M:ArchiveMetadataBackend,D:ArchiveBackend> FileLoad for PersistentFileSlice<M,D> {
     type Read = D::Read;
 
     async fn exists(&self) -> io::Result<bool> {
@@ -672,7 +672,7 @@ pub struct ArchiveRollupFile<M> {
 }
 
 #[async_trait]
-impl<M:ArchiveLayerStoreMetadataBackend> FileLoad for ArchiveRollupFile<M> {
+impl<M:ArchiveMetadataBackend> FileLoad for ArchiveRollupFile<M> {
     type Read = BytesAsyncReader;
 
     async fn exists(&self) -> io::Result<bool> {
@@ -707,7 +707,7 @@ impl<M:ArchiveLayerStoreMetadataBackend> FileLoad for ArchiveRollupFile<M> {
 }
 
 #[async_trait]
-impl<M:ArchiveLayerStoreMetadataBackend+Unpin> FileStore for ArchiveRollupFile<M> {
+impl<M:ArchiveMetadataBackend+Unpin> FileStore for ArchiveRollupFile<M> {
     type Write = ArchiveRollupFileWriter<M>;
     async fn open_write(&self) -> io::Result<Self::Write> {
         Ok(ArchiveRollupFileWriter {
@@ -724,7 +724,7 @@ pub struct ArchiveRollupFileWriter<M> {
     metadata_backend: M
 }
 
-impl<M:ArchiveLayerStoreMetadataBackend+Unpin> AsyncWrite for ArchiveRollupFileWriter<M> {
+impl<M:ArchiveMetadataBackend+Unpin> AsyncWrite for ArchiveRollupFileWriter<M> {
     fn poll_write(
         self: std::pin::Pin<&mut Self>,
         _cx: &mut std::task::Context<'_>,
@@ -745,7 +745,7 @@ impl<M:ArchiveLayerStoreMetadataBackend+Unpin> AsyncWrite for ArchiveRollupFileW
 }
 
 #[async_trait]
-impl<M:ArchiveLayerStoreMetadataBackend+Unpin> SyncableFile for ArchiveRollupFileWriter<M> {
+impl<M:ArchiveMetadataBackend+Unpin> SyncableFile for ArchiveRollupFileWriter<M> {
     async fn sync_all(self) -> io::Result<()> {
         let rollup_string = String::from_utf8(self.data.to_vec()).expect("rollup id was not a string");
         // first line of this string is going to be a version number. it should be discarded.
@@ -764,7 +764,7 @@ pub enum ArchiveLayerHandle<M,D> {
 }
 
 #[async_trait]
-impl<M:ArchiveLayerStoreMetadataBackend+Unpin,D:ArchiveLayerStoreBackend> FileStore for ArchiveLayerHandle<M,D> {
+impl<M:ArchiveMetadataBackend+Unpin,D:ArchiveBackend> FileStore for ArchiveLayerHandle<M,D> {
     type Write = ArchiveLayerHandleWriter<M>;
     async fn open_write(&self) -> io::Result<Self::Write> {
         Ok(match self {
@@ -776,7 +776,7 @@ impl<M:ArchiveLayerStoreMetadataBackend+Unpin,D:ArchiveLayerStoreBackend> FileSt
 }
 
 #[async_trait]
-impl<M:ArchiveLayerStoreMetadataBackend,D:ArchiveLayerStoreBackend> FileLoad for ArchiveLayerHandle<M,D> {
+impl<M:ArchiveMetadataBackend,D:ArchiveBackend> FileLoad for ArchiveLayerHandle<M,D> {
     type Read = ArchiveLayerHandleReader<D::Read,BytesAsyncReader>;
 
     async fn exists(&self) -> io::Result<bool> {
@@ -840,7 +840,7 @@ pub enum ArchiveLayerHandleWriter<M> {
     Rollup(ArchiveRollupFileWriter<M>),
 }
 
-impl<M:ArchiveLayerStoreMetadataBackend+Unpin> AsyncWrite for ArchiveLayerHandleWriter<M> {
+impl<M:ArchiveMetadataBackend+Unpin> AsyncWrite for ArchiveLayerHandleWriter<M> {
     fn poll_write(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -874,7 +874,7 @@ impl<M:ArchiveLayerStoreMetadataBackend+Unpin> AsyncWrite for ArchiveLayerHandle
 }
 
 #[async_trait]
-impl<M:ArchiveLayerStoreMetadataBackend+Unpin> SyncableFile for ArchiveLayerHandleWriter<M> {
+impl<M:ArchiveMetadataBackend+Unpin> SyncableFile for ArchiveLayerHandleWriter<M> {
     async fn sync_all(self) -> io::Result<()> {
         match self {
             Self::Construction(c) => c.sync_all().await,
@@ -920,7 +920,7 @@ impl<M,D> ArchiveLayerStore<M,D> {
 const PREFIX_DIR_SIZE: usize = 3;
 
 #[async_trait]
-impl<M:ArchiveLayerStoreMetadataBackend+Unpin+'static,D:ArchiveLayerStoreBackend+'static> PersistentLayerStore for ArchiveLayerStore<M,D> {
+impl<M:ArchiveMetadataBackend+Unpin+'static,D:ArchiveBackend+'static> PersistentLayerStore for ArchiveLayerStore<M,D> {
     type File = ArchiveLayerHandle<M,D>;
 
     async fn directories(&self) -> io::Result<Vec<[u32; 5]>> {

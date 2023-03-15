@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use crate::layer::{IdTriple, Layer, LayerBuilder, LayerCounts, ObjectType, ValueTriple};
-use crate::storage::archive::{ArchiveLayerStore, DirectoryArchiveLayerStoreBackend};
+use crate::storage::archive::{ArchiveLayerStore, DirectoryArchiveBackend};
 use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore};
 use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
 use crate::storage::{CachedLayerStore, LabelStore, LayerStore, LockingHashMapLayerCache};
@@ -882,10 +882,10 @@ pub fn open_memory_store() -> Store {
 
 pub fn open_archive_store<P: Into<PathBuf>>(path: P) -> Store {
     let p = path.into();
-    let archive_backend = DirectoryArchiveLayerStoreBackend::new(p.clone());
+    let archive_backend = DirectoryArchiveBackend::new(p.clone());
     Store::new(
         DirectoryLabelStore::new(p.clone()),
-        CachedLayerStore::new(ArchiveLayerStore::<DirectoryArchiveLayerStoreBackend, DirectoryArchiveLayerStoreBackend>::new(archive_backend.clone(), archive_backend), LockingHashMapLayerCache::new()),
+        CachedLayerStore::new(ArchiveLayerStore::<DirectoryArchiveBackend, DirectoryArchiveBackend>::new(archive_backend.clone(), archive_backend), LockingHashMapLayerCache::new()),
     )
 }
 
