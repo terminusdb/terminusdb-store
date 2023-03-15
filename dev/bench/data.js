@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1675160871672,
+  "lastUpdate": 1678898130619,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -16511,6 +16511,126 @@ window.BENCHMARK_DATA = {
             "name": "logarray_w5_empty",
             "value": 399,
             "range": "± 57",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "likelion@gmail.com",
+            "name": "Leonid Mokrushin",
+            "username": "likelion"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1f776ab75111e556ad08b57e42110aa55935cffd",
+          "message": "Added a method to enumerate names of all existing databases (#124)\n\n* Added a method to enumerate names of all existing databases\r\n\r\n* Added database listing unit test\r\n\r\n---------\r\n\r\nCo-authored-by: Matthijs van Otterdijk <matthijs@terminusdb.com>",
+          "timestamp": "2023-03-15T17:28:02+01:00",
+          "tree_id": "4190064be852c64838764af5dc1cfffa6c3c9d75",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/1f776ab75111e556ad08b57e42110aa55935cffd"
+        },
+        "date": 1678898129561,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 319,
+            "range": "± 19",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 22750488,
+            "range": "± 3878721",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 16207445,
+            "range": "± 3403831",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 22078598,
+            "range": "± 5125927",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 27634175,
+            "range": "± 4293721",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 26950095,
+            "range": "± 4601904",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w10_1000",
+            "value": 9657,
+            "range": "± 314",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1",
+            "value": 415,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10",
+            "value": 484,
+            "range": "± 41",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_100",
+            "value": 1492,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1000",
+            "value": 9483,
+            "range": "± 322",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000",
+            "value": 91939,
+            "range": "± 1315",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_as_stream",
+            "value": 101854,
+            "range": "± 1572",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent",
+            "value": 670222,
+            "range": "± 308815",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent_as_stream",
+            "value": 861473,
+            "range": "± 241806",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_empty",
+            "value": 367,
+            "range": "± 2",
             "unit": "ns/iter"
           }
         ]
