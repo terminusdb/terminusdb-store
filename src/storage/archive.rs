@@ -343,7 +343,6 @@ fn ensure_additional_cache_space(cache: &mut LruCache<[u32; 5], CacheEntry>, mut
         if peek.1.is_resolving() {
             // this is a resolving entry, we don't want to pop it.
             let id = peek.0.clone();
-            std::mem::drop(peek);
             cache.promote(&id);
             continue;
         }
