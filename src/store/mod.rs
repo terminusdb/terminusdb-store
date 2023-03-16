@@ -888,6 +888,11 @@ pub fn open_memory_store() -> Store {
     )
 }
 
+/// Open a store that stores its data in the given directory as archive files.
+///
+/// cache_size specifies in megabytes how large the LRU cache should
+/// be. Loaded layers will stick around in the LRU cache to speed up
+/// subsequent loads.
 pub fn open_archive_store<P: Into<PathBuf>>(path: P, cache_size: usize) -> Store {
     let p = path.into();
     let directory_archive_backend = DirectoryArchiveBackend::new(p.clone());
