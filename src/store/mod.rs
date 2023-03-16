@@ -898,9 +898,9 @@ pub fn open_archive_store<P: Into<PathBuf>>(path: P, cache_size: usize) -> Store
     let directory_archive_backend = DirectoryArchiveBackend::new(p.clone());
     let archive_backend = LruArchiveBackend::new(directory_archive_backend.clone(), cache_size);
     let archive_metadata_backend =
-        LruMetadataArchiveBackend::new(directory_archive_backend.clone(), archive_backend.clone());
+        LruMetadataArchiveBackend::new(directory_archive_backend, archive_backend.clone());
     Store::new(
-        DirectoryLabelStore::new(p.clone()),
+        DirectoryLabelStore::new(p),
         CachedLayerStore::new(
             ArchiveLayerStore::new(archive_metadata_backend, archive_backend),
             LockingHashMapLayerCache::new(),

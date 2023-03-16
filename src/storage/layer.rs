@@ -1403,7 +1403,7 @@ pub fn bytes_to_name(bytes: &[u8]) -> Result<[u32; 5], std::io::Error> {
     if bytes.len() != 40 {
         Err(io::Error::new(io::ErrorKind::Other, "bytes not len 40"))
     } else {
-        let string = String::from_utf8_lossy(&bytes);
+        let string = String::from_utf8_lossy(bytes);
 
         string_to_name(&string)
     }
