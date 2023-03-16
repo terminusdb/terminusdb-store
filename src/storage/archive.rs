@@ -41,7 +41,7 @@ pub trait ArchiveBackend: Clone + Send + Sync {
         id: [u32; 5],
         file_type: LayerFileEnum,
     ) -> io::Result<Bytes>;
-    async fn store_layer_file<B: Buf + Send>(&self, id: [u32; 5], bytes: B) -> io::Result<()>;
+    async fn store_layer_file(&self, id: [u32; 5], bytes: Bytes) -> io::Result<()>;
     async fn read_layer_structure_bytes_from(
         &self,
         id: [u32; 5],
@@ -144,7 +144,7 @@ impl ArchiveBackend for DirectoryArchiveBackend {
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "slice not found in archive"))
     }
 
-    async fn store_layer_file<B: Buf + Send>(&self, id: [u32; 5], mut bytes: B) -> io::Result<()> {
+    async fn store_layer_file(&self, id: [u32; 5], mut bytes: Bytes) -> io::Result<()> {
         let path = self.path_for_layer(id);
         let mut directory_path = path.clone();
         directory_path.pop();
@@ -461,7 +461,7 @@ impl<T: ArchiveBackend> ArchiveBackend for LruArchiveBackend<T> {
             .slice_for(file_type)
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "slice not found in archive"))
     }
-    async fn store_layer_file<B: Buf + Send>(&self, id: [u32; 5], bytes: B) -> io::Result<()> {
+    async fn store_layer_file(&self, id: [u32; 5], bytes: Bytes) -> io::Result<()> {
         // TODO immediately cache ?
         self.origin.store_layer_file(id, bytes).await
     }
@@ -1388,7 +1388,7 @@ impl<M: ArchiveMetadataBackend + Unpin + 'static, D: ArchiveBackend + 'static> P
         }
 
         self.data_backend
-            .store_layer_file(directory, data_buf)
+            .store_layer_file(directory, data_buf.freeze())
             .await
     }
 }
