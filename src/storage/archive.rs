@@ -462,8 +462,12 @@ impl<T: ArchiveBackend> ArchiveBackend for LruArchiveBackend<T> {
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "slice not found in archive"))
     }
     async fn store_layer_file(&self, id: [u32; 5], bytes: Bytes) -> io::Result<()> {
-        // TODO immediately cache ?
-        self.origin.store_layer_file(id, bytes).await
+        self.origin.store_layer_file(id, bytes.clone()).await?;
+
+        let mut cache = self.cache.lock().await;
+        cache.get_or_insert(id, move || CacheEntry::Resolved(bytes));
+
+        Ok(())
     }
     async fn read_layer_structure_bytes_from(
         &self,
