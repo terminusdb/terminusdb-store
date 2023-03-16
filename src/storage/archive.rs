@@ -40,7 +40,7 @@ pub trait ArchiveBackend: Clone + Send + Sync {
         &self,
         id: [u32; 5],
         file_type: LayerFileEnum,
-    ) -> io::Result<Bytes>;
+    ) -> io::Result<Option<Bytes>>;
     async fn store_layer_file(&self, id: [u32; 5], bytes: Bytes) -> io::Result<()>;
     async fn read_layer_structure_bytes_from(
         &self,
@@ -63,6 +63,7 @@ pub trait ArchiveMetadataBackend: Clone + Send + Sync {
     ) -> io::Result<usize>;
     async fn get_rollup(&self, id: [u32; 5]) -> io::Result<Option<[u32; 5]>>;
     async fn set_rollup(&self, id: [u32; 5], rollup: [u32; 5]) -> io::Result<()>;
+    async fn get_parent(&self, id: [u32; 5]) -> io::Result<Option<[u32;5]>>;
 }
 
 pub struct BytesAsyncReader(Bytes);
@@ -133,15 +134,14 @@ impl ArchiveBackend for DirectoryArchiveBackend {
         &self,
         id: [u32; 5],
         file_type: LayerFileEnum,
-    ) -> io::Result<Bytes> {
+    ) -> io::Result<Option<Bytes>> {
         let path = self.path_for_layer(id);
         let mut options = tokio::fs::OpenOptions::new();
         options.read(true);
         let mut file = options.open(path).await?;
         let archive = Archive::parse_from_reader(&mut file).await?;
-        archive
-            .slice_for(file_type)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "slice not found in archive"))
+        Ok(archive
+           .slice_for(file_type))
     }
 
     async fn store_layer_file(&self, id: [u32; 5], mut bytes: Bytes) -> io::Result<()> {
@@ -287,6 +287,15 @@ impl ArchiveMetadataBackend for DirectoryArchiveBackend {
         data.extend_from_slice(name_to_string(rollup).as_bytes());
         data.extend_from_slice(b"\n");
         fs::write(path, data).await
+    }
+
+    async fn get_parent(&self, id: [u32; 5]) -> io::Result<Option<[u32;5]>> {
+        if let Some(parent_bytes) = self.get_layer_structure_bytes(id, LayerFileEnum::Parent).await? {
+            let parent_string = std::str::from_utf8(&parent_bytes[..40]).unwrap();
+            Ok(Some(string_to_name(parent_string).unwrap()))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -454,12 +463,11 @@ impl<T: ArchiveBackend> ArchiveBackend for LruArchiveBackend<T> {
         &self,
         id: [u32; 5],
         file_type: LayerFileEnum,
-    ) -> io::Result<Bytes> {
+    ) -> io::Result<Option<Bytes>> {
         let bytes = self.get_layer_bytes(id).await?;
         let archive = Archive::parse(bytes);
-        archive
-            .slice_for(file_type)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "slice not found in archive"))
+        Ok(archive
+           .slice_for(file_type))
     }
     async fn store_layer_file(&self, id: [u32; 5], bytes: Bytes) -> io::Result<()> {
         self.origin.store_layer_file(id, bytes.clone()).await?;
@@ -475,7 +483,8 @@ impl<T: ArchiveBackend> ArchiveBackend for LruArchiveBackend<T> {
         file_type: LayerFileEnum,
         read_from: usize,
     ) -> io::Result<Self::Read> {
-        let mut bytes = self.get_layer_structure_bytes(id, file_type).await?;
+        let mut bytes = self.get_layer_structure_bytes(id, file_type).await?
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "slice not found in archive"))?;
         bytes.advance(read_from);
 
         Ok(BytesAsyncReader(bytes))
@@ -556,6 +565,15 @@ impl<M: ArchiveMetadataBackend, D: ArchiveBackend> ArchiveMetadataBackend
     }
     async fn set_rollup(&self, id: [u32; 5], rollup: [u32; 5]) -> io::Result<()> {
         self.metadata_backend.set_rollup(id, rollup).await
+    }
+
+    async fn get_parent(&self, id: [u32; 5]) -> io::Result<Option<[u32;5]>> {
+        if let Some(parent_bytes) = self.data_backend.get_layer_structure_bytes(id, LayerFileEnum::Parent).await? {
+            let parent_string = std::str::from_utf8(&parent_bytes[..40]).unwrap();
+            Ok(Some(string_to_name(parent_string).unwrap()))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -965,6 +983,13 @@ impl<M: ArchiveMetadataBackend, D: ArchiveBackend> FileLoad for PersistentFileSl
     }
 
     async fn map(&self) -> io::Result<Bytes> {
+        self.data_backend
+            .get_layer_structure_bytes(self.layer_id, self.file_type)
+            .await?
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "slice not found in archive"))
+    }
+
+    async fn map_if_exists(&self) -> io::Result<Option<Bytes>> {
         self.data_backend
             .get_layer_structure_bytes(self.layer_id, self.file_type)
             .await
@@ -1394,6 +1419,10 @@ impl<M: ArchiveMetadataBackend + Unpin + 'static, D: ArchiveBackend + 'static> P
         self.data_backend
             .store_layer_file(directory, data_buf.freeze())
             .await
+    }
+
+    async fn layer_parent(&self, name: [u32; 5]) -> io::Result<Option<[u32;5]>> {
+        self.metadata_backend.get_parent(name).await
     }
 }
 
