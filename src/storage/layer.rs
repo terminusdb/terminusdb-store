@@ -365,7 +365,7 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
         self.file_exists(name, FILENAMES.parent).await
     }
 
-    async fn layer_parent(&self, name: [u32; 5]) -> io::Result<Option<[u32;5]>> {
+    async fn layer_parent(&self, name: [u32; 5]) -> io::Result<Option<[u32; 5]>> {
         if self.directory_exists(name).await? {
             if self.layer_has_parent(name).await? {
                 let parent = self.read_parent_file(name).await?;
