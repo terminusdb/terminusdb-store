@@ -274,6 +274,18 @@ impl StoreLayer {
         }
     }
 
+    pub async fn squash_upto(&self, upto: &StoreLayer) -> io::Result<StoreLayer> {
+        // TODO check if we already committed
+        let new_builder = self.open_write().await?;
+        let iterator = self.store.layer_changes_upto(self.name(), upto.name()).await?;
+        iterator.par_bridge().for_each(|t| {
+            let st = self.id_triple_to_string(&t).unwrap();
+            new_builder.add_value_triple(st).unwrap()
+        });
+
+        new_builder.commit().await
+    }
+
     /// Create a new base layer consisting of all triples in this layer, as well as all its ancestors.
     ///
     /// It is a good idea to keep layer stacks small, meaning, to only
