@@ -391,7 +391,7 @@ pub struct ChildLayerFileBuilderPhase2<F: 'static + FileLoad + FileStore + Clone
 }
 
 impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuilderPhase2<F> {
-    async fn new(
+    pub(crate) async fn new(
         parent: Arc<dyn Layer>,
         files: ChildLayerFiles<F>,
 

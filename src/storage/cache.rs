@@ -319,6 +319,10 @@ impl LayerStore for CachedLayerStore {
         self.inner.squash(layer).await
     }
 
+    async fn squash_upto(&self, layer: Arc<InternalLayer>, upto: [u32; 5]) -> io::Result<[u32; 5]> {
+        self.inner.squash_upto(layer, upto).await
+    }
+
     async fn layer_is_ancestor_of(
         &self,
         descendant: [u32; 5],

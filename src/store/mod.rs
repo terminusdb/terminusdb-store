@@ -275,18 +275,19 @@ impl StoreLayer {
     }
 
     pub async fn squash_upto(&self, upto: &StoreLayer) -> io::Result<StoreLayer> {
-        /*
-        // TODO check if we already committed
-        let new_builder = self.open_write().await?;
-        let iterator = self.store.layer_changes_upto(self.name(), upto.name()).await?;
-        iterator.par_bridge().for_each(|t| {
-            let st = self.id_triple_to_string(&t).unwrap();
-            new_builder.add_value_triple(st).unwrap()
-        });
-
-        new_builder.commit().await
-         */
-        unimplemented!();
+        let layer_opt = self.store.layer_store.get_layer(self.name()).await?;
+        let layer =
+            layer_opt.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "layer not found"))?;
+        let name = self
+            .store
+            .layer_store
+            .squash_upto(layer, upto.name())
+            .await?;
+        Ok(self
+            .store
+            .get_layer_from_id(name)
+            .await?
+            .expect("layer that was just created doesn't exist"))
     }
 
     /// Create a new base layer consisting of all triples in this layer, as well as all its ancestors.

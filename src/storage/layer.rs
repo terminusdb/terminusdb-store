@@ -3,7 +3,9 @@ use super::consts::FILENAMES;
 use super::delta::*;
 use super::file::*;
 use super::pack::Packable;
+use crate::layer::builder::DictionarySetFileBuilder;
 use crate::layer::BaseLayerFileBuilder;
+use crate::layer::ChildLayerFileBuilderPhase2;
 use crate::layer::{
     layer_triple_exists, BaseLayer, ChildLayer, IdMap, IdTriple, InternalLayer,
     InternalLayerTripleObjectIterator, InternalLayerTriplePredicateIterator,
@@ -214,6 +216,7 @@ pub trait LayerStore: 'static + Packable + Send + Sync {
     }
 
     async fn squash(&self, layer: Arc<InternalLayer>) -> io::Result<[u32; 5]>;
+    async fn squash_upto(&self, layer: Arc<InternalLayer>, upto: [u32; 5]) -> io::Result<[u32; 5]>;
 
     async fn layer_is_ancestor_of(
         &self,
@@ -1817,7 +1820,6 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
     }
 
     async fn squash(&self, layer: Arc<InternalLayer>) -> io::Result<[u32; 5]> {
-        // so what doing
         // we create a new base layer
         // we then build a new set of dictionaries by sorting what we got in all layers
         // keep track of how the ids move so we have a mapping
@@ -1870,19 +1872,19 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         let mut node_value_map: HashMap<u64, u64> = nodes
             .iter()
             .enumerate()
-            .map(|(remapped, (x, old))| (*old, remapped as u64 + 1))
+            .map(|(remapped, (_x, old))| (*old, remapped as u64 + 1))
             .collect();
         let pred_map: HashMap<u64, u64> = predicates
             .iter()
             .enumerate()
-            .map(|(remapped, (x, old))| (*old, remapped as u64 + 1))
+            .map(|(remapped, (_x, old))| (*old, remapped as u64 + 1))
             .collect();
         let node_count = node_value_map.len();
         node_value_map.extend(
             values
                 .iter()
                 .enumerate()
-                .map(|(remapped, (x, old))| (*old, remapped as u64 + node_count as u64 + 1)),
+                .map(|(remapped, (_x, old))| (*old, remapped as u64 + node_count as u64 + 1)),
         );
 
         let layer_name = self.create_directory().await?;
@@ -1900,6 +1902,134 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                     node_value_map[&t.object],
                 )
             }))
+            .await?;
+        builder.finalize().await?;
+
+        self.finalize_layer(layer_name).await?;
+
+        Ok(layer_name)
+    }
+
+    async fn squash_upto(&self, layer: Arc<InternalLayer>, upto: [u32; 5]) -> io::Result<[u32; 5]> {
+        let mut nodes = Vec::new();
+        let mut predicates = Vec::new();
+        let mut values = Vec::new();
+        let mut node_value_count = 0;
+        let mut pred_count = 0;
+        let stack_names = self
+            .retrieve_layer_stack_names_upto(layer.name(), upto)
+            .await?;
+        for layer_name in stack_names {
+            let node_dict = self.get_node_dictionary(layer_name).await?;
+            let node_dict_len = node_dict.as_ref().map(|d| d.num_entries()).unwrap_or(0) as u64;
+            let predicate_dict = self.get_predicate_dictionary(layer_name).await?;
+            let predicate_dict_len = predicate_dict
+                .as_ref()
+                .map(|d| d.num_entries())
+                .unwrap_or(0) as u64;
+            let value_dict = self.get_value_dictionary(layer_name).await?;
+            let value_dict_len = value_dict.as_ref().map(|d| d.num_entries()).unwrap_or(0) as u64;
+            let node_value_id_map = self.get_node_value_idmap(layer_name).await?;
+            let predicate_id_map = self.get_predicate_idmap(layer_name).await?;
+            if let Some(node_dict) = node_dict.as_ref() {
+                nodes.extend(node_dict.iter().enumerate().map(|(i, x)| {
+                    (
+                        x,
+                        node_value_id_map
+                            .as_ref()
+                            .map(|m| m.inner_to_outer(i as u64 + 1) + node_value_count)
+                            .unwrap_or(i as u64 + node_value_count + 1),
+                    )
+                }));
+            }
+            if let Some(predicate_dict) = predicate_dict.as_ref() {
+                predicates.extend(predicate_dict.iter().enumerate().map(|(i, x)| {
+                    (
+                        x,
+                        predicate_id_map
+                            .as_ref()
+                            .map(|m| m.inner_to_outer(i as u64 + 1) + pred_count)
+                            .unwrap_or(i as u64 + pred_count + 1),
+                    )
+                }));
+            }
+            if let Some(value_dict) = value_dict.as_ref() {
+                values.extend(value_dict.iter().enumerate().map(|(i, x)| {
+                    (
+                        x,
+                        node_value_id_map
+                            .as_ref()
+                            .map(|m| {
+                                m.inner_to_outer(i as u64 + 1) + node_value_count + node_dict_len
+                            })
+                            .unwrap_or(i as u64 + node_value_count + node_dict_len + 1),
+                    )
+                }));
+            }
+            node_value_count += node_dict_len + value_dict_len;
+            pred_count += predicate_dict_len;
+        }
+        nodes.sort();
+        predicates.sort();
+        values.sort();
+        let node_count = nodes.len();
+        let predicate_count = predicates.len();
+        let value_count = values.len();
+
+        let mut node_value_map: HashMap<u64, u64> = nodes
+            .iter()
+            .enumerate()
+            .map(|(remapped, (_x, old))| (*old, remapped as u64 + 1))
+            .collect();
+        let pred_map: HashMap<u64, u64> = predicates
+            .iter()
+            .enumerate()
+            .map(|(remapped, (_x, old))| (*old, remapped as u64 + 1))
+            .collect();
+        node_value_map.extend(
+            values
+                .iter()
+                .enumerate()
+                .map(|(remapped, (_x, old))| (*old, remapped as u64 + node_count as u64 + 1)),
+        );
+
+        let upto_layer = self.get_layer(upto).await?.expect("expected upto to exist");
+        let layer_name = self.create_directory().await?;
+        let child_layer_files = self.child_layer_files(layer_name).await?;
+        let mut builder = DictionarySetFileBuilder::from_files(
+            child_layer_files.node_dictionary_files.clone(),
+            child_layer_files.predicate_dictionary_files.clone(),
+            child_layer_files.value_dictionary_files.clone(),
+        )
+        .await?;
+        //let mut builder = ChildLayerFileBuilder::from_files(upto_layer, &child_layer_files).await?;
+        builder.add_nodes_bytes(nodes.into_iter().map(|(x, _)| x.to_bytes()));
+        builder.add_predicates_bytes(predicates.into_iter().map(|(x, _)| x.to_bytes()));
+        builder.add_values(values.into_iter().map(|(x, _)| x));
+        builder.finalize().await?;
+
+        // TODO use more inner stuff to avoid parent checks as they are unnecessary here
+        let mut builder = ChildLayerFileBuilderPhase2::new(
+            upto_layer,
+            child_layer_files,
+            node_count,
+            predicate_count,
+            value_count,
+        )
+        .await?;
+        builder
+            .add_id_triples(
+                layer
+                    .triples()
+                    .map(move |t| {
+                        IdTriple::new(
+                            node_value_map[&t.subject],
+                            pred_map[&t.predicate],
+                            node_value_map[&t.object],
+                        )
+                    })
+                    .collect(),
+            )
             .await?;
         builder.finalize().await?;
 
