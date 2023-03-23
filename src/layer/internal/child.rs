@@ -429,7 +429,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         })
     }
 
-    async fn add_triple_unchecked(
+    pub(crate) async fn add_triple_unchecked(
         &mut self,
         subject: u64,
         predicate: u64,
@@ -457,7 +457,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         }
     }
 
-    async fn remove_triple_unchecked(
+    pub(crate) async fn remove_triple_unchecked(
         &mut self,
         subject: u64,
         predicate: u64,
