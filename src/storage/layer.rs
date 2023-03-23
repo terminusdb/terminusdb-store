@@ -3,10 +3,10 @@ use super::consts::FILENAMES;
 use super::delta::*;
 use super::file::*;
 use super::pack::Packable;
-use crate::layer::TripleChange;
 use crate::layer::builder::DictionarySetFileBuilder;
 use crate::layer::BaseLayerFileBuilder;
 use crate::layer::ChildLayerFileBuilderPhase2;
+use crate::layer::TripleChange;
 use crate::layer::{
     layer_triple_exists, BaseLayer, ChildLayer, IdMap, IdTriple, InternalLayer,
     InternalLayerTripleObjectIterator, InternalLayerTriplePredicateIterator,
@@ -1895,15 +1895,19 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         builder.add_predicates_bytes(predicates.into_iter().map(|(x, _)| x.to_bytes()));
         builder.add_values(values.into_iter().map(|(x, _)| x));
         let mut builder = builder.into_phase2().await?;
-        builder
-            .add_id_triples(layer.triples().map(move |t| {
+        let mut triples: Vec<_> = layer
+            .triples()
+            .map(move |t| {
                 IdTriple::new(
                     node_value_map[&t.subject],
                     pred_map[&t.predicate],
                     node_value_map[&t.object],
                 )
-            }))
-            .await?;
+            })
+            .collect();
+        triples.sort();
+
+        builder.add_id_triples(triples.into_iter()).await?;
         builder.finalize().await?;
 
         self.finalize_layer(layer_name).await?;
@@ -1994,12 +1998,12 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             .enumerate()
             .map(|(remapped, (_x, old))| (*old, remapped as u64 + base_pred_count + 1))
             .collect();
-        node_value_map.extend(
-            values
-                .iter()
-                .enumerate()
-                .map(|(remapped, (_x, old))| (*old, remapped as u64 + base_node_value_count + node_count as u64 + 1)),
-        );
+        node_value_map.extend(values.iter().enumerate().map(|(remapped, (_x, old))| {
+            (
+                *old,
+                remapped as u64 + base_node_value_count + node_count as u64 + 1,
+            )
+        }));
 
         let upto_layer = self.get_layer(upto).await?.expect("expected upto to exist");
         let layer_name = self.create_directory().await?;
@@ -2025,16 +2029,41 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             value_count,
         )
         .await?;
-        for (change_type, t) in self.layer_changes_upto(layer.name(), upto).await? {
-            let mapped_triple =
-                IdTriple::new(
-                    *node_value_map.get(&t.subject).unwrap_or(&t.subject),
-                    *pred_map.get(&t.predicate).unwrap_or(&t.predicate),
-                    *node_value_map.get(&t.object).unwrap_or(&t.object),
-                );
+        let mut triple_changes: Vec<_> = self
+            .layer_changes_upto(layer.name(), upto)
+            .await?
+            .map(|(change_type, t)| {
+                (
+                    change_type,
+                    IdTriple::new(
+                        *node_value_map.get(&t.subject).unwrap_or(&t.subject),
+                        *pred_map.get(&t.predicate).unwrap_or(&t.predicate),
+                        *node_value_map.get(&t.object).unwrap_or(&t.object),
+                    ),
+                )
+            })
+            .collect();
+        triple_changes.sort();
+        for (change_type, mapped_triple) in triple_changes.into_iter() {
             match change_type {
-                TripleChange::Addition => builder.add_triple_unchecked(mapped_triple.subject, mapped_triple.predicate, mapped_triple.object).await?,
-                TripleChange::Removal => builder.remove_triple_unchecked(mapped_triple.subject, mapped_triple.predicate, mapped_triple.object).await?
+                TripleChange::Addition => {
+                    builder
+                        .add_triple_unchecked(
+                            mapped_triple.subject,
+                            mapped_triple.predicate,
+                            mapped_triple.object,
+                        )
+                        .await?
+                }
+                TripleChange::Removal => {
+                    builder
+                        .remove_triple_unchecked(
+                            mapped_triple.subject,
+                            mapped_triple.predicate,
+                            mapped_triple.object,
+                        )
+                        .await?
+                }
             }
         }
         builder.finalize().await?;
