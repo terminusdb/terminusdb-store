@@ -317,7 +317,7 @@ pub enum LayerStackError {
     ParentNotFound,
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
 pub enum TripleChange {
     Addition,
     Removal,

@@ -1,6 +1,7 @@
 //! Base layer implementation.
 //!
 //! A base layer stores triple data without referring to a parent.
+use bytes::Bytes;
 use futures::stream::{Peekable, Stream, StreamExt};
 use futures::task::{Context, Poll};
 
@@ -177,6 +178,10 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
         id
     }
 
+    pub fn add_node_bytes(&mut self, node: Bytes) -> u64 {
+        self.builder.add_node_bytes(node)
+    }
+
     /// Add a predicate string.
     ///
     /// Panics if the given predicate string is not a lexical successor of the previous node string.
@@ -184,6 +189,10 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
         let id = self.builder.add_predicate(predicate);
 
         id
+    }
+
+    pub fn add_predicate_bytes(&mut self, predicate: Bytes) -> u64 {
+        self.builder.add_predicate_bytes(predicate)
     }
 
     /// Add a value string.
@@ -211,6 +220,19 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
         ids
     }
 
+    pub fn add_nodes_bytes<I: 'static + IntoIterator<Item = Bytes> + Send>(
+        &mut self,
+        nodes: I,
+    ) -> Vec<u64>
+    where
+        <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
+        I: Unpin + Sync,
+    {
+        let ids = self.builder.add_nodes_bytes(nodes);
+
+        ids
+    }
+
     /// Add predicates from an iterable.
     ///
     /// Panics if the predicates are not in lexical order, or if previous added predicates are a lexical succesor of any of these predicates.
@@ -223,6 +245,19 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
         I: Unpin + Sync,
     {
         let ids = self.builder.add_predicates(predicates);
+
+        ids
+    }
+
+    pub fn add_predicates_bytes<I: 'static + IntoIterator<Item = Bytes> + Send>(
+        &mut self,
+        predicates: I,
+    ) -> Vec<u64>
+    where
+        <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
+        I: Unpin + Sync,
+    {
+        let ids = self.builder.add_predicates_bytes(predicates);
 
         ids
     }

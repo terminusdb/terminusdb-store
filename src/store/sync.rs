@@ -142,6 +142,12 @@ impl SyncStoreLayer {
         inner.map(|p| p.map(|p| SyncStoreLayer { inner: p }))
     }
 
+    pub fn squash_upto(&self, upto: &SyncStoreLayer) -> Result<SyncStoreLayer, io::Error> {
+        let inner = task_sync(self.inner.clone().squash_upto(&upto.inner));
+
+        inner.map(SyncStoreLayer::wrap)
+    }
+
     /// Create a new base layer consisting of all triples in this layer, as well as all its ancestors.
     ///
     /// It is a good idea to keep layer stacks small, meaning, to only
