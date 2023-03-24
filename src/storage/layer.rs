@@ -374,6 +374,22 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
         self.file_exists(name, FILENAMES.parent).await
     }
 
+    async fn layer_parent(&self, name: [u32; 5]) -> io::Result<Option<[u32; 5]>> {
+        if self.directory_exists(name).await? {
+            if self.layer_has_parent(name).await? {
+                let parent = self.read_parent_file(name).await?;
+                Ok(Some(parent))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "parent layer not found",
+            ))
+        }
+    }
+
     async fn base_layer_files(&self, name: [u32; 5]) -> io::Result<BaseLayerFiles<Self::File>> {
         let filenames = vec![
             FILENAMES.node_dictionary_blocks,
@@ -1396,7 +1412,7 @@ pub fn bytes_to_name(bytes: &[u8]) -> Result<[u32; 5], std::io::Error> {
     if bytes.len() != 40 {
         Err(io::Error::new(io::ErrorKind::Other, "bytes not len 40"))
     } else {
-        let string = String::from_utf8_lossy(&bytes);
+        let string = String::from_utf8_lossy(bytes);
 
         string_to_name(&string)
     }
@@ -1571,19 +1587,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
     }
 
     async fn get_layer_parent_name(&self, name: [u32; 5]) -> io::Result<Option<[u32; 5]>> {
-        if self.directory_exists(name).await? {
-            if self.layer_has_parent(name).await? {
-                let parent = self.read_parent_file(name).await?;
-                Ok(Some(parent))
-            } else {
-                Ok(None)
-            }
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                "parent layer not found",
-            ))
-        }
+        self.layer_parent(name).await
     }
 
     async fn get_node_dictionary(&self, name: [u32; 5]) -> io::Result<Option<StringDict>> {
