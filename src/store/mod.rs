@@ -1066,19 +1066,25 @@ mod tests {
             .remove_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
             .unwrap();
 
-        builder2.remove_value_triple(ValueTriple::new_node("cow", "likes", "horse"))
+        builder2
+            .remove_value_triple(ValueTriple::new_node("cow", "likes", "horse"))
             .unwrap();
 
-        builder2.add_value_triple(ValueTriple::new_node("bunny", "likes", "cow"))
+        builder2
+            .add_value_triple(ValueTriple::new_node("bunny", "likes", "cow"))
             .unwrap();
 
-        builder2.add_value_triple(ValueTriple::new_node("cow", "likes", "duck"))
+        builder2
+            .add_value_triple(ValueTriple::new_node("cow", "likes", "duck"))
             .unwrap();
 
         let layer2 = builder2.commit().await.unwrap();
 
         let new = layer2.squash().await.unwrap();
-        let triples: Vec<_> = new.triples().map(|t|new.id_triple_to_string(&t).unwrap()).collect();
+        let triples: Vec<_> = new
+            .triples()
+            .map(|t| new.id_triple_to_string(&t).unwrap())
+            .collect();
         assert_eq!(
             vec![
                 ValueTriple::new_node("bunny", "likes", "cow"),
@@ -1086,7 +1092,8 @@ mod tests {
                 ValueTriple::new_node("cow", "likes", "duck"),
                 ValueTriple::new_string_value("dog", "says", "woof"),
             ],
-            triples);
+            triples
+        );
 
         assert!(new.parent().await.unwrap().is_none());
     }
@@ -1108,54 +1115,90 @@ mod tests {
         let base_layer = builder.commit().await.unwrap();
 
         let builder = base_layer.open_write().await.unwrap();
-        builder.add_value_triple(ValueTriple::new_node("bunny", "likes", "cow")).unwrap();
-        builder.add_value_triple(ValueTriple::new_string_value("bunny", "says", "neigh")).unwrap();
-        builder.add_value_triple(ValueTriple::new_node("duck", "likes", "cow")).unwrap();
-        builder.add_value_triple(ValueTriple::new_string_value("duck", "says", "quack")).unwrap();
-        builder.remove_value_triple(ValueTriple::new_string_value("cow", "says", "quack")).unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("bunny", "likes", "cow"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("bunny", "says", "neigh"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("duck", "likes", "cow"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"))
+            .unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_string_value("cow", "says", "quack"))
+            .unwrap();
 
         let intermediate_layer = builder.commit().await.unwrap();
         let builder = intermediate_layer.open_write().await.unwrap();
-        builder.remove_value_triple(ValueTriple::new_node("cow", "hates", "duck")).unwrap();
-        builder.remove_value_triple(ValueTriple::new_string_value("bunny", "says", "neigh")).unwrap();
-        builder.add_value_triple(ValueTriple::new_node("cow", "likes", "duck")).unwrap();
-        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo")).unwrap();
-        builder.add_value_triple(ValueTriple::new_string_value("bunny", "says", "sniff")).unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_node("cow", "hates", "duck"))
+            .unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_string_value("bunny", "says", "neigh"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("cow", "likes", "duck"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("bunny", "says", "sniff"))
+            .unwrap();
         let final_layer = builder.commit().await.unwrap();
 
         let squashed_layer = final_layer.squash_upto(&base_layer).await.unwrap();
         assert_eq!(squashed_layer.parent_name().unwrap(), base_layer.name());
-        let additions: Vec<_> = squashed_layer.triple_additions().await.unwrap()
-            .map(|t|squashed_layer.id_triple_to_string(&t).unwrap())
-            .collect();
-        assert_eq!(vec![
-            ValueTriple::new_node("cow", "likes", "duck"),
-            ValueTriple::new_string_value("cow", "says", "moo"),
-            ValueTriple::new_node("duck", "likes", "cow"),
-            ValueTriple::new_string_value("duck", "says", "quack"),
-            ValueTriple::new_node("bunny", "likes", "cow"),
-            ValueTriple::new_string_value("bunny", "says", "sniff"),
-            ], additions);
-        let removals: Vec<_> = squashed_layer.triple_removals().await.unwrap()
-            .map(|t|squashed_layer.id_triple_to_string(&t).unwrap())
-            .collect();
-        assert_eq!(vec![
-            ValueTriple::new_node("cow", "hates", "duck"),
-            ValueTriple::new_string_value("cow", "says", "quack"),
-            ], removals);
-
-        let all_triples: Vec<_> = squashed_layer.triples()
+        let additions: Vec<_> = squashed_layer
+            .triple_additions()
+            .await
+            .unwrap()
             .map(|t| squashed_layer.id_triple_to_string(&t).unwrap())
             .collect();
-        assert_eq!(vec![
-            ValueTriple::new_node("cow", "likes", "duck"),
-            ValueTriple::new_node("cow", "likes", "horse"),
-            ValueTriple::new_string_value("cow", "says", "moo"),
-            ValueTriple::new_node("duck", "likes", "cow"),
-            ValueTriple::new_string_value("duck", "says", "quack"),
-            ValueTriple::new_node("bunny", "likes", "cow"),
-            ValueTriple::new_string_value("bunny", "says", "sniff"),
-            ], all_triples);
+        assert_eq!(
+            vec![
+                ValueTriple::new_node("cow", "likes", "duck"),
+                ValueTriple::new_string_value("cow", "says", "moo"),
+                ValueTriple::new_node("duck", "likes", "cow"),
+                ValueTriple::new_string_value("duck", "says", "quack"),
+                ValueTriple::new_node("bunny", "likes", "cow"),
+                ValueTriple::new_string_value("bunny", "says", "sniff"),
+            ],
+            additions
+        );
+        let removals: Vec<_> = squashed_layer
+            .triple_removals()
+            .await
+            .unwrap()
+            .map(|t| squashed_layer.id_triple_to_string(&t).unwrap())
+            .collect();
+        assert_eq!(
+            vec![
+                ValueTriple::new_node("cow", "hates", "duck"),
+                ValueTriple::new_string_value("cow", "says", "quack"),
+            ],
+            removals
+        );
+
+        let all_triples: Vec<_> = squashed_layer
+            .triples()
+            .map(|t| squashed_layer.id_triple_to_string(&t).unwrap())
+            .collect();
+        assert_eq!(
+            vec![
+                ValueTriple::new_node("cow", "likes", "duck"),
+                ValueTriple::new_node("cow", "likes", "horse"),
+                ValueTriple::new_string_value("cow", "says", "moo"),
+                ValueTriple::new_node("duck", "likes", "cow"),
+                ValueTriple::new_string_value("duck", "says", "quack"),
+                ValueTriple::new_node("bunny", "likes", "cow"),
+                ValueTriple::new_string_value("bunny", "says", "sniff"),
+            ],
+            all_triples
+        );
     }
 
     #[tokio::test]
@@ -1175,38 +1218,66 @@ mod tests {
         let base_layer = builder.commit().await.unwrap();
 
         let builder = base_layer.open_write().await.unwrap();
-        builder.add_value_triple(ValueTriple::new_node("bunny", "likes", "cow")).unwrap();
-        builder.add_value_triple(ValueTriple::new_string_value("bunny", "says", "neigh")).unwrap();
-        builder.add_value_triple(ValueTriple::new_node("duck", "likes", "cow")).unwrap();
-        builder.add_value_triple(ValueTriple::new_string_value("duck", "says", "quack")).unwrap();
-        builder.remove_value_triple(ValueTriple::new_string_value("cow", "says", "quack")).unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("bunny", "likes", "cow"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("bunny", "says", "neigh"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("duck", "likes", "cow"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"))
+            .unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_string_value("cow", "says", "quack"))
+            .unwrap();
 
         let intermediate_layer = builder.commit().await.unwrap();
         let builder = intermediate_layer.open_write().await.unwrap();
-        builder.remove_value_triple(ValueTriple::new_node("cow", "hates", "duck")).unwrap();
-        builder.remove_value_triple(ValueTriple::new_string_value("bunny", "says", "neigh")).unwrap();
-        builder.add_value_triple(ValueTriple::new_node("cow", "likes", "duck")).unwrap();
-        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo")).unwrap();
-        builder.add_value_triple(ValueTriple::new_string_value("bunny", "says", "sniff")).unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_node("cow", "hates", "duck"))
+            .unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_string_value("bunny", "says", "neigh"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("cow", "likes", "duck"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("bunny", "says", "sniff"))
+            .unwrap();
         let final_layer = builder.commit().await.unwrap();
         final_layer.rollup_upto(&base_layer).await.unwrap();
-        let final_rolled_layer = store.get_layer_from_id(final_layer.name()).await.unwrap().unwrap();
+        let final_rolled_layer = store
+            .get_layer_from_id(final_layer.name())
+            .await
+            .unwrap()
+            .unwrap();
 
         let squashed_layer = final_rolled_layer.squash().await.unwrap();
         assert!(squashed_layer.parent_name().is_none());
 
-        let all_triples: Vec<_> = squashed_layer.triples()
+        let all_triples: Vec<_> = squashed_layer
+            .triples()
             .map(|t| squashed_layer.id_triple_to_string(&t).unwrap())
             .collect();
-        assert_eq!(vec![
-            ValueTriple::new_node("bunny", "likes", "cow"),
-            ValueTriple::new_string_value("bunny", "says", "sniff"),
-            ValueTriple::new_node("cow", "likes", "duck"),
-            ValueTriple::new_node("cow", "likes", "horse"),
-            ValueTriple::new_string_value("cow", "says", "moo"),
-            ValueTriple::new_node("duck", "likes", "cow"),
-            ValueTriple::new_string_value("duck", "says", "quack"),
-            ], all_triples);
+        assert_eq!(
+            vec![
+                ValueTriple::new_node("bunny", "likes", "cow"),
+                ValueTriple::new_string_value("bunny", "says", "sniff"),
+                ValueTriple::new_node("cow", "likes", "duck"),
+                ValueTriple::new_node("cow", "likes", "horse"),
+                ValueTriple::new_string_value("cow", "says", "moo"),
+                ValueTriple::new_node("duck", "likes", "cow"),
+                ValueTriple::new_string_value("duck", "says", "quack"),
+            ],
+            all_triples
+        );
     }
 
     #[tokio::test]
@@ -1226,56 +1297,96 @@ mod tests {
         let base_layer = builder.commit().await.unwrap();
 
         let builder = base_layer.open_write().await.unwrap();
-        builder.add_value_triple(ValueTriple::new_node("bunny", "likes", "cow")).unwrap();
-        builder.add_value_triple(ValueTriple::new_string_value("bunny", "says", "neigh")).unwrap();
-        builder.add_value_triple(ValueTriple::new_node("duck", "likes", "cow")).unwrap();
-        builder.add_value_triple(ValueTriple::new_string_value("duck", "says", "quack")).unwrap();
-        builder.remove_value_triple(ValueTriple::new_string_value("cow", "says", "quack")).unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("bunny", "likes", "cow"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("bunny", "says", "neigh"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("duck", "likes", "cow"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"))
+            .unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_string_value("cow", "says", "quack"))
+            .unwrap();
 
         let intermediate_layer = builder.commit().await.unwrap();
         let builder = intermediate_layer.open_write().await.unwrap();
-        builder.remove_value_triple(ValueTriple::new_node("cow", "hates", "duck")).unwrap();
-        builder.remove_value_triple(ValueTriple::new_string_value("bunny", "says", "neigh")).unwrap();
-        builder.add_value_triple(ValueTriple::new_node("cow", "likes", "duck")).unwrap();
-        builder.add_value_triple(ValueTriple::new_string_value("cow", "says", "moo")).unwrap();
-        builder.add_value_triple(ValueTriple::new_string_value("bunny", "says", "sniff")).unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_node("cow", "hates", "duck"))
+            .unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_string_value("bunny", "says", "neigh"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("cow", "likes", "duck"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("bunny", "says", "sniff"))
+            .unwrap();
         let final_layer = builder.commit().await.unwrap();
         final_layer.rollup_upto(&base_layer).await.unwrap();
-        let final_rolled_layer = store.get_layer_from_id(final_layer.name()).await.unwrap().unwrap();
+        let final_rolled_layer = store
+            .get_layer_from_id(final_layer.name())
+            .await
+            .unwrap()
+            .unwrap();
 
         let squashed_layer = final_rolled_layer.squash_upto(&base_layer).await.unwrap();
         assert_eq!(squashed_layer.parent_name().unwrap(), base_layer.name());
-        let additions: Vec<_> = squashed_layer.triple_additions().await.unwrap()
-            .map(|t|squashed_layer.id_triple_to_string(&t).unwrap())
-            .collect();
-        assert_eq!(vec![
-            ValueTriple::new_node("cow", "likes", "duck"),
-            ValueTriple::new_string_value("cow", "says", "moo"),
-            ValueTriple::new_node("duck", "likes", "cow"),
-            ValueTriple::new_string_value("duck", "says", "quack"),
-            ValueTriple::new_node("bunny", "likes", "cow"),
-            ValueTriple::new_string_value("bunny", "says", "sniff"),
-            ], additions);
-        let removals: Vec<_> = squashed_layer.triple_removals().await.unwrap()
-            .map(|t|squashed_layer.id_triple_to_string(&t).unwrap())
-            .collect();
-        assert_eq!(vec![
-            ValueTriple::new_node("cow", "hates", "duck"),
-            ValueTriple::new_string_value("cow", "says", "quack"),
-            ], removals);
-
-        let all_triples: Vec<_> = squashed_layer.triples()
+        let additions: Vec<_> = squashed_layer
+            .triple_additions()
+            .await
+            .unwrap()
             .map(|t| squashed_layer.id_triple_to_string(&t).unwrap())
             .collect();
-        assert_eq!(vec![
-            ValueTriple::new_node("cow", "likes", "duck"),
-            ValueTriple::new_node("cow", "likes", "horse"),
-            ValueTriple::new_string_value("cow", "says", "moo"),
-            ValueTriple::new_node("duck", "likes", "cow"),
-            ValueTriple::new_string_value("duck", "says", "quack"),
-            ValueTriple::new_node("bunny", "likes", "cow"),
-            ValueTriple::new_string_value("bunny", "says", "sniff"),
-            ], all_triples);
+        assert_eq!(
+            vec![
+                ValueTriple::new_node("cow", "likes", "duck"),
+                ValueTriple::new_string_value("cow", "says", "moo"),
+                ValueTriple::new_node("duck", "likes", "cow"),
+                ValueTriple::new_string_value("duck", "says", "quack"),
+                ValueTriple::new_node("bunny", "likes", "cow"),
+                ValueTriple::new_string_value("bunny", "says", "sniff"),
+            ],
+            additions
+        );
+        let removals: Vec<_> = squashed_layer
+            .triple_removals()
+            .await
+            .unwrap()
+            .map(|t| squashed_layer.id_triple_to_string(&t).unwrap())
+            .collect();
+        assert_eq!(
+            vec![
+                ValueTriple::new_node("cow", "hates", "duck"),
+                ValueTriple::new_string_value("cow", "says", "quack"),
+            ],
+            removals
+        );
+
+        let all_triples: Vec<_> = squashed_layer
+            .triples()
+            .map(|t| squashed_layer.id_triple_to_string(&t).unwrap())
+            .collect();
+        assert_eq!(
+            vec![
+                ValueTriple::new_node("cow", "likes", "duck"),
+                ValueTriple::new_node("cow", "likes", "horse"),
+                ValueTriple::new_string_value("cow", "says", "moo"),
+                ValueTriple::new_node("duck", "likes", "cow"),
+                ValueTriple::new_string_value("duck", "says", "quack"),
+                ValueTriple::new_node("bunny", "likes", "cow"),
+                ValueTriple::new_string_value("bunny", "says", "sniff"),
+            ],
+            all_triples
+        );
     }
 
     #[tokio::test]

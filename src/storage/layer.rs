@@ -1858,8 +1858,10 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             values.extend(layer.value_dictionary().iter().enumerate().map(|(i, x)| {
                 (
                     x,
-                    layer.node_value_id_map().inner_to_outer(i as u64 + layer.node_dict_len() as u64 + 1)
-                        + node_value_count
+                    layer
+                        .node_value_id_map()
+                        .inner_to_outer(i as u64 + layer.node_dict_len() as u64 + 1)
+                        + node_value_count,
                 )
             }));
             node_value_count += (layer.node_dict_len() + layer.value_dict_len()) as u64;
