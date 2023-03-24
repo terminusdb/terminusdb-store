@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1679664016263,
+  "lastUpdate": 1679666564772,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -16871,6 +16871,126 @@ window.BENCHMARK_DATA = {
             "name": "logarray_w5_empty",
             "value": 423,
             "range": "± 18",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "matthijs@terminusdb.com",
+            "name": "Matthijs van Otterdijk",
+            "username": "matko"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a66600996c329007a81a6197f2ea02ee81e71c8e",
+          "message": "Squash and squash_upto implemented more lowlevel (#129)\n\n* starting to implement squash upto\r\n\r\n* reimplement squash to use internal builders\r\n\r\n* untested squash_upto\r\n\r\n* working rollup upto\r\n\r\n* sort triples before squashing them\r\n\r\n* fix squashes of rollup values + tests\r\n\r\n* also fix rollup squash in squash_upto\r\n\r\n* reformat\r\n\r\n---------\r\n\r\nCo-authored-by: Gavin Mendel-Gleason <gavin@terminusdb.com>",
+          "timestamp": "2023-03-24T14:55:37+01:00",
+          "tree_id": "729c29aee33d27e8137d5fa75e47661df116dc2a",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/a66600996c329007a81a6197f2ea02ee81e71c8e"
+        },
+        "date": 1679666563997,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 311,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 20131851,
+            "range": "± 1912483",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 13694728,
+            "range": "± 2161066",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 18668616,
+            "range": "± 3890417",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 24259706,
+            "range": "± 2151769",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 23473053,
+            "range": "± 4261356",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w10_1000",
+            "value": 9889,
+            "range": "± 194",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1",
+            "value": 416,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10",
+            "value": 483,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_100",
+            "value": 1391,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1000",
+            "value": 9381,
+            "range": "± 121",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000",
+            "value": 92720,
+            "range": "± 2667",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_as_stream",
+            "value": 101899,
+            "range": "± 1536",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent",
+            "value": 697735,
+            "range": "± 193800",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent_as_stream",
+            "value": 703046,
+            "range": "± 122469",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_empty",
+            "value": 361,
+            "range": "± 1",
             "unit": "ns/iter"
           }
         ]
