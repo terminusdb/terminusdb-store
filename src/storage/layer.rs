@@ -1971,7 +1971,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                         node_value_id_map
                             .as_ref()
                             .map(|m| {
-                                m.inner_to_outer(i as u64 + 1) + node_value_count + node_dict_len
+                                m.inner_to_outer(i as u64 + node_dict_len + 1) + node_value_count
                             })
                             .unwrap_or(i as u64 + node_value_count + node_dict_len + 1),
                     )
