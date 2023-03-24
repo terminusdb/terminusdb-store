@@ -597,8 +597,12 @@ pub fn open_sync_directory_store<P: Into<PathBuf>>(path: P) -> SyncStore {
 }
 
 /// Open a store that stores its data in the given directory as archive files.
-pub fn open_sync_archive_store<P: Into<PathBuf>>(path: P) -> SyncStore {
-    SyncStore::wrap(open_archive_store(path))
+///
+/// cache_size specifies in megabytes how large the LRU cache should
+/// be. Loaded layers will stick around in the LRU cache to speed up
+/// subsequent loads.
+pub fn open_sync_archive_store<P: Into<PathBuf>>(path: P, cache_size: usize) -> SyncStore {
+    SyncStore::wrap(open_archive_store(path, cache_size))
 }
 
 #[cfg(test)]

@@ -7,7 +7,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use crate::layer::{IdTriple, Layer, LayerBuilder, LayerCounts, ObjectType, ValueTriple};
-use crate::storage::archive::ArchiveLayerStore;
+use crate::storage::archive::{
+    ArchiveLayerStore, DirectoryArchiveBackend, LruArchiveBackend, LruMetadataArchiveBackend,
+};
 use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore};
 use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
 use crate::storage::{CachedLayerStore, LabelStore, LayerStore, LockingHashMapLayerCache};
@@ -886,11 +888,23 @@ pub fn open_memory_store() -> Store {
     )
 }
 
-pub fn open_archive_store<P: Into<PathBuf>>(path: P) -> Store {
+/// Open a store that stores its data in the given directory as archive files.
+///
+/// cache_size specifies in megabytes how large the LRU cache should
+/// be. Loaded layers will stick around in the LRU cache to speed up
+/// subsequent loads.
+pub fn open_archive_store<P: Into<PathBuf>>(path: P, cache_size: usize) -> Store {
     let p = path.into();
+    let directory_archive_backend = DirectoryArchiveBackend::new(p.clone());
+    let archive_backend = LruArchiveBackend::new(directory_archive_backend.clone(), cache_size);
+    let archive_metadata_backend =
+        LruMetadataArchiveBackend::new(directory_archive_backend, archive_backend.clone());
     Store::new(
-        DirectoryLabelStore::new(p.clone()),
-        CachedLayerStore::new(ArchiveLayerStore::new(p), LockingHashMapLayerCache::new()),
+        DirectoryLabelStore::new(p),
+        CachedLayerStore::new(
+            ArchiveLayerStore::new(archive_metadata_backend, archive_backend),
+            LockingHashMapLayerCache::new(),
+        ),
     )
 }
 
