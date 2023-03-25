@@ -219,7 +219,7 @@ impl ExclusiveLockedFile {
 
     pub async fn sync_all(&mut self) -> io::Result<()> {
         let file = self.file.as_mut().expect("tried to sync a dropped file");
-        file.sync_all().await
+        file.sync_data().await
     }
 }
 

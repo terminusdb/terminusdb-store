@@ -142,6 +142,12 @@ impl SyncStoreLayer {
         inner.map(|p| p.map(|p| SyncStoreLayer { inner: p }))
     }
 
+    pub fn squash_upto(&self, upto: &SyncStoreLayer) -> Result<SyncStoreLayer, io::Error> {
+        let inner = task_sync(self.inner.clone().squash_upto(&upto.inner));
+
+        inner.map(SyncStoreLayer::wrap)
+    }
+
     /// Create a new base layer consisting of all triples in this layer, as well as all its ancestors.
     ///
     /// It is a good idea to keep layer stacks small, meaning, to only
@@ -538,6 +544,11 @@ impl SyncStore {
         task_sync(self.inner.delete(label))
     }
 
+    /// Return list of names of all existing databases.
+    pub fn labels(&self) -> Result<Vec<String>, io::Error> {
+        task_sync(self.inner.labels())
+    }
+
     /// Retrieve a layer with the given name from the layer store this Store was initialized with.
     pub fn get_layer_from_id(
         &self,
@@ -592,8 +603,12 @@ pub fn open_sync_directory_store<P: Into<PathBuf>>(path: P) -> SyncStore {
 }
 
 /// Open a store that stores its data in the given directory as archive files.
-pub fn open_sync_archive_store<P: Into<PathBuf>>(path: P) -> SyncStore {
-    SyncStore::wrap(open_archive_store(path))
+///
+/// cache_size specifies in megabytes how large the LRU cache should
+/// be. Loaded layers will stick around in the LRU cache to speed up
+/// subsequent loads.
+pub fn open_sync_archive_store<P: Into<PathBuf>>(path: P, cache_size: usize) -> SyncStore {
+    SyncStore::wrap(open_archive_store(path, cache_size))
 }
 
 #[cfg(test)]

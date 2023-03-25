@@ -140,6 +140,39 @@ impl LogArrayError {
 
         Ok(())
     }
+
+    /// Validate the number of elements and bit width against the input buffer size.
+    ///
+    /// The bit width should no greater than 64 since each word is 64 bits.
+    ///
+    /// The input buffer size should be at least the appropriate
+    /// multiple of 8 to include the exact number of encoded elements
+    /// plus the control word. It is allowed to be larger.
+    fn validate_len_and_width_trailing(
+        input_buf_size: usize,
+        len: u32,
+        width: u8,
+    ) -> Result<(), Self> {
+        if width > 64 {
+            return Err(LogArrayError::WidthTooLarge(width));
+        }
+
+        // Calculate the expected input buffer size. This includes the control word.
+        // To avoid overflow, convert `len: u32` to `u64` and do the addition in `u64`.
+        let expected_buf_size = u64::from(len) * u64::from(width) + 127 >> 6 << 3;
+        let input_buf_size = u64::try_from(input_buf_size).unwrap();
+
+        if input_buf_size < expected_buf_size {
+            return Err(LogArrayError::UnexpectedInputBufferSize(
+                input_buf_size,
+                expected_buf_size,
+                len,
+                width,
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 impl fmt::Display for LogArrayError {
@@ -197,6 +230,18 @@ fn read_control_word(buf: &[u8], input_buf_size: usize) -> Result<(u32, u8), Log
     Ok((len, width))
 }
 
+/// Read the length and bit width from the control word buffer. `buf` must start at the first word
+/// after the data buffer. `input_buf_size` is used for validation, where it is allowed to be larger than expected.
+fn read_control_word_trailing(
+    buf: &[u8],
+    input_buf_size: usize,
+) -> Result<(u32, u8), LogArrayError> {
+    let len = BigEndian::read_u32(buf);
+    let width = buf[4];
+    LogArrayError::validate_len_and_width_trailing(input_buf_size, len, width)?;
+    Ok((len, width))
+}
+
 fn logarray_length_from_len_width(len: u32, width: u8) -> usize {
     let num_bits = width as usize * len as usize;
     let num_u64 = num_bits / 64 + (usize::from(num_bits % 64 != 0));
@@ -227,7 +272,7 @@ impl LogArray {
     pub fn parse_header_first(mut input_buf: Bytes) -> Result<(LogArray, Bytes), LogArrayError> {
         let input_buf_size = input_buf.len();
         LogArrayError::validate_input_buf_size(input_buf_size)?;
-        let (len, width) = read_control_word(&input_buf[..8], input_buf_size)?;
+        let (len, width) = read_control_word_trailing(&input_buf[..8], input_buf_size)?;
         let num_bytes = logarray_length_from_len_width(len, width);
         input_buf.advance(8);
         let rest = input_buf.split_off(num_bytes);

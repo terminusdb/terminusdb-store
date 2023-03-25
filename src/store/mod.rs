@@ -7,7 +7,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use crate::layer::{IdTriple, Layer, LayerBuilder, LayerCounts, ObjectType, ValueTriple};
-use crate::storage::archive::ArchiveLayerStore;
+use crate::storage::archive::{
+    ArchiveLayerStore, DirectoryArchiveBackend, LruArchiveBackend, LruMetadataArchiveBackend,
+};
 use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore};
 use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
 use crate::storage::{CachedLayerStore, LabelStore, LayerStore, LockingHashMapLayerCache};
@@ -272,6 +274,22 @@ impl StoreLayer {
         }
     }
 
+    pub async fn squash_upto(&self, upto: &StoreLayer) -> io::Result<StoreLayer> {
+        let layer_opt = self.store.layer_store.get_layer(self.name()).await?;
+        let layer =
+            layer_opt.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "layer not found"))?;
+        let name = self
+            .store
+            .layer_store
+            .squash_upto(layer, upto.name())
+            .await?;
+        Ok(self
+            .store
+            .get_layer_from_id(name)
+            .await?
+            .expect("layer that was just created doesn't exist"))
+    }
+
     /// Create a new base layer consisting of all triples in this layer, as well as all its ancestors.
     ///
     /// It is a good idea to keep layer stacks small, meaning, to only
@@ -281,14 +299,15 @@ impl StoreLayer {
     /// option if you do not care for history, as it throws away all
     /// data that you no longer need.
     pub async fn squash(&self) -> io::Result<StoreLayer> {
-        // TODO check if we already committed
-        let new_builder = self.store.create_base_layer().await?;
-        self.triples().par_bridge().for_each(|t| {
-            let st = self.id_triple_to_string(&t).unwrap();
-            new_builder.add_value_triple(st).unwrap()
-        });
-
-        new_builder.commit().await
+        let layer_opt = self.store.layer_store.get_layer(self.name()).await?;
+        let layer =
+            layer_opt.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "layer not found"))?;
+        let name = self.store.layer_store.squash(layer).await?;
+        Ok(self
+            .store
+            .get_layer_from_id(name)
+            .await?
+            .expect("layer that was just created doesn't exist"))
     }
 
     /// Create a new rollup layer which rolls up all triples in this layer, as well as all its ancestors.
@@ -833,6 +852,12 @@ impl Store {
         self.label_store.delete_label(label).await
     }
 
+    /// Return list of names of all existing databases.
+    pub async fn labels(&self) -> io::Result<Vec<String>> {
+        let labels = self.label_store.labels().await?;
+        Ok(labels.iter().map(|label| label.name.to_string()).collect())
+    }
+
     /// Retrieve a layer with the given name from the layer store this Store was initialized with.
     pub async fn get_layer_from_id(&self, layer: [u32; 5]) -> io::Result<Option<StoreLayer>> {
         let layer = self.layer_store.get_layer(layer).await?;
@@ -878,11 +903,23 @@ pub fn open_memory_store() -> Store {
     )
 }
 
-pub fn open_archive_store<P: Into<PathBuf>>(path: P) -> Store {
+/// Open a store that stores its data in the given directory as archive files.
+///
+/// cache_size specifies in megabytes how large the LRU cache should
+/// be. Loaded layers will stick around in the LRU cache to speed up
+/// subsequent loads.
+pub fn open_archive_store<P: Into<PathBuf>>(path: P, cache_size: usize) -> Store {
     let p = path.into();
+    let directory_archive_backend = DirectoryArchiveBackend::new(p.clone());
+    let archive_backend = LruArchiveBackend::new(directory_archive_backend.clone(), cache_size);
+    let archive_metadata_backend =
+        LruMetadataArchiveBackend::new(directory_archive_backend, archive_backend.clone());
     Store::new(
-        DirectoryLabelStore::new(p.clone()),
-        CachedLayerStore::new(ArchiveLayerStore::new(p), LockingHashMapLayerCache::new()),
+        DirectoryLabelStore::new(p),
+        CachedLayerStore::new(
+            ArchiveLayerStore::new(archive_metadata_backend, archive_backend),
+            LockingHashMapLayerCache::new(),
+        ),
     )
 }
 
@@ -1018,6 +1055,12 @@ mod tests {
         builder
             .add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
             .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("cow", "likes", "duck"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("cow", "likes", "horse"))
+            .unwrap();
 
         let layer = builder.commit().await.unwrap();
 
@@ -1027,13 +1070,335 @@ mod tests {
             .add_value_triple(ValueTriple::new_string_value("dog", "says", "woof"))
             .unwrap();
 
+        builder2
+            .add_value_triple(ValueTriple::new_string_value("bunny", "says", "sniff"))
+            .unwrap();
+
+        builder2
+            .remove_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
+            .unwrap();
+
+        builder2
+            .remove_value_triple(ValueTriple::new_node("cow", "likes", "horse"))
+            .unwrap();
+
+        builder2
+            .add_value_triple(ValueTriple::new_node("bunny", "likes", "cow"))
+            .unwrap();
+
+        builder2
+            .add_value_triple(ValueTriple::new_node("cow", "likes", "duck"))
+            .unwrap();
+
         let layer2 = builder2.commit().await.unwrap();
 
         let new = layer2.squash().await.unwrap();
+        let triples: Vec<_> = new
+            .triples()
+            .map(|t| new.id_triple_to_string(&t).unwrap())
+            .collect();
+        assert_eq!(
+            vec![
+                ValueTriple::new_node("bunny", "likes", "cow"),
+                ValueTriple::new_string_value("bunny", "says", "sniff"),
+                ValueTriple::new_node("cow", "likes", "duck"),
+                ValueTriple::new_string_value("dog", "says", "woof"),
+            ],
+            triples
+        );
 
-        assert!(new.value_triple_exists(&ValueTriple::new_string_value("cow", "says", "moo")));
-        assert!(new.value_triple_exists(&ValueTriple::new_string_value("dog", "says", "woof")));
         assert!(new.parent().await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn create_three_layers_and_squash_last_two() {
+        let store = open_memory_store();
+        let builder = store.create_base_layer().await.unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("cow", "says", "quack"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("cow", "hates", "duck"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("cow", "likes", "horse"))
+            .unwrap();
+
+        let base_layer = builder.commit().await.unwrap();
+
+        let builder = base_layer.open_write().await.unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("bunny", "likes", "cow"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("bunny", "says", "neigh"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("duck", "likes", "cow"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"))
+            .unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_string_value("cow", "says", "quack"))
+            .unwrap();
+
+        let intermediate_layer = builder.commit().await.unwrap();
+        let builder = intermediate_layer.open_write().await.unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_node("cow", "hates", "duck"))
+            .unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_string_value("bunny", "says", "neigh"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("cow", "likes", "duck"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("bunny", "says", "sniff"))
+            .unwrap();
+        let final_layer = builder.commit().await.unwrap();
+
+        let squashed_layer = final_layer.squash_upto(&base_layer).await.unwrap();
+        assert_eq!(squashed_layer.parent_name().unwrap(), base_layer.name());
+        let additions: Vec<_> = squashed_layer
+            .triple_additions()
+            .await
+            .unwrap()
+            .map(|t| squashed_layer.id_triple_to_string(&t).unwrap())
+            .collect();
+        assert_eq!(
+            vec![
+                ValueTriple::new_node("cow", "likes", "duck"),
+                ValueTriple::new_string_value("cow", "says", "moo"),
+                ValueTriple::new_node("duck", "likes", "cow"),
+                ValueTriple::new_string_value("duck", "says", "quack"),
+                ValueTriple::new_node("bunny", "likes", "cow"),
+                ValueTriple::new_string_value("bunny", "says", "sniff"),
+            ],
+            additions
+        );
+        let removals: Vec<_> = squashed_layer
+            .triple_removals()
+            .await
+            .unwrap()
+            .map(|t| squashed_layer.id_triple_to_string(&t).unwrap())
+            .collect();
+        assert_eq!(
+            vec![
+                ValueTriple::new_node("cow", "hates", "duck"),
+                ValueTriple::new_string_value("cow", "says", "quack"),
+            ],
+            removals
+        );
+
+        let all_triples: Vec<_> = squashed_layer
+            .triples()
+            .map(|t| squashed_layer.id_triple_to_string(&t).unwrap())
+            .collect();
+        assert_eq!(
+            vec![
+                ValueTriple::new_node("cow", "likes", "duck"),
+                ValueTriple::new_node("cow", "likes", "horse"),
+                ValueTriple::new_string_value("cow", "says", "moo"),
+                ValueTriple::new_node("duck", "likes", "cow"),
+                ValueTriple::new_string_value("duck", "says", "quack"),
+                ValueTriple::new_node("bunny", "likes", "cow"),
+                ValueTriple::new_string_value("bunny", "says", "sniff"),
+            ],
+            all_triples
+        );
+    }
+
+    #[tokio::test]
+    async fn create_three_layers_and_squash_all_after_rollup() {
+        let store = open_memory_store();
+        let builder = store.create_base_layer().await.unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("cow", "says", "quack"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("cow", "hates", "duck"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("cow", "likes", "horse"))
+            .unwrap();
+
+        let base_layer = builder.commit().await.unwrap();
+
+        let builder = base_layer.open_write().await.unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("bunny", "likes", "cow"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("bunny", "says", "neigh"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("duck", "likes", "cow"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"))
+            .unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_string_value("cow", "says", "quack"))
+            .unwrap();
+
+        let intermediate_layer = builder.commit().await.unwrap();
+        let builder = intermediate_layer.open_write().await.unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_node("cow", "hates", "duck"))
+            .unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_string_value("bunny", "says", "neigh"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("cow", "likes", "duck"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("bunny", "says", "sniff"))
+            .unwrap();
+        let final_layer = builder.commit().await.unwrap();
+        final_layer.rollup_upto(&base_layer).await.unwrap();
+        let final_rolled_layer = store
+            .get_layer_from_id(final_layer.name())
+            .await
+            .unwrap()
+            .unwrap();
+
+        let squashed_layer = final_rolled_layer.squash().await.unwrap();
+        assert!(squashed_layer.parent_name().is_none());
+
+        let all_triples: Vec<_> = squashed_layer
+            .triples()
+            .map(|t| squashed_layer.id_triple_to_string(&t).unwrap())
+            .collect();
+        assert_eq!(
+            vec![
+                ValueTriple::new_node("bunny", "likes", "cow"),
+                ValueTriple::new_string_value("bunny", "says", "sniff"),
+                ValueTriple::new_node("cow", "likes", "duck"),
+                ValueTriple::new_node("cow", "likes", "horse"),
+                ValueTriple::new_string_value("cow", "says", "moo"),
+                ValueTriple::new_node("duck", "likes", "cow"),
+                ValueTriple::new_string_value("duck", "says", "quack"),
+            ],
+            all_triples
+        );
+    }
+
+    #[tokio::test]
+    async fn create_three_layers_and_squash_last_two_after_rollup() {
+        let store = open_memory_store();
+        let builder = store.create_base_layer().await.unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("cow", "says", "quack"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("cow", "hates", "duck"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("cow", "likes", "horse"))
+            .unwrap();
+
+        let base_layer = builder.commit().await.unwrap();
+
+        let builder = base_layer.open_write().await.unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("bunny", "likes", "cow"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("bunny", "says", "neigh"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("duck", "likes", "cow"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("duck", "says", "quack"))
+            .unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_string_value("cow", "says", "quack"))
+            .unwrap();
+
+        let intermediate_layer = builder.commit().await.unwrap();
+        let builder = intermediate_layer.open_write().await.unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_node("cow", "hates", "duck"))
+            .unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_string_value("bunny", "says", "neigh"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("cow", "likes", "duck"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("bunny", "says", "sniff"))
+            .unwrap();
+        let final_layer = builder.commit().await.unwrap();
+        final_layer.rollup_upto(&base_layer).await.unwrap();
+        let final_rolled_layer = store
+            .get_layer_from_id(final_layer.name())
+            .await
+            .unwrap()
+            .unwrap();
+
+        let squashed_layer = final_rolled_layer.squash_upto(&base_layer).await.unwrap();
+        assert_eq!(squashed_layer.parent_name().unwrap(), base_layer.name());
+        let additions: Vec<_> = squashed_layer
+            .triple_additions()
+            .await
+            .unwrap()
+            .map(|t| squashed_layer.id_triple_to_string(&t).unwrap())
+            .collect();
+        assert_eq!(
+            vec![
+                ValueTriple::new_node("cow", "likes", "duck"),
+                ValueTriple::new_string_value("cow", "says", "moo"),
+                ValueTriple::new_node("duck", "likes", "cow"),
+                ValueTriple::new_string_value("duck", "says", "quack"),
+                ValueTriple::new_node("bunny", "likes", "cow"),
+                ValueTriple::new_string_value("bunny", "says", "sniff"),
+            ],
+            additions
+        );
+        let removals: Vec<_> = squashed_layer
+            .triple_removals()
+            .await
+            .unwrap()
+            .map(|t| squashed_layer.id_triple_to_string(&t).unwrap())
+            .collect();
+        assert_eq!(
+            vec![
+                ValueTriple::new_node("cow", "hates", "duck"),
+                ValueTriple::new_string_value("cow", "says", "quack"),
+            ],
+            removals
+        );
+
+        let all_triples: Vec<_> = squashed_layer
+            .triples()
+            .map(|t| squashed_layer.id_triple_to_string(&t).unwrap())
+            .collect();
+        assert_eq!(
+            vec![
+                ValueTriple::new_node("cow", "likes", "duck"),
+                ValueTriple::new_node("cow", "likes", "horse"),
+                ValueTriple::new_string_value("cow", "says", "moo"),
+                ValueTriple::new_node("duck", "likes", "cow"),
+                ValueTriple::new_string_value("duck", "says", "quack"),
+                ValueTriple::new_node("bunny", "likes", "cow"),
+                ValueTriple::new_string_value("bunny", "says", "sniff"),
+            ],
+            all_triples
+        );
     }
 
     #[tokio::test]
@@ -1291,5 +1656,20 @@ mod tests {
         graph.delete().await.unwrap();
         store.create("foo").await.unwrap();
         assert!(graph.head().await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn list_databases() {
+        let dir = tempdir().unwrap();
+        let store = open_directory_store(dir.path());
+        assert!(store.labels().await.unwrap().is_empty());
+        let _ = store.create("foo").await.unwrap();
+        let one = vec!["foo".to_string()];
+        assert_eq!(store.labels().await.unwrap(), one);
+        let _ = store.create("bar").await.unwrap();
+        let two = vec!["bar".to_string(), "foo".to_string()];
+        let mut left = store.labels().await.unwrap();
+        left.sort();
+        assert_eq!(left, two);
     }
 }

@@ -2,10 +2,13 @@
 
 use bytes::{Bytes, BytesMut};
 use locking::*;
+use std::collections::HashMap;
 use std::io::{self, SeekFrom};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::fs::{self, *};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufWriter};
+use tokio::sync::RwLock;
 
 use async_trait::async_trait;
 
@@ -366,6 +369,156 @@ impl LabelStore for DirectoryLabelStore {
                 io::ErrorKind::NotFound => Ok(false),
                 _ => Err(e),
             },
+        }
+    }
+}
+
+/// A version of the directory label store that keeps all labels in
+/// memory and doesn't lock.
+///
+/// This is useful for situations where we can be sure that only one
+/// process is working with a set of label files. In that case, we can
+/// keep all label files cached in memory in order to process reads as
+/// quickly as possible, and we can perform writes without any sort of
+/// file system locking.
+pub struct CachedDirectoryLabelStore {
+    path: PathBuf,
+    labels: Arc<RwLock<HashMap<String, Label>>>,
+}
+
+impl CachedDirectoryLabelStore {
+    /// Open a new label store.
+    ///
+    /// This will read in all label files on startup, which is why
+    /// this is an async operation.
+    pub async fn open<P: Into<PathBuf>>(path: P) -> io::Result<Self> {
+        let path: PathBuf = path.into();
+        let labels = get_all_labels_from_dir(&path).await?;
+
+        Ok(Self {
+            path,
+            labels: Arc::new(RwLock::new(labels)),
+        })
+    }
+}
+
+async fn get_all_labels_from_dir(p: &PathBuf) -> io::Result<HashMap<String, Label>> {
+    let mut result = HashMap::new();
+    let mut entries = tokio::fs::read_dir(p).await?;
+
+    while let Some(entry) = entries.next_entry().await? {
+        if !entry.file_type().await?.is_file() {
+            continue;
+        }
+        if let Ok(file_name) = entry.file_name().into_string() {
+            if !file_name.ends_with(".label") {
+                continue;
+            }
+
+            let label_name = file_name[..file_name.len() - 6].to_string();
+            let label = get_label_from_file(entry.path()).await?;
+
+            result.insert(label_name, label);
+        }
+    }
+
+    Ok(result)
+}
+
+#[async_trait]
+impl LabelStore for CachedDirectoryLabelStore {
+    async fn labels(&self) -> io::Result<Vec<Label>> {
+        let labels = self.labels.read().await;
+        Ok(labels.values().cloned().collect())
+    }
+
+    async fn create_label(&self, label: &str) -> io::Result<Label> {
+        let mut labels = self.labels.write().await;
+        if labels.contains_key(label) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "database already exists",
+            ));
+        }
+
+        let mut p = self.path.clone();
+        p.push(format!("{}.label", label));
+        let contents = b"0\n\n";
+        match fs::metadata(&p).await {
+            Ok(_) => Err(io::Error::new(
+                io::ErrorKind::Other,
+                "label was not in cached map but was found on disk",
+            )),
+            Err(e) => match e.kind() {
+                io::ErrorKind::NotFound => {
+                    let mut options = fs::OpenOptions::new();
+                    options.create_new(true);
+                    options.write(true);
+                    let mut file = options.open(p).await?;
+                    file.write_all(contents).await?;
+                    file.flush().await?;
+                    file.sync_all().await?;
+
+                    let l = Label::new_empty(label);
+                    labels.insert(label.to_string(), l.clone());
+
+                    Ok(l)
+                }
+                _ => Err(e),
+            },
+        }
+    }
+    async fn get_label(&self, label: &str) -> io::Result<Option<Label>> {
+        let labels = self.labels.read().await;
+        Ok(labels.get(label).cloned())
+    }
+    async fn set_label_option(
+        &self,
+        label: &Label,
+        layer: Option<[u32; 5]>,
+    ) -> io::Result<Option<Label>> {
+        let new_label = label.with_updated_layer(layer);
+        let contents = match new_label.layer {
+            None => format!("{}\n\n", new_label.version).into_bytes(),
+            Some(layer) => {
+                format!("{}\n{}\n", new_label.version, layer::name_to_string(layer)).into_bytes()
+            }
+        };
+
+        let mut labels = self.labels.write().await;
+        if let Some(retrieved_label) = labels.get(&label.name) {
+            if retrieved_label == label {
+                // all good, let's a go
+                let mut p = self.path.clone();
+                p.push(format!("{}.label", label.name));
+                let mut options = fs::OpenOptions::new();
+                options.create(false);
+                options.write(true);
+                let mut file = options.open(p).await?;
+                file.write_all(&contents).await?;
+                file.flush().await?;
+                file.sync_data().await?;
+
+                labels.insert(label.name.clone(), new_label.clone());
+                Ok(Some(new_label))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Err(io::Error::new(io::ErrorKind::NotFound, "label not found"))
+        }
+    }
+
+    async fn delete_label(&self, name: &str) -> io::Result<bool> {
+        let mut labels = self.labels.write().await;
+        if labels.remove(name).is_some() {
+            let mut p = self.path.clone();
+            p.push(format!("{}.label", name));
+            tokio::fs::remove_file(p).await?;
+
+            Ok(true)
+        } else {
+            Ok(false)
         }
     }
 }

@@ -55,12 +55,24 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
         id
     }
 
+    pub fn add_node_bytes(&mut self, node: Bytes) -> u64 {
+        let id = self.node_dictionary_builder.add(node);
+
+        id
+    }
+
     /// Add a predicate string.
     ///
     /// Panics if the given predicate string is not a lexical successor of the previous node string.
     pub fn add_predicate(&mut self, predicate: &str) -> u64 {
         self.predicate_dictionary_builder
             .add(Bytes::copy_from_slice(predicate.as_bytes()))
+    }
+
+    pub fn add_predicate_bytes(&mut self, predicate: Bytes) -> u64 {
+        let id = self.predicate_dictionary_builder.add(predicate);
+
+        id
     }
 
     /// Add a value string.
@@ -89,6 +101,22 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
         ids
     }
 
+    pub fn add_nodes_bytes<I: 'static + IntoIterator<Item = Bytes> + Unpin + Send + Sync>(
+        &mut self,
+        nodes: I,
+    ) -> Vec<u64>
+    where
+        <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
+    {
+        let mut ids = Vec::new();
+        for node in nodes {
+            let id = self.add_node_bytes(node);
+            ids.push(id);
+        }
+
+        ids
+    }
+
     /// Add predicates from an iterable.
     ///
     /// Panics if the predicates are not in lexical order, or if previous added predicates are a lexical succesor of any of these predicates.
@@ -102,6 +130,22 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
         let mut ids = Vec::new();
         for predicate in predicates {
             let id = self.add_predicate(&predicate);
+            ids.push(id);
+        }
+
+        ids
+    }
+
+    pub fn add_predicates_bytes<I: 'static + IntoIterator<Item = Bytes> + Unpin + Send + Sync>(
+        &mut self,
+        predicates: I,
+    ) -> Vec<u64>
+    where
+        <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
+    {
+        let mut ids = Vec::new();
+        for predicate in predicates {
+            let id = self.add_predicate_bytes(predicate);
             ids.push(id);
         }
 
