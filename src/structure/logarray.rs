@@ -983,8 +983,7 @@ mod tests {
 
     #[test]
     fn validate_len_and_width() {
-        let val =
-            LogArrayError::validate_len_and_width;
+        let val = LogArrayError::validate_len_and_width;
 
         let err = |width| Err(LogArrayError::WidthTooLarge(width));
 
@@ -1078,13 +1077,7 @@ mod tests {
     }
 
     const TEST0_DATA: [u8; 8] = [
-        0b00000000,
-        0b00000000,
-        0b10000000,
-        0b00000000,
-        0b10000000,
-        0b00000000,
-        0b01100000,
+        0b00000000, 0b00000000, 0b10000000, 0b00000000, 0b10000000, 0b00000000, 0b01100000,
         0b00000000,
     ];
     const TEST0_CONTROL: [u8; 8] = [0, 0, 0, 3, 17, 0, 0, 0];
