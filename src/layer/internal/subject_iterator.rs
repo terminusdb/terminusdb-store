@@ -22,9 +22,9 @@ impl InternalLayerTripleSubjectIterator {
         sp_o_adjacency_list: AdjacencyList,
     ) -> Self {
         Self {
-            subjects: subjects,
-            s_p_adjacency_list: s_p_adjacency_list,
-            sp_o_adjacency_list: sp_o_adjacency_list,
+            subjects,
+            s_p_adjacency_list,
+            sp_o_adjacency_list,
             s_position: 0,
             s_p_position: 0,
             sp_o_position: 0,
@@ -422,7 +422,7 @@ impl Iterator for InternalTripleStackIterator {
                 (Some(lowest_pos_index), Some(lowest_neg_index)) => {
                     let lowest_pos = self.positives[lowest_pos_index].peek().unwrap();
                     let lowest_neg = self.negatives[lowest_neg_index].peek().unwrap();
-                    match lowest_pos.cmp(&lowest_neg) {
+                    match lowest_pos.cmp(lowest_neg) {
                         Ordering::Less => {
                             // next change is an addition, and there's no matching removal
                             return Some((
@@ -479,7 +479,7 @@ mod tests {
 
     #[tokio::test]
     async fn base_triple_removal_iterator() {
-        let base_layer: InternalLayer = example_base_layer().await.into();
+        let base_layer: InternalLayer = example_base_layer().await;
 
         let triples: Vec<_> = base_layer.internal_triple_removals().collect();
         assert!(triples.is_empty());
@@ -811,7 +811,7 @@ mod tests {
 
     async fn child_layer() -> InternalLayer {
         let base_layer = example_base_layer().await;
-        let parent: Arc<InternalLayer> = Arc::new(base_layer.into());
+        let parent: Arc<InternalLayer> = Arc::new(base_layer);
 
         let child_files = child_layer_files();
 
@@ -830,7 +830,6 @@ mod tests {
         ChildLayer::load_from_files([5, 4, 3, 2, 1], parent, &child_files)
             .await
             .unwrap()
-            .into()
     }
 
     #[tokio::test]
@@ -1032,7 +1031,7 @@ mod tests {
     async fn iterate_partial_stack() {
         let (parent_id, layer) = create_stack_for_partial_tests().await;
 
-        let iterator = InternalTripleStackIterator::from_layer_stack(&*layer, parent_id).unwrap();
+        let iterator = InternalTripleStackIterator::from_layer_stack(&layer, parent_id).unwrap();
         let changes: Vec<_> = iterator
             .map(|t| (t.0, layer.id_triple_to_string(&t.1).unwrap()))
             .collect();

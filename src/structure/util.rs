@@ -37,7 +37,7 @@ pub async fn write_nul_terminated_bytes<W: AsyncWrite + Unpin>(
     w: &mut W,
     bytes: &[u8],
 ) -> Result<usize> {
-    w.write_all(&bytes).await?;
+    w.write_all(bytes).await?;
     w.write_all(&[0]).await?;
 
     let count = bytes.len() + 1;

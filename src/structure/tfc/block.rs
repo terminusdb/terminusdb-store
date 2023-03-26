@@ -49,11 +49,10 @@ impl SizedBlockHeader {
 
         for i in 0..(num_entries - 1) as usize {
             let (shared, _) = vbyte::decode_buf(buf)?;
-            let size = if record_size == None {
-                let (size, _) = vbyte::decode_buf(buf)?;
-                size
+            let size = if let Some(record_size) = record_size {
+                record_size as u64 - shared
             } else {
-                record_size.unwrap() as u64 - shared
+                vbyte::decode_buf(buf)?.0
             };
             sizes[i] = size as usize;
             shareds[i] = shared as usize;
@@ -163,6 +162,10 @@ impl SizedDictEntry {
         self.chunks().map(|s| s.len()).sum()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.chunks().next().is_none()
+    }
+
     fn rope_len(&self) -> usize {
         match self {
             Self::Single(_) => 1,
@@ -191,7 +194,7 @@ impl SizedDictEntry {
     pub fn buf_eq<B: Buf>(&self, mut b: B) -> bool {
         if self.len() != b.remaining() {
             false
-        } else if self.len() == 0 {
+        } else if self.is_empty() {
             true
         } else {
             let mut it = self.chunks();
@@ -249,7 +252,7 @@ impl Hash for SizedDictEntry {
 impl Ord for SizedDictEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         // both are empty, so equal
-        if self.len() == 0 && other.len() == 0 {
+        if self.is_empty() && other.is_empty() {
             return Ordering::Equal;
         }
 
@@ -335,7 +338,7 @@ pub struct SizedDictEntryBuf<'a> {
 impl<'a> SizedDictEntryBuf<'a> {
     fn current_slice(&self) -> &Bytes {
         match self.entry.as_ref() {
-            SizedDictEntry::Single(b) => &b,
+            SizedDictEntry::Single(b) => b,
             SizedDictEntry::Rope(v) => &v[self.slice_ix],
         }
     }
@@ -485,13 +488,12 @@ impl SizedDictBlock {
                 continue;
             }
 
-            let slice;
-            if ix == 0 && start == 0 {
+            let slice = if ix == 0 && start == 0 {
                 // the slice has to come out of the header
-                slice = self.header.head.slice(..have_to_take);
+                self.header.head.slice(..have_to_take)
             } else {
-                slice = self.data.slice(cur_offset..cur_offset + have_to_take);
-            }
+                self.data.slice(cur_offset..cur_offset + have_to_take)
+            };
             slices.push(slice);
             taken += have_to_take;
         }
@@ -502,7 +504,7 @@ impl SizedDictBlock {
         SizedDictEntry::new_optimized(slices)
     }
 
-    fn suffixes<'a>(&'a self) -> impl Iterator<Item = Bytes> + 'a {
+    fn suffixes(&self) -> impl Iterator<Item = Bytes> + '_ {
         let head = Some(self.header.head.clone());
         let mut offset = 0;
         let tail = self.header.sizes.iter().map(move |s| {
@@ -531,11 +533,17 @@ impl SizedDictBlock {
             .zip(self.suffixes().skip(1))
             .enumerate()
         {
+            match (*shared).cmp(&common_prefix) {
+                Ordering::Less => return IdLookupResult::Closest(ix as u64),
+                Ordering::Equal => (),
+                Ordering::Greater => continue,
+            };
+            /*
             if *shared < common_prefix {
                 return IdLookupResult::Closest(ix as u64);
             } else if *shared > common_prefix {
                 continue;
-            }
+            }*/
 
             let (new_common_prefix, ordering) =
                 find_common_prefix_ord(&slice[common_prefix..], &suffix[..]);
@@ -551,7 +559,7 @@ impl SizedDictBlock {
         IdLookupResult::Closest(self.header.num_entries as u64 - 1)
     }
 
-    pub fn iter<'a>(&'a self) -> SizedBlockIterator<'a> {
+    pub fn iter(&self) -> SizedBlockIterator {
         SizedBlockIterator {
             header: Cow::Borrowed(&self.header),
             data: self.data.clone(),
@@ -563,7 +571,7 @@ impl SizedDictBlock {
     pub fn into_iter(self) -> OwnedSizedBlockIterator {
         SizedBlockIterator {
             header: Cow::Owned(self.header),
-            data: self.data.clone(),
+            data: self.data,
             ix: 0,
             last: None,
         }
@@ -698,7 +706,7 @@ pub(crate) fn build_block_unchecked<B: BufMut>(
     let slices_len = slices.len();
     debug_assert!(slices_len <= BLOCK_SIZE && slices_len != 0);
     let cw = create_block_control_word(record_size, slices_len as u8);
-    buf.put_u8(cw as u8);
+    buf.put_u8(cw);
     size += 1;
 
     let first = slices[0];
@@ -712,14 +720,13 @@ pub(crate) fn build_block_unchecked<B: BufMut>(
     let mut last = first;
 
     let mut suffixes: Vec<&[u8]> = Vec::with_capacity(slices.len());
-    for i in 1..slices.len() {
-        let cur = slices[i];
+    for cur in slices.iter().skip(1) {
         let common_prefix = find_common_prefix(last, cur);
         let (vbyte, vbyte_len) = encode_array(common_prefix as u64);
         buf.put_slice(&vbyte[..vbyte_len]);
         size += vbyte_len;
 
-        if record_size == None {
+        if record_size.is_none() {
             let suffix_len = cur.len() - common_prefix;
             let (vbyte, vbyte_len) = encode_array(suffix_len as u64);
             buf.put_slice(&vbyte[..vbyte_len]);

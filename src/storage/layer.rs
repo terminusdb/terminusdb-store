@@ -1491,12 +1491,11 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                             panic!("infinite rollup loop for layer {:?}", rollup);
                         }
 
-                        let original_parent;
-                        if self.layer_has_parent(current_layer).await? {
-                            original_parent = Some(self.read_parent_file(current_layer).await?);
+                        let original_parent = if self.layer_has_parent(current_layer).await? {
+                            Some(self.read_parent_file(current_layer).await?)
                         } else {
-                            original_parent = None;
-                        }
+                            None
+                        };
 
                         layers_to_load.pop().unwrap(); // we don't want to load this, we want to load the rollup instead!
                         layers_to_load.push((current_layer, Some((rollup, original_parent))));
@@ -1519,12 +1518,12 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                     let files = self.base_layer_files(base_id).await?;
                     let base_layer = BaseLayer::load_from_files(base_id, &files).await?;
 
-                    layer = Arc::new(base_layer.into());
+                    layer = Arc::new(base_layer);
                 }
                 Some((rollup_id, original_parent_id_option)) => {
                     let files = self.base_layer_files(rollup_id).await?;
                     let base_layer: Arc<InternalLayer> =
-                        Arc::new(BaseLayer::load_from_files(rollup_id, &files).await?.into());
+                        Arc::new(BaseLayer::load_from_files(rollup_id, &files).await?);
                     cache.cache_layer(base_layer.clone());
 
                     layer = Arc::new(
@@ -1552,18 +1551,15 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                     let files = self.child_layer_files(layer_id).await?;
                     let child_layer =
                         ChildLayer::load_from_files(layer_id, ancestor, &files).await?;
-                    layer = Arc::new(child_layer.into());
+                    layer = Arc::new(child_layer);
                 }
                 Some((rollup_id, original_parent_id_option)) => {
                     let original_parent_id = original_parent_id_option
                         .expect("child rollup layer should always have original parent id");
 
                     let files = self.child_layer_files(rollup_id).await?;
-                    let child_layer: Arc<InternalLayer> = Arc::new(
-                        ChildLayer::load_from_files(rollup_id, ancestor, &files)
-                            .await?
-                            .into(),
-                    );
+                    let child_layer: Arc<InternalLayer> =
+                        Arc::new(ChildLayer::load_from_files(rollup_id, ancestor, &files).await?);
                     cache.cache_layer(child_layer.clone());
 
                     layer = Arc::new(

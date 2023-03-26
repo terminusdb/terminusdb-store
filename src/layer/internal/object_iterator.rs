@@ -22,10 +22,10 @@ impl InternalLayerTripleObjectIterator {
         s_p_adjacency_list: AdjacencyList,
     ) -> Self {
         Self {
-            subjects: subjects,
-            objects: objects,
-            o_ps_adjacency_list: o_ps_adjacency_list,
-            s_p_adjacency_list: s_p_adjacency_list,
+            subjects,
+            objects,
+            o_ps_adjacency_list,
+            s_p_adjacency_list,
             o_position: 0,
             o_ps_position: 0,
             peeked: None,

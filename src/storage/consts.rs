@@ -505,7 +505,7 @@ lazy_static! {
     ]);
 }
 
-pub const SHARED_REQUIRED_FILES: [&'static str; 8] = [
+pub const SHARED_REQUIRED_FILES: [&str; 8] = [
     FILENAMES.node_dictionary_blocks,
     FILENAMES.node_dictionary_offsets,
     FILENAMES.predicate_dictionary_blocks,
@@ -516,7 +516,7 @@ pub const SHARED_REQUIRED_FILES: [&'static str; 8] = [
     FILENAMES.value_dictionary_offsets,
 ];
 
-pub const SHARED_OPTIONAL_FILES: [&'static str; 7] = [
+pub const SHARED_OPTIONAL_FILES: [&str; 7] = [
     FILENAMES.node_value_idmap_bits,
     FILENAMES.node_value_idmap_bit_index_blocks,
     FILENAMES.node_value_idmap_bit_index_sblocks,
@@ -526,7 +526,7 @@ pub const SHARED_OPTIONAL_FILES: [&'static str; 7] = [
     FILENAMES.rollup,
 ];
 
-pub const BASE_LAYER_REQUIRED_FILES: [&'static str; 15] = [
+pub const BASE_LAYER_REQUIRED_FILES: [&str; 15] = [
     FILENAMES.base_s_p_adjacency_list_nums,
     FILENAMES.base_s_p_adjacency_list_bits,
     FILENAMES.base_s_p_adjacency_list_bit_index_blocks,
@@ -544,10 +544,9 @@ pub const BASE_LAYER_REQUIRED_FILES: [&'static str; 15] = [
     FILENAMES.base_predicate_wavelet_tree_bit_index_sblocks,
 ];
 
-pub const BASE_LAYER_OPTIONAL_FILES: [&'static str; 2] =
-    [FILENAMES.base_subjects, FILENAMES.base_objects];
+pub const BASE_LAYER_OPTIONAL_FILES: [&str; 2] = [FILENAMES.base_subjects, FILENAMES.base_objects];
 
-pub const CHILD_LAYER_REQUIRED_FILES: [&'static str; 31] = [
+pub const CHILD_LAYER_REQUIRED_FILES: [&str; 31] = [
     FILENAMES.parent,
     FILENAMES.pos_s_p_adjacency_list_nums,
     FILENAMES.pos_s_p_adjacency_list_bits,
@@ -581,7 +580,7 @@ pub const CHILD_LAYER_REQUIRED_FILES: [&'static str; 31] = [
     FILENAMES.neg_predicate_wavelet_tree_bit_index_sblocks,
 ];
 
-pub const CHILD_LAYER_OPTIONAL_FILES: [&'static str; 4] = [
+pub const CHILD_LAYER_OPTIONAL_FILES: [&str; 4] = [
     FILENAMES.pos_subjects,
     FILENAMES.pos_objects,
     FILENAMES.neg_subjects,
