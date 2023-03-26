@@ -178,7 +178,9 @@ impl TypedDict {
     }
 
     pub fn type_segment(&self, dt: Datatype) -> Option<(SizedDict, u64)> {
-        self.types_present.index_of(dt as u64).map(|i| self.inner_type_segment(i))
+        self.types_present
+            .index_of(dt as u64)
+            .map(|i| self.inner_type_segment(i))
     }
 
     // TOOD: would be nice if this worked on a buf instead of a slice
