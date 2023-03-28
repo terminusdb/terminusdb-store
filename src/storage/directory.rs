@@ -9,6 +9,7 @@ use std::sync::Arc;
 use tokio::fs::{self, *};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufWriter};
 use tokio::sync::RwLock;
+use urlencoding::{encode,decode};
 
 use async_trait::async_trait;
 
@@ -219,6 +220,8 @@ fn get_label_from_data(name: String, data: &[u8]) -> io::Result<Label> {
         ));
     }
 
+    let name = decode(name.as_str()).unwrap().to_string();
+
     if layer_str.is_empty() {
         Ok(Label {
             name,
@@ -288,7 +291,7 @@ impl LabelStore for DirectoryLabelStore {
 
     async fn create_label(&self, label: &str) -> io::Result<Label> {
         let mut p = self.path.clone();
-        p.push(format!("{}.label", label));
+        p.push(encode(format!("{}.label", label).as_str()).to_string());
         let contents = "0\n\n".to_string().into_bytes();
         match fs::metadata(&p).await {
             Ok(_) => Err(io::Error::new(
@@ -311,7 +314,7 @@ impl LabelStore for DirectoryLabelStore {
 
     async fn get_label(&self, label: &str) -> io::Result<Option<Label>> {
         let mut p = self.path.clone();
-        p.push(format!("{}.label", label));
+        p.push(encode(format!("{}.label", label).as_str()).to_string());
 
         match get_label_from_file(p).await {
             Ok(label) => Ok(Some(label)),
@@ -336,7 +339,7 @@ impl LabelStore for DirectoryLabelStore {
         };
 
         let mut p = self.path.clone();
-        p.push(format!("{}.label", label.name));
+        p.push(encode(format!("{}.label", label.name).as_str()).to_string());
         let (retrieved_label, mut file) = get_label_from_exclusive_locked_file(p).await?;
         if retrieved_label == *label {
             // all good, let's a go
@@ -352,7 +355,7 @@ impl LabelStore for DirectoryLabelStore {
 
     async fn delete_label(&self, name: &str) -> io::Result<bool> {
         let mut p = self.path.clone();
-        p.push(format!("{}.label", name));
+        p.push(encode(format!("{}.label", name).as_str()).to_string());
 
         // We're not locking here to remove the file. The assumption
         // is that any concurrent operation that is done on the label
@@ -490,7 +493,7 @@ impl LabelStore for CachedDirectoryLabelStore {
             if retrieved_label == label {
                 // all good, let's a go
                 let mut p = self.path.clone();
-                p.push(format!("{}.label", label.name));
+                p.push(encode(format!("{}.label", label.name).as_str()).to_string());
                 let mut options = fs::OpenOptions::new();
                 options.create(false);
                 options.write(true);
@@ -513,7 +516,7 @@ impl LabelStore for CachedDirectoryLabelStore {
         let mut labels = self.labels.write().await;
         if labels.remove(name).is_some() {
             let mut p = self.path.clone();
-            p.push(format!("{}.label", name));
+            p.push(encode(format!("{}.label", name).as_str()).to_string());
             tokio::fs::remove_file(p).await?;
 
             Ok(true)
@@ -628,6 +631,24 @@ mod tests {
         let (stored, retrieved) = async {
             let stored = store.create_label("foo").await?;
             let retrieved = store.get_label("foo").await?;
+
+            Ok::<_, io::Error>((stored, retrieved))
+        }
+        .await
+        .unwrap();
+
+        assert_eq!(None, stored.layer);
+        assert_eq!(stored, retrieved.unwrap());
+    }
+
+    #[tokio::test]
+    async fn directory_create_and_retrieve_equal_url_label() {
+        let dir = tempdir().unwrap();
+        let store = DirectoryLabelStore::new(dir.path());
+
+        let (stored, retrieved) = async {
+            let stored = store.create_label("https://terminusdb.com/?s=does+work").await?;
+            let retrieved = store.get_label("https://terminusdb.com/?s=does+work").await?;
 
             Ok::<_, io::Error>((stored, retrieved))
         }
