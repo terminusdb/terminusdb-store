@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::fs::{self, *};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufWriter};
 use tokio::sync::RwLock;
-use urlencoding::{encode,decode};
+use urlencoding::{decode, encode};
 
 use async_trait::async_trait;
 
@@ -647,8 +647,12 @@ mod tests {
         let store = DirectoryLabelStore::new(dir.path());
 
         let (stored, retrieved) = async {
-            let stored = store.create_label("https://terminusdb.com/?s=does+work").await?;
-            let retrieved = store.get_label("https://terminusdb.com/?s=does+work").await?;
+            let stored = store
+                .create_label("https://terminusdb.com/?s=does+work")
+                .await?;
+            let retrieved = store
+                .get_label("https://terminusdb.com/?s=does+work")
+                .await?;
 
             Ok::<_, io::Error>((stored, retrieved))
         }
