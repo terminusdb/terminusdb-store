@@ -607,7 +607,7 @@ pub fn open_sync_memory_store() -> SyncStore {
 /// encoding algorithm.
 pub fn open_sync_directory_store<P: Into<PathBuf>>(
     path: P,
-    filename_encoding: impl FilenameEncoding + 'static
+    filename_encoding: impl FilenameEncoding + 'static,
 ) -> SyncStore {
     SyncStore::wrap(open_directory_store(path, filename_encoding))
 }
@@ -625,7 +625,7 @@ pub fn open_sync_directory_store<P: Into<PathBuf>>(
 pub fn open_sync_archive_store<P: Into<PathBuf>>(
     path: P,
     cache_size: usize,
-    filename_encoding: impl FilenameEncoding + 'static
+    filename_encoding: impl FilenameEncoding + 'static,
 ) -> SyncStore {
     SyncStore::wrap(open_archive_store(path, cache_size, filename_encoding))
 }

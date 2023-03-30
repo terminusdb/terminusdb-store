@@ -223,7 +223,7 @@ pub struct DirectoryLabelStore {
 impl DirectoryLabelStore {
     pub fn new<P: Into<PathBuf>>(
         path: P,
-        filename_encoding: impl FilenameEncoding + 'static
+        filename_encoding: impl FilenameEncoding + 'static,
     ) -> DirectoryLabelStore {
         DirectoryLabelStore {
             path: path.into(),
@@ -449,7 +449,7 @@ impl CachedDirectoryLabelStore {
     /// this is an async operation.
     pub async fn open<P: Into<PathBuf>>(
         path: P,
-        filename_encoding: impl FilenameEncoding + 'static
+        filename_encoding: impl FilenameEncoding + 'static,
     ) -> io::Result<Self> {
         let path: PathBuf = path.into();
         let mut labels = HashMap::new();
@@ -466,7 +466,8 @@ impl CachedDirectoryLabelStore {
 
                 let label_name = file_name[..file_name.len() - 6].to_string();
                 let label =
-                    get_label_from_file(entry.path(), filename_encoding.decode(label_name.clone())).await?;
+                    get_label_from_file(entry.path(), filename_encoding.decode(label_name.clone()))
+                        .await?;
 
                 labels.insert(label_name, label);
             }
@@ -545,7 +546,10 @@ impl LabelStore for CachedDirectoryLabelStore {
             if retrieved_label == label {
                 // all good, let's a go
                 let mut p = self.path.clone();
-                p.push(self.filename_encoding.encode(format!("{}.label", label.name)));
+                p.push(
+                    self.filename_encoding
+                        .encode(format!("{}.label", label.name)),
+                );
                 let mut options = fs::OpenOptions::new();
                 options.create(false);
                 options.write(true);

@@ -918,7 +918,7 @@ pub fn open_memory_store() -> Store {
 pub fn open_archive_store<P: Into<PathBuf>>(
     path: P,
     cache_size: usize,
-    filename_encoding: impl FilenameEncoding + 'static
+    filename_encoding: impl FilenameEncoding + 'static,
 ) -> Store {
     let p = path.into();
     let directory_archive_backend = DirectoryArchiveBackend::new(p.clone());
@@ -943,7 +943,7 @@ pub fn open_archive_store<P: Into<PathBuf>>(
 /// encoding algorithm.
 pub fn open_directory_store<P: Into<PathBuf>>(
     path: P,
-    filename_encoding: impl FilenameEncoding + 'static
+    filename_encoding: impl FilenameEncoding + 'static,
 ) -> Store {
     let p = path.into();
     Store::new(
