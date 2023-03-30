@@ -910,11 +910,16 @@ pub fn open_memory_store() -> Store {
 /// cache_size specifies in megabytes how large the LRU cache should
 /// be. Loaded layers will stick around in the LRU cache to speed up
 /// subsequent loads.
-/// filename_encoding specifies encoding strategy implemented using
-/// FilenameEncoding trait that is used to generate label file names
-/// from database labels (NoFilenameEncoding does no encoding;
-/// URLFilenameEncoding uses URL encoding algorithm).
-pub fn open_archive_store<P: Into<PathBuf>>(path: P, cache_size: usize, filename_encoding: impl FilenameEncoding + 'static) -> Store {
+/// filename_encoding specifies how database label is converted into
+/// label file name (pluggable methods must implement FilenameEncoding
+/// trait). Two implementations are provided: NoFilenameEncoding does
+/// no convertion; URLFilenameEncoding convertion is based on URL
+/// encoding algorithm.
+pub fn open_archive_store<P: Into<PathBuf>>(
+    path: P,
+    cache_size: usize,
+    filename_encoding: impl FilenameEncoding + 'static
+) -> Store {
     let p = path.into();
     let directory_archive_backend = DirectoryArchiveBackend::new(p.clone());
     let archive_backend = LruArchiveBackend::new(directory_archive_backend.clone(), cache_size);
@@ -931,11 +936,15 @@ pub fn open_archive_store<P: Into<PathBuf>>(path: P, cache_size: usize, filename
 
 /// Open a store that stores its data in the given directory.
 ///
-/// filename_encoding specifies encoding strategy implemented using
-/// FilenameEncoding trait that is used to generate label file names
-/// from database labels (NoFilenameEncoding does no encoding;
-/// URLFilenameEncoding uses URL encoding algorithm).
-pub fn open_directory_store<P: Into<PathBuf>>(path: P, filename_encoding: impl FilenameEncoding + 'static) -> Store {
+/// filename_encoding specifies how database label is converted into
+/// label file name (pluggable methods must implement FilenameEncoding
+/// trait). Two implementations are provided: NoFilenameEncoding does
+/// no convertion; URLFilenameEncoding convertion is based on URL
+/// encoding algorithm.
+pub fn open_directory_store<P: Into<PathBuf>>(
+    path: P,
+    filename_encoding: impl FilenameEncoding + 'static
+) -> Store {
     let p = path.into();
     Store::new(
         DirectoryLabelStore::new(p.clone(), filename_encoding),
@@ -946,8 +955,8 @@ pub fn open_directory_store<P: Into<PathBuf>>(path: P, filename_encoding: impl F
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use crate::storage::directory::NoFilenameEncoding;
+    use tempfile::tempdir;
 
     async fn create_and_manipulate_database(store: Store) {
         let database = store.create("foodb").await.unwrap();
@@ -989,7 +998,7 @@ mod tests {
     #[tokio::test]
     async fn create_and_manipulate_directory_database() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path(), NoFilenameEncoding{});
+        let store = open_directory_store(dir.path(), NoFilenameEncoding {});
 
         create_and_manipulate_database(store).await;
     }
@@ -1512,7 +1521,7 @@ mod tests {
     #[tokio::test]
     async fn dir_cached_layer_name_does_not_change_after_rollup() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path(), NoFilenameEncoding{});
+        let store = open_directory_store(dir.path(), NoFilenameEncoding {});
 
         cached_layer_name_does_not_change_after_rollup(store).await
     }
@@ -1558,14 +1567,14 @@ mod tests {
     #[tokio::test]
     async fn dir_cached_layer_name_does_not_change_after_rollup_upto() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path(), NoFilenameEncoding{});
+        let store = open_directory_store(dir.path(), NoFilenameEncoding {});
         cached_layer_name_does_not_change_after_rollup_upto(store).await
     }
 
     #[tokio::test]
     async fn force_update_with_matching_0_version_succeeds() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path(), NoFilenameEncoding{});
+        let store = open_directory_store(dir.path(), NoFilenameEncoding {});
         let graph = store.create("foo").await.unwrap();
         let (layer, version) = graph.head_version().await.unwrap();
         assert!(layer.is_none());
@@ -1580,7 +1589,7 @@ mod tests {
     #[tokio::test]
     async fn force_update_with_mismatching_0_version_succeeds() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path(), NoFilenameEncoding{});
+        let store = open_directory_store(dir.path(), NoFilenameEncoding {});
         let graph = store.create("foo").await.unwrap();
         let (layer, version) = graph.head_version().await.unwrap();
         assert!(layer.is_none());
@@ -1595,7 +1604,7 @@ mod tests {
     #[tokio::test]
     async fn force_update_with_matching_version_succeeds() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path(), NoFilenameEncoding{});
+        let store = open_directory_store(dir.path(), NoFilenameEncoding {});
         let graph = store.create("foo").await.unwrap();
 
         let builder = store.create_base_layer().await.unwrap();
@@ -1614,7 +1623,7 @@ mod tests {
     #[tokio::test]
     async fn force_update_with_mismatched_version_succeeds() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path(), NoFilenameEncoding{});
+        let store = open_directory_store(dir.path(), NoFilenameEncoding {});
         let graph = store.create("foo").await.unwrap();
 
         let builder = store.create_base_layer().await.unwrap();
@@ -1633,7 +1642,7 @@ mod tests {
     #[tokio::test]
     async fn delete_database() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path(), NoFilenameEncoding{});
+        let store = open_directory_store(dir.path(), NoFilenameEncoding {});
         let _ = store.create("foo").await.unwrap();
         assert!(store.delete("foo").await.unwrap());
         assert!(store.open("foo").await.unwrap().is_none());
@@ -1642,14 +1651,14 @@ mod tests {
     #[tokio::test]
     async fn delete_nonexistent_database() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path(), NoFilenameEncoding{});
+        let store = open_directory_store(dir.path(), NoFilenameEncoding {});
         assert!(!store.delete("foo").await.unwrap());
     }
 
     #[tokio::test]
     async fn delete_graph() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path(), NoFilenameEncoding{});
+        let store = open_directory_store(dir.path(), NoFilenameEncoding {});
         let graph = store.create("foo").await.unwrap();
         assert!(store.open("foo").await.unwrap().is_some());
         graph.delete().await.unwrap();
@@ -1659,7 +1668,7 @@ mod tests {
     #[tokio::test]
     async fn recreate_graph() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path(), NoFilenameEncoding{});
+        let store = open_directory_store(dir.path(), NoFilenameEncoding {});
         let graph = store.create("foo").await.unwrap();
         let builder = store.create_base_layer().await.unwrap();
         let layer = builder.commit().await.unwrap();
@@ -1673,7 +1682,7 @@ mod tests {
     #[tokio::test]
     async fn list_databases() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path(), NoFilenameEncoding{});
+        let store = open_directory_store(dir.path(), NoFilenameEncoding {});
         assert!(store.labels().await.unwrap().is_empty());
         let _ = store.create("foo").await.unwrap();
         let one = vec!["foo".to_string()];

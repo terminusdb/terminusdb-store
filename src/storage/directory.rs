@@ -1,6 +1,7 @@
 //! Directory-based implementation of storage traits.
 
 use bytes::{Bytes, BytesMut};
+use dyn_clone::{clone_trait_object, DynClone};
 use locking::*;
 use std::collections::HashMap;
 use std::io::{self, SeekFrom};
@@ -9,7 +10,6 @@ use std::sync::Arc;
 use tokio::fs::{self, *};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufWriter};
 use tokio::sync::RwLock;
-use dyn_clone::{clone_trait_object, DynClone};
 use urlencoding::{decode, encode};
 
 use async_trait::async_trait;
@@ -183,7 +183,7 @@ impl PersistentLayerStore for DirectoryLayerStore {
     }
 }
 
-pub trait FilenameEncoding : DynClone + Send + Sync {
+pub trait FilenameEncoding: DynClone + Send + Sync {
     fn encode(&self, str: String) -> String;
     fn decode(&self, str: String) -> String;
 }
@@ -221,8 +221,14 @@ pub struct DirectoryLabelStore {
 }
 
 impl DirectoryLabelStore {
-    pub fn new<P: Into<PathBuf>>(path: P, encoding: impl FilenameEncoding + 'static) -> DirectoryLabelStore {
-        DirectoryLabelStore { path: path.into(), filename_encoding: Box::new(encoding) }
+    pub fn new<P: Into<PathBuf>>(
+        path: P,
+        filename_encoding: impl FilenameEncoding + 'static
+    ) -> DirectoryLabelStore {
+        DirectoryLabelStore {
+            path: path.into(),
+            filename_encoding: Box::new(filename_encoding),
+        }
     }
 }
 
@@ -269,10 +275,7 @@ fn get_label_from_data(name: String, data: &[u8]) -> io::Result<Label> {
     }
 }
 
-async fn get_label_from_file<P: Into<PathBuf>>(
-    path: P,
-    name: String
-) -> io::Result<Label> {
+async fn get_label_from_file<P: Into<PathBuf>>(path: P, name: String) -> io::Result<Label> {
     let path: PathBuf = path.into();
 
     let mut file = LockedFile::open(path).await?;
@@ -284,7 +287,7 @@ async fn get_label_from_file<P: Into<PathBuf>>(
 
 async fn get_label_from_exclusive_locked_file<P: Into<PathBuf>>(
     path: P,
-    name: String
+    name: String,
 ) -> io::Result<(Label, ExclusiveLockedFile)> {
     let path: PathBuf = path.into();
 
@@ -316,11 +319,16 @@ impl LabelStore for DirectoryLabelStore {
                     let label = get_label_from_file(
                         direntry.path(),
                         self.filename_encoding.decode(
-                            direntry.path().file_stem()
-                            .unwrap().to_str()
-                            .unwrap().to_owned()
-                        )
-                    ).await?;
+                            direntry
+                                .path()
+                                .file_stem()
+                                .unwrap()
+                                .to_str()
+                                .unwrap()
+                                .to_owned(),
+                        ),
+                    )
+                    .await?;
                     result.push(label);
                 }
             }
@@ -379,8 +387,12 @@ impl LabelStore for DirectoryLabelStore {
         };
 
         let mut p = self.path.clone();
-        p.push(self.filename_encoding.encode(format!("{}.label", label.name)));
-        let (retrieved_label, mut file) = get_label_from_exclusive_locked_file(p, label.name.clone()).await?;
+        p.push(
+            self.filename_encoding
+                .encode(format!("{}.label", label.name)),
+        );
+        let (retrieved_label, mut file) =
+            get_label_from_exclusive_locked_file(p, label.name.clone()).await?;
         if retrieved_label == *label {
             // all good, let's a go
             file.truncate().await?;
@@ -427,7 +439,7 @@ impl LabelStore for DirectoryLabelStore {
 pub struct CachedDirectoryLabelStore {
     path: PathBuf,
     labels: Arc<RwLock<HashMap<String, Label>>>,
-    encoding: Box<dyn FilenameEncoding>,
+    filename_encoding: Box<dyn FilenameEncoding>,
 }
 
 impl CachedDirectoryLabelStore {
@@ -435,7 +447,10 @@ impl CachedDirectoryLabelStore {
     ///
     /// This will read in all label files on startup, which is why
     /// this is an async operation.
-    pub async fn open<P: Into<PathBuf>>(path: P, encoding: impl FilenameEncoding + 'static) -> io::Result<Self> {
+    pub async fn open<P: Into<PathBuf>>(
+        path: P,
+        filename_encoding: impl FilenameEncoding + 'static
+    ) -> io::Result<Self> {
         let path: PathBuf = path.into();
         let mut labels = HashMap::new();
         let mut entries = tokio::fs::read_dir(&path).await?;
@@ -450,7 +465,8 @@ impl CachedDirectoryLabelStore {
                 }
 
                 let label_name = file_name[..file_name.len() - 6].to_string();
-                let label = get_label_from_file(entry.path(), encoding.decode(label_name.clone())).await?;
+                let label =
+                    get_label_from_file(entry.path(), filename_encoding.decode(label_name.clone())).await?;
 
                 labels.insert(label_name, label);
             }
@@ -459,7 +475,7 @@ impl CachedDirectoryLabelStore {
         Ok(Self {
             path,
             labels: Arc::new(RwLock::new(labels)),
-            encoding: Box::new(encoding)
+            filename_encoding: Box::new(filename_encoding),
         })
     }
 }
@@ -529,7 +545,7 @@ impl LabelStore for CachedDirectoryLabelStore {
             if retrieved_label == label {
                 // all good, let's a go
                 let mut p = self.path.clone();
-                p.push(self.encoding.encode(format!("{}.label", label.name)));
+                p.push(self.filename_encoding.encode(format!("{}.label", label.name)));
                 let mut options = fs::OpenOptions::new();
                 options.create(false);
                 options.write(true);
@@ -552,7 +568,7 @@ impl LabelStore for CachedDirectoryLabelStore {
         let mut labels = self.labels.write().await;
         if labels.remove(name).is_some() {
             let mut p = self.path.clone();
-            p.push(self.encoding.encode(format!("{}.label", name)));
+            p.push(self.filename_encoding.encode(format!("{}.label", name)));
             tokio::fs::remove_file(p).await?;
 
             Ok(true)
@@ -662,7 +678,7 @@ mod tests {
     #[tokio::test]
     async fn directory_create_and_retrieve_equal_label() {
         let dir = tempdir().unwrap();
-        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding{});
+        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding {});
 
         let (stored, retrieved) = async {
             let stored = store.create_label("foo").await?;
@@ -680,7 +696,7 @@ mod tests {
     #[tokio::test]
     async fn directory_create_and_retrieve_equal_url_label() {
         let dir = tempdir().unwrap();
-        let store = DirectoryLabelStore::new(dir.path(), URLFilenameEncoding{});
+        let store = DirectoryLabelStore::new(dir.path(), URLFilenameEncoding {});
 
         let (stored, retrieved) = async {
             let stored = store
@@ -702,7 +718,7 @@ mod tests {
     #[tokio::test]
     async fn directory_update_label_succeeds() {
         let dir = tempdir().unwrap();
-        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding{});
+        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding {});
 
         let retrieved = async {
             let stored = store.create_label("foo").await?;
@@ -720,7 +736,7 @@ mod tests {
     #[tokio::test]
     async fn directory_update_label_twice_from_same_label_object_fails() {
         let dir = tempdir().unwrap();
-        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding{});
+        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding {});
 
         let (stored2, stored3) = async {
             let stored1 = store.create_label("foo").await?;
@@ -740,7 +756,7 @@ mod tests {
     #[tokio::test]
     async fn directory_create_label_twice_errors() {
         let dir = tempdir().unwrap();
-        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding{});
+        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding {});
 
         store.create_label("foo").await.unwrap();
         let result = store.create_label("foo").await;
@@ -860,7 +876,7 @@ mod tests {
     #[tokio::test]
     async fn create_and_delete_label() {
         let dir = tempdir().unwrap();
-        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding{});
+        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding {});
 
         store.create_label("foo").await.unwrap();
         assert!(store.get_label("foo").await.unwrap().is_some());
@@ -871,7 +887,7 @@ mod tests {
     #[tokio::test]
     async fn delete_nonexistent_label() {
         let dir = tempdir().unwrap();
-        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding{});
+        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding {});
 
         assert!(!store.delete_label("foo").await.unwrap());
     }
@@ -879,7 +895,7 @@ mod tests {
     #[tokio::test]
     async fn delete_shared_locked_label() {
         let dir = tempdir().unwrap();
-        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding{});
+        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding {});
 
         store.create_label("foo").await.unwrap();
         let label_path = dir.path().join("foo.label");
@@ -891,7 +907,7 @@ mod tests {
     #[tokio::test]
     async fn delete_exclusive_locked_label() {
         let dir = tempdir().unwrap();
-        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding{});
+        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding {});
 
         store.create_label("foo").await.unwrap();
         let label_path = dir.path().join("foo.label");

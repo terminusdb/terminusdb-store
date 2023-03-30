@@ -13,7 +13,7 @@ use data::*;
 #[bench]
 fn build_empty_base_layer(b: &mut Bencher) {
     let dir = tempdir().unwrap();
-    let store = terminus_store::open_sync_directory_store(dir.path(), NoFilenameEncoding{});
+    let store = terminus_store::open_sync_directory_store(dir.path(), NoFilenameEncoding {});
 
     b.iter(|| {
         let builder = store.create_base_layer().unwrap();
@@ -24,7 +24,7 @@ fn build_empty_base_layer(b: &mut Bencher) {
 #[bench]
 fn build_base_layer_1000(b: &mut Bencher) {
     let dir = tempdir().unwrap();
-    let store = terminus_store::open_sync_directory_store(dir.path(), NoFilenameEncoding{});
+    let store = terminus_store::open_sync_directory_store(dir.path(), NoFilenameEncoding {});
 
     let seed = b"the quick brown fox jumped over ";
     let rand = StdRng::from_seed(*seed);
@@ -49,7 +49,7 @@ fn build_base_layer_1000(b: &mut Bencher) {
 #[bench]
 fn build_empty_child_layer_on_empty_base_layer(b: &mut Bencher) {
     let dir = tempdir().unwrap();
-    let store = terminus_store::open_sync_directory_store(dir.path(), NoFilenameEncoding{});
+    let store = terminus_store::open_sync_directory_store(dir.path(), NoFilenameEncoding {});
     let builder = store.create_base_layer().unwrap();
     let base_layer = builder.commit().unwrap();
 
@@ -62,7 +62,7 @@ fn build_empty_child_layer_on_empty_base_layer(b: &mut Bencher) {
 #[bench]
 fn build_nonempty_child_layer_on_empty_base_layer(b: &mut Bencher) {
     let dir = tempdir().unwrap();
-    let store = terminus_store::open_sync_directory_store(dir.path(), NoFilenameEncoding{});
+    let store = terminus_store::open_sync_directory_store(dir.path(), NoFilenameEncoding {});
     let builder = store.create_base_layer().unwrap();
     let base_layer = builder.commit().unwrap();
 
@@ -89,7 +89,7 @@ fn build_nonempty_child_layer_on_empty_base_layer(b: &mut Bencher) {
 #[bench]
 fn build_nonempty_child_layer_on_nonempty_base_layer(b: &mut Bencher) {
     let dir = tempdir().unwrap();
-    let store = terminus_store::open_sync_directory_store(dir.path(), NoFilenameEncoding{});
+    let store = terminus_store::open_sync_directory_store(dir.path(), NoFilenameEncoding {});
 
     let seed = b"the quick brown fox jumped over ";
     let rand = StdRng::from_seed(*seed);

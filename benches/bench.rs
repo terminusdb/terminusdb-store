@@ -10,7 +10,7 @@ use test::Bencher;
 #[bench]
 fn bench_add_string_triple(b: &mut Bencher) {
     let dir = tempdir().unwrap();
-    let sync_store = terminus_store::open_sync_directory_store(dir.path(), NoFilenameEncoding{});
+    let sync_store = terminus_store::open_sync_directory_store(dir.path(), NoFilenameEncoding {});
     let layer_builder = sync_store.create_base_layer().unwrap();
     let mut count = 1;
     b.iter(|| {

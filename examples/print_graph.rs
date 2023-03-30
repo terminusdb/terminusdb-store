@@ -7,7 +7,7 @@ use terminus_store::*;
 use tokio;
 
 async fn print_graph(store_path: &str, graph: &str) -> io::Result<()> {
-    let store = open_directory_store(store_path, NoFilenameEncoding{});
+    let store = open_directory_store(store_path, NoFilenameEncoding {});
     let graph = store
         .open(graph)
         .await?

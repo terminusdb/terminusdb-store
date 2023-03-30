@@ -600,11 +600,15 @@ pub fn open_sync_memory_store() -> SyncStore {
 
 /// Open a store that stores its data in the given directory.
 ///
-/// filename_encoding specifies encoding strategy implemented using
-/// FilenameEncoding trait that is used to generate label file names
-/// from database labels (NoFilenameEncoding does no encoding;
-/// URLFilenameEncoding uses URL encoding algorithm).
-pub fn open_sync_directory_store<P: Into<PathBuf>>(path: P, filename_encoding: impl FilenameEncoding + 'static) -> SyncStore {
+/// filename_encoding specifies how database label is converted into
+/// label file name (pluggable methods must implement FilenameEncoding
+/// trait). Two implementations are provided: NoFilenameEncoding does
+/// no convertion; URLFilenameEncoding convertion is based on URL
+/// encoding algorithm.
+pub fn open_sync_directory_store<P: Into<PathBuf>>(
+    path: P,
+    filename_encoding: impl FilenameEncoding + 'static
+) -> SyncStore {
     SyncStore::wrap(open_directory_store(path, filename_encoding))
 }
 
@@ -613,19 +617,24 @@ pub fn open_sync_directory_store<P: Into<PathBuf>>(path: P, filename_encoding: i
 /// cache_size specifies in megabytes how large the LRU cache should
 /// be. Loaded layers will stick around in the LRU cache to speed up
 /// subsequent loads.
-/// filename_encoding specifies encoding strategy implemented using
-/// FilenameEncoding trait that is used to generate label file names
-/// from database labels (NoFilenameEncoding does no encoding;
-/// URLFilenameEncoding uses URL encoding algorithm).
-pub fn open_sync_archive_store<P: Into<PathBuf>>(path: P, cache_size: usize, filename_encoding: impl FilenameEncoding + 'static) -> SyncStore {
+/// filename_encoding specifies how database label is converted into
+/// label file name (pluggable methods must implement FilenameEncoding
+/// trait). Two implementations are provided: NoFilenameEncoding does
+/// no convertion; URLFilenameEncoding convertion is based on URL
+/// encoding algorithm.
+pub fn open_sync_archive_store<P: Into<PathBuf>>(
+    path: P,
+    cache_size: usize,
+    filename_encoding: impl FilenameEncoding + 'static
+) -> SyncStore {
     SyncStore::wrap(open_archive_store(path, cache_size, filename_encoding))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use crate::storage::directory::NoFilenameEncoding;
+    use tempfile::tempdir;
 
     #[test]
     fn create_and_manipulate_sync_memory_database() {
@@ -662,7 +671,7 @@ mod tests {
     #[test]
     fn create_and_manipulate_sync_directory_database() {
         let dir = tempdir().unwrap();
-        let store = open_sync_directory_store(dir.path(), NoFilenameEncoding{});
+        let store = open_sync_directory_store(dir.path(), NoFilenameEncoding {});
         let database = store.create("foodb").unwrap();
 
         let head = database.head().unwrap();
@@ -727,10 +736,10 @@ mod tests {
     #[test]
     fn export_and_import_pack() {
         let dir1 = tempdir().unwrap();
-        let store1 = open_sync_directory_store(dir1.path(), NoFilenameEncoding{});
+        let store1 = open_sync_directory_store(dir1.path(), NoFilenameEncoding {});
 
         let dir2 = tempdir().unwrap();
-        let store2 = open_sync_directory_store(dir2.path(), NoFilenameEncoding{});
+        let store2 = open_sync_directory_store(dir2.path(), NoFilenameEncoding {});
 
         let builder1 = store1.create_base_layer().unwrap();
         builder1
