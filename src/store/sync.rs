@@ -12,6 +12,7 @@ use std::io;
 use std::path::PathBuf;
 
 use crate::layer::{IdTriple, Layer, LayerCounts, ObjectType, ValueTriple};
+use crate::storage::directory::FilenameEncoding;
 use crate::store::{
     open_directory_store, open_memory_store, NamedGraph, Store, StoreLayer, StoreLayerBuilder,
 };
@@ -598,8 +599,13 @@ pub fn open_sync_memory_store() -> SyncStore {
 }
 
 /// Open a store that stores its data in the given directory.
-pub fn open_sync_directory_store<P: Into<PathBuf>>(path: P) -> SyncStore {
-    SyncStore::wrap(open_directory_store(path))
+///
+/// filename_encoding specifies encoding strategy implemented using
+/// FilenameEncoding trait that is used to generate label file names
+/// from database labels (NoFilenameEncoding does no encoding;
+/// URLFilenameEncoding uses URL encoding algorithm).
+pub fn open_sync_directory_store<P: Into<PathBuf>>(path: P, filename_encoding: impl FilenameEncoding + 'static) -> SyncStore {
+    SyncStore::wrap(open_directory_store(path, filename_encoding))
 }
 
 /// Open a store that stores its data in the given directory as archive files.
@@ -607,14 +613,19 @@ pub fn open_sync_directory_store<P: Into<PathBuf>>(path: P) -> SyncStore {
 /// cache_size specifies in megabytes how large the LRU cache should
 /// be. Loaded layers will stick around in the LRU cache to speed up
 /// subsequent loads.
-pub fn open_sync_archive_store<P: Into<PathBuf>>(path: P, cache_size: usize) -> SyncStore {
-    SyncStore::wrap(open_archive_store(path, cache_size))
+/// filename_encoding specifies encoding strategy implemented using
+/// FilenameEncoding trait that is used to generate label file names
+/// from database labels (NoFilenameEncoding does no encoding;
+/// URLFilenameEncoding uses URL encoding algorithm).
+pub fn open_sync_archive_store<P: Into<PathBuf>>(path: P, cache_size: usize, filename_encoding: impl FilenameEncoding + 'static) -> SyncStore {
+    SyncStore::wrap(open_archive_store(path, cache_size, filename_encoding))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::tempdir;
+    use crate::storage::directory::NoFilenameEncoding;
 
     #[test]
     fn create_and_manipulate_sync_memory_database() {
@@ -651,7 +662,7 @@ mod tests {
     #[test]
     fn create_and_manipulate_sync_directory_database() {
         let dir = tempdir().unwrap();
-        let store = open_sync_directory_store(dir.path());
+        let store = open_sync_directory_store(dir.path(), NoFilenameEncoding{});
         let database = store.create("foodb").unwrap();
 
         let head = database.head().unwrap();
@@ -716,10 +727,10 @@ mod tests {
     #[test]
     fn export_and_import_pack() {
         let dir1 = tempdir().unwrap();
-        let store1 = open_sync_directory_store(dir1.path());
+        let store1 = open_sync_directory_store(dir1.path(), NoFilenameEncoding{});
 
         let dir2 = tempdir().unwrap();
-        let store2 = open_sync_directory_store(dir2.path());
+        let store2 = open_sync_directory_store(dir2.path(), NoFilenameEncoding{});
 
         let builder1 = store1.create_base_layer().unwrap();
         builder1
