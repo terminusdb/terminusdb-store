@@ -23,6 +23,7 @@ use crate::structure::{util, AdjacencyList, BitIndex, LogArray, MonotonicLogArra
 use crate::Layer;
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::convert::TryInto;
 use std::io;
 use std::sync::Arc;
@@ -1840,36 +1841,68 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             Vec::with_capacity(layer.parent_node_value_count() + layer.value_dict_len());
         let mut node_value_count = 0;
         let mut pred_count = 0;
+
+        // figure out what keys are actually used through a prepass over all triples
+        let mut node_value_existences = HashSet::new();
+        let mut predicate_existences = HashSet::new();
+        for triple in layer.triples() {
+            node_value_existences.insert(triple.subject);
+            predicate_existences.insert(triple.predicate);
+            node_value_existences.insert(triple.object);
+        }
+
         for layer in stack {
-            nodes.extend(layer.node_dictionary().iter().enumerate().map(|(i, x)| {
-                (
-                    x,
-                    layer.node_value_id_map().inner_to_outer(i as u64 + 1) + node_value_count,
-                )
-            }));
-            predicates.extend(
-                layer
-                    .predicate_dictionary()
-                    .iter()
-                    .enumerate()
-                    .map(|(i, x)| {
-                        (
-                            x,
-                            layer.predicate_id_map().inner_to_outer(i as u64 + 1) + pred_count,
-                        )
-                    }),
-            );
-            values.extend(layer.value_dictionary().iter().enumerate().map(|(i, x)| {
-                (
-                    x,
-                    layer
+            let mapped_nodes: Vec<_> = layer
+                .node_dictionary()
+                .iter()
+                .enumerate()
+                .flat_map(|(i, x)| {
+                    let mapped_node =
+                        layer.node_value_id_map().inner_to_outer(i as u64 + 1) + node_value_count;
+                    if node_value_existences.contains(&mapped_node) {
+                        Some((x, mapped_node))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            let mapped_predicates: Vec<_> = layer
+                .predicate_dictionary()
+                .iter()
+                .enumerate()
+                .flat_map(|(i, x)| {
+                    let mapped_predicate =
+                        layer.predicate_id_map().inner_to_outer(i as u64 + 1) + pred_count;
+                    if predicate_existences.contains(&mapped_predicate) {
+                        Some((x, mapped_predicate))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            let mapped_values: Vec<_> = layer
+                .value_dictionary()
+                .iter()
+                .enumerate()
+                .flat_map(|(i, x)| {
+                    let mapped_value = layer
                         .node_value_id_map()
                         .inner_to_outer(i as u64 + layer.node_dict_len() as u64 + 1)
-                        + node_value_count,
-                )
-            }));
-            node_value_count += (layer.node_dict_len() + layer.value_dict_len()) as u64;
-            pred_count += layer.predicate_dict_len() as u64;
+                        + node_value_count;
+                    if node_value_existences.contains(&mapped_value) {
+                        Some((x, mapped_value))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            node_value_count += (layer.node_dictionary().num_entries()
+                + layer.value_dictionary().num_entries()) as u64;
+            pred_count += layer.predicate_dictionary().num_entries() as u64;
+
+            nodes.extend(mapped_nodes);
+            predicates.extend(mapped_predicates);
+            values.extend(mapped_values);
         }
         nodes.sort();
         predicates.sort();
@@ -1936,6 +1969,22 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         let stack_names = self
             .retrieve_layer_stack_names_upto(layer.name(), upto)
             .await?;
+
+        // figure out what keys are actually used through a prepass over all triples
+        let mut node_value_existences = HashSet::new();
+        let mut predicate_existences = HashSet::new();
+        for (_, triple) in self.layer_changes_upto(layer.name(), upto).await? {
+            if triple.subject >= base_node_value_count {
+                node_value_existences.insert(triple.subject);
+            }
+            if triple.predicate >= base_pred_count {
+                predicate_existences.insert(triple.predicate);
+            }
+            if triple.object >= base_node_value_count {
+                node_value_existences.insert(triple.object);
+            }
+        }
+
         for layer_name in stack_names {
             let node_dict = self.get_node_dictionary(layer_name).await?;
             let node_dict_len = node_dict.as_ref().map(|d| d.num_entries()).unwrap_or(0) as u64;
@@ -1949,38 +1998,42 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             let node_value_id_map = self.get_node_value_idmap(layer_name).await?;
             let predicate_id_map = self.get_predicate_idmap(layer_name).await?;
             if let Some(node_dict) = node_dict.as_ref() {
-                nodes.extend(node_dict.iter().enumerate().map(|(i, x)| {
-                    (
-                        x,
-                        node_value_id_map
-                            .as_ref()
-                            .map(|m| m.inner_to_outer(i as u64 + 1) + node_value_count)
-                            .unwrap_or(i as u64 + node_value_count + 1),
-                    )
+                nodes.extend(node_dict.iter().enumerate().flat_map(|(i, x)| {
+                    let mapped_node = node_value_id_map
+                        .as_ref()
+                        .map(|m| m.inner_to_outer(i as u64 + 1) + node_value_count)
+                        .unwrap_or(i as u64 + node_value_count + 1);
+                    if node_value_existences.contains(&mapped_node) {
+                        Some((x, mapped_node))
+                    } else {
+                        None
+                    }
                 }));
             }
             if let Some(predicate_dict) = predicate_dict.as_ref() {
-                predicates.extend(predicate_dict.iter().enumerate().map(|(i, x)| {
-                    (
-                        x,
-                        predicate_id_map
-                            .as_ref()
-                            .map(|m| m.inner_to_outer(i as u64 + 1) + pred_count)
-                            .unwrap_or(i as u64 + pred_count + 1),
-                    )
+                predicates.extend(predicate_dict.iter().enumerate().flat_map(|(i, x)| {
+                    let mapped_predicate = predicate_id_map
+                        .as_ref()
+                        .map(|m| m.inner_to_outer(i as u64 + 1) + pred_count)
+                        .unwrap_or(i as u64 + pred_count + 1);
+                    if predicate_existences.contains(&mapped_predicate) {
+                        Some((x, mapped_predicate))
+                    } else {
+                        None
+                    }
                 }));
             }
             if let Some(value_dict) = value_dict.as_ref() {
-                values.extend(value_dict.iter().enumerate().map(|(i, x)| {
-                    (
-                        x,
-                        node_value_id_map
-                            .as_ref()
-                            .map(|m| {
-                                m.inner_to_outer(i as u64 + node_dict_len + 1) + node_value_count
-                            })
-                            .unwrap_or(i as u64 + node_value_count + node_dict_len + 1),
-                    )
+                values.extend(value_dict.iter().enumerate().flat_map(|(i, x)| {
+                    let mapped_value = node_value_id_map
+                        .as_ref()
+                        .map(|m| m.inner_to_outer(i as u64 + node_dict_len + 1) + node_value_count)
+                        .unwrap_or(i as u64 + node_value_count + node_dict_len + 1);
+                    if node_value_existences.contains(&mapped_value) {
+                        Some((x, mapped_value))
+                    } else {
+                        None
+                    }
                 }));
             }
             node_value_count += node_dict_len + value_dict_len;
