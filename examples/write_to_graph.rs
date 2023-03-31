@@ -2,6 +2,7 @@ use std::env;
 
 use lazy_static::lazy_static;
 use regex::Regex;
+use terminus_store::storage::directory::NoFilenameEncoding;
 use terminus_store::*;
 use tokio;
 use tokio::io::{self, AsyncBufReadExt};
@@ -52,7 +53,7 @@ async fn parse_command(s: &str) -> io::Result<Command> {
 }
 
 async fn process_commands(store_path: &str, graph: &str) -> io::Result<()> {
-    let store = open_directory_store(store_path);
+    let store = open_directory_store(store_path, NoFilenameEncoding);
     let graph = store
         .open(graph)
         .await?

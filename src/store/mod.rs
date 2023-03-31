@@ -10,7 +10,7 @@ use crate::layer::{IdTriple, Layer, LayerBuilder, LayerCounts, ObjectType, Value
 use crate::storage::archive::{
     ArchiveLayerStore, DirectoryArchiveBackend, LruArchiveBackend, LruMetadataArchiveBackend,
 };
-use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore};
+use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore, FilenameEncoding};
 use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
 use crate::storage::{CachedLayerStore, LabelStore, LayerStore, LockingHashMapLayerCache};
 use crate::structure::TypedDictEntry;
@@ -873,7 +873,7 @@ impl Store {
         StoreLayerBuilder::new(self.clone()).await
     }
 
-    /// Export the given layers by creating a pack, a Vec<u8> that can later be used with `import_layers` on a different store.
+    /// Export the given layers by creating a pack, a `Vec<u8>` that can later be used with `import_layers` on a different store.
     pub async fn export_layers(
         &self,
         layer_ids: Box<dyn Iterator<Item = [u32; 5]> + Send>,
@@ -907,17 +907,26 @@ pub fn open_memory_store() -> Store {
 
 /// Open a store that stores its data in the given directory as archive files.
 ///
-/// cache_size specifies in megabytes how large the LRU cache should
+/// * `cache_size` - specifies in megabytes how large the LRU cache should
 /// be. Loaded layers will stick around in the LRU cache to speed up
 /// subsequent loads.
-pub fn open_archive_store<P: Into<PathBuf>>(path: P, cache_size: usize) -> Store {
+/// * `filename_encoding` - specifies how database label is converted into
+/// label file name (pluggable methods must implement FilenameEncoding
+/// trait). Two implementations are provided: NoFilenameEncoding does
+/// no convertion; URLFilenameEncoding convertion is based on URL
+/// encoding algorithm.
+pub fn open_archive_store<P: Into<PathBuf>>(
+    path: P,
+    cache_size: usize,
+    filename_encoding: impl FilenameEncoding + 'static,
+) -> Store {
     let p = path.into();
     let directory_archive_backend = DirectoryArchiveBackend::new(p.clone());
     let archive_backend = LruArchiveBackend::new(directory_archive_backend.clone(), cache_size);
     let archive_metadata_backend =
         LruMetadataArchiveBackend::new(directory_archive_backend, archive_backend.clone());
     Store::new(
-        DirectoryLabelStore::new(p),
+        DirectoryLabelStore::new(p, filename_encoding),
         CachedLayerStore::new(
             ArchiveLayerStore::new(archive_metadata_backend, archive_backend),
             LockingHashMapLayerCache::new(),
@@ -926,10 +935,19 @@ pub fn open_archive_store<P: Into<PathBuf>>(path: P, cache_size: usize) -> Store
 }
 
 /// Open a store that stores its data in the given directory.
-pub fn open_directory_store<P: Into<PathBuf>>(path: P) -> Store {
+///
+/// * `filename_encoding` -  specifies how database label is converted into
+/// label file name (pluggable methods must implement FilenameEncoding
+/// trait). Two implementations are provided: NoFilenameEncoding does
+/// no convertion; URLFilenameEncoding convertion is based on URL
+/// encoding algorithm.
+pub fn open_directory_store<P: Into<PathBuf>>(
+    path: P,
+    filename_encoding: impl FilenameEncoding + 'static,
+) -> Store {
     let p = path.into();
     Store::new(
-        DirectoryLabelStore::new(p.clone()),
+        DirectoryLabelStore::new(p.clone(), filename_encoding),
         CachedLayerStore::new(DirectoryLayerStore::new(p), LockingHashMapLayerCache::new()),
     )
 }
@@ -937,6 +955,7 @@ pub fn open_directory_store<P: Into<PathBuf>>(path: P) -> Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::directory::NoFilenameEncoding;
     use tempfile::tempdir;
 
     async fn create_and_manipulate_database(store: Store) {
@@ -979,7 +998,7 @@ mod tests {
     #[tokio::test]
     async fn create_and_manipulate_directory_database() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path(), NoFilenameEncoding);
 
         create_and_manipulate_database(store).await;
     }
@@ -1502,7 +1521,7 @@ mod tests {
     #[tokio::test]
     async fn dir_cached_layer_name_does_not_change_after_rollup() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path(), NoFilenameEncoding);
 
         cached_layer_name_does_not_change_after_rollup(store).await
     }
@@ -1548,14 +1567,14 @@ mod tests {
     #[tokio::test]
     async fn dir_cached_layer_name_does_not_change_after_rollup_upto() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path(), NoFilenameEncoding);
         cached_layer_name_does_not_change_after_rollup_upto(store).await
     }
 
     #[tokio::test]
     async fn force_update_with_matching_0_version_succeeds() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path(), NoFilenameEncoding);
         let graph = store.create("foo").await.unwrap();
         let (layer, version) = graph.head_version().await.unwrap();
         assert!(layer.is_none());
@@ -1570,7 +1589,7 @@ mod tests {
     #[tokio::test]
     async fn force_update_with_mismatching_0_version_succeeds() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path(), NoFilenameEncoding);
         let graph = store.create("foo").await.unwrap();
         let (layer, version) = graph.head_version().await.unwrap();
         assert!(layer.is_none());
@@ -1585,7 +1604,7 @@ mod tests {
     #[tokio::test]
     async fn force_update_with_matching_version_succeeds() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path(), NoFilenameEncoding);
         let graph = store.create("foo").await.unwrap();
 
         let builder = store.create_base_layer().await.unwrap();
@@ -1604,7 +1623,7 @@ mod tests {
     #[tokio::test]
     async fn force_update_with_mismatched_version_succeeds() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path(), NoFilenameEncoding);
         let graph = store.create("foo").await.unwrap();
 
         let builder = store.create_base_layer().await.unwrap();
@@ -1623,7 +1642,7 @@ mod tests {
     #[tokio::test]
     async fn delete_database() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path(), NoFilenameEncoding);
         let _ = store.create("foo").await.unwrap();
         assert!(store.delete("foo").await.unwrap());
         assert!(store.open("foo").await.unwrap().is_none());
@@ -1632,14 +1651,14 @@ mod tests {
     #[tokio::test]
     async fn delete_nonexistent_database() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path(), NoFilenameEncoding);
         assert!(!store.delete("foo").await.unwrap());
     }
 
     #[tokio::test]
     async fn delete_graph() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path(), NoFilenameEncoding);
         let graph = store.create("foo").await.unwrap();
         assert!(store.open("foo").await.unwrap().is_some());
         graph.delete().await.unwrap();
@@ -1649,7 +1668,7 @@ mod tests {
     #[tokio::test]
     async fn recreate_graph() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path(), NoFilenameEncoding);
         let graph = store.create("foo").await.unwrap();
         let builder = store.create_base_layer().await.unwrap();
         let layer = builder.commit().await.unwrap();
@@ -1663,7 +1682,7 @@ mod tests {
     #[tokio::test]
     async fn list_databases() {
         let dir = tempdir().unwrap();
-        let store = open_directory_store(dir.path());
+        let store = open_directory_store(dir.path(), NoFilenameEncoding);
         assert!(store.labels().await.unwrap().is_empty());
         let _ = store.create("foo").await.unwrap();
         let one = vec!["foo".to_string()];

@@ -19,7 +19,7 @@ use tokio::io::AsyncWriteExt;
 
 #[async_trait]
 pub trait Packable {
-    /// Export the given layers by creating a pack, a Vec<u8> that can later be used with `import_layers` on a different store.
+    /// Export the given layers by creating a pack, a `Vec<u8>` that can later be used with `import_layers` on a different store.
     async fn export_layers(
         &self,
         layer_ids: Box<dyn Iterator<Item = [u32; 5]> + Send>,

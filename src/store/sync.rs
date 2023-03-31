@@ -12,6 +12,7 @@ use std::io;
 use std::path::PathBuf;
 
 use crate::layer::{IdTriple, Layer, LayerCounts, ObjectType, ValueTriple};
+use crate::storage::directory::FilenameEncoding;
 use crate::store::{
     open_directory_store, open_memory_store, NamedGraph, Store, StoreLayer, StoreLayerBuilder,
 };
@@ -568,7 +569,7 @@ impl SyncStore {
         inner.map(SyncStoreLayerBuilder::wrap)
     }
 
-    /// Export the given layers by creating a pack, a Vec<u8> that can later be used with `import_layers` on a different store.
+    /// Export the given layers by creating a pack, a `Vec<u8>` that can later be used with `import_layers` on a different store.
     pub fn export_layers(
         &self,
         layer_ids: Box<dyn Iterator<Item = [u32; 5]> + Send>,
@@ -598,22 +599,41 @@ pub fn open_sync_memory_store() -> SyncStore {
 }
 
 /// Open a store that stores its data in the given directory.
-pub fn open_sync_directory_store<P: Into<PathBuf>>(path: P) -> SyncStore {
-    SyncStore::wrap(open_directory_store(path))
+///
+/// * `filename_encoding` - specifies how database label is converted into
+/// label file name (pluggable methods must implement FilenameEncoding
+/// trait). Two implementations are provided: NoFilenameEncoding does
+/// no convertion; URLFilenameEncoding convertion is based on URL
+/// encoding algorithm.
+pub fn open_sync_directory_store<P: Into<PathBuf>>(
+    path: P,
+    filename_encoding: impl FilenameEncoding + 'static,
+) -> SyncStore {
+    SyncStore::wrap(open_directory_store(path, filename_encoding))
 }
 
 /// Open a store that stores its data in the given directory as archive files.
 ///
-/// cache_size specifies in megabytes how large the LRU cache should
+/// * `cache_size` - specifies in megabytes how large the LRU cache should
 /// be. Loaded layers will stick around in the LRU cache to speed up
 /// subsequent loads.
-pub fn open_sync_archive_store<P: Into<PathBuf>>(path: P, cache_size: usize) -> SyncStore {
-    SyncStore::wrap(open_archive_store(path, cache_size))
+/// * `filename_encoding` - specifies how database label is converted into
+/// label file name (pluggable methods must implement FilenameEncoding
+/// trait). Two implementations are provided: NoFilenameEncoding does
+/// no convertion; URLFilenameEncoding convertion is based on URL
+/// encoding algorithm.
+pub fn open_sync_archive_store<P: Into<PathBuf>>(
+    path: P,
+    cache_size: usize,
+    filename_encoding: impl FilenameEncoding + 'static,
+) -> SyncStore {
+    SyncStore::wrap(open_archive_store(path, cache_size, filename_encoding))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::directory::NoFilenameEncoding;
     use tempfile::tempdir;
 
     #[test]
@@ -651,7 +671,7 @@ mod tests {
     #[test]
     fn create_and_manipulate_sync_directory_database() {
         let dir = tempdir().unwrap();
-        let store = open_sync_directory_store(dir.path());
+        let store = open_sync_directory_store(dir.path(), NoFilenameEncoding);
         let database = store.create("foodb").unwrap();
 
         let head = database.head().unwrap();
@@ -716,10 +736,10 @@ mod tests {
     #[test]
     fn export_and_import_pack() {
         let dir1 = tempdir().unwrap();
-        let store1 = open_sync_directory_store(dir1.path());
+        let store1 = open_sync_directory_store(dir1.path(), NoFilenameEncoding);
 
         let dir2 = tempdir().unwrap();
-        let store2 = open_sync_directory_store(dir2.path());
+        let store2 = open_sync_directory_store(dir2.path(), NoFilenameEncoding);
 
         let builder1 = store1.create_base_layer().unwrap();
         builder1
