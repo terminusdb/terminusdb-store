@@ -671,7 +671,7 @@ mod tests {
     #[test]
     fn create_and_manipulate_sync_directory_database() {
         let dir = tempdir().unwrap();
-        let store = open_sync_directory_store(dir.path(), NoFilenameEncoding {});
+        let store = open_sync_directory_store(dir.path(), NoFilenameEncoding);
         let database = store.create("foodb").unwrap();
 
         let head = database.head().unwrap();
@@ -736,10 +736,10 @@ mod tests {
     #[test]
     fn export_and_import_pack() {
         let dir1 = tempdir().unwrap();
-        let store1 = open_sync_directory_store(dir1.path(), NoFilenameEncoding {});
+        let store1 = open_sync_directory_store(dir1.path(), NoFilenameEncoding);
 
         let dir2 = tempdir().unwrap();
-        let store2 = open_sync_directory_store(dir2.path(), NoFilenameEncoding {});
+        let store2 = open_sync_directory_store(dir2.path(), NoFilenameEncoding);
 
         let builder1 = store1.create_base_layer().unwrap();
         builder1

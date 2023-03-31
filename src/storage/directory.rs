@@ -191,7 +191,7 @@ pub trait FilenameEncoding: DynClone + Send + Sync {
 clone_trait_object!(FilenameEncoding);
 
 #[derive(Clone)]
-pub struct NoFilenameEncoding {}
+pub struct NoFilenameEncoding;
 
 impl FilenameEncoding for NoFilenameEncoding {
     fn encode(&self, str: String) -> String {
@@ -203,7 +203,7 @@ impl FilenameEncoding for NoFilenameEncoding {
 }
 
 #[derive(Clone)]
-pub struct URLFilenameEncoding {}
+pub struct URLFilenameEncoding;
 
 impl FilenameEncoding for URLFilenameEncoding {
     fn encode(&self, str: String) -> String {
@@ -682,7 +682,7 @@ mod tests {
     #[tokio::test]
     async fn directory_create_and_retrieve_equal_label() {
         let dir = tempdir().unwrap();
-        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding {});
+        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding);
 
         let (stored, retrieved) = async {
             let stored = store.create_label("foo").await?;
@@ -700,7 +700,7 @@ mod tests {
     #[tokio::test]
     async fn directory_create_and_retrieve_equal_url_label() {
         let dir = tempdir().unwrap();
-        let store = DirectoryLabelStore::new(dir.path(), URLFilenameEncoding {});
+        let store = DirectoryLabelStore::new(dir.path(), URLFilenameEncoding);
 
         let (stored, retrieved) = async {
             let stored = store
@@ -722,7 +722,7 @@ mod tests {
     #[tokio::test]
     async fn directory_update_label_succeeds() {
         let dir = tempdir().unwrap();
-        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding {});
+        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding);
 
         let retrieved = async {
             let stored = store.create_label("foo").await?;
@@ -740,7 +740,7 @@ mod tests {
     #[tokio::test]
     async fn directory_update_label_twice_from_same_label_object_fails() {
         let dir = tempdir().unwrap();
-        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding {});
+        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding);
 
         let (stored2, stored3) = async {
             let stored1 = store.create_label("foo").await?;
@@ -760,7 +760,7 @@ mod tests {
     #[tokio::test]
     async fn directory_create_label_twice_errors() {
         let dir = tempdir().unwrap();
-        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding {});
+        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding);
 
         store.create_label("foo").await.unwrap();
         let result = store.create_label("foo").await;
@@ -880,7 +880,7 @@ mod tests {
     #[tokio::test]
     async fn create_and_delete_label() {
         let dir = tempdir().unwrap();
-        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding {});
+        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding);
 
         store.create_label("foo").await.unwrap();
         assert!(store.get_label("foo").await.unwrap().is_some());
@@ -891,7 +891,7 @@ mod tests {
     #[tokio::test]
     async fn delete_nonexistent_label() {
         let dir = tempdir().unwrap();
-        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding {});
+        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding);
 
         assert!(!store.delete_label("foo").await.unwrap());
     }
@@ -899,7 +899,7 @@ mod tests {
     #[tokio::test]
     async fn delete_shared_locked_label() {
         let dir = tempdir().unwrap();
-        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding {});
+        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding);
 
         store.create_label("foo").await.unwrap();
         let label_path = dir.path().join("foo.label");
@@ -911,7 +911,7 @@ mod tests {
     #[tokio::test]
     async fn delete_exclusive_locked_label() {
         let dir = tempdir().unwrap();
-        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding {});
+        let store = DirectoryLabelStore::new(dir.path(), NoFilenameEncoding);
 
         store.create_label("foo").await.unwrap();
         let label_path = dir.path().join("foo.label");

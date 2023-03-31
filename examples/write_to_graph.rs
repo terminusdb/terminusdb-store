@@ -53,7 +53,7 @@ async fn parse_command(s: &str) -> io::Result<Command> {
 }
 
 async fn process_commands(store_path: &str, graph: &str) -> io::Result<()> {
-    let store = open_directory_store(store_path, NoFilenameEncoding {});
+    let store = open_directory_store(store_path, NoFilenameEncoding);
     let graph = store
         .open(graph)
         .await?
