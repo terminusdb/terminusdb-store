@@ -600,7 +600,7 @@ pub fn open_sync_memory_store() -> SyncStore {
 
 /// Open a store that stores its data in the given directory.
 ///
-/// filename_encoding specifies how database label is converted into
+/// * `filename_encoding` - specifies how database label is converted into
 /// label file name (pluggable methods must implement FilenameEncoding
 /// trait). Two implementations are provided: NoFilenameEncoding does
 /// no convertion; URLFilenameEncoding convertion is based on URL
@@ -614,10 +614,10 @@ pub fn open_sync_directory_store<P: Into<PathBuf>>(
 
 /// Open a store that stores its data in the given directory as archive files.
 ///
-/// cache_size specifies in megabytes how large the LRU cache should
+/// * `cache_size` - specifies in megabytes how large the LRU cache should
 /// be. Loaded layers will stick around in the LRU cache to speed up
 /// subsequent loads.
-/// filename_encoding specifies how database label is converted into
+/// * `filename_encoding` - specifies how database label is converted into
 /// label file name (pluggable methods must implement FilenameEncoding
 /// trait). Two implementations are provided: NoFilenameEncoding does
 /// no convertion; URLFilenameEncoding convertion is based on URL

@@ -183,6 +183,7 @@ impl PersistentLayerStore for DirectoryLayerStore {
     }
 }
 
+/// Encoding of the file names
 pub trait FilenameEncoding: DynClone + Send + Sync {
     fn encode(&self, str: String) -> String;
     fn decode(&self, str: String) -> String;
@@ -190,6 +191,7 @@ pub trait FilenameEncoding: DynClone + Send + Sync {
 
 clone_trait_object!(FilenameEncoding);
 
+/// Bypassing encoding of the file name
 #[derive(Clone)]
 pub struct NoFilenameEncoding;
 
@@ -202,6 +204,7 @@ impl FilenameEncoding for NoFilenameEncoding {
     }
 }
 
+/// URL encoding of the file name
 #[derive(Clone)]
 pub struct URLFilenameEncoding;
 
