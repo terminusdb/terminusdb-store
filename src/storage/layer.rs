@@ -1833,7 +1833,6 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         // then iterate over all id triples and map them
         // sort the mapped triples, insert them
         // finalize
-        println!("let's squash");
 
         let stack = layer.immediate_layers();
         let node_count: usize = stack.iter().map(|l|l.node_dictionary().num_entries()).sum();
@@ -1928,8 +1927,6 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         for (remapped, (_, old)) in predicates.iter().enumerate() {
             pred_map[*old as usize] = remapped as u64 + 1;
         }
-
-        eprintln!("map sizes: {} ({}) {} ({})", node_value_map.len(), node_value_map.len()*8, pred_map.len(), pred_map.len()*8);
 
         let layer_name = self.create_directory().await?;
         let base_layer_files = self.base_layer_files(layer_name).await?;
