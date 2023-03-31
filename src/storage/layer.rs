@@ -27,7 +27,7 @@ use std::collections::HashSet;
 use std::convert::TryInto;
 use std::io;
 use std::sync::Arc;
-use fnv::{FnvHashMap, FnvHashSet, FnvBuildHasher};
+use bitvec::prelude::*;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -1841,14 +1841,14 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         let value_count: usize = stack.iter().map(|l|l.value_dictionary().num_entries()).sum();
 
         // figure out what keys are actually used through a prepass over all triples
-        let mut node_value_existences = FnvHashSet::with_capacity_and_hasher(node_count + value_count, FnvBuildHasher::default());
-        let mut predicate_existences = FnvHashSet::with_capacity_and_hasher(predicate_count, FnvBuildHasher::default());
+        let mut node_value_existences = bitvec![0;node_count+value_count+1];
+        let mut predicate_existences = bitvec![0;predicate_count+1];
         let mut num_triples = 0;
         for triple in layer.triples() {
             num_triples += 1;
-            node_value_existences.insert(triple.subject);
-            predicate_existences.insert(triple.predicate);
-            node_value_existences.insert(triple.object);
+            node_value_existences.set(triple.subject as usize,  true);
+            predicate_existences.set(triple.predicate as usize, true);
+            node_value_existences.set(triple.object as usize, true);
         }
 
         let mut nodes = Vec::with_capacity(node_count);
@@ -1868,7 +1868,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                 .flat_map(|(i, x)| {
                     let mapped_node =
                         layer.node_value_id_map().inner_to_outer(i as u64 + 1) + node_value_count;
-                    if node_value_existences.contains(&mapped_node) {
+                    if node_value_existences[mapped_node as usize] {
                         Some((x, mapped_node))
                     } else {
                         None
@@ -1882,7 +1882,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                 .flat_map(|(i, x)| {
                     let mapped_predicate =
                         layer.predicate_id_map().inner_to_outer(i as u64 + 1) + pred_count;
-                    if predicate_existences.contains(&mapped_predicate) {
+                    if predicate_existences[mapped_predicate as usize] {
                         Some((x, mapped_predicate))
                     } else {
                         None
@@ -1898,7 +1898,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                         .node_value_id_map()
                         .inner_to_outer(i as u64 + layer.node_dict_len() as u64 + 1)
                         + node_value_count;
-                    if node_value_existences.contains(&mapped_value) {
+                    if node_value_existences[mapped_value as usize] {
                         Some((x, mapped_value))
                     } else {
                         None
@@ -1914,26 +1914,22 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         predicates.sort();
         values.sort();
 
-        let mut node_value_map: FnvHashMap<u64, u64> = FnvHashMap::with_capacity_and_hasher(nodes.len()+values.len(), FnvBuildHasher::default());
-        node_value_map.extend(nodes
-            .iter()
-            .enumerate()
-            .map(|(remapped, (_x, old))| (*old, remapped as u64 + 1)));
-        let node_count = node_value_map.len();
-        node_value_map.extend(
-            values
-                .iter()
-                .enumerate()
-                .map(|(remapped, (_x, old))| (*old, remapped as u64 + node_count as u64 + 1)),
-        );
+        let mut node_value_map: Vec<u64> = vec![0;node_count+value_count+1];
+        for (remapped, (_, old)) in nodes.iter().enumerate() {
+            node_value_map[*old as usize] = remapped as u64 + 1;
+        }
 
-        let mut pred_map: FnvHashMap<u64, u64> = predicates
-            .iter()
-            .enumerate()
-            .map(|(remapped, (_x, old))| (*old, remapped as u64 + 1))
-            .collect();
-        pred_map.shrink_to_fit();
-        eprintln!("map sizes: {} ({}) {} ({})", node_value_map.len(), node_value_map.len()*16, pred_map.len(), pred_map.len()*16);
+        let node_count = nodes.len();
+        for (remapped, (_, old)) in values.iter().enumerate() {
+            node_value_map[*old as usize] = (remapped + node_count + 1) as u64;
+        }
+
+        let mut pred_map: Vec<u64> = vec![0;predicate_count+1];
+        for (remapped, (_, old)) in predicates.iter().enumerate() {
+            pred_map[*old as usize] = remapped as u64 + 1;
+        }
+
+        eprintln!("map sizes: {} ({}) {} ({})", node_value_map.len(), node_value_map.len()*8, pred_map.len(), pred_map.len()*8);
 
         let layer_name = self.create_directory().await?;
         let base_layer_files = self.base_layer_files(layer_name).await?;
@@ -1947,9 +1943,9 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                        .triples()
                        .map(move |t| {
                            IdTriple::new(
-                               node_value_map[&t.subject],
-                               pred_map[&t.predicate],
-                               node_value_map[&t.object],
+                               node_value_map[t.subject as usize],
+                               pred_map[t.predicate as usize],
+                               node_value_map[t.object as usize],
                            )
                        }));
         triples.sort();

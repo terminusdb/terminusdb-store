@@ -34,7 +34,7 @@ base64 = "0.13"
 hex = "0.4"
 regex = "1.5"
 lru = "0.10"
-fnv = "1.0"
+bitvec = "1.0"
 
 [dev-dependencies]
 tempfile = "3.1"
