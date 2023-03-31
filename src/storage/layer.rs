@@ -1852,7 +1852,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         }
 
         for layer in stack {
-            let mapped_nodes: Vec<_> = layer
+            nodes.extend(layer
                 .node_dictionary()
                 .iter()
                 .enumerate()
@@ -1864,9 +1864,8 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                     } else {
                         None
                     }
-                })
-                .collect();
-            let mapped_predicates: Vec<_> = layer
+                }));
+            predicates.extend(layer
                 .predicate_dictionary()
                 .iter()
                 .enumerate()
@@ -1878,9 +1877,8 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                     } else {
                         None
                     }
-                })
-                .collect();
-            let mapped_values: Vec<_> = layer
+                }));
+            values.extend(layer
                 .value_dictionary()
                 .iter()
                 .enumerate()
@@ -1894,15 +1892,12 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                     } else {
                         None
                     }
-                })
-                .collect();
+                }));
+
             node_value_count += (layer.node_dictionary().num_entries()
                 + layer.value_dictionary().num_entries()) as u64;
             pred_count += layer.predicate_dictionary().num_entries() as u64;
 
-            nodes.extend(mapped_nodes);
-            predicates.extend(mapped_predicates);
-            values.extend(mapped_values);
         }
         nodes.sort();
         predicates.sort();
