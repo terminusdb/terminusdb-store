@@ -126,6 +126,7 @@ impl ArchiveBackend for DirectoryArchiveBackend {
         let mut result = options.open(path).await?;
         let mut buf = Vec::new();
         result.read_to_end(&mut buf).await?;
+        buf.shrink_to_fit();
 
         Ok(buf.into())
     }
@@ -1416,7 +1417,7 @@ impl<M: ArchiveMetadataBackend + Unpin + 'static, D: ArchiveBackend + 'static> P
 
         let offsets_buf = offsets.finalize_header_first();
 
-        let mut data_buf = BytesMut::new();
+        let mut data_buf = BytesMut::with_capacity(tally);
         data_buf.put_u64(presence_header.inner());
         data_buf.extend(offsets_buf);
         for (_file_type, data) in files {

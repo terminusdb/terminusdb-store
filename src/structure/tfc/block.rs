@@ -255,8 +255,8 @@ impl Ord for SizedDictEntry {
 
         let mut it1 = self.chunks();
         let mut it2 = other.chunks();
-        let mut part1 = it1.next().unwrap().clone();
-        let mut part2 = it2.next().unwrap().clone();
+        let mut part1 = Cow::Borrowed(it1.next().unwrap());
+        let mut part2 = Cow::Borrowed(it2.next().unwrap());
 
         loop {
             match part1.len().cmp(&part2.len()) {
@@ -271,8 +271,8 @@ impl Ord for SizedDictEntry {
                     let p2_next = it2.next();
 
                     if let (Some(p1), Some(p2)) = (p1_next, p2_next) {
-                        part1 = p1.clone();
-                        part2 = p2.clone();
+                        part1 = Cow::Borrowed(p1);
+                        part2 = Cow::Borrowed(p2);
                     } else if p1_next.is_none() && p2_next.is_none() {
                         // done! everything has been compared equally and nothign remains.
                         return Ordering::Equal;
@@ -285,19 +285,19 @@ impl Ord for SizedDictEntry {
                     }
                 }
                 Ordering::Less => {
-                    let part2_slice = part2.slice(0..part1.len());
+                    let part2_slice = Cow::Owned(part2.slice(0..part1.len()));
                     match part1.cmp(&part2_slice) {
                         Ordering::Less => return Ordering::Less,
                         Ordering::Greater => return Ordering::Greater,
                         Ordering::Equal => {}
                     }
 
-                    part2 = part2.slice(part1.len()..);
+                    part2 = Cow::Owned(part2.slice(part1.len()..));
                     let part1_option = it1.next();
                     if part1_option.is_none() {
                         return Ordering::Less;
                     }
-                    part1 = part1_option.unwrap().clone();
+                    part1 = Cow::Borrowed(part1_option.unwrap());
                 }
                 Ordering::Greater => {
                     let part1_slice = part1.slice(0..part2.len());
@@ -307,12 +307,12 @@ impl Ord for SizedDictEntry {
                         Ordering::Equal => {}
                     }
 
-                    part1 = part1.slice(part2.len()..);
+                    part1 = Cow::Owned(part1.slice(part2.len()..));
                     let part2_option = it2.next();
                     if part2_option.is_none() {
                         return Ordering::Greater;
                     }
-                    part2 = part2_option.unwrap().clone();
+                    part2 = Cow::Owned(part2_option.unwrap().clone());
                 }
             }
         }
@@ -605,13 +605,13 @@ impl<'a> Iterator for SizedBlockIterator<'a> {
             last.push(self.data.split_to(size));
             self.ix += 1;
 
-            Some(SizedDictEntry::new(last.clone()))
+            Some(SizedDictEntry::new_optimized(last.clone()))
         } else {
             let mut last = Vec::with_capacity(BLOCK_SIZE);
             last.push(self.header.head.clone());
             let result = last.clone();
             self.last = Some(last);
-            Some(SizedDictEntry::new(result))
+            Some(SizedDictEntry::new_optimized(result))
         }
     }
 }
