@@ -1417,7 +1417,7 @@ impl<M: ArchiveMetadataBackend + Unpin + 'static, D: ArchiveBackend + 'static> P
 
         let offsets_buf = offsets.finalize_header_first();
 
-        let mut data_buf = BytesMut::with_capacity(tally+8+offsets_buf.len());
+        let mut data_buf = BytesMut::with_capacity(tally + 8 + offsets_buf.len());
         data_buf.put_u64(presence_header.inner());
         data_buf.extend(offsets_buf);
         for (_file_type, data) in files {
