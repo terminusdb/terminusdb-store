@@ -1975,24 +1975,6 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             .retrieve_layer_stack_names_upto(layer.name(), upto)
             .await?;
 
-        // figure out what keys are actually used through a prepass over all triples
-        let mut node_value_existences = bitvec![0;base_node_value_count as usize+1];
-        let mut predicate_existences = bitvec![0;base_pred_count as usize+1];
-        let mut num_triple_changes = 0;
-        let layer_changes_upto = self.layer_changes_upto(layer.name(), upto).await?;
-        for (_, triple) in layer_changes_upto.clone() {
-            num_triple_changes += 1;
-            if triple.subject >= base_node_value_count {
-                node_value_existences.set((triple.subject - base_node_value_count) as usize, true);
-            }
-            if triple.predicate >= base_pred_count {
-                predicate_existences.set((triple.predicate - base_pred_count) as usize, true);
-            }
-            if triple.object >= base_node_value_count {
-                node_value_existences.set((triple.object - base_node_value_count) as usize, true);
-            }
-        }
-
         let mut structures = Vec::with_capacity(stack_names.len());
         for layer_name in stack_names {
             let node_dict = self.get_node_dictionary(layer_name).await?;
@@ -2022,6 +2004,25 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             .iter()
             .map(|d| d.2.as_ref().map(|d| d.num_entries()).unwrap_or(0))
             .sum();
+        let stack_node_value_count = stack_node_count + stack_value_count;
+
+        // figure out what keys are actually used through a prepass over all triples
+        let mut node_value_existences = bitvec![0;stack_node_value_count as usize+1];
+        let mut predicate_existences = bitvec![0;stack_pred_count as usize+1];
+        let mut num_triple_changes = 0;
+        let layer_changes_upto = self.layer_changes_upto(layer.name(), upto).await?;
+        for (_, triple) in layer_changes_upto.clone() {
+            num_triple_changes += 1;
+            if triple.subject >= base_node_value_count {
+                node_value_existences.set((triple.subject - base_node_value_count) as usize, true);
+            }
+            if triple.predicate >= base_pred_count {
+                predicate_existences.set((triple.predicate - base_pred_count) as usize, true);
+            }
+            if triple.object >= base_node_value_count {
+                node_value_existences.set((triple.object - base_node_value_count) as usize, true);
+            }
+        }
 
         let mut nodes = Vec::with_capacity(stack_node_count);
         let mut predicates = Vec::with_capacity(stack_pred_count);
@@ -2095,7 +2096,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
 
         let mut pred_map: Vec<u64> = vec![0; stack_pred_count + 1];
         for (remapped, (_, old)) in predicates.iter().enumerate() {
-            pred_map[*old as usize] = remapped as u64 + base_pred_count + 1;
+            pred_map[(*old - base_pred_count) as usize] = remapped as u64 + base_pred_count + 1;
         }
 
         let predicate_count = predicates.len();
