@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1679666564772,
+  "lastUpdate": 1680539233829,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -16991,6 +16991,126 @@ window.BENCHMARK_DATA = {
             "name": "logarray_w5_empty",
             "value": 361,
             "range": "± 1",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "matthijs@terminusdb.com",
+            "name": "Matthijs van Otterdijk",
+            "username": "matko"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dff58eb619165d37c71cabe1c02934b1876fc600",
+          "message": "delete unused dict entries in a squash (#131)\n\n* delete unused dict entries in a squash\r\n\r\n* reorder operations for slightly better memory use\r\n\r\n* various optimizations\r\n\r\n* further optimizations\r\n\r\n* remove superfluous prints\r\n\r\n* refactor squash_upto for more predictable memory use\r\n\r\n* tests and fixes for squash\r\n\r\n* fix test\r\n\r\n* remove unnecessary reserves\r\n\r\n* skip over removals when preserving dict entries in squash upto\r\n\r\n* keep track of triple change count correctly",
+          "timestamp": "2023-04-03T18:18:20+02:00",
+          "tree_id": "bc3c3b7db4cb99131fac8826d4ba4fcfb5a142be",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/dff58eb619165d37c71cabe1c02934b1876fc600"
+        },
+        "date": 1680539233142,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 382,
+            "range": "± 123",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 37589908,
+            "range": "± 11072244",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 28095248,
+            "range": "± 9302819",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 36166859,
+            "range": "± 11168602",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 44611709,
+            "range": "± 11100449",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 39793842,
+            "range": "± 11622814",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w10_1000",
+            "value": 13128,
+            "range": "± 688",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1",
+            "value": 492,
+            "range": "± 16",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10",
+            "value": 579,
+            "range": "± 29",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_100",
+            "value": 1781,
+            "range": "± 103",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1000",
+            "value": 11889,
+            "range": "± 1075",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000",
+            "value": 113055,
+            "range": "± 6235",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_as_stream",
+            "value": 122093,
+            "range": "± 3841",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent",
+            "value": 1293826,
+            "range": "± 603712",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent_as_stream",
+            "value": 1212410,
+            "range": "± 517419",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_empty",
+            "value": 424,
+            "range": "± 97",
             "unit": "ns/iter"
           }
         ]
