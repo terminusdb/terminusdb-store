@@ -182,21 +182,21 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                 .for_each(|triple| triple.make_resolved_or_zero())
         }
 
-        // collect all strings we don't yet know about
-        let (unresolved_nodes, unresolved_predicates, unresolved_values) =
-            collect_unresolved_strings(&additions);
-
         // time to build things
-        Box::pin(async {
+        Box::pin(async move {
+            // collect all strings we don't yet know about
+            let (unresolved_nodes, unresolved_predicates, unresolved_values) =
+                collect_unresolved_strings(&additions);
+
             match parent {
                 Some(parent) => {
                     let files = files.into_child();
                     let mut builder =
                         ChildLayerFileBuilder::from_files(parent.clone(), &files).await?;
 
-                    let node_ids = builder.add_nodes(unresolved_nodes.clone());
-                    let predicate_ids = builder.add_predicates(unresolved_predicates.clone());
-                    let value_ids = builder.add_values(unresolved_values.clone());
+                    let node_ids: Vec<_> = unresolved_nodes.iter().map(|node|builder.add_node(node)).collect();
+                    let predicate_ids: Vec<_> = unresolved_predicates.iter().map(|pred|builder.add_predicate(pred)).collect();
+                    let value_ids: Vec<_> = unresolved_values.iter().map(|val|builder.add_value(val)).collect();
 
                     let mut builder = builder.into_phase2().await?;
 
@@ -217,7 +217,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                     }
 
                     let mut add_triples: Vec<_> = additions
-                        .into_iter()
+                        .iter()
                         .map(|t| {
                             t.resolve_with(&node_map, &predicate_map, &value_map)
                                 .expect("triple should have been resolvable")
@@ -239,9 +239,9 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                     let files = files.into_base();
                     let mut builder = BaseLayerFileBuilder::from_files(&files).await?;
 
-                    let node_ids = builder.add_nodes(unresolved_nodes.clone());
-                    let predicate_ids = builder.add_predicates(unresolved_predicates.clone());
-                    let value_ids = builder.add_values(unresolved_values.clone());
+                    let node_ids: Vec<_> = unresolved_nodes.iter().map(|node| builder.add_node(node)).collect();
+                    let predicate_ids: Vec<_> = unresolved_predicates.iter().map(|pred| builder.add_predicate(pred)).collect();
+                    let value_ids: Vec<_> = unresolved_values.iter().map(|val| builder.add_value(val)).collect();
 
                     let mut builder = builder.into_phase2().await?;
 
@@ -259,7 +259,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                     }
 
                     let mut add_triples: Vec<_> = additions
-                        .into_iter()
+                        .iter()
                         .map(|t| {
                             t.resolve_with(&node_map, &predicate_map, &value_map)
                                 .expect("triple should have been resolvable")
@@ -319,7 +319,7 @@ fn zero_equivalents(
 
 fn collect_unresolved_strings(
     triples: &[PartiallyResolvedTriple],
-) -> (Vec<String>, Vec<String>, Vec<TypedDictEntry>) {
+) -> (Vec<&str>, Vec<&str>, Vec<&TypedDictEntry>) {
     let (unresolved_nodes, (unresolved_predicates, unresolved_values)) = rayon::join(
         || {
             let unresolved_nodes_set: HashSet<_> = triples
@@ -327,12 +327,12 @@ fn collect_unresolved_strings(
                 .filter_map(|triple| {
                     let subject = match triple.subject.is_resolved() {
                         true => None,
-                        false => Some(triple.subject.as_ref().unwrap_unresolved().to_owned()),
+                        false => Some(triple.subject.as_ref().unwrap_unresolved().as_str()),
                     };
                     let object = match triple.object.is_resolved() {
                         true => None,
                         false => match triple.object.as_ref().unwrap_unresolved() {
-                            ObjectType::Node(node) => Some(node.to_owned()),
+                            ObjectType::Node(node) => Some(node.as_str()),
                             _ => None,
                         },
                     };
@@ -347,7 +347,7 @@ fn collect_unresolved_strings(
                 .flatten()
                 .collect();
 
-            let mut unresolved_nodes: Vec<_> = unresolved_nodes_set.into_iter().collect();
+            let mut unresolved_nodes: Vec<&str> = unresolved_nodes_set.into_iter().collect();
             unresolved_nodes.par_sort_unstable();
 
             unresolved_nodes
@@ -359,10 +359,10 @@ fn collect_unresolved_strings(
                         .par_iter()
                         .filter_map(|triple| match triple.predicate.is_resolved() {
                             true => None,
-                            false => Some(triple.predicate.as_ref().unwrap_unresolved().to_owned()),
+                            false => Some(triple.predicate.as_ref().unwrap_unresolved().as_str()),
                         })
                         .collect();
-                    let mut unresolved_predicates: Vec<_> =
+                    let mut unresolved_predicates: Vec<&str> =
                         unresolved_predicates_set.into_iter().collect();
                     unresolved_predicates.par_sort_unstable();
 
@@ -374,7 +374,7 @@ fn collect_unresolved_strings(
                         .filter_map(|triple| match triple.object.is_resolved() {
                             true => None,
                             false => match triple.object.as_ref().unwrap_unresolved() {
-                                ObjectType::Value(value) => Some(value.to_owned()),
+                                ObjectType::Value(value) => Some(value),
                                 _ => None,
                             },
                         })

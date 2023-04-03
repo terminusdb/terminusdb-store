@@ -198,7 +198,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     /// Add a value string.
     ///
     /// Panics if the given value string is not a lexical successor of the previous value string.
-    pub fn add_value(&mut self, value: TypedDictEntry) -> u64 {
+    pub fn add_value(&mut self, value: &TypedDictEntry) -> u64 {
         let id = self.builder.add_value(value);
 
         id

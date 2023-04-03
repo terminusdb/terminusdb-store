@@ -439,7 +439,7 @@ impl<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<B1, B2,
         }
     }
 
-    pub fn add(&mut self, value: TypedDictEntry) -> u64 {
+    pub fn add(&mut self, value: &TypedDictEntry) -> u64 {
         if self.current_datatype.is_none() {
             self.current_datatype = Some(value.datatype);
             self.types_present_builder.push(value.datatype as u64);
@@ -471,7 +471,7 @@ impl<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<B1, B2,
     }
 
     pub fn add_all<I: Iterator<Item = TypedDictEntry>>(&mut self, it: I) -> Vec<u64> {
-        it.map(|val| self.add(val)).collect()
+        it.map(|val| self.add(&val)).collect()
     }
 
     pub fn finalize(self) -> (B1, B2, B3, B4) {
@@ -950,7 +950,7 @@ mod tests {
         let _results: Vec<u64> = vec
             .clone()
             .into_iter()
-            .map(|entry| typed_builder.add(entry))
+            .map(|entry| typed_builder.add(&entry))
             .collect();
 
         let (used_types, type_offsets, block_offsets, data) = typed_builder.finalize();
@@ -1016,7 +1016,7 @@ mod tests {
         let _results: Vec<u64> = vec
             .clone()
             .into_iter()
-            .map(|entry| typed_builder.add(entry))
+            .map(|entry| typed_builder.add(&entry))
             .collect();
 
         let (used_types, type_offsets, block_offsets, data) = typed_builder.finalize();
@@ -1061,7 +1061,7 @@ mod tests {
         let _results: Vec<u64> = vec
             .clone()
             .into_iter()
-            .map(|entry| typed_builder.add(entry))
+            .map(|entry| typed_builder.add(&entry))
             .collect();
 
         let (used_types, type_offsets, block_offsets, data) = typed_builder.finalize();
@@ -1103,7 +1103,7 @@ mod tests {
         let _results: Vec<u64> = vec
             .clone()
             .into_iter()
-            .map(|entry| typed_builder.add(entry))
+            .map(|entry| typed_builder.add(&entry))
             .collect();
 
         let (used_types, type_offsets, block_offsets, data) = typed_builder.finalize();
@@ -1176,7 +1176,7 @@ mod tests {
         let _results: Vec<u64> = vec
             .clone()
             .into_iter()
-            .map(|entry| typed_builder.add(entry))
+            .map(|entry| typed_builder.add(&entry))
             .collect();
 
         let (used_types, type_offsets, block_offsets, data) = typed_builder.finalize();
@@ -1239,7 +1239,7 @@ mod tests {
         let _results: Vec<u64> = vec
             .clone()
             .into_iter()
-            .map(|entry| typed_builder.add(entry))
+            .map(|entry| typed_builder.add(&entry))
             .collect();
 
         let (used_types, type_offsets, block_offsets, data) = typed_builder.finalize();

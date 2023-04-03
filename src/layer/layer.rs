@@ -304,20 +304,20 @@ impl PartiallyResolvedTriple {
     /// Resolve the unresolved ids in this triple using the given hashmaps for nodes, predicates and values.
     pub fn resolve_with(
         &self,
-        node_map: &HashMap<String, u64>,
-        predicate_map: &HashMap<String, u64>,
-        value_map: &HashMap<TypedDictEntry, u64>,
+        node_map: &HashMap<&str, u64>,
+        predicate_map: &HashMap<&str, u64>,
+        value_map: &HashMap<&TypedDictEntry, u64>,
     ) -> Option<IdTriple> {
         let subject = match self.subject.as_ref() {
-            PossiblyResolved::Unresolved(s) => *node_map.get(s)?,
+            PossiblyResolved::Unresolved(s) => *node_map.get(s.as_str())?,
             PossiblyResolved::Resolved(id) => id,
         };
         let predicate = match self.predicate.as_ref() {
-            PossiblyResolved::Unresolved(p) => *predicate_map.get(p)?,
+            PossiblyResolved::Unresolved(p) => *predicate_map.get(p.as_str())?,
             PossiblyResolved::Resolved(id) => id,
         };
         let object = match self.object.as_ref() {
-            PossiblyResolved::Unresolved(ObjectType::Node(n)) => *node_map.get(n)?,
+            PossiblyResolved::Unresolved(ObjectType::Node(n)) => *node_map.get(n.as_str())?,
             PossiblyResolved::Unresolved(ObjectType::Value(v)) => *value_map.get(v)?,
             PossiblyResolved::Resolved(id) => id,
         };

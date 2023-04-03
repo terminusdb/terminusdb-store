@@ -81,7 +81,7 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
     /// Add a value string.
     ///
     /// Panics if the given value string is not a lexical successor of the previous value string.
-    pub fn add_value(&mut self, value: TypedDictEntry) -> u64 {
+    pub fn add_value(&mut self, value: &TypedDictEntry) -> u64 {
         let id = self.value_dictionary_builder.add(value);
 
         id
@@ -169,7 +169,7 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
     {
         let mut ids = Vec::new();
         for value in values {
-            let id = self.add_value(value);
+            let id = self.add_value(&value);
             ids.push(id);
         }
 

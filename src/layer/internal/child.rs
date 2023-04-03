@@ -258,8 +258,8 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// Does nothing if the value already exists in the paretn, and
     /// panics if the given value string is not a lexical successor of
     /// the previous value string.
-    pub fn add_value(&mut self, value: TypedDictEntry) -> u64 {
-        match self.parent.object_value_id(&value) {
+    pub fn add_value(&mut self, value: &TypedDictEntry) -> u64 {
+        match self.parent.object_value_id(value) {
             None => self.builder.add_value(value),
             Some(id) => id,
         }
@@ -327,7 +327,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         // TODO bulk check predicate existence
         let mut result = Vec::new();
         for value in values {
-            let id = self.add_value(value);
+            let id = self.add_value(&value);
             result.push(id);
         }
 
@@ -958,7 +958,7 @@ pub mod tests {
             .unwrap();
         b.add_node("foo");
         b.add_predicate("bar");
-        b.add_value(String::make_entry(&"baz"));
+        b.add_value(&String::make_entry(&"baz"));
 
         let b = b.into_phase2().await.unwrap();
         b.finalize().await.unwrap();
@@ -1001,7 +1001,7 @@ pub mod tests {
             .unwrap();
         b.add_node("foo");
         b.add_predicate("bar");
-        b.add_value(String::make_entry(&"baz"));
+        b.add_value(&String::make_entry(&"baz"));
         let b = b.into_phase2().await.unwrap();
 
         b.finalize().await.unwrap();
