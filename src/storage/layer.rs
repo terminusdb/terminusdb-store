@@ -2008,7 +2008,15 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         let mut predicate_existences = bitvec![0;stack_pred_count as usize+1];
         let mut num_triple_changes = 0;
         let layer_changes_upto = self.layer_changes_upto(layer.name(), upto).await?;
-        for (_, triple) in layer_changes_upto.clone() {
+        for (change_type, triple) in layer_changes_upto.clone() {
+            if change_type == TripleChange::Removal {
+                // removals can't possibly have dictionary entries
+                // that are part of this layer stack, as they are
+                // relative to upto, and therefore cannot contain
+                // dictionary entries that didn't yet exist for the
+                // upto layer.
+                continue;
+            }
             num_triple_changes += 1;
             if triple.subject >= base_node_value_count {
                 node_value_existences.set((triple.subject - base_node_value_count) as usize, true);
