@@ -1561,7 +1561,7 @@ mod tests {
         assert_eq!(
             vec![
                 ValueTriple::new_node("foo", "bar", "baz"),
-                ValueTriple::new_string_value("foo", "bar", "hai"),
+                ValueTriple::new_string_value("foo", "baz", "hai"),
             ],
             all_triple_removals
         );
