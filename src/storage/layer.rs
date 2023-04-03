@@ -2009,6 +2009,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         let mut num_triple_changes = 0;
         let layer_changes_upto = self.layer_changes_upto(layer.name(), upto).await?;
         for (change_type, triple) in layer_changes_upto.clone() {
+            num_triple_changes += 1;
             if change_type == TripleChange::Removal {
                 // removals can't possibly have dictionary entries
                 // that are part of this layer stack, as they are
@@ -2017,7 +2018,6 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                 // upto layer.
                 continue;
             }
-            num_triple_changes += 1;
             if triple.subject >= base_node_value_count {
                 node_value_existences.set((triple.subject - base_node_value_count) as usize, true);
             }
