@@ -1864,7 +1864,6 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         let mut pred_count = 0;
 
         for layer in stack {
-            nodes.reserve(layer.node_dictionary().num_entries());
             nodes.extend(
                 layer
                     .node_dictionary()
@@ -1880,7 +1879,6 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                         }
                     }),
             );
-            predicates.reserve(layer.predicate_dictionary().num_entries());
             predicates.extend(layer.predicate_dictionary().iter().enumerate().flat_map(
                 |(i, x)| {
                     let mapped_predicate =
@@ -1892,7 +1890,6 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                     }
                 },
             ));
-            values.reserve(layer.value_dictionary().num_entries());
             values.extend(
                 layer
                     .value_dictionary()
