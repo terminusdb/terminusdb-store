@@ -1404,6 +1404,170 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn squash_and_forget_dict_entries() {
+        let store = open_memory_store();
+        let builder = store.create_base_layer().await.unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("a", "b", "anode"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("a", "b", "astring"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("a", "c", "anothernode"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("a", "c", "anotherstring"))
+            .unwrap();
+
+        let base_layer = builder.commit().await.unwrap();
+
+        let builder = base_layer.open_write().await.unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_node("a", "c", "anothernode"))
+            .unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_string_value("a", "c", "anotherstring"))
+            .unwrap();
+        let child_layer = builder.commit().await.unwrap();
+
+        let squashed = child_layer.squash().await.unwrap();
+        // annoyingly we need to get the internal layer version, so lets re-retrieve
+        let squashed = store
+            .layer_store
+            .get_layer(squashed.name())
+            .await
+            .unwrap()
+            .unwrap();
+        let nodes: Vec<_> = squashed
+            .node_dictionary()
+            .iter()
+            .map(|b| b.to_bytes())
+            .collect();
+        assert_eq!(vec![b"a" as &[u8], b"anode"], nodes);
+        let preds: Vec<_> = squashed
+            .predicate_dictionary()
+            .iter()
+            .map(|b| b.to_bytes())
+            .collect();
+        assert_eq!(vec![b"b" as &[u8]], preds);
+        let vals: Vec<_> = squashed
+            .value_dictionary()
+            .iter()
+            .map(|b| b.to_bytes())
+            .collect();
+        assert_eq!(vec![b"astring" as &[u8]], vals);
+
+        let all_triples: Vec<_> = squashed
+            .triples()
+            .map(|t| squashed.id_triple_to_string(&t).unwrap())
+            .collect();
+        assert_eq!(
+            vec![
+                ValueTriple::new_node("a", "b", "anode"),
+                ValueTriple::new_string_value("a", "b", "astring"),
+            ],
+            all_triples
+        );
+    }
+
+    #[tokio::test]
+    async fn squash_upto_and_forget_dict_entries() {
+        let store = open_memory_store();
+        let builder = store.create_base_layer().await.unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("foo", "bar", "baz"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("baz", "bar", "quux"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("foo", "baz", "hai"))
+            .unwrap();
+        let base_layer = builder.commit().await.unwrap();
+        let builder = base_layer.open_write().await.unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_string_value("foo", "baz", "hai"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("a", "b", "anode"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("a", "b", "astring"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("a", "c", "anothernode"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("a", "c", "anotherstring"))
+            .unwrap();
+
+        let child_layer1 = builder.commit().await.unwrap();
+
+        let builder = child_layer1.open_write().await.unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_node("foo", "bar", "baz"))
+            .unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_node("a", "c", "anothernode"))
+            .unwrap();
+        builder
+            .remove_value_triple(ValueTriple::new_string_value("a", "c", "anotherstring"))
+            .unwrap();
+        let child_layer2 = builder.commit().await.unwrap();
+
+        let squashed = child_layer2.squash_upto(&base_layer).await.unwrap();
+        // annoyingly we need to get the internal layer version, so lets re-retrieve
+        let squashed = store
+            .layer_store
+            .get_layer(squashed.name())
+            .await
+            .unwrap()
+            .unwrap();
+        let nodes: Vec<_> = squashed
+            .node_dictionary()
+            .iter()
+            .map(|b| b.to_bytes())
+            .collect();
+        assert_eq!(vec![b"a" as &[u8], b"anode"], nodes);
+        let preds: Vec<_> = squashed
+            .predicate_dictionary()
+            .iter()
+            .map(|b| b.to_bytes())
+            .collect();
+        assert_eq!(vec![b"b" as &[u8]], preds);
+        let vals: Vec<_> = squashed
+            .value_dictionary()
+            .iter()
+            .map(|b| b.to_bytes())
+            .collect();
+        assert_eq!(vec![b"astring" as &[u8]], vals);
+
+        let all_triple_additions: Vec<_> = squashed
+            .internal_triple_additions()
+            .map(|t| squashed.id_triple_to_string(&t).unwrap())
+            .collect();
+        let all_triple_removals: Vec<_> = squashed
+            .internal_triple_removals()
+            .map(|t| squashed.id_triple_to_string(&t).unwrap())
+            .collect();
+        assert_eq!(
+            vec![
+                ValueTriple::new_node("a", "b", "anode"),
+                ValueTriple::new_string_value("a", "b", "astring"),
+            ],
+            all_triple_additions
+        );
+        assert_eq!(
+            vec![
+                ValueTriple::new_node("foo", "bar", "baz"),
+                ValueTriple::new_string_value("foo", "baz", "hai"),
+            ],
+            all_triple_removals
+        );
+    }
+
+    #[tokio::test]
     async fn apply_a_base_delta() {
         let store = open_memory_store();
         let builder = store.create_base_layer().await.unwrap();
