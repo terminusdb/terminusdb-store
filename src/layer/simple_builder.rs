@@ -12,15 +12,14 @@
 use super::internal::*;
 use super::layer::*;
 use crate::storage::*;
-use crate::structure::TypedDictEntry;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
 
 use futures::future::Future;
 
-use rayon::prelude::*;
+use bitvec::prelude::*;
 
 /// A layer builder trait with no generic typing.
 ///
@@ -119,74 +118,306 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
             parent,
             files,
             additions,
-            id_additions,
+            id_additions: id_additions_supplement,
             removals,
-            id_removals,
+            id_removals: id_removals_supplement,
         } = self;
 
-        let (mut additions, mut removals) = rayon::join(
-            || {
-                let mut additions: Vec<_> = match parent.as_ref() {
-                    None => additions
-                        .into_iter()
-                        .map(|triple| triple.to_unresolved())
-                        .collect(),
-                    Some(parent) => additions
-                        .into_par_iter()
-                        .map(move |triple| parent.value_triple_to_partially_resolved(triple))
-                        .collect(),
+        let parent_node_value_offset = parent
+            .as_ref()
+            .map(|p| p.node_and_value_count())
+            .unwrap_or(0);
+        let parent_predicate_offset = parent.as_ref().map(|p| p.predicate_count()).unwrap_or(0);
+
+        // let's start out by figuring out what new dictionary entries are being added
+        // This will give each dictionary entry a preliminary
+        // id. We'll figure out how to map these to actual ids later
+        // on. This is mostly just so we can compress the triples as we work with them.
+        let mut nodes_values_map: HashMap<ObjectType, u64> = HashMap::new();
+        let mut predicates_map: HashMap<String, u64> = HashMap::new();
+        let mut nodes_values_map_count = parent_node_value_offset as u64;
+        let mut predicates_map_count = parent_predicate_offset as u64;
+        let mut node_count = 0;
+        let mut pred_count = 0;
+        let mut val_count = 0;
+
+        let mut id_additions = Vec::with_capacity(additions.len() + id_additions_supplement.len());
+        id_additions.extend(id_additions_supplement);
+        let mut id_removals = Vec::with_capacity(removals.len() + id_removals_supplement.len());
+        id_removals.extend(id_removals_supplement);
+        for addition in additions {
+            let subject = ObjectType::Node(addition.subject);
+            let predicate = addition.predicate;
+            let object = addition.object;
+            let subject_id = if let Some(n) = nodes_values_map.get(&subject) {
+                *n
+            } else {
+                let node_id = if let Some(node_id) = parent
+                    .as_ref()
+                    .and_then(|p| p.subject_id(subject.node_ref().unwrap()))
+                {
+                    node_id
+                } else {
+                    nodes_values_map_count += 1;
+                    node_count += 1;
+                    nodes_values_map_count
                 };
+                nodes_values_map.insert(subject, node_id);
 
-                additions.extend(id_additions.into_iter().map(|triple| triple.to_resolved()));
-                additions.par_sort_unstable();
-                additions.dedup();
+                node_id
+            };
 
-                additions
-            },
-            || {
-                let mut removals: Vec<_> = match parent.as_ref() {
-                    None => removals
-                        .into_iter()
-                        .map(|triple| triple.to_unresolved())
-                        .collect(),
-                    Some(parent) => removals
-                        .into_par_iter()
-                        .map(move |triple| parent.value_triple_to_partially_resolved(triple))
-                        .collect(),
+            let predicate_id = if let Some(p) = predicates_map.get(&predicate) {
+                *p
+            } else {
+                let predicate_id = if let Some(predicate_id) =
+                    parent.as_ref().and_then(|p| p.predicate_id(&predicate))
+                {
+                    predicate_id
+                } else {
+                    predicates_map_count += 1;
+                    pred_count += 1;
+                    predicates_map_count
                 };
+                predicates_map.insert(predicate, predicate_id);
 
-                removals.extend(id_removals.into_iter().map(|triple| triple.to_resolved()));
-                removals.par_sort_unstable();
-                removals.dedup();
+                predicate_id
+            };
+            let object_id = if let Some(o) = nodes_values_map.get(&object) {
+                *o
+            } else {
+                match object {
+                    ObjectType::Node(n) => {
+                        let node_id = if let Some(node_id) =
+                            parent.as_ref().and_then(|p| p.object_node_id(n.as_str()))
+                        {
+                            node_id
+                        } else {
+                            nodes_values_map_count += 1;
+                            node_count += 1;
+                            nodes_values_map_count
+                        };
+                        nodes_values_map.insert(ObjectType::Node(n), node_id);
 
-                removals
-            },
-        );
+                        node_id
+                    }
+                    ObjectType::Value(v) => {
+                        let value_id = if let Some(value_id) =
+                            parent.as_ref().and_then(|p| p.object_value_id(&v))
+                        {
+                            value_id
+                        } else {
+                            nodes_values_map_count += 1;
+                            val_count += 1;
+                            nodes_values_map_count
+                        };
+                        nodes_values_map.insert(ObjectType::Value(v), value_id);
 
-        // there's now a sorted list of additions and a sorted list of
-        // removals, all as resolved as they can possibly be at this
-        // point.  In order to support no-ops (where you add and
-        // remove the same triple in the same builder), we need to
-        // cross off the instances that appear in both lists.
-        // 'crossing off' is accomplished by setting the particular
-        // triple to (0,0,0), which is understood by the rest of the
-        // code to mean a no-op.
+                        value_id
+                    }
+                }
+            };
 
-        zero_equivalents(&mut additions, &mut removals);
+            id_additions.push(IdTriple::new(subject_id, predicate_id, object_id));
+        }
+        for removal in removals {
+            let subject = ObjectType::Node(removal.subject);
+            let predicate = removal.predicate;
+            let object = removal.object;
+            let subject_id = if let Some(s) = nodes_values_map.get(&subject) {
+                *s
+            } else {
+                let node_id = if let Some(node_id) = parent
+                    .as_ref()
+                    .and_then(|p| p.subject_id(subject.node_ref().unwrap()))
+                {
+                    node_id
+                } else {
+                    continue;
+                };
+                nodes_values_map.insert(subject, node_id);
 
-        // in addition, all removals that aren't resolved at this
-        // point are actually no-ops.
-        if parent.is_some() {
-            removals
-                .par_iter_mut()
-                .for_each(|triple| triple.make_resolved_or_zero())
+                node_id
+            };
+
+            let predicate_id = if let Some(p) = predicates_map.get(&predicate) {
+                *p
+            } else {
+                let predicate_id = if let Some(predicate_id) =
+                    parent.as_ref().and_then(|p| p.predicate_id(&predicate))
+                {
+                    predicate_id
+                } else {
+                    continue;
+                };
+                predicates_map.insert(predicate, predicate_id);
+
+                predicate_id
+            };
+
+            let object_id = if let Some(n) = nodes_values_map.get(&object) {
+                *n
+            } else {
+                match object {
+                    ObjectType::Node(n) => {
+                        let node_id = if let Some(node_id) =
+                            parent.as_ref().and_then(|p| p.object_node_id(n.as_str()))
+                        {
+                            node_id
+                        } else {
+                            continue;
+                        };
+                        nodes_values_map.insert(ObjectType::Node(n), node_id);
+
+                        node_id
+                    }
+                    ObjectType::Value(v) => {
+                        let value_id = if let Some(value_id) =
+                            parent.as_ref().and_then(|p| p.object_value_id(&v))
+                        {
+                            value_id
+                        } else {
+                            continue;
+                        };
+                        nodes_values_map.insert(ObjectType::Value(v), value_id);
+
+                        value_id
+                    }
+                }
+            };
+
+            id_removals.push(IdTriple::new(subject_id, predicate_id, object_id));
         }
 
-        // collect all strings we don't yet know about
-        let (unresolved_nodes, unresolved_predicates, unresolved_values) =
-            collect_unresolved_strings(&additions);
+        // great, we now have all additions and removals in id space, as well as a temporary remapping.
+        // we've also gotten rid of every duplicate string.
+        // time to deduplicate!
 
-        // time to build things
+        id_additions.sort();
+        id_additions.dedup();
+        id_additions.shrink_to_fit();
+        id_removals.sort();
+        id_removals.dedup();
+        id_removals.shrink_to_fit();
+
+        // we now need to figure out noops.
+        let mut additions_it = id_additions.iter_mut().peekable();
+        let mut removals_it = id_removals.iter_mut().peekable();
+        loop {
+            let addition = additions_it.peek();
+            let removal = removals_it.peek();
+
+            // advance those iterators in order until we reach the end
+            if addition.is_none() || removal.is_none() {
+                break;
+            }
+
+            if addition < removal {
+                additions_it.next();
+            } else if addition > removal {
+                removals_it.next();
+            } else {
+                // same triple! make it zeroes to express a no-op without having to shift around triples
+                let addition = additions_it.next().unwrap();
+                let removal = removals_it.next().unwrap();
+                *addition = IdTriple::new(0, 0, 0);
+                *removal = IdTriple::new(0, 0, 0);
+            }
+        }
+
+        // some dict entries might now be unused. We need to do an existence check.
+        let mut node_value_existences = bitvec![0;node_count + val_count];
+        let mut predicate_existences = bitvec![0;pred_count];
+        for triple in id_additions.iter().chain(id_removals.iter()) {
+            if triple.subject > parent_node_value_offset as u64 {
+                node_value_existences
+                    .set(triple.subject as usize - parent_node_value_offset - 1, true);
+            }
+            if triple.predicate > parent_predicate_offset as u64 {
+                predicate_existences.set(
+                    triple.predicate as usize - parent_predicate_offset - 1,
+                    true,
+                );
+            }
+            if triple.object > parent_node_value_offset as u64 {
+                node_value_existences
+                    .set(triple.object as usize - parent_node_value_offset - 1, true);
+            }
+        }
+
+        // time to collect our dictionaries.
+        let mut nodes = Vec::with_capacity(node_count);
+        let mut predicates = Vec::with_capacity(pred_count);
+        let mut values = Vec::with_capacity(val_count);
+
+        for (entry, id) in nodes_values_map.into_iter() {
+            if id <= parent_node_value_offset as u64 {
+                // we don't care about these ids. they are already correct in the triples
+                continue;
+            }
+            if !node_value_existences[id as usize - parent_node_value_offset - 1] {
+                // while originally collected, in the end this entry was unused
+                continue;
+            }
+            match entry {
+                ObjectType::Node(n) => nodes.push((n, id)),
+                ObjectType::Value(v) => values.push((v, id)),
+            }
+        }
+        for (entry, id) in predicates_map.into_iter() {
+            if id <= parent_predicate_offset as u64 {
+                // we don't care about these ids. they are already correct in the triples
+                continue;
+            }
+            if !predicate_existences[id as usize - parent_predicate_offset - 1] {
+                // while originally collected, in the end this entry was unused
+                continue;
+            }
+
+            predicates.push((entry, id));
+        }
+
+        nodes.sort();
+        predicates.sort();
+        values.sort();
+
+        // build up conversion maps for converting the id triples to their final id
+        let mut node_value_id_map = vec![0_u64; node_count + val_count];
+        let mut predicate_id_map = vec![0_u64; pred_count];
+        for (new_id, (_, old_id)) in nodes.iter().enumerate() {
+            let mapped_old_id = *old_id as usize - parent_node_value_offset - 1;
+            node_value_id_map[mapped_old_id] = (new_id + parent_node_value_offset + 1) as u64;
+        }
+        for (new_id, (_, old_id)) in values.iter().enumerate() {
+            let mapped_old_id = *old_id as usize - parent_node_value_offset - 1;
+            node_value_id_map[mapped_old_id] =
+                (new_id + parent_node_value_offset + nodes.len() + 1) as u64;
+        }
+        for (new_id, (_, old_id)) in predicates.iter().enumerate() {
+            let mapped_old_id = *old_id as usize - parent_predicate_offset - 1;
+            predicate_id_map[mapped_old_id] = (new_id + parent_predicate_offset + 1) as u64;
+        }
+
+        // now we have to map all the additions and removals
+        for triple in id_additions.iter_mut().chain(id_removals.iter_mut()) {
+            if triple.subject > parent_node_value_offset as u64 {
+                let mapped_id = triple.subject as usize - parent_node_value_offset - 1;
+                triple.subject = node_value_id_map[mapped_id];
+            }
+            if triple.predicate > parent_predicate_offset as u64 {
+                let mapped_id = triple.predicate as usize - parent_predicate_offset - 1;
+                triple.predicate = predicate_id_map[mapped_id];
+            }
+            if triple.object > parent_node_value_offset as u64 {
+                let mapped_id = triple.object as usize - parent_node_value_offset - 1;
+                triple.object = node_value_id_map[mapped_id];
+            }
+        }
+        // and resort them
+        id_additions.sort();
+        id_removals.sort();
+
+        // great! everything is now in order. Let's stuff it into an actual builder
         Box::pin(async {
             match parent {
                 Some(parent) => {
@@ -194,44 +425,15 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                     let mut builder =
                         ChildLayerFileBuilder::from_files(parent.clone(), &files).await?;
 
-                    let node_ids = builder.add_nodes(unresolved_nodes.clone());
-                    let predicate_ids = builder.add_predicates(unresolved_predicates.clone());
-                    let value_ids = builder.add_values(unresolved_values.clone());
+                    builder.add_nodes(nodes.into_iter().map(|x| x.0));
+                    builder.add_predicates(predicates.into_iter().map(|x| x.0));
+                    builder.add_values(values.into_iter().map(|x| x.0));
 
                     let mut builder = builder.into_phase2().await?;
 
-                    let counts = parent.all_counts();
-                    let parent_node_offset = counts.node_count as u64 + counts.value_count as u64;
-                    let parent_predicate_offset = counts.predicate_count as u64;
-                    let mut node_map = HashMap::new();
-                    for (node, id) in unresolved_nodes.into_iter().zip(node_ids) {
-                        node_map.insert(node, id + parent_node_offset);
-                    }
-                    let mut predicate_map = HashMap::new();
-                    for (predicate, id) in unresolved_predicates.into_iter().zip(predicate_ids) {
-                        predicate_map.insert(predicate, id + parent_predicate_offset);
-                    }
-                    let mut value_map = HashMap::new();
-                    for (value, id) in unresolved_values.into_iter().zip(value_ids) {
-                        value_map.insert(value, id + parent_node_offset + node_map.len() as u64);
-                    }
+                    builder.add_id_triples(id_additions).await?;
+                    builder.remove_id_triples(id_removals).await?;
 
-                    let mut add_triples: Vec<_> = additions
-                        .into_iter()
-                        .map(|t| {
-                            t.resolve_with(&node_map, &predicate_map, &value_map)
-                                .expect("triple should have been resolvable")
-                        })
-                        .collect();
-                    add_triples.par_sort_unstable();
-                    let remove_triples: Vec<_> = removals
-                        .into_iter()
-                        .filter_map(|r| r.as_resolved())
-                        .collect();
-
-                    // TODO this should be in parallel
-                    builder.add_id_triples(add_triples).await?;
-                    builder.remove_id_triples(remove_triples).await?;
                     builder.finalize().await
                 }
                 None => {
@@ -239,35 +441,14 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                     let files = files.into_base();
                     let mut builder = BaseLayerFileBuilder::from_files(&files).await?;
 
-                    let node_ids = builder.add_nodes(unresolved_nodes.clone());
-                    let predicate_ids = builder.add_predicates(unresolved_predicates.clone());
-                    let value_ids = builder.add_values(unresolved_values.clone());
+                    builder.add_nodes(nodes.into_iter().map(|x| x.0));
+                    builder.add_predicates(predicates.into_iter().map(|x| x.0));
+                    builder.add_values(values.into_iter().map(|x| x.0));
 
                     let mut builder = builder.into_phase2().await?;
 
-                    let mut node_map = HashMap::new();
-                    for (node, id) in unresolved_nodes.into_iter().zip(node_ids) {
-                        node_map.insert(node, id);
-                    }
-                    let mut predicate_map = HashMap::new();
-                    for (predicate, id) in unresolved_predicates.into_iter().zip(predicate_ids) {
-                        predicate_map.insert(predicate, id);
-                    }
-                    let mut value_map = HashMap::new();
-                    for (value, id) in unresolved_values.into_iter().zip(value_ids) {
-                        value_map.insert(value, id + node_map.len() as u64);
-                    }
+                    builder.add_id_triples(id_additions).await?;
 
-                    let mut add_triples: Vec<_> = additions
-                        .into_iter()
-                        .map(|t| {
-                            t.resolve_with(&node_map, &predicate_map, &value_map)
-                                .expect("triple should have been resolvable")
-                        })
-                        .collect();
-                    add_triples.par_sort_unstable();
-
-                    builder.add_id_triples(add_triples).await?;
                     builder.finalize().await
                 }
             }
@@ -278,116 +459,6 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
         let builder = *self;
         builder.commit()
     }
-}
-
-fn zero_equivalents(
-    additions: &mut [PartiallyResolvedTriple],
-    removals: &mut [PartiallyResolvedTriple],
-) {
-    let mut removals_iter = removals.iter_mut().peekable();
-    'outer: for mut addition in additions {
-        let mut next = removals_iter.peek();
-        if next == None {
-            break;
-        }
-
-        if next < Some(&addition) {
-            loop {
-                removals_iter.next().unwrap();
-                next = removals_iter.peek();
-
-                if next == None {
-                    break 'outer;
-                } else if next >= Some(&addition) {
-                    break;
-                }
-            }
-        }
-
-        if next == Some(&addition) {
-            let mut removal = removals_iter.next().unwrap();
-            addition.subject = PossiblyResolved::Resolved(0);
-            addition.predicate = PossiblyResolved::Resolved(0);
-            addition.object = PossiblyResolved::Resolved(0);
-
-            removal.subject = PossiblyResolved::Resolved(0);
-            removal.predicate = PossiblyResolved::Resolved(0);
-            removal.object = PossiblyResolved::Resolved(0);
-        }
-    }
-}
-
-fn collect_unresolved_strings(
-    triples: &[PartiallyResolvedTriple],
-) -> (Vec<String>, Vec<String>, Vec<TypedDictEntry>) {
-    let (unresolved_nodes, (unresolved_predicates, unresolved_values)) = rayon::join(
-        || {
-            let unresolved_nodes_set: HashSet<_> = triples
-                .par_iter()
-                .filter_map(|triple| {
-                    let subject = match triple.subject.is_resolved() {
-                        true => None,
-                        false => Some(triple.subject.as_ref().unwrap_unresolved().to_owned()),
-                    };
-                    let object = match triple.object.is_resolved() {
-                        true => None,
-                        false => match triple.object.as_ref().unwrap_unresolved() {
-                            ObjectType::Node(node) => Some(node.to_owned()),
-                            _ => None,
-                        },
-                    };
-
-                    match (subject, object) {
-                        (Some(subject), Some(object)) => Some(vec![subject, object]),
-                        (Some(subject), _) => Some(vec![subject]),
-                        (_, Some(object)) => Some(vec![object]),
-                        _ => None,
-                    }
-                })
-                .flatten()
-                .collect();
-
-            let mut unresolved_nodes: Vec<_> = unresolved_nodes_set.into_iter().collect();
-            unresolved_nodes.par_sort_unstable();
-
-            unresolved_nodes
-        },
-        || {
-            rayon::join(
-                || {
-                    let unresolved_predicates_set: HashSet<_> = triples
-                        .par_iter()
-                        .filter_map(|triple| match triple.predicate.is_resolved() {
-                            true => None,
-                            false => Some(triple.predicate.as_ref().unwrap_unresolved().to_owned()),
-                        })
-                        .collect();
-                    let mut unresolved_predicates: Vec<_> =
-                        unresolved_predicates_set.into_iter().collect();
-                    unresolved_predicates.par_sort_unstable();
-
-                    unresolved_predicates
-                },
-                || {
-                    let unresolved_values_set: HashSet<_> = triples
-                        .par_iter()
-                        .filter_map(|triple| match triple.object.is_resolved() {
-                            true => None,
-                            false => match triple.object.as_ref().unwrap_unresolved() {
-                                ObjectType::Value(value) => Some(value.to_owned()),
-                                _ => None,
-                            },
-                        })
-                        .collect();
-                    let mut unresolved_values: Vec<_> = unresolved_values_set.into_iter().collect();
-                    unresolved_values.par_sort_unstable();
-                    unresolved_values
-                },
-            )
-        },
-    );
-
-    (unresolved_nodes, unresolved_predicates, unresolved_values)
 }
 
 #[cfg(test)]
