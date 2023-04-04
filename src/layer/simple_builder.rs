@@ -53,10 +53,16 @@ pub struct SimpleLayerBuilder<F: 'static + FileLoad + FileStore + Clone> {
     name: [u32; 5],
     parent: Option<Arc<dyn Layer>>,
     files: LayerFiles<F>,
-    additions: Vec<ValueTriple>,
     id_additions: Vec<IdTriple>,
-    removals: Vec<ValueTriple>,
     id_removals: Vec<IdTriple>,
+
+    nodes_values_map: HashMap<ObjectType, u64>,
+    predicates_map: HashMap<String, u64>,
+    nodes_values_map_count: usize,
+    predicates_map_count: usize,
+    node_count: usize,
+    pred_count: usize,
+    val_count: usize,
 }
 
 impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
@@ -66,24 +72,119 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
             name,
             parent: None,
             files: LayerFiles::Base(files),
-            additions: Vec::new(),
             id_additions: Vec::with_capacity(0),
-            removals: Vec::new(),
             id_removals: Vec::with_capacity(0),
+
+            nodes_values_map: HashMap::new(),
+            predicates_map: HashMap::new(),
+            nodes_values_map_count: 0,
+            predicates_map_count: 0,
+            node_count: 0,
+            pred_count: 0,
+            val_count: 0,
         }
     }
 
     /// Construct a layer builder for a child layer
     pub fn from_parent(name: [u32; 5], parent: Arc<dyn Layer>, files: ChildLayerFiles<F>) -> Self {
+        let nodes_values_map_count = parent.node_and_value_count();
+        let predicates_map_count = parent.predicate_count();
         Self {
             name,
             parent: Some(parent),
             files: LayerFiles::Child(files),
-            additions: Vec::new(),
             id_additions: Vec::new(),
-            removals: Vec::new(),
             id_removals: Vec::new(),
+
+            nodes_values_map: HashMap::new(),
+            predicates_map: HashMap::new(),
+            nodes_values_map_count,
+            predicates_map_count,
+            node_count: 0,
+            pred_count: 0,
+            val_count: 0,
         }
+    }
+
+    fn calculate_triple(&mut self, triple: ValueTriple) -> IdTriple {
+        let subject = ObjectType::Node(triple.subject);
+        let predicate = triple.predicate;
+        let object = triple.object;
+        let subject_id = if let Some(n) = self.nodes_values_map.get(&subject) {
+            *n
+        } else {
+            let node_id = if let Some(node_id) = self
+                .parent
+                .as_ref()
+                .and_then(|p| p.subject_id(subject.node_ref().unwrap()))
+            {
+                node_id
+            } else {
+                self.nodes_values_map_count += 1;
+                self.node_count += 1;
+                self.nodes_values_map_count as u64
+            };
+            self.nodes_values_map.insert(subject, node_id);
+
+            node_id
+        };
+
+        let predicate_id = if let Some(p) = self.predicates_map.get(&predicate) {
+            *p
+        } else {
+            let predicate_id = if let Some(predicate_id) = self
+                .parent
+                .as_ref()
+                .and_then(|p| p.predicate_id(&predicate))
+            {
+                predicate_id
+            } else {
+                self.predicates_map_count += 1;
+                self.pred_count += 1;
+                self.predicates_map_count as u64
+            };
+            self.predicates_map.insert(predicate, predicate_id);
+
+            predicate_id
+        };
+        let object_id = if let Some(o) = self.nodes_values_map.get(&object) {
+            *o
+        } else {
+            match object {
+                ObjectType::Node(n) => {
+                    let node_id = if let Some(node_id) = self
+                        .parent
+                        .as_ref()
+                        .and_then(|p| p.object_node_id(n.as_str()))
+                    {
+                        node_id
+                    } else {
+                        self.nodes_values_map_count += 1;
+                        self.node_count += 1;
+                        self.nodes_values_map_count as u64
+                    };
+                    self.nodes_values_map.insert(ObjectType::Node(n), node_id);
+
+                    node_id
+                }
+                ObjectType::Value(v) => {
+                    let value_id = if let Some(value_id) =
+                        self.parent.as_ref().and_then(|p| p.object_value_id(&v))
+                    {
+                        value_id
+                    } else {
+                        self.nodes_values_map_count += 1;
+                        self.val_count += 1;
+                        self.nodes_values_map_count as u64
+                    };
+                    self.nodes_values_map.insert(ObjectType::Value(v), value_id);
+
+                    value_id
+                }
+            }
+        };
+
+        IdTriple::new(subject_id, predicate_id, object_id)
     }
 }
 
@@ -96,16 +197,18 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
         self.parent.clone()
     }
 
-    fn add_value_triple(&mut self, triple: ValueTriple) {
-        self.additions.push(triple);
+    fn add_value_triple(&mut self, addition: ValueTriple) {
+        let triple = self.calculate_triple(addition);
+        self.id_additions.push(triple);
     }
 
     fn add_id_triple(&mut self, triple: IdTriple) {
         self.id_additions.push(triple);
     }
 
-    fn remove_value_triple(&mut self, triple: ValueTriple) {
-        self.removals.push(triple);
+    fn remove_value_triple(&mut self, removal: ValueTriple) {
+        let triple = self.calculate_triple(removal);
+        self.id_removals.push(triple);
     }
 
     fn remove_id_triple(&mut self, triple: IdTriple) {
@@ -117,180 +220,22 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
             name: _,
             parent,
             files,
-            additions,
-            id_additions: id_additions_supplement,
-            removals,
-            id_removals: id_removals_supplement,
-        } = self;
+            mut id_additions,
+            mut id_removals,
 
+            nodes_values_map,
+            predicates_map,
+            nodes_values_map_count: _,
+            predicates_map_count: _,
+            node_count,
+            pred_count,
+            val_count,
+        } = self;
         let parent_node_value_offset = parent
             .as_ref()
             .map(|p| p.node_and_value_count())
             .unwrap_or(0);
         let parent_predicate_offset = parent.as_ref().map(|p| p.predicate_count()).unwrap_or(0);
-
-        // let's start out by figuring out what new dictionary entries are being added
-        // This will give each dictionary entry a preliminary
-        // id. We'll figure out how to map these to actual ids later
-        // on. This is mostly just so we can compress the triples as we work with them.
-        let mut nodes_values_map: HashMap<ObjectType, u64> = HashMap::new();
-        let mut predicates_map: HashMap<String, u64> = HashMap::new();
-        let mut nodes_values_map_count = parent_node_value_offset as u64;
-        let mut predicates_map_count = parent_predicate_offset as u64;
-        let mut node_count = 0;
-        let mut pred_count = 0;
-        let mut val_count = 0;
-
-        let mut id_additions = Vec::with_capacity(additions.len() + id_additions_supplement.len());
-        id_additions.extend(id_additions_supplement);
-        let mut id_removals = Vec::with_capacity(removals.len() + id_removals_supplement.len());
-        id_removals.extend(id_removals_supplement);
-        for addition in additions {
-            let subject = ObjectType::Node(addition.subject);
-            let predicate = addition.predicate;
-            let object = addition.object;
-            let subject_id = if let Some(n) = nodes_values_map.get(&subject) {
-                *n
-            } else {
-                let node_id = if let Some(node_id) = parent
-                    .as_ref()
-                    .and_then(|p| p.subject_id(subject.node_ref().unwrap()))
-                {
-                    node_id
-                } else {
-                    nodes_values_map_count += 1;
-                    node_count += 1;
-                    nodes_values_map_count
-                };
-                nodes_values_map.insert(subject, node_id);
-
-                node_id
-            };
-
-            let predicate_id = if let Some(p) = predicates_map.get(&predicate) {
-                *p
-            } else {
-                let predicate_id = if let Some(predicate_id) =
-                    parent.as_ref().and_then(|p| p.predicate_id(&predicate))
-                {
-                    predicate_id
-                } else {
-                    predicates_map_count += 1;
-                    pred_count += 1;
-                    predicates_map_count
-                };
-                predicates_map.insert(predicate, predicate_id);
-
-                predicate_id
-            };
-            let object_id = if let Some(o) = nodes_values_map.get(&object) {
-                *o
-            } else {
-                match object {
-                    ObjectType::Node(n) => {
-                        let node_id = if let Some(node_id) =
-                            parent.as_ref().and_then(|p| p.object_node_id(n.as_str()))
-                        {
-                            node_id
-                        } else {
-                            nodes_values_map_count += 1;
-                            node_count += 1;
-                            nodes_values_map_count
-                        };
-                        nodes_values_map.insert(ObjectType::Node(n), node_id);
-
-                        node_id
-                    }
-                    ObjectType::Value(v) => {
-                        let value_id = if let Some(value_id) =
-                            parent.as_ref().and_then(|p| p.object_value_id(&v))
-                        {
-                            value_id
-                        } else {
-                            nodes_values_map_count += 1;
-                            val_count += 1;
-                            nodes_values_map_count
-                        };
-                        nodes_values_map.insert(ObjectType::Value(v), value_id);
-
-                        value_id
-                    }
-                }
-            };
-
-            id_additions.push(IdTriple::new(subject_id, predicate_id, object_id));
-        }
-        for removal in removals {
-            let subject = ObjectType::Node(removal.subject);
-            let predicate = removal.predicate;
-            let object = removal.object;
-            let subject_id = if let Some(s) = nodes_values_map.get(&subject) {
-                *s
-            } else {
-                let node_id = if let Some(node_id) = parent
-                    .as_ref()
-                    .and_then(|p| p.subject_id(subject.node_ref().unwrap()))
-                {
-                    node_id
-                } else {
-                    continue;
-                };
-                nodes_values_map.insert(subject, node_id);
-
-                node_id
-            };
-
-            let predicate_id = if let Some(p) = predicates_map.get(&predicate) {
-                *p
-            } else {
-                let predicate_id = if let Some(predicate_id) =
-                    parent.as_ref().and_then(|p| p.predicate_id(&predicate))
-                {
-                    predicate_id
-                } else {
-                    continue;
-                };
-                predicates_map.insert(predicate, predicate_id);
-
-                predicate_id
-            };
-
-            let object_id = if let Some(n) = nodes_values_map.get(&object) {
-                *n
-            } else {
-                match object {
-                    ObjectType::Node(n) => {
-                        let node_id = if let Some(node_id) =
-                            parent.as_ref().and_then(|p| p.object_node_id(n.as_str()))
-                        {
-                            node_id
-                        } else {
-                            continue;
-                        };
-                        nodes_values_map.insert(ObjectType::Node(n), node_id);
-
-                        node_id
-                    }
-                    ObjectType::Value(v) => {
-                        let value_id = if let Some(value_id) =
-                            parent.as_ref().and_then(|p| p.object_value_id(&v))
-                        {
-                            value_id
-                        } else {
-                            continue;
-                        };
-                        nodes_values_map.insert(ObjectType::Value(v), value_id);
-
-                        value_id
-                    }
-                }
-            };
-
-            id_removals.push(IdTriple::new(subject_id, predicate_id, object_id));
-        }
-
-        // great, we now have all additions and removals in id space, as well as a temporary remapping.
-        // we've also gotten rid of every duplicate string.
         // time to deduplicate!
 
         id_additions.sort();
@@ -308,14 +253,33 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
             let removal = removals_it.peek();
 
             // advance those iterators in order until we reach the end
-            if addition.is_none() || removal.is_none() {
+            if removal.is_none() {
+                break;
+            }
+            if addition.is_none() {
+                // loop over the remaining removals to nullify everything that should be a noop due to being out of range
+                while let Some(removal) = removals_it.next() {
+                    if removal.subject > parent_node_value_offset as u64
+                        || removal.predicate > parent_predicate_offset as u64
+                        || removal.object > parent_node_value_offset as u64
+                    {
+                        *removal = IdTriple::new(0, 0, 0);
+                    }
+                }
                 break;
             }
 
             if addition < removal {
                 additions_it.next();
             } else if addition > removal {
-                removals_it.next();
+                let removal = removals_it.next().unwrap();
+                // we need to clear a potential noop
+                if removal.subject > parent_node_value_offset as u64
+                    || removal.predicate > parent_predicate_offset as u64
+                    || removal.object > parent_node_value_offset as u64
+                {
+                    *removal = IdTriple::new(0, 0, 0);
+                }
             } else {
                 // same triple! make it zeroes to express a no-op without having to shift around triples
                 let addition = additions_it.next().unwrap();
