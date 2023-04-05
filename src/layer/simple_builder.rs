@@ -258,7 +258,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
             }
             if addition.is_none() {
                 // loop over the remaining removals to nullify everything that should be a noop due to being out of range
-                while let Some(removal) = removals_it.next() {
+                for removal in removals_it {
                     if removal.subject > parent_node_value_offset as u64
                         || removal.predicate > parent_predicate_offset as u64
                         || removal.object > parent_node_value_offset as u64
