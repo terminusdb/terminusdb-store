@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1680539233829,
+  "lastUpdate": 1680686572489,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -17111,6 +17111,126 @@ window.BENCHMARK_DATA = {
             "name": "logarray_w5_empty",
             "value": 424,
             "range": "± 97",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "matthijs@terminusdb.com",
+            "name": "Matthijs van Otterdijk",
+            "username": "matko"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f2196ba9a4689efea1698824dfca0187815d7c49",
+          "message": "use less memory in builders (#132)\n\n* complete builder rewrite for better memory behavior\r\n\r\n* dedup while adding triples to the simple builder\r\n\r\n* use archive store for the builder benchmarks\r\n\r\n* change loop strategy for iterator",
+          "timestamp": "2023-04-05T11:15:45+02:00",
+          "tree_id": "6202d22f5d167b84557e2adf68568be51a4fe7f1",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/f2196ba9a4689efea1698824dfca0187815d7c49"
+        },
+        "date": 1680686571752,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 1057,
+            "range": "± 63",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 10607274,
+            "range": "± 868752",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 1410070,
+            "range": "± 747438",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 1456064,
+            "range": "± 600655",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 10774338,
+            "range": "± 1135968",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 6945204,
+            "range": "± 903797",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w10_1000",
+            "value": 11101,
+            "range": "± 38",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1",
+            "value": 409,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10",
+            "value": 478,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_100",
+            "value": 1488,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1000",
+            "value": 9936,
+            "range": "± 42",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000",
+            "value": 94101,
+            "range": "± 446",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_as_stream",
+            "value": 101903,
+            "range": "± 254",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent",
+            "value": 964109,
+            "range": "± 451521",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent_as_stream",
+            "value": 990934,
+            "range": "± 405420",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_empty",
+            "value": 348,
+            "range": "± 1",
             "unit": "ns/iter"
           }
         ]
