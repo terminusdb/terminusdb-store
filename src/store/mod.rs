@@ -232,28 +232,35 @@ impl StoreLayerBuilder {
         others: Vec<&StoreLayer>,
         merge_base: &StoreLayer,
     ) -> Result<(), io::Error> {
-        println!("{:?}", others);
-        println!("{:?}", merge_base);
+        rayon::join(
+            || {
+                merge_base.triples().par_bridge().for_each(|b| {
+                    if let Some(t) = merge_base.id_triple_to_string(&b) {
+                        if others
+                            .iter()
+                            .par_bridge()
+                            .any(|o| !o.value_triple_exists(&t))
+                        {
+                            self.remove_value_triple(t).unwrap();
+                        }
+                    }
+                });
+            },
+            || {
+                others.iter().par_bridge().for_each(|os| {
+                    os.triples().par_bridge().for_each(|o| {
+                        if let Some(t) = os.id_triple_to_string(&o) {
+                            if !merge_base.value_triple_exists(&t) {
+                                self.add_value_triple(t).unwrap();
+                            }
+                        }
+                    })
+                })
+            },
+        );
         Ok(())
     }
 }
-
-// TODO: remove later
-impl core::fmt::Debug for StoreLayer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("StoreLayer")
-            .field("layer", &name_to_string(self.layer.name()))
-            .finish()
-    }
-}
-
-pub fn name_to_string(name: [u32; 5]) -> String {
-    format!(
-        "{:08x}{:08x}{:08x}{:08x}{:08x}",
-        name[0], name[1], name[2], name[3], name[4]
-    )
-}
-// TODO: end of remove
 
 /// A layer that keeps track of the store it came out of, allowing the creation of a layer builder on top of this layer.
 ///
