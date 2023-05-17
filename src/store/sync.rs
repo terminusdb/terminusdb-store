@@ -107,15 +107,15 @@ impl SyncStoreLayerBuilder {
     }
 
     /// Apply changes required to change our parent layer into after merge.
-    /// This is a three-way merge with other layers relative to the given merge base.
+    /// This is a three-way merge with other layers relative to the merge base if given.
     pub fn apply_merge(
         &self,
         others: Vec<&SyncStoreLayer>,
-        merge_base: &SyncStoreLayer,
+        merge_base: Option<&SyncStoreLayer>,
     ) -> Result<(), io::Error> {
         let others_inner: Vec<&StoreLayer> = others.iter().map(|x| &x.inner).collect();
         self.inner
-            .apply_merge(others_inner, &merge_base.inner)
+            .apply_merge(others_inner, merge_base.and_then(|x| Some(&x.inner)))
     }
 }
 

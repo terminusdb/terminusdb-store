@@ -226,32 +226,40 @@ impl StoreLayerBuilder {
     }
 
     // Apply changes required to change our parent layer into after merge.
-    // This is a three-way merge with other layers relative to the given merge base.
+    // This is a three-way merge with other layers relative to the merge base if given.
     pub fn apply_merge(
         &self,
         others: Vec<&StoreLayer>,
-        merge_base: &StoreLayer,
+        merge_base: Option<&StoreLayer>,
     ) -> Result<(), io::Error> {
         rayon::join(
-            || {
-                merge_base.triples().par_bridge().for_each(|b| {
-                    if let Some(t) = merge_base.id_triple_to_string(&b) {
-                        if others
-                            .iter()
-                            .par_bridge()
-                            .any(|o| !o.value_triple_exists(&t))
-                        {
-                            self.remove_value_triple(t).unwrap();
+            || match merge_base {
+                Some(base) => {
+                    base.triples().par_bridge().for_each(|b| {
+                        if let Some(t) = base.id_triple_to_string(&b) {
+                            if others
+                                .iter()
+                                .par_bridge()
+                                .any(|o| !o.value_triple_exists(&t))
+                            {
+                                self.remove_value_triple(t).unwrap();
+                            }
                         }
-                    }
-                });
+                    });
+                },
+                None => {}
             },
             || {
                 others.iter().par_bridge().for_each(|os| {
                     os.triples().par_bridge().for_each(|o| {
                         if let Some(t) = os.id_triple_to_string(&o) {
-                            if !merge_base.value_triple_exists(&t) {
-                                self.add_value_triple(t).unwrap();
+                            match merge_base {
+                                Some(base) => {
+                                    if !base.value_triple_exists(&t) {
+                                        self.add_value_triple(t).unwrap();
+                                    }
+                                },
+                                None => { self.add_value_triple(t).unwrap(); }
                             }
                         }
                     })
