@@ -105,6 +105,18 @@ impl SyncStoreLayerBuilder {
     pub fn apply_diff(&self, other: &SyncStoreLayer) -> Result<(), io::Error> {
         self.inner.apply_diff(&other.inner)
     }
+
+    /// Apply changes required to change our parent layer into after merge.
+    /// This is a three-way merge with other layers relative to the given merge base.
+    pub fn apply_merge(
+        &self,
+        others: Vec<&SyncStoreLayer>,
+        merge_base: &SyncStoreLayer,
+    ) -> Result<(), io::Error> {
+        let others_inner: Vec<&StoreLayer> = others.iter().map(|x| &x.inner).collect();
+        self.inner
+            .apply_merge(others_inner, &merge_base.inner)
+    }
 }
 
 /// A layer that keeps track of the store it came out of, allowing the creation of a layer builder on top of this layer.

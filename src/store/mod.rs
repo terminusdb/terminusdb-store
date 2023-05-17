@@ -224,7 +224,36 @@ impl StoreLayerBuilder {
 
         Ok(())
     }
+
+    // Apply changes required to change our parent layer into after merge.
+    // This is a three-way merge with other layers relative to the given merge base.
+    pub fn apply_merge(
+        &self,
+        others: Vec<&StoreLayer>,
+        merge_base: &StoreLayer,
+    ) -> Result<(), io::Error> {
+        println!("{:?}", others);
+        println!("{:?}", merge_base);
+        Ok(())
+    }
 }
+
+// TODO: remove later
+impl core::fmt::Debug for StoreLayer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StoreLayer")
+            .field("layer", &name_to_string(self.layer.name()))
+            .finish()
+    }
+}
+
+pub fn name_to_string(name: [u32; 5]) -> String {
+    format!(
+        "{:08x}{:08x}{:08x}{:08x}{:08x}",
+        name[0], name[1], name[2], name[3], name[4]
+    )
+}
+// TODO: end of remove
 
 /// A layer that keeps track of the store it came out of, allowing the creation of a layer builder on top of this layer.
 ///
