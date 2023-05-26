@@ -1,9 +1,12 @@
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
+use std::io;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use itertools::Either;
+use thiserror::Error;
+use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::structure::{
     util::{find_common_prefix, find_common_prefix_ord},
@@ -12,10 +15,30 @@ use crate::structure::{
 
 pub const BLOCK_SIZE: usize = 8;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum SizedDictError {
+    #[error("invalid coding")]
     InvalidCoding,
+    #[error("not enough data")]
     NotEnoughData,
+}
+
+#[derive(Debug, Error)]
+pub enum SizedDictReaderError {
+    #[error(transparent)]
+    Io(#[from] io::Error),
+    #[error(transparent)]
+    SizedDictError(#[from] SizedDictError),
+}
+
+impl SizedDictReaderError {
+    pub fn is_unexpected_eof(&self) -> bool {
+        match self {
+            Self::Io(e) => e.kind() == io::ErrorKind::UnexpectedEof,
+            Self::SizedDictError(SizedDictError::NotEnoughData) => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -36,8 +59,17 @@ impl From<vbyte::DecodeError> for SizedDictError {
     }
 }
 
+impl From<vbyte::DecodeReaderError> for SizedDictReaderError {
+    fn from(value: vbyte::DecodeReaderError) -> Self {
+        match value {
+            vbyte::DecodeReaderError::Io(e) => SizedDictReaderError::Io(e),
+            vbyte::DecodeReaderError::DecodeError(e) => Self::SizedDictError(e.into()),
+        }
+    }
+}
+
 impl SizedBlockHeader {
-    fn parse(buf: &mut Bytes) -> Result<Self, SizedDictError> {
+    pub fn parse(buf: &mut Bytes) -> Result<Self, SizedDictError> {
         let cw = buf.get_u8();
 
         let (record_size, num_entries) = parse_block_control_word(cw);
@@ -63,6 +95,42 @@ impl SizedBlockHeader {
 
         Ok(Self {
             head,
+            num_entries,
+            buffer_length,
+            sizes,
+            shareds,
+        })
+    }
+
+    pub async fn parse_from_reader<R: AsyncRead + Unpin>(
+        mut reader: R,
+    ) -> Result<Self, SizedDictReaderError> {
+        let cw = reader.read_u8().await?;
+
+        let (record_size, num_entries) = parse_block_control_word(cw);
+        let mut sizes = [0_usize; BLOCK_SIZE - 1];
+        let mut shareds = [0_usize; BLOCK_SIZE - 1];
+        let (first_size, _) = vbyte::decode_reader(&mut reader).await?;
+
+        let mut head = vec![0; first_size as usize];
+        reader.read_exact(&mut head).await?;
+
+        for i in 0..(num_entries - 1) as usize {
+            let (shared, _) = vbyte::decode_reader(&mut reader).await?;
+            let size = if record_size == None {
+                let (size, _) = vbyte::decode_reader(&mut reader).await?;
+                size
+            } else {
+                record_size.unwrap() as u64 - shared
+            };
+            sizes[i] = size as usize;
+            shareds[i] = shared as usize;
+        }
+
+        let buffer_length = sizes.iter().sum();
+
+        Ok(Self {
+            head: Bytes::from(head),
             num_entries,
             buffer_length,
             sizes,
@@ -427,6 +495,19 @@ impl SizedDictBlock {
         Ok(Self { header, data })
     }
 
+    pub async fn parse_from_reader<R: AsyncRead + Unpin>(
+        mut reader: R,
+    ) -> Result<Self, SizedDictReaderError> {
+        let header = SizedBlockHeader::parse_from_reader(&mut reader).await?;
+        let mut data = vec![0; header.buffer_length];
+        reader.read_exact(&mut data).await?;
+
+        Ok(Self {
+            header,
+            data: Bytes::from(data),
+        })
+    }
+
     pub fn num_entries(&self) -> u8 {
         self.header.num_entries
     }
@@ -570,7 +651,7 @@ impl SizedDictBlock {
     }
 }
 
-type OwnedSizedBlockIterator = SizedBlockIterator<'static>;
+pub type OwnedSizedBlockIterator = SizedBlockIterator<'static>;
 
 #[derive(Clone)]
 pub struct SizedBlockIterator<'a> {
