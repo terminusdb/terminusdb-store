@@ -2,7 +2,7 @@ use futures::io::Result;
 use futures::stream::{Peekable, Stream, StreamExt};
 use futures::task::{Context, Poll};
 use std::cmp::Ordering;
-use std::marker::Unpin;
+use std::marker::{PhantomData, Unpin};
 use std::pin::Pin;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
@@ -65,19 +65,22 @@ pub async fn write_u64<W: AsyncWrite + Unpin>(w: &mut W, num: u64) -> Result<()>
 }
 
 struct SortedStream<
+    'a,
     T,
-    S: 'static + Stream<Item = T> + Unpin + Send,
-    F: 'static + Fn(&[Option<&T>]) -> Option<usize>,
+    S: 'a + Stream<Item = T> + Unpin + Send,
+    F: 'a + Fn(&[Option<&T>]) -> Option<usize>,
 > {
     streams: Vec<Peekable<S>>,
     pick_fn: F,
+    _x: PhantomData<&'a ()>,
 }
 
 impl<
+        'a,
         T,
-        S: 'static + Stream<Item = T> + Unpin + Send,
-        F: 'static + Fn(&[Option<&T>]) -> Option<usize> + Unpin,
-    > Stream for SortedStream<T, S, F>
+        S: 'a + Stream<Item = T> + Unpin + Send,
+        F: 'a + Fn(&[Option<&T>]) -> Option<usize> + Unpin,
+    > Stream for SortedStream<'a, T, S, F>
 {
     type Item = T;
 
@@ -107,17 +110,19 @@ impl<
 }
 
 pub fn sorted_stream<
-    T,
-    S: 'static + Stream<Item = T> + Unpin + Send,
-    F: 'static + Fn(&[Option<&T>]) -> Option<usize> + Unpin,
+    'a,
+    T: 'a,
+    S: 'a + Stream<Item = T> + Unpin + Send,
+    F: 'a + Fn(&[Option<&T>]) -> Option<usize> + Unpin,
 >(
     streams: Vec<S>,
     pick_fn: F,
-) -> impl Stream<Item = T> {
+) -> impl Stream<Item = T> + 'a {
     let peekable_streams = streams.into_iter().map(|s| s.peekable()).collect();
     SortedStream {
         streams: peekable_streams,
         pick_fn,
+        _x: Default::default(),
     }
 }
 
