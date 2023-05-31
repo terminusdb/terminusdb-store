@@ -246,7 +246,7 @@ impl StoreLayerBuilder {
                             }
                         }
                     });
-                },
+                }
                 None => {}
             },
             || {
@@ -258,8 +258,10 @@ impl StoreLayerBuilder {
                                     if !base.value_triple_exists(&t) {
                                         self.add_value_triple(t).unwrap();
                                     }
-                                },
-                                None => { self.add_value_triple(t).unwrap(); }
+                                }
+                                None => {
+                                    self.add_value_triple(t).unwrap();
+                                }
                             }
                         }
                     })
@@ -1669,6 +1671,64 @@ mod tests {
         );
         assert!(!rebase_layer
             .value_triple_exists(&ValueTriple::new_string_value("cat", "says", "meow")));
+    }
+
+    #[tokio::test]
+    async fn apply_a_merge() {
+        let store = open_memory_store();
+        let builder = store.create_base_layer().await.unwrap();
+
+        builder
+            .add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("cat", "says", "meow"))
+            .unwrap();
+
+        let merge_base = builder.commit().await.unwrap();
+
+        let builder2 = merge_base.open_write().await.unwrap();
+
+        builder2
+            .add_value_triple(ValueTriple::new_string_value("dog", "says", "woof"))
+            .unwrap();
+
+        let layer2 = builder2.commit().await.unwrap();
+
+        let builder3 = merge_base.open_write().await.unwrap();
+
+        builder3
+            .remove_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
+            .unwrap();
+
+        let layer3 = builder3.commit().await.unwrap();
+
+        let builder4 = merge_base.open_write().await.unwrap();
+
+        builder4
+            .add_value_triple(ValueTriple::new_string_value("bird", "says", "twe"))
+            .unwrap();
+
+        let layer4 = builder4.commit().await.unwrap();
+
+        let merge_builder = layer4.open_write().await.unwrap();
+
+        let _ = merge_builder.apply_merge(vec![&layer2, &layer3], Some(&merge_base));
+
+        let merged_layer = merge_builder.commit().await.unwrap();
+
+        assert!(
+            merged_layer.value_triple_exists(&ValueTriple::new_string_value("cat", "says", "meow"))
+        );
+        assert!(
+            merged_layer.value_triple_exists(&ValueTriple::new_string_value("bird", "says", "twe"))
+        );
+        assert!(
+            merged_layer.value_triple_exists(&ValueTriple::new_string_value("dog", "says", "woof"))
+        );
+        assert!(
+            !merged_layer.value_triple_exists(&ValueTriple::new_string_value("cow", "says", "moo"))
+        );
     }
 
     async fn cached_layer_name_does_not_change_after_rollup(store: Store) {
