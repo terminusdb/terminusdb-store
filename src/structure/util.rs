@@ -64,7 +64,7 @@ pub async fn write_u64<W: AsyncWrite + Unpin>(w: &mut W, num: u64) -> Result<()>
     Ok(())
 }
 
-struct SortedStream<
+pub struct SortedStream<
     'a,
     T,
     S: 'a + Stream<Item = T> + Unpin + Send,
@@ -117,7 +117,7 @@ pub fn sorted_stream<
 >(
     streams: Vec<S>,
     pick_fn: F,
-) -> impl Stream<Item = T> + 'a {
+) -> SortedStream<'a, T, S, F> {
     let peekable_streams = streams.into_iter().map(|s| s.peekable()).collect();
     SortedStream {
         streams: peekable_streams,

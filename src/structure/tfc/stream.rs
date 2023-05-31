@@ -35,6 +35,13 @@ impl<'a, R> TfcDictStream<'a, R> {
             state: StreamState::Start(reader),
         }
     }
+
+    pub fn into_inner(self) -> R {
+        match self.state {
+            StreamState::Start(r) => r,
+            _ => panic!("tfc dict stream is not in a state where we can return the inner reader"),
+        }
+    }
 }
 
 async fn parse_single_tfc_block<R: AsyncRead + Unpin>(
