@@ -21,6 +21,7 @@ enum StreamState<'a, R> {
         Pin<
             Box<
                 dyn Future<Output = Result<(OwnedSizedBlockIterator, R), SizedDictReaderError>>
+                    + Send
                     + 'a,
             >,
         >,
@@ -54,7 +55,7 @@ async fn parse_single_tfc_block<R: AsyncRead + Unpin>(
     Ok((block.into_iter(), reader))
 }
 
-impl<'a, R: AsyncRead + Unpin + 'a> Stream for TfcDictStream<'a, R> {
+impl<'a, R: AsyncRead + Unpin + Send + 'a> Stream for TfcDictStream<'a, R> {
     type Item = Result<(SizedDictEntry, bool), SizedDictReaderError>;
 
     fn poll_next(
@@ -150,7 +151,7 @@ impl<'a, R> TfcTypedDictStream<'a, R> {
     }
 }
 
-impl<'a, R: AsyncRead + Unpin + 'a> Stream for TfcTypedDictStream<'a, R> {
+impl<'a, R: AsyncRead + Unpin + Send + 'a> Stream for TfcTypedDictStream<'a, R> {
     type Item = Result<TypedDictEntry, SizedDictReaderError>;
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,

@@ -2,29 +2,16 @@ use byteorder::{BigEndian, ByteOrder};
 use bytes::{Bytes, BytesMut};
 use futures::{Stream, TryStreamExt};
 use std::fmt::Debug;
-use std::{cmp::Ordering, io};
+use std::io;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+use crate::structure::util::compare_or_result;
 use crate::{
     storage::*,
     structure::util::{sorted_iterator, sorted_stream},
 };
 
 use super::*;
-
-fn compare_or_result<T: Ord, E: Debug>(r1: &Result<T, E>, r2: &Result<T, E>) -> Ordering {
-    if r1.is_err() {
-        if r2.is_err() {
-            Ordering::Equal
-        } else {
-            Ordering::Less
-        }
-    } else if r2.is_err() {
-        Ordering::Greater
-    } else {
-        r1.as_ref().unwrap().cmp(r2.as_ref().unwrap())
-    }
-}
 
 pub async fn dedup_merge_string_dictionaries_stream<
     'a,
@@ -35,7 +22,7 @@ pub async fn dedup_merge_string_dictionaries_stream<
 >(
     dictionaries: Vec<S>,
     dict_files: DictionaryFiles<F>,
-) -> io::Result<Vec<Vec<N>>> {
+) -> io::Result<(Vec<Vec<N>>, usize)> {
     let pick_fn = |vals: &[Option<&Result<(usize, SizedDictEntry), E>>]| {
         vals.iter()
             .enumerate()
@@ -55,12 +42,14 @@ pub async fn dedup_merge_string_dictionaries_stream<
     let mut result: Vec<(N, bool)> = Vec::new();
     let mut builder = StringDictBufBuilder::new(BytesMut::new(), BytesMut::new());
 
+    let mut tally = 0;
     let mut last_item: Option<Bytes> = None;
     while let Some((dict_index, item)) = sorted_stream.try_next().await.map_err(|e| e.into())? {
-        if Some(&item) == last_item.as_ref() {
+        if Some(&item) != last_item.as_ref() {
             result.push((dict_index.into(), true));
             builder.add(item.clone());
             last_item = Some(item);
+            tally += 1;
         } else {
             result.push((dict_index.into(), false));
         }
@@ -75,7 +64,7 @@ pub async fn dedup_merge_string_dictionaries_stream<
     blocks_file_writer.flush().await?;
     blocks_file_writer.sync_all().await?;
 
-    Ok(as_maps(dictionaries_len, &result))
+    Ok((as_maps(dictionaries_len, &result), tally))
 }
 
 pub fn as_maps<T: Into<usize> + Copy, N: From<usize>>(
@@ -203,7 +192,7 @@ pub async fn dedup_merge_typed_dictionary_streams<
 >(
     dictionaries: Vec<S>,
     dict_files: TypedDictionaryFiles<F>,
-) -> io::Result<Vec<Vec<N>>> {
+) -> io::Result<(Vec<Vec<N>>, usize)> {
     let pick_fn = |vals: &[Option<&Result<(usize, TypedDictEntry), E>>]| {
         vals.iter()
             .enumerate()
@@ -228,12 +217,14 @@ pub async fn dedup_merge_typed_dictionary_streams<
         BytesMut::new(),
     );
 
+    let mut tally = 0;
     let mut last_item: Option<TypedDictEntry> = None;
     while let Some((dict_index, item)) = sorted_stream.try_next().await.map_err(|e| e.into())? {
-        if Some(&item) == last_item.as_ref() {
+        if Some(&item) != last_item.as_ref() {
             result.push((dict_index.into(), true));
             builder.add(item.clone());
             last_item = Some(item);
+            tally += 1;
         } else {
             result.push((dict_index.into(), false));
         }
@@ -260,7 +251,7 @@ pub async fn dedup_merge_typed_dictionary_streams<
     blocks_file_writer.flush().await?;
     blocks_file_writer.sync_all().await?;
 
-    Ok(as_maps(dictionaries_len, &result))
+    Ok((as_maps(dictionaries_len, &result), tally))
 }
 
 pub async fn dict_file_get_count<F: 'static + FileLoad>(file: F) -> io::Result<u64> {

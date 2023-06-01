@@ -1,4 +1,5 @@
 pub mod base;
+pub mod base_merge;
 pub mod child;
 mod object_iterator;
 mod predicate_iterator;

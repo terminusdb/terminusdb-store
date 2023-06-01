@@ -2,6 +2,7 @@ use futures::io::Result;
 use futures::stream::{Peekable, Stream, StreamExt};
 use futures::task::{Context, Poll};
 use std::cmp::Ordering;
+use std::fmt;
 use std::marker::{PhantomData, Unpin};
 use std::pin::Pin;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
@@ -123,6 +124,23 @@ pub fn sorted_stream<
         streams: peekable_streams,
         pick_fn,
         _x: Default::default(),
+    }
+}
+
+pub fn compare_or_result<T: Ord, E: fmt::Debug>(
+    r1: &std::result::Result<T, E>,
+    r2: &std::result::Result<T, E>,
+) -> Ordering {
+    if r1.is_err() {
+        if r2.is_err() {
+            Ordering::Equal
+        } else {
+            Ordering::Less
+        }
+    } else if r2.is_err() {
+        Ordering::Greater
+    } else {
+        r1.as_ref().unwrap().cmp(r2.as_ref().unwrap())
     }
 }
 

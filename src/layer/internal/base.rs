@@ -328,7 +328,7 @@ pub struct BaseLayerFileBuilderPhase2<F: 'static + FileLoad + FileStore> {
 }
 
 impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
-    async fn new(
+    pub async fn new(
         files: BaseLayerFiles<F>,
 
         num_nodes: usize,
@@ -400,7 +400,7 @@ pub struct BaseTripleStream<S: Stream<Item = io::Result<(u64, u64)>> + Send> {
 }
 
 impl<S: Stream<Item = io::Result<(u64, u64)>> + Unpin + Send> BaseTripleStream<S> {
-    fn new(s_p_stream: S, sp_o_stream: S) -> BaseTripleStream<S> {
+    pub fn new(s_p_stream: S, sp_o_stream: S) -> BaseTripleStream<S> {
         BaseTripleStream {
             s_p_stream: s_p_stream.peekable(),
             sp_o_stream: sp_o_stream.peekable(),

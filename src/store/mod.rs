@@ -873,6 +873,10 @@ impl Store {
         StoreLayerBuilder::new(self.clone()).await
     }
 
+    pub async fn merge_base_layers(&self, layers: &[[u32; 5]]) -> io::Result<[u32; 5]> {
+        todo!();
+    }
+
     /// Export the given layers by creating a pack, a Vec<u8> that can later be used with `import_layers` on a different store.
     pub async fn export_layers(
         &self,
