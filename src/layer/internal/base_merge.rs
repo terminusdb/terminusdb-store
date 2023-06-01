@@ -74,13 +74,13 @@ fn map_triple(
     predicate_map: &[usize],
     value_map: &[usize],
 ) -> (u64, u64, u64) {
-    let s = node_map[triple.0 as usize] as u64;
-    let p = predicate_map[triple.1 as usize] as u64;
+    let s = node_map[triple.0 as usize - 1] as u64 + 1;
+    let p = predicate_map[triple.1 as usize - 1] as u64 + 1;
 
-    let o = if (triple.2 as usize) < node_map.len() {
-        node_map[triple.2 as usize] as u64
+    let o = if (triple.2 as usize - 1) < node_map.len() {
+        node_map[triple.2 as usize - 1] as u64 + 1
     } else {
-        value_map[triple.2 as usize - node_map.len()] as u64
+        value_map[triple.2 as usize - 1 - node_map.len()] as u64 + 1
     };
 
     (s, p, o)

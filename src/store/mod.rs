@@ -874,7 +874,7 @@ impl Store {
     }
 
     pub async fn merge_base_layers(&self, layers: &[[u32; 5]]) -> io::Result<[u32; 5]> {
-        todo!();
+        self.layer_store.merge_base_layer(layers).await
     }
 
     /// Export the given layers by creating a pack, a Vec<u8> that can later be used with `import_layers` on a different store.

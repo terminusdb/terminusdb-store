@@ -323,6 +323,10 @@ impl LayerStore for CachedLayerStore {
         self.inner.squash_upto(layer, upto).await
     }
 
+    async fn merge_base_layer(&self, layers: &[[u32; 5]]) -> io::Result<[u32; 5]> {
+        self.inner.merge_base_layer(layers).await
+    }
+
     async fn layer_is_ancestor_of(
         &self,
         descendant: [u32; 5],

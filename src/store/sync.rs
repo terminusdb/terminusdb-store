@@ -568,6 +568,11 @@ impl SyncStore {
         inner.map(SyncStoreLayerBuilder::wrap)
     }
 
+    pub fn merge_base_layers(&self, layers: &[[u32; 5]]) -> Result<[u32; 5], io::Error> {
+        let inner = task_sync(self.inner.merge_base_layers(layers))?;
+        Ok(inner)
+    }
+
     /// Export the given layers by creating a pack, a Vec<u8> that can later be used with `import_layers` on a different store.
     pub fn export_layers(
         &self,

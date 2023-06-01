@@ -3,6 +3,7 @@ use super::consts::FILENAMES;
 use super::delta::*;
 use super::file::*;
 use super::pack::Packable;
+use crate::layer::base_merge::merge_base_layers;
 use crate::layer::builder::DictionarySetFileBuilder;
 use crate::layer::BaseLayerFileBuilder;
 use crate::layer::ChildLayerFileBuilderPhase2;
@@ -218,6 +219,8 @@ pub trait LayerStore: 'static + Packable + Send + Sync {
 
     async fn squash(&self, layer: Arc<InternalLayer>) -> io::Result<[u32; 5]>;
     async fn squash_upto(&self, layer: Arc<InternalLayer>, upto: [u32; 5]) -> io::Result<[u32; 5]>;
+
+    async fn merge_base_layer(&self, layers: &[[u32; 5]]) -> io::Result<[u32; 5]>;
 
     async fn layer_is_ancestor_of(
         &self,
@@ -2181,6 +2184,31 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         self.finalize_layer(layer_name).await?;
 
         Ok(layer_name)
+    }
+
+    async fn merge_base_layer(&self, layers: &[[u32; 5]]) -> io::Result<[u32; 5]> {
+        let mut layer_files = Vec::with_capacity(layers.len());
+        for layer in layers {
+            if self.layer_has_parent(*layer).await? {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!(
+                        "given layer is not a base layer: {}",
+                        name_to_string(*layer)
+                    ),
+                ));
+            }
+            layer_files.push(self.base_layer_files(*layer).await?);
+        }
+
+        let output_name = self.create_directory().await?;
+        let output_layer_files = self.base_layer_files(output_name).await?;
+
+        merge_base_layers(&layer_files, output_layer_files).await?;
+
+        self.finalize(output_name).await?;
+
+        Ok(output_name)
     }
 
     async fn layer_is_ancestor_of(
