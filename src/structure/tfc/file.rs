@@ -17,13 +17,19 @@ pub async fn dedup_merge_string_dictionaries_stream<
     'a,
     F: 'static + FileLoad + FileStore,
     E: Debug + Into<io::Error>,
-    S: Stream<Item = Result<(usize, SizedDictEntry), E>> + Send + Unpin,
-    N: From<usize> + Into<usize> + Copy,
+    S: Stream<Item = Result<SizedDictEntry, E>> + Send + Unpin,
+    N: From<usize> + Into<usize> + Copy + Debug,
 >(
     dictionaries: Vec<S>,
     dict_files: DictionaryFiles<F>,
 ) -> io::Result<(Vec<Vec<N>>, usize)> {
-    let pick_fn = |vals: &[Option<&Result<(usize, SizedDictEntry), E>>]| {
+    let dictionaries_len = dictionaries.len();
+    let annotated_dictionary_streams: Vec<_> = dictionaries
+        .into_iter()
+        .enumerate()
+        .map(|(ix, s)| s.map_ok(move |e| (e, ix)))
+        .collect();
+    let pick_fn = |vals: &[Option<&Result<(SizedDictEntry, usize), E>>]| {
         vals.iter()
             .enumerate()
             .filter(|(_, v)| v.is_some())
@@ -31,10 +37,8 @@ pub async fn dedup_merge_string_dictionaries_stream<
             .map(|(ix, _)| ix)
     };
 
-    let dictionaries_len = dictionaries.len();
-
-    let mut sorted_stream =
-        sorted_stream(dictionaries, pick_fn).map_ok(|(ix, elt)| (ix, elt.to_bytes()));
+    let mut sorted_stream = sorted_stream(annotated_dictionary_streams, pick_fn)
+        .map_ok(|(elt, ix)| (elt.to_bytes(), ix));
 
     let mut blocks_file_writer = dict_files.blocks_file.open_write().await?;
     let mut offsets_file_writer = dict_files.offsets_file.open_write().await?;
@@ -44,7 +48,7 @@ pub async fn dedup_merge_string_dictionaries_stream<
 
     let mut tally = 0;
     let mut last_item: Option<Bytes> = None;
-    while let Some((dict_index, item)) = sorted_stream.try_next().await.map_err(|e| e.into())? {
+    while let Some((item, dict_index)) = sorted_stream.try_next().await.map_err(|e| e.into())? {
         if Some(&item) != last_item.as_ref() {
             result.push((dict_index.into(), true));
             builder.add(item.clone());
@@ -67,7 +71,7 @@ pub async fn dedup_merge_string_dictionaries_stream<
     Ok((as_maps(dictionaries_len, &result), tally))
 }
 
-pub fn as_maps<T: Into<usize> + Copy, N: From<usize>>(
+pub fn as_maps<T: Into<usize> + Copy + Debug, N: From<usize>>(
     total_size: usize,
     picks: &[(T, bool)],
 ) -> Vec<Vec<N>> {
@@ -79,10 +83,10 @@ pub fn as_maps<T: Into<usize> + Copy, N: From<usize>>(
     for (p, picked) in picks {
         let dict: usize = (*p).into();
         let map: &mut Vec<N> = &mut maps[dict];
-        map.push(count.into());
         if *picked {
             count += 1;
         }
+        map.push((count - 1).into());
     }
 
     maps
@@ -187,13 +191,19 @@ pub async fn dedup_merge_typed_dictionary_streams<
     'a,
     F: 'static + FileLoad + FileStore,
     E: Debug + Into<io::Error>,
-    S: Stream<Item = Result<(usize, TypedDictEntry), E>> + Send + Unpin,
-    N: From<usize> + Into<usize> + Copy,
+    S: Stream<Item = Result<TypedDictEntry, E>> + Send + Unpin,
+    N: From<usize> + Into<usize> + Copy + Debug,
 >(
     dictionaries: Vec<S>,
     dict_files: TypedDictionaryFiles<F>,
 ) -> io::Result<(Vec<Vec<N>>, usize)> {
-    let pick_fn = |vals: &[Option<&Result<(usize, TypedDictEntry), E>>]| {
+    let dictionaries_len = dictionaries.len();
+    let annotated_dictionary_streams: Vec<_> = dictionaries
+        .into_iter()
+        .enumerate()
+        .map(|(ix, s)| s.map_ok(move |e| (e, ix)))
+        .collect();
+    let pick_fn = |vals: &[Option<&Result<(TypedDictEntry, usize), E>>]| {
         vals.iter()
             .enumerate()
             .filter(|(_, v)| v.is_some())
@@ -201,8 +211,7 @@ pub async fn dedup_merge_typed_dictionary_streams<
             .map(|(ix, _)| ix)
     };
 
-    let dictionaries_len = dictionaries.len();
-    let mut sorted_stream = sorted_stream(dictionaries, pick_fn);
+    let mut sorted_stream = sorted_stream(annotated_dictionary_streams, pick_fn);
 
     let mut types_present_file_writer = dict_files.types_present_file.open_write().await?;
     let mut type_offsets_file_writer = dict_files.type_offsets_file.open_write().await?;
@@ -219,7 +228,7 @@ pub async fn dedup_merge_typed_dictionary_streams<
 
     let mut tally = 0;
     let mut last_item: Option<TypedDictEntry> = None;
-    while let Some((dict_index, item)) = sorted_stream.try_next().await.map_err(|e| e.into())? {
+    while let Some((item, dict_index)) = sorted_stream.try_next().await.map_err(|e| e.into())? {
         if Some(&item) != last_item.as_ref() {
             result.push((dict_index.into(), true));
             builder.add(item.clone());

@@ -12,6 +12,7 @@ use crate::{
     },
 };
 
+#[allow(unused)]
 fn try_enumerate<T, E, S: Stream<Item = Result<T, E>> + Send>(
     s: S,
 ) -> impl Stream<Item = Result<(usize, T), E>> + Send {
@@ -29,11 +30,9 @@ async fn dicts_to_map<
     let mut streams = Vec::with_capacity(inputs.len());
     for input in inputs {
         let reader = input.blocks_file.open_read().await?;
-        let stream = try_enumerate(
-            TfcDictStream::new(reader)
-                .map_ok(|e| e.0)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e)),
-        );
+        let stream = TfcDictStream::new(reader)
+            .map_ok(|e| e.0)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e));
 
         streams.push(stream);
     }
@@ -59,7 +58,7 @@ async fn typed_dicts_to_map<
             input.type_offsets_file.map().await?,
         )
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-        let stream = try_enumerate(raw_stream).map_err(|e| io::Error::new(io::ErrorKind::Other, e));
+        let stream = raw_stream.map_err(|e| io::Error::new(io::ErrorKind::Other, e));
 
         streams.push(stream);
     }
@@ -73,6 +72,7 @@ fn map_triple(
     node_map: &[usize],
     predicate_map: &[usize],
     value_map: &[usize],
+    num_nodes: usize,
 ) -> (u64, u64, u64) {
     let s = node_map[triple.0 as usize - 1] as u64 + 1;
     let p = predicate_map[triple.1 as usize - 1] as u64 + 1;
@@ -80,7 +80,7 @@ fn map_triple(
     let o = if (triple.2 as usize - 1) < node_map.len() {
         node_map[triple.2 as usize - 1] as u64 + 1
     } else {
-        value_map[triple.2 as usize - 1 - node_map.len()] as u64 + 1
+        value_map[triple.2 as usize - 1 - node_map.len()] as u64 + num_nodes as u64 + 1
     };
 
     (s, p, o)
@@ -117,7 +117,13 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
         let inner_predicate_map = &predicate_map[ix];
         let inner_value_map = &value_map[ix];
         let stream = raw_stream.map_ok(move |triple| {
-            map_triple(triple, inner_node_map, inner_predicate_map, inner_value_map)
+            map_triple(
+                triple,
+                inner_node_map,
+                inner_predicate_map,
+                inner_value_map,
+                node_count,
+            )
         });
         triple_streams.push(stream);
     }
