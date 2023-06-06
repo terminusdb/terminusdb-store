@@ -878,8 +878,8 @@ impl ArchiveHeader {
 }
 
 pub struct Archive {
-    header: ArchiveHeader,
-    data: Bytes,
+    pub header: ArchiveHeader,
+    pub data: Bytes,
 }
 
 impl Archive {
@@ -943,6 +943,16 @@ pub struct ArchiveSliceReader {
     remaining: usize,
 }
 
+impl ArchiveSliceReader {
+    pub fn new(file: File, remaining: usize) -> Self {
+        Self { file, remaining }
+    }
+
+    pub fn end_early(&mut self, end: usize) {
+        self.remaining -= end;
+    }
+}
+
 impl AsyncRead for ArchiveSliceReader {
     fn poll_read(
         mut self: Pin<&mut Self>,
@@ -953,16 +963,20 @@ impl AsyncRead for ArchiveSliceReader {
             return Poll::Ready(Ok(()));
         }
 
+        let before_len = buf.filled().len();
         let read = AsyncRead::poll_read(Pin::new(&mut self.file), cx, buf);
         if let Poll::Pending = read {
             return Poll::Pending;
         }
 
-        if buf.filled().len() > self.remaining {
-            buf.set_filled(self.remaining);
+        let after_len = buf.filled().len();
+        let read_len = after_len - before_len;
+
+        if read_len > self.remaining {
+            buf.set_filled(before_len + self.remaining);
         }
 
-        self.remaining -= buf.filled().len();
+        self.remaining -= read_len;
 
         Poll::Ready(Ok(()))
     }

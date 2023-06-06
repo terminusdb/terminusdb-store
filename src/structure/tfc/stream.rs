@@ -2,7 +2,7 @@ use std::{io, ops::DerefMut, pin::Pin, task::Poll};
 
 use bytes::Bytes;
 use futures::{stream::Stream, Future, StreamExt};
-use tokio::io::AsyncRead;
+use tokio::io::{AsyncRead, BufReader, ReadBuf};
 
 use num_traits::FromPrimitive;
 
@@ -13,15 +13,21 @@ use super::{
     Datatype, SizedDictEntry, TypedDictEntry,
 };
 
+type StreamStateReader<R> = BufReader<DontReadLastU64Reader<R>>;
+
 enum StreamState<'a, R> {
     Intermediate,
-    Start(R),
-    ReadBlockEntries((OwnedSizedBlockIterator, R)),
+    Start(StreamStateReader<R>),
+    ReadBlockEntries((OwnedSizedBlockIterator, StreamStateReader<R>)),
     LoadingBlock(
         Pin<
             Box<
-                dyn Future<Output = Result<(OwnedSizedBlockIterator, R), SizedDictReaderError>>
-                    + Send
+                dyn Future<
+                        Output = Result<
+                            (OwnedSizedBlockIterator, StreamStateReader<R>),
+                            SizedDictReaderError,
+                        >,
+                    > + Send
                     + 'a,
             >,
         >,
@@ -33,19 +39,21 @@ pub struct TfcDictStream<'a, R> {
     state: StreamState<'a, R>,
 }
 
-impl<'a, R> TfcDictStream<'a, R> {
+impl<'a, R: AsyncRead + Unpin> TfcDictStream<'a, R> {
     pub fn new(reader: R) -> Self {
         Self {
-            state: StreamState::Start(reader),
+            state: StreamState::Start(BufReader::new(DontReadLastU64Reader::new(reader))),
         }
     }
 
+    /*
     pub fn into_inner(self) -> R {
         match self.state {
-            StreamState::Start(r) => r,
+            StreamState::Start(r) => r.inner,
             _ => panic!("tfc dict stream is not in a state where we can return the inner reader"),
         }
     }
+    */
 }
 
 async fn parse_single_tfc_block<R: AsyncRead + Unpin>(
@@ -124,7 +132,7 @@ pub struct TfcTypedDictStream<'a, R> {
     offset: usize,
 }
 
-impl<'a, R> TfcTypedDictStream<'a, R> {
+impl<'a, R: AsyncRead + Unpin> TfcTypedDictStream<'a, R> {
     pub fn from_parts(
         blocks_reader: R,
         types_present: MonotonicLogArray,
@@ -181,10 +189,133 @@ impl<'a, R: AsyncRead + Unpin + Send + 'a> Stream for TfcTypedDictStream<'a, R> 
     }
 }
 
+struct DontReadLastU64Reader<R> {
+    inner: R,
+    buf: [u8; 8],
+    already_read: usize,
+}
+
+impl<R> DontReadLastU64Reader<R> {
+    pub fn new(r: R) -> Self {
+        Self {
+            inner: r,
+            buf: [0; 8],
+            already_read: 0,
+        }
+    }
+}
+
+impl<R: AsyncRead + Unpin> DontReadLastU64Reader<R> {
+    /// This will read data but ensure that the last 8 bytes are not
+    /// immedately returned. If they end up being the last 8 bytes
+    /// before the real end of the buffer, they will never be
+    /// returned.
+    fn poll_read_with_buf(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let start_len = buf.filled().len();
+        if self.already_read > 0 {
+            buf.put_slice(&self.buf[..self.already_read]);
+        }
+        loop {
+            let before_read_len = buf.filled().len();
+            let result = AsyncRead::poll_read(Pin::new(&mut self.inner), cx, buf);
+            let filled = buf.filled();
+            let total_read_len = filled.len() - start_len;
+            let step_read_len = filled.len() - before_read_len;
+            match result {
+                Poll::Ready(Ok(())) => {
+                    if step_read_len == 0 {
+                        // We reached the end of the underlying stream.
+                        // Just return here.
+                        self.already_read = std::cmp::min(total_read_len, 8);
+                        self.buf[..self.already_read].copy_from_slice(&filled[start_len..]);
+                        buf.set_filled(start_len);
+                        return Poll::Ready(Ok(()));
+                    } else if total_read_len <= 8 {
+                        // we don't yet know if this is a control word. More has to be read.
+                        continue;
+                    } else {
+                        // we have read enough! Take off the end as our new potential control word
+                        self.already_read = std::cmp::min(total_read_len, 8);
+                        self.buf
+                            .copy_from_slice(&filled[filled.len() - self.already_read..]);
+                        buf.set_filled(filled.len() - 8);
+                        return Poll::Ready(Ok(()));
+                    }
+                }
+                Poll::Pending => {
+                    if total_read_len != 0 {
+                        // we filled up something, but it was not
+                        // enough to return before we hit a pending on
+                        // the underlying stream.
+
+                        // no idea when we'll be back. save our work
+                        self.already_read = std::cmp::min(total_read_len, 8);
+                        self.buf[..self.already_read].copy_from_slice(&filled[start_len..]);
+                        buf.set_filled(start_len);
+                    }
+
+                    return Poll::Pending;
+                }
+                _ => return result,
+            }
+        }
+    }
+}
+
+/*
+impl<R:AsyncRead+Unpin> AsyncRead for DontReadLastU64Reader<R> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        AsyncRead::poll_read(Pin::new(&mut self.inner), cx, buf)
+    }
+}
+*/
+
+impl<R: AsyncRead + Unpin> AsyncRead for DontReadLastU64Reader<R> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        if buf.remaining() > 8 {
+            // this buffer is good enough for us to just read to directly.
+            // read however much, and if the result is more than 8, we got ourselves a result.
+            // if not, store the result in our own buf for use later.
+            self.poll_read_with_buf(cx, buf)
+        } else {
+            // This is a cute tiny buffer that needs special treatment.
+            // We can't read into it directly cause the control world will take up all available space.
+            // Instead, we're gonna have to read into another buffer and then copy over to this one
+            let mut inner_data = vec![0; buf.remaining() + 8];
+            let mut inner_buf = ReadBuf::new(&mut inner_data);
+            match self.poll_read_with_buf(cx, &mut inner_buf) {
+                Poll::Ready(Ok(())) => {
+                    // copy over result
+                    let filled = inner_buf.filled();
+                    assert!(filled.len() <= buf.remaining());
+                    buf.put_slice(filled);
+
+                    Poll::Ready(Ok(()))
+                }
+                Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+                Poll::Pending => Poll::Pending,
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use futures::stream::TryStreamExt;
+    use tokio::io::AsyncReadExt;
 
     use bytes::{Bytes, BytesMut};
 
@@ -278,5 +409,27 @@ mod tests {
         let input = vec![];
 
         typed_dict_test(input).await;
+    }
+
+    #[tokio::test]
+    async fn read_small_buf() {
+        let data = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let mut reader = DontReadLastU64Reader::new(data.as_ref());
+        assert_eq!(0, reader.read_u8().await.unwrap());
+        assert_eq!(1, reader.read_u8().await.unwrap());
+        assert_eq!(2, reader.read_u8().await.unwrap());
+        assert_eq!(
+            io::ErrorKind::UnexpectedEof,
+            reader.read_u8().await.err().unwrap().kind()
+        );
+    }
+
+    #[tokio::test]
+    async fn read_large_buf() {
+        let data = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let mut reader = DontReadLastU64Reader::new(data.as_ref());
+        let mut output = Vec::new();
+        reader.read_to_end(&mut output).await.unwrap();
+        assert_eq!(vec![0, 1, 2], output);
     }
 }
