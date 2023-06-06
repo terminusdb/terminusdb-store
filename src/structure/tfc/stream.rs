@@ -45,15 +45,6 @@ impl<'a, R: AsyncRead + Unpin> TfcDictStream<'a, R> {
             state: StreamState::Start(BufReader::new(DontReadLastU64Reader::new(reader))),
         }
     }
-
-    /*
-    pub fn into_inner(self) -> R {
-        match self.state {
-            StreamState::Start(r) => r.inner,
-            _ => panic!("tfc dict stream is not in a state where we can return the inner reader"),
-        }
-    }
-    */
 }
 
 async fn parse_single_tfc_block<R: AsyncRead + Unpin>(
@@ -265,18 +256,6 @@ impl<R: AsyncRead + Unpin> DontReadLastU64Reader<R> {
         }
     }
 }
-
-/*
-impl<R:AsyncRead+Unpin> AsyncRead for DontReadLastU64Reader<R> {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        AsyncRead::poll_read(Pin::new(&mut self.inner), cx, buf)
-    }
-}
-*/
 
 impl<R: AsyncRead + Unpin> AsyncRead for DontReadLastU64Reader<R> {
     fn poll_read(

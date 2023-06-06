@@ -974,9 +974,10 @@ impl AsyncRead for ArchiveSliceReader {
 
         if read_len > self.remaining {
             buf.set_filled(before_len + self.remaining);
+            self.remaining = 0;
+        } else {
+            self.remaining -= read_len;
         }
-
-        self.remaining -= read_len;
 
         Poll::Ready(Ok(()))
     }
