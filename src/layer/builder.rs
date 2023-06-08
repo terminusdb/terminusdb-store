@@ -369,16 +369,23 @@ pub async fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad
     objects_file: Option<F>,
 ) -> io::Result<()> {
     let build_sparse_index = objects_file.is_some();
-    let mut aj_stream =
-        adjacency_list_stream_pairs(sp_o_files.bitindex_files.bits_file, sp_o_files.nums_file)
-            .await?;
-    let mut pairs = Vec::new();
-    let mut greatest_sp = 0;
-    // gather up pairs
-    while let Some((sp, object)) = aj_stream.try_next().await? {
-        greatest_sp = sp;
-        pairs.push((object, sp));
-    }
+    let adjacency_list = AdjacencyList::parse(
+        sp_o_files.nums_file.map().await?,
+        sp_o_files.bitindex_files.bits_file.map().await?,
+        sp_o_files.bitindex_files.blocks_file.map().await?,
+        sp_o_files.bitindex_files.sblocks_file.map().await?,
+    );
+    let greatest_sp = adjacency_list
+        .iter()
+        .par_bridge()
+        .max_by(|(sp1, _), (sp2, _)| sp1.cmp(sp2))
+        .map(|x| x.0)
+        .unwrap_or(0);
+    let mut pairs: Vec<_> = adjacency_list
+        .iter()
+        .par_bridge()
+        .map(|(sp, object)| (object, sp))
+        .collect();
     pairs.par_sort_unstable();
 
     let aj_width = util::calculate_width(greatest_sp);
