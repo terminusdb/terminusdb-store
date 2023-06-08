@@ -1,6 +1,7 @@
 use std::io;
 
 use bytes::{Bytes, BytesMut};
+use futures::TryStreamExt;
 use rayon::prelude::*;
 
 use super::layer::*;
@@ -368,6 +369,19 @@ pub async fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad
     objects_file: Option<F>,
 ) -> io::Result<()> {
     let build_sparse_index = objects_file.is_some();
+    let mut aj_stream =
+        adjacency_list_stream_pairs(sp_o_files.bitindex_files.bits_file, sp_o_files.nums_file)
+            .await?;
+    let mut pairs = Vec::new();
+    let mut greatest_sp = 0;
+    // gather up pairs
+    while let Some((sp, object)) = aj_stream.try_next().await? {
+        greatest_sp = sp;
+        pairs.push((object, sp));
+    }
+    eprintln!("{:?}: collected object pairs", chrono::offset::Local::now());
+
+    /*
     let adjacency_list = AdjacencyList::parse(
         sp_o_files.nums_file.map().await?,
         sp_o_files.bitindex_files.bits_file.map().await?,
@@ -388,6 +402,7 @@ pub async fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad
         .map(|(sp, object)| (object, sp))
         .collect();
     eprintln!("{:?}: collected object pairs", chrono::offset::Local::now());
+    */
     pairs.par_sort_unstable();
     eprintln!("{:?}: sorted object pairs", chrono::offset::Local::now());
 
