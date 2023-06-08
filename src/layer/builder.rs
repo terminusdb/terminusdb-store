@@ -374,6 +374,7 @@ pub async fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad
         sp_o_files.bitindex_files.blocks_file.map().await?,
         sp_o_files.bitindex_files.sblocks_file.map().await?,
     );
+    eprintln!("loaded ajacency list for object index");
     let greatest_sp = adjacency_list
         .iter()
         .par_bridge()
