@@ -90,21 +90,25 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
     inputs: &[BaseLayerFiles<F>],
     output: BaseLayerFiles<F>,
 ) -> io::Result<()> {
+    eprintln!("{:?}: started merge of base layers", chrono::offset::Local::now());
     let (node_map, node_count) = dicts_to_map(
         inputs.iter().map(|i| &i.node_dictionary_files),
         output.node_dictionary_files.clone(),
     )
     .await?;
+    eprintln!("{:?}: merged node dicts", chrono::offset::Local::now());
     let (predicate_map, predicate_count) = dicts_to_map(
         inputs.iter().map(|i| &i.predicate_dictionary_files),
         output.predicate_dictionary_files.clone(),
     )
     .await?;
+    eprintln!("{:?}: merged predicate dicts", chrono::offset::Local::now());
     let (value_map, value_count) = typed_dicts_to_map(
         inputs.iter().map(|i| &i.value_dictionary_files),
         output.value_dictionary_files.clone(),
     )
     .await?;
+    eprintln!("{:?}: merged value dicts", chrono::offset::Local::now());
 
     let mut triple_streams = Vec::with_capacity(inputs.len());
     for (ix, input) in inputs.into_iter().enumerate() {
@@ -139,6 +143,7 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
 
     let mut builder =
         BaseLayerFileBuilderPhase2::new(output, node_count, predicate_count, value_count).await?;
+    eprintln!("{:?}: constructed phase 2 builder", chrono::offset::Local::now());
 
     let mut last_triple = None;
     while let Some(triple) = merged_triples.try_next().await? {
@@ -149,6 +154,7 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
         last_triple = Some(triple);
         builder.add_triple(triple.0, triple.1, triple.2).await?;
     }
+    eprintln!("{:?}: added all merged triples", chrono::offset::Local::now());
 
     builder.finalize().await
 }

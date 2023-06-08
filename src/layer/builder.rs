@@ -1,7 +1,6 @@
 use std::io;
 
 use bytes::{Bytes, BytesMut};
-use futures::stream::TryStreamExt;
 use rayon::prelude::*;
 
 use super::layer::*;
@@ -381,12 +380,15 @@ pub async fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad
         .max_by(|(sp1, _), (sp2, _)| sp1.cmp(sp2))
         .map(|x| x.0)
         .unwrap_or(0);
+    eprintln!("{:?}: figured out greatest sp", chrono::offset::Local::now());
     let mut pairs: Vec<_> = adjacency_list
         .iter()
         .par_bridge()
         .map(|(sp, object)| (object, sp))
         .collect();
+    eprintln!("{:?}: collected object pairs", chrono::offset::Local::now());
     pairs.par_sort_unstable();
+    eprintln!("{:?}: sorted object pairs", chrono::offset::Local::now());
 
     let aj_width = util::calculate_width(greatest_sp);
     let mut o_ps_adjacency_list_builder = AdjacencyListBuilder::new(
@@ -428,8 +430,12 @@ pub async fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad
             .push_all(util::stream_iter_ok(pairs))
             .await?;
     }
+    eprintln!("{:?}: added object pairs to adjacency list builder", chrono::offset::Local::now());
 
-    o_ps_adjacency_list_builder.finalize().await
+    o_ps_adjacency_list_builder.finalize().await?;
+    eprintln!("{:?}: finalized object index", chrono::offset::Local::now());
+
+    Ok(())
 }
 
 pub async fn build_predicate_index<FLoad: 'static + FileLoad, F: 'static + FileLoad + FileStore>(
@@ -463,7 +469,9 @@ pub async fn build_indexes<FLoad: 'static + FileLoad, F: 'static + FileLoad + Fi
     ));
 
     object_index_task.await??;
+    eprintln!("{:?}: built object index", chrono::offset::Local::now());
     predicate_index_task.await??;
+    eprintln!("{:?}: built predicate index", chrono::offset::Local::now());
 
     Ok(())
 }
