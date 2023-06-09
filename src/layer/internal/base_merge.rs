@@ -90,6 +90,7 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
     inputs: &[BaseLayerFiles<F>],
     output: BaseLayerFiles<F>,
 ) -> io::Result<()> {
+    // TODO parallelize the merges
     eprintln!("{:?}: started merge of base layers", chrono::offset::Local::now());
     let (node_map, node_count) = dicts_to_map(
         inputs.iter().map(|i| &i.node_dictionary_files),
