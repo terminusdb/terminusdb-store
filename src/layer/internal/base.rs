@@ -380,7 +380,10 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
         let predicate_wavelet_tree_files = self.files.predicate_wavelet_tree_files;
 
         self.builder.finalize().await?;
-        eprintln!("{:?}: finalized base triples builder", chrono::offset::Local::now());
+        eprintln!(
+            "{:?}: finalized base triples builder",
+            chrono::offset::Local::now()
+        );
 
         build_indexes(
             s_p_adjacency_list_files,
@@ -389,7 +392,7 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
             None,
             predicate_wavelet_tree_files,
         )
-            .await?;
+        .await?;
 
         eprintln!("{:?}: finalized base builder", chrono::offset::Local::now());
 

@@ -5,11 +5,8 @@ use std::fmt::Debug;
 use std::io;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::structure::util::compare_or_result;
-use crate::{
-    storage::*,
-    structure::util::{sorted_iterator, sorted_stream},
-};
+use crate::structure::util::heap_sorted_stream;
+use crate::{storage::*, structure::util::sorted_iterator};
 
 use super::*;
 
@@ -29,6 +26,7 @@ pub async fn dedup_merge_string_dictionaries_stream<
         .enumerate()
         .map(|(ix, s)| s.map_ok(move |e| (e, ix)))
         .collect();
+    /*
     let pick_fn = |vals: &[Option<&Result<(SizedDictEntry, usize), E>>]| {
         vals.iter()
             .enumerate()
@@ -36,8 +34,11 @@ pub async fn dedup_merge_string_dictionaries_stream<
             .min_by(|(_, x), (_, y)| compare_or_result(x.as_ref().unwrap(), y.as_ref().unwrap()))
             .map(|(ix, _)| ix)
     };
+    */
 
-    let mut sorted_stream = sorted_stream(annotated_dictionary_streams, pick_fn)
+    let mut sorted_stream = heap_sorted_stream(annotated_dictionary_streams)
+        .await
+        .map_err(|e| e.into())?
         .map_ok(|(elt, ix)| (elt.to_bytes(), ix));
 
     let mut blocks_file_writer = dict_files.blocks_file.open_write().await?;
@@ -48,7 +49,10 @@ pub async fn dedup_merge_string_dictionaries_stream<
 
     let mut tally = 0;
     let mut last_item: Option<Bytes> = None;
-    eprintln!("{:?}: started main dict merge loop", chrono::offset::Local::now());
+    eprintln!(
+        "{:?}: started main dict merge loop",
+        chrono::offset::Local::now()
+    );
     while let Some((item, dict_index)) = sorted_stream.try_next().await.map_err(|e| e.into())? {
         if Some(&item) != last_item.as_ref() {
             result.push((dict_index.into(), true));
@@ -59,12 +63,21 @@ pub async fn dedup_merge_string_dictionaries_stream<
             result.push((dict_index.into(), false));
         }
         if tally % 100000 == 0 {
-            eprintln!("{:?}: wrote {tally} items to dict", chrono::offset::Local::now());
+            eprintln!(
+                "{:?}: wrote {tally} items to dict",
+                chrono::offset::Local::now()
+            );
         }
     }
-    eprintln!("{:?}: ended main dict merge loop", chrono::offset::Local::now());
+    eprintln!(
+        "{:?}: ended main dict merge loop",
+        chrono::offset::Local::now()
+    );
     let (offsets_buf, data_buf) = builder.finalize();
-    eprintln!("{:?}: finalized dict building", chrono::offset::Local::now());
+    eprintln!(
+        "{:?}: finalized dict building",
+        chrono::offset::Local::now()
+    );
 
     offsets_file_writer.write_all(offsets_buf.as_ref()).await?;
     offsets_file_writer.flush().await?;
@@ -211,6 +224,7 @@ pub async fn dedup_merge_typed_dictionary_streams<
         .enumerate()
         .map(|(ix, s)| s.map_ok(move |e| (e, ix)))
         .collect();
+    /*
     let pick_fn = |vals: &[Option<&Result<(TypedDictEntry, usize), E>>]| {
         vals.iter()
             .enumerate()
@@ -218,8 +232,11 @@ pub async fn dedup_merge_typed_dictionary_streams<
             .min_by(|(_, x), (_, y)| compare_or_result(x.as_ref().unwrap(), y.as_ref().unwrap()))
             .map(|(ix, _)| ix)
     };
+    */
 
-    let mut sorted_stream = sorted_stream(annotated_dictionary_streams, pick_fn);
+    let mut sorted_stream = heap_sorted_stream(annotated_dictionary_streams)
+        .await
+        .map_err(|e| e.into())?;
 
     let mut types_present_file_writer = dict_files.types_present_file.open_write().await?;
     let mut type_offsets_file_writer = dict_files.type_offsets_file.open_write().await?;
@@ -236,7 +253,10 @@ pub async fn dedup_merge_typed_dictionary_streams<
 
     let mut tally = 0;
     let mut last_item: Option<TypedDictEntry> = None;
-    eprintln!("{:?}: started main typed dict merge loop", chrono::offset::Local::now());
+    eprintln!(
+        "{:?}: started main typed dict merge loop",
+        chrono::offset::Local::now()
+    );
     while let Some((item, dict_index)) = sorted_stream.try_next().await.map_err(|e| e.into())? {
         if Some(&item) != last_item.as_ref() {
             result.push((dict_index.into(), true));
@@ -247,12 +267,21 @@ pub async fn dedup_merge_typed_dictionary_streams<
             result.push((dict_index.into(), false));
         }
         if tally % 100000 == 0 {
-            eprintln!("{:?}: wrote {tally} items to typed dict", chrono::offset::Local::now());
+            eprintln!(
+                "{:?}: wrote {tally} items to typed dict",
+                chrono::offset::Local::now()
+            );
         }
     }
-    eprintln!("{:?}: ended main typed dict merge loop", chrono::offset::Local::now());
+    eprintln!(
+        "{:?}: ended main typed dict merge loop",
+        chrono::offset::Local::now()
+    );
     let (types_present_buf, type_offsets_buf, offsets_buf, data_buf) = builder.finalize();
-    eprintln!("{:?}: finalized typed dict building", chrono::offset::Local::now());
+    eprintln!(
+        "{:?}: finalized typed dict building",
+        chrono::offset::Local::now()
+    );
 
     types_present_file_writer
         .write_all(types_present_buf.as_ref())

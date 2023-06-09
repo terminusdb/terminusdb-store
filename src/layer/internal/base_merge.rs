@@ -8,7 +8,7 @@ use crate::{
     structure::{
         dedup_merge_string_dictionaries_stream, dedup_merge_typed_dictionary_streams,
         stream::{TfcDictStream, TfcTypedDictStream},
-        util::{compare_or_result, sorted_stream},
+        util::heap_sorted_stream,
     },
 };
 
@@ -91,7 +91,10 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
     output: BaseLayerFiles<F>,
 ) -> io::Result<()> {
     // TODO parallelize the merges
-    eprintln!("{:?}: started merge of base layers", chrono::offset::Local::now());
+    eprintln!(
+        "{:?}: started merge of base layers",
+        chrono::offset::Local::now()
+    );
     let (node_map, node_count) = dicts_to_map(
         inputs.iter().map(|i| &i.node_dictionary_files),
         output.node_dictionary_files.clone(),
@@ -133,6 +136,7 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
         triple_streams.push(stream);
     }
 
+    /*
     let pick_fn = |vals: &[Option<&io::Result<(u64, u64, u64)>>]| {
         vals.iter()
             .enumerate()
@@ -140,11 +144,15 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
             .min_by(|(_, x), (_, y)| compare_or_result(x.as_ref().unwrap(), y.as_ref().unwrap()))
             .map(|(ix, _)| ix)
     };
-    let mut merged_triples = sorted_stream(triple_streams, pick_fn);
+    */
+    let mut merged_triples = heap_sorted_stream(triple_streams).await?;
 
     let mut builder =
         BaseLayerFileBuilderPhase2::new(output, node_count, predicate_count, value_count).await?;
-    eprintln!("{:?}: constructed phase 2 builder", chrono::offset::Local::now());
+    eprintln!(
+        "{:?}: constructed phase 2 builder",
+        chrono::offset::Local::now()
+    );
 
     let mut last_triple = None;
     while let Some(triple) = merged_triples.try_next().await? {
@@ -155,7 +163,10 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
         last_triple = Some(triple);
         builder.add_triple(triple.0, triple.1, triple.2).await?;
     }
-    eprintln!("{:?}: added all merged triples", chrono::offset::Local::now());
+    eprintln!(
+        "{:?}: added all merged triples",
+        chrono::offset::Local::now()
+    );
 
     builder.finalize().await
 }

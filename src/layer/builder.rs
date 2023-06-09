@@ -446,7 +446,10 @@ pub async fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad
             .push_all(util::stream_iter_ok(pairs))
             .await?;
     }
-    eprintln!("{:?}: added object pairs to adjacency list builder", chrono::offset::Local::now());
+    eprintln!(
+        "{:?}: added object pairs to adjacency list builder",
+        chrono::offset::Local::now()
+    );
 
     o_ps_adjacency_list_builder.finalize().await?;
     eprintln!("{:?}: finalized object index", chrono::offset::Local::now());
