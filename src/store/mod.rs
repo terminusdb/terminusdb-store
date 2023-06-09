@@ -929,6 +929,21 @@ pub fn open_archive_store<P: Into<PathBuf>>(path: P, cache_size: usize) -> Store
     )
 }
 
+/// Open a store that stores its data in the given directory as archive files.
+///
+/// This version doesn't use lru caching.
+pub fn open_raw_archive_store<P: Into<PathBuf>>(path: P) -> Store {
+    let p = path.into();
+    let archive_backend = DirectoryArchiveBackend::new(p.clone());
+    Store::new(
+        DirectoryLabelStore::new(p),
+        CachedLayerStore::new(
+            ArchiveLayerStore::new(archive_backend.clone(), archive_backend),
+            LockingHashMapLayerCache::new(),
+        ),
+    )
+}
+
 /// Open a store that stores its data in the given directory.
 pub fn open_directory_store<P: Into<PathBuf>>(path: P) -> Store {
     let p = path.into();

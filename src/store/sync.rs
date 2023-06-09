@@ -17,7 +17,7 @@ use crate::store::{
 };
 use crate::structure::TypedDictEntry;
 
-use super::open_archive_store;
+use super::{open_archive_store, open_raw_archive_store};
 
 lazy_static! {
     static ref RUNTIME: Runtime = Runtime::new().unwrap();
@@ -614,6 +614,13 @@ pub fn open_sync_directory_store<P: Into<PathBuf>>(path: P) -> SyncStore {
 /// subsequent loads.
 pub fn open_sync_archive_store<P: Into<PathBuf>>(path: P, cache_size: usize) -> SyncStore {
     SyncStore::wrap(open_archive_store(path, cache_size))
+}
+
+/// Open a store that stores its data in the given directory as archive files.
+///
+/// This version doesn't use lru caching.
+pub fn open_sync_raw_archive_store<P: Into<PathBuf>>(path: P) -> SyncStore {
+    SyncStore::wrap(open_raw_archive_store(path))
 }
 
 #[cfg(test)]
