@@ -449,9 +449,6 @@ impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
         // Otherwise, push `val` onto the log array.
         // Advance the element count since we know we're going to write `val`.
         self.count += 1;
-        if self.count > MAX_LOGARRAY_LEN {
-            panic!("pushed too many elements onto a logarray");
-        }
 
         // Write the first part of `val` to `current`, putting the msb of `val` at the `offset`
         // bit. This may be either the upper bits of `val` only or all of it. We check later.
@@ -511,6 +508,9 @@ impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
 }
 
 pub(crate) fn control_word(len: u64, width: u8) -> [u8; 8] {
+    if len > MAX_LOGARRAY_LEN {
+        panic!("length is too large for control word of a logarray: {}", len);
+    }
     let mut buf = [0; 8];
     let len_1 = (len & 0xFFFFFFFF) as u32;
     let len_2 = ((len >> 32) & 0xFFFFFF) as u32;
