@@ -48,6 +48,7 @@ pub async fn dedup_merge_string_dictionaries_stream<
     let mut builder = StringDictBufBuilder::new(BytesMut::new(), BytesMut::new());
 
     let mut tally = 0;
+    let mut last_tally = 0;
     let mut last_item: Option<Bytes> = None;
     eprintln!(
         "{:?}: started main dict merge loop",
@@ -62,7 +63,8 @@ pub async fn dedup_merge_string_dictionaries_stream<
         } else {
             result.push((dict_index.into(), false));
         }
-        if tally % 100000 == 0 {
+        if tally % 100000 == 0 && tally != last_tally {
+            last_tally = tally;
             eprintln!(
                 "{:?}: wrote {tally} items to dict",
                 chrono::offset::Local::now()
@@ -252,6 +254,7 @@ pub async fn dedup_merge_typed_dictionary_streams<
     );
 
     let mut tally = 0;
+    let mut last_tally = 0;
     let mut last_item: Option<TypedDictEntry> = None;
     eprintln!(
         "{:?}: started main typed dict merge loop",
@@ -266,7 +269,8 @@ pub async fn dedup_merge_typed_dictionary_streams<
         } else {
             result.push((dict_index.into(), false));
         }
-        if tally % 100000 == 0 {
+        if tally % 100000 == 0 && tally != last_tally {
+            last_tally = tally;
             eprintln!(
                 "{:?}: wrote {tally} items to typed dict",
                 chrono::offset::Local::now()

@@ -104,10 +104,7 @@ async fn test_write_file<F: FileLoad + FileStore + 'static, P: Into<PathBuf>>(
 
     tokio::io::copy(&mut input_file, &mut output_file).await?;
     output_file.flush().await?;
-    eprintln!(
-        "{:?}: wrote {to:?}",
-        chrono::offset::Local::now()
-    );
+    eprintln!("{:?}: wrote {to:?}", chrono::offset::Local::now());
     Ok(())
 }
 
