@@ -221,7 +221,7 @@ impl Iterator for LogArrayIterator {
     }
 }
 
-const MAX_LOGARRAY_LEN: u64 = 1 << 56 - 1;
+const MAX_LOGARRAY_LEN: u64 = (1 << 56) - 1;
 
 fn parse_control_word(buf: &[u8]) -> (u64, u8) {
     let len_1 = BigEndian::read_u32(buf) as u64;
@@ -510,8 +510,8 @@ impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
 pub(crate) fn control_word(len: u64, width: u8) -> [u8; 8] {
     if len > MAX_LOGARRAY_LEN {
         panic!(
-            "length is too large for control word of a logarray: {}",
-            len
+            "length is too large for control word of a logarray: {} (limit is {}",
+            len, MAX_LOGARRAY_LEN
         );
     }
     let mut buf = [0; 8];
@@ -1361,5 +1361,17 @@ mod tests {
         assert_eq!(original, logarray.iter().collect::<Vec<_>>());
         assert_eq!(16, logarray.len());
         assert_eq!(4, logarray.width());
+    }
+
+    #[test]
+    fn large_control_word() {
+        let num: u64 = 0xFF_FFFF_FFFF_FFFF;
+        let width: u8 = 32;
+
+        let control_word = control_word(num, width);
+        assert_eq!([255, 255, 255, 255, 32, 255, 255, 255], control_word);
+        let (out_num, out_width) = parse_control_word(&control_word);
+        assert_eq!(num, out_num);
+        assert_eq!(width, out_width);
     }
 }
