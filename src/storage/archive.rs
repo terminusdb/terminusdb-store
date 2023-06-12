@@ -142,11 +142,11 @@ impl ArchiveBackend for DirectoryArchiveBackend {
         let mut file = options.open(path).await?;
         let header = ArchiveHeader::parse_from_reader(&mut file).await?;
         if let Some(range) = header.range_for(file_type) {
-            let mut data = BytesMut::with_capacity(range.len());
+            let mut data = vec![0;range.len()];
             file.seek(SeekFrom::Current((range.start) as i64)).await?;
-            file.read_exact(&mut data[..]).await?;
+            file.read_exact(&mut data).await?;
 
-            Ok(Some(data.freeze()))
+            Ok(Some(Bytes::from(data)))
         } else {
             Ok(None)
         }
