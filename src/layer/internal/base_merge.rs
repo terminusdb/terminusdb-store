@@ -240,7 +240,7 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
         last_triple = Some(triple);
         builder.add_triple(triple.0, triple.1, triple.2).await?;
         tally += 1;
-        if tally % 100000 == 0 {
+        if tally % 1000000 == 0 {
             eprintln!("{:?}: wrote {tally} triples", chrono::offset::Local::now());
         }
     }
