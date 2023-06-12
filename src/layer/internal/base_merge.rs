@@ -241,10 +241,7 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
         builder.add_triple(triple.0, triple.1, triple.2).await?;
         tally += 1;
         if tally % 100000 == 0 {
-            eprintln!(
-                "{:?}: wrote {tally} triples",
-                chrono::offset::Local::now()
-            );
+            eprintln!("{:?}: wrote {tally} triples", chrono::offset::Local::now());
         }
     }
     eprintln!(
@@ -256,7 +253,6 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
     eprintln!("{:?}: finalized triple map", chrono::offset::Local::now());
     test_write_adjacency_list_files("/tmp/triples_s_p", &files.s_p_adjacency_list_files).await?;
     test_write_adjacency_list_files("/tmp/triples_sp_o", &files.sp_o_adjacency_list_files).await?;
-    // TODO write out triple files
 
     let s_p_adjacency_list_files = files.s_p_adjacency_list_files.clone();
     let sp_o_adjacency_list_files = files.sp_o_adjacency_list_files.clone();
