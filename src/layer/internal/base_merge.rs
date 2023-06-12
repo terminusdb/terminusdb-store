@@ -1,10 +1,14 @@
-use std::io;
+use std::{io, path::PathBuf};
 
 use futures::{Stream, StreamExt, TryStreamExt};
+use tokio::{fs::OpenOptions, io::AsyncWriteExt};
 
 use crate::{
-    layer::{open_base_triple_stream, BaseLayerFileBuilderPhase2},
-    storage::{BaseLayerFiles, DictionaryFiles, FileLoad, FileStore, TypedDictionaryFiles},
+    layer::{builder::build_indexes, open_base_triple_stream, BaseLayerFileBuilderPhase2},
+    storage::{
+        AdjacencyListFiles, BaseLayerFiles, DictionaryFiles, FileLoad, FileStore,
+        TypedDictionaryFiles,
+    },
     structure::{
         dedup_merge_string_dictionaries_stream, dedup_merge_typed_dictionary_streams,
         stream::{TfcDictStream, TfcTypedDictStream},
@@ -86,6 +90,76 @@ fn map_triple(
     (s, p, o)
 }
 
+async fn test_write_file<F: FileLoad + FileStore + 'static, P: Into<PathBuf>>(
+    file: &F,
+    to: P,
+) -> io::Result<()> {
+    let mut input_file = file.open_read().await?;
+
+    let to = to.into();
+    let mut options = OpenOptions::new();
+    options.create(true);
+    options.write(true);
+    let mut output_file = options.open(&to).await?;
+
+    tokio::io::copy(&mut input_file, &mut output_file).await?;
+    output_file.flush().await?;
+    eprintln!(
+        "{:?}: wrote {to:?}",
+        chrono::offset::Local::now()
+    );
+    Ok(())
+}
+
+async fn test_write_dict<F: FileLoad + FileStore + 'static>(
+    prefix: &str,
+    files: &DictionaryFiles<F>,
+) -> io::Result<()> {
+    eprintln!("writing {prefix} files");
+    let blocks_path = format!("{prefix}.blocks");
+    let offsets_path = format!("{prefix}.offsets");
+
+    test_write_file(&files.blocks_file, &blocks_path).await?;
+    test_write_file(&files.offsets_file, &offsets_path).await?;
+
+    Ok(())
+}
+
+async fn test_write_typed_dict<F: FileLoad + FileStore + 'static>(
+    prefix: &str,
+    files: &TypedDictionaryFiles<F>,
+) -> io::Result<()> {
+    eprintln!("writing {prefix} files");
+    let types_present_path = format!("{prefix}.types_present");
+    let type_offsets_path = format!("{prefix}.type_offsets");
+    let blocks_path = format!("{prefix}.blocks");
+    let offsets_path = format!("{prefix}.offsets");
+
+    test_write_file(&files.types_present_file, &types_present_path).await?;
+    test_write_file(&files.type_offsets_file, &type_offsets_path).await?;
+    test_write_file(&files.blocks_file, &blocks_path).await?;
+    test_write_file(&files.offsets_file, &offsets_path).await?;
+
+    Ok(())
+}
+
+async fn test_write_adjacency_list_files<F: FileLoad + FileStore + 'static>(
+    prefix: &str,
+    files: &AdjacencyListFiles<F>,
+) -> io::Result<()> {
+    let nums_path = format!("{prefix}.nums");
+    let bits_path = format!("{prefix}.bits");
+    let bit_index_blocks_path = format!("{prefix}.bit_index_blocks");
+    let bit_index_sblocks_path = format!("{prefix}.bit_index_sblocks");
+
+    test_write_file(&files.nums_file, &nums_path).await?;
+    test_write_file(&files.bitindex_files.bits_file, &bits_path).await?;
+    test_write_file(&files.bitindex_files.blocks_file, &bit_index_blocks_path).await?;
+    test_write_file(&files.bitindex_files.sblocks_file, &bit_index_sblocks_path).await?;
+
+    Ok(())
+}
+
 pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
     inputs: &[BaseLayerFiles<F>],
     output: BaseLayerFiles<F>,
@@ -101,18 +175,23 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
     )
     .await?;
     eprintln!("{:?}: merged node dicts", chrono::offset::Local::now());
+    test_write_dict("/tmp/node_dict", &output.node_dictionary_files).await?;
+
     let (predicate_map, predicate_count) = dicts_to_map(
         inputs.iter().map(|i| &i.predicate_dictionary_files),
         output.predicate_dictionary_files.clone(),
     )
     .await?;
     eprintln!("{:?}: merged predicate dicts", chrono::offset::Local::now());
+    test_write_dict("/tmp/predicate_dict", &output.predicate_dictionary_files).await?;
+
     let (value_map, value_count) = typed_dicts_to_map(
         inputs.iter().map(|i| &i.value_dictionary_files),
         output.value_dictionary_files.clone(),
     )
     .await?;
     eprintln!("{:?}: merged value dicts", chrono::offset::Local::now());
+    test_write_typed_dict("/tmp/value_dict", &output.value_dictionary_files).await?;
 
     let mut triple_streams = Vec::with_capacity(inputs.len());
     for (ix, input) in inputs.into_iter().enumerate() {
@@ -168,5 +247,25 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
         chrono::offset::Local::now()
     );
 
-    builder.finalize().await
+    let files = builder.partial_finalize().await?;
+    eprintln!("{:?}: finalized triple map", chrono::offset::Local::now());
+    test_write_adjacency_list_files("/tmp/triples_s_p", &files.s_p_adjacency_list_files).await?;
+    test_write_adjacency_list_files("/tmp/triples_sp_o", &files.sp_o_adjacency_list_files).await?;
+    // TODO write out triple files
+
+    let s_p_adjacency_list_files = files.s_p_adjacency_list_files.clone();
+    let sp_o_adjacency_list_files = files.sp_o_adjacency_list_files.clone();
+    let o_ps_adjacency_list_files = files.o_ps_adjacency_list_files.clone();
+    let predicate_wavelet_tree_files = files.predicate_wavelet_tree_files.clone();
+    build_indexes(
+        s_p_adjacency_list_files,
+        sp_o_adjacency_list_files,
+        o_ps_adjacency_list_files,
+        None,
+        predicate_wavelet_tree_files,
+    )
+    .await?;
+    eprintln!("{:?}: built indexes", chrono::offset::Local::now());
+
+    Ok(())
 }

@@ -373,18 +373,26 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
         self.builder.add_id_triples(triples).await
     }
 
-    pub async fn finalize(self) -> io::Result<()> {
-        let s_p_adjacency_list_files = self.files.s_p_adjacency_list_files;
-        let sp_o_adjacency_list_files = self.files.sp_o_adjacency_list_files;
-        let o_ps_adjacency_list_files = self.files.o_ps_adjacency_list_files;
-        let predicate_wavelet_tree_files = self.files.predicate_wavelet_tree_files;
-
+    pub(crate) async fn partial_finalize(self) -> io::Result<BaseLayerFiles<F>> {
         self.builder.finalize().await?;
         eprintln!(
             "{:?}: finalized base triples builder",
             chrono::offset::Local::now()
         );
 
+        Ok(self.files)
+    }
+
+    pub async fn finalize(self) -> io::Result<()> {
+        self.builder.finalize().await?;
+        eprintln!(
+            "{:?}: finalized base triples builder",
+            chrono::offset::Local::now()
+        );
+        let s_p_adjacency_list_files = self.files.s_p_adjacency_list_files.clone();
+        let sp_o_adjacency_list_files = self.files.sp_o_adjacency_list_files.clone();
+        let o_ps_adjacency_list_files = self.files.o_ps_adjacency_list_files.clone();
+        let predicate_wavelet_tree_files = self.files.predicate_wavelet_tree_files.clone();
         build_indexes(
             s_p_adjacency_list_files,
             sp_o_adjacency_list_files,
