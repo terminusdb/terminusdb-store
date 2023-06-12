@@ -509,7 +509,10 @@ impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
 
 pub(crate) fn control_word(len: u64, width: u8) -> [u8; 8] {
     if len > MAX_LOGARRAY_LEN {
-        panic!("length is too large for control word of a logarray: {}", len);
+        panic!(
+            "length is too large for control word of a logarray: {}",
+            len
+        );
     }
     let mut buf = [0; 8];
     let len_1 = (len & 0xFFFFFFFF) as u32;

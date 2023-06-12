@@ -140,8 +140,16 @@ impl ArchiveBackend for DirectoryArchiveBackend {
         let mut options = tokio::fs::OpenOptions::new();
         options.read(true);
         let mut file = options.open(path).await?;
-        let archive = Archive::parse_from_reader(&mut file).await?;
-        Ok(archive.slice_for(file_type))
+        let header = ArchiveHeader::parse_from_reader(&mut file).await?;
+        if let Some(range) = header.range_for(file_type) {
+            let mut data = BytesMut::with_capacity(range.len());
+            file.seek(SeekFrom::Current((range.start) as i64)).await?;
+            file.read_exact(&mut data[..]).await?;
+
+            Ok(Some(data.freeze()))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn store_layer_file(&self, id: [u32; 5], mut bytes: Bytes) -> io::Result<()> {
