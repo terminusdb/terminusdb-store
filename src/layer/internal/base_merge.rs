@@ -231,7 +231,7 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
     );
 
     let mut last_triple = None;
-    let mut tally = 0;
+    let mut tally: u64 = 0;
     while let Some(triple) = merged_triples.try_next().await? {
         if Some(triple) == last_triple {
             continue;
