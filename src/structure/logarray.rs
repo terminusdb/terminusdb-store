@@ -246,8 +246,7 @@ fn read_control_word_trailing(
     buf: &[u8],
     input_buf_size: usize,
 ) -> Result<(u64, u8), LogArrayError> {
-    let len = BigEndian::read_u32(buf) as u64;
-    let width = buf[4];
+    let (len, width) = parse_control_word(buf);
     LogArrayError::validate_len_and_width_trailing(input_buf_size, len, width)?;
     Ok((len, width))
 }
@@ -261,8 +260,7 @@ fn logarray_length_from_len_width(len: u64, width: u8) -> usize {
 }
 
 pub fn logarray_length_from_control_word(buf: &[u8]) -> usize {
-    let len = BigEndian::read_u32(buf) as u64;
-    let width = buf[4];
+    let (len, width) = parse_control_word(buf);
 
     logarray_length_from_len_width(len, width)
 }
@@ -595,7 +593,7 @@ pub struct LogArrayFileBuilder<W: SyncableFile> {
     /// Bit offset in `current` for the msb of the next encoded element
     offset: u8,
     /// Number of elements written to the buffer
-    count: u32,
+    count: u64,
 }
 
 impl<W: SyncableFile> LogArrayFileBuilder<W> {
@@ -612,7 +610,7 @@ impl<W: SyncableFile> LogArrayFileBuilder<W> {
         }
     }
 
-    pub fn count(&self) -> u32 {
+    pub fn count(&self) -> u64 {
         self.count
     }
 
@@ -679,7 +677,7 @@ impl<W: SyncableFile> LogArrayFileBuilder<W> {
     }
 
     async fn finalize_data(&mut self) -> io::Result<()> {
-        if u64::from(self.count) * u64::from(self.width) & 0b11_1111 != 0 {
+        if self.count * u64::from(self.width) & 0b11_1111 != 0 {
             util::write_u64(&mut self.file, self.current).await?;
         }
 
@@ -694,9 +692,7 @@ impl<W: SyncableFile> LogArrayFileBuilder<W> {
         self.finalize_data().await?;
 
         // Write the control word.
-        let mut buf = [0; 8];
-        BigEndian::write_u32(&mut buf, len);
-        buf[4] = width;
+        let buf = control_word(len, width);
         self.file.write_all(&buf).await?;
 
         self.file.flush().await?;
