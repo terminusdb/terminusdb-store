@@ -369,10 +369,11 @@ pub async fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad
     objects_file: Option<F>,
 ) -> io::Result<()> {
     let build_sparse_index = objects_file.is_some();
+    let (count, _) = logarray_file_get_length_and_width(sp_o_files.nums_file.clone()).await?;
     let mut aj_stream =
         adjacency_list_stream_pairs(sp_o_files.bitindex_files.bits_file, sp_o_files.nums_file)
             .await?;
-    let mut pairs = Vec::new();
+    let mut pairs = Vec::with_capacity(count as usize);
     let mut greatest_sp = 0;
     // gather up pairs
     while let Some((sp, object)) = aj_stream.try_next().await? {
