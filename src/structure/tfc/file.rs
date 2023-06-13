@@ -1,6 +1,6 @@
 use byteorder::{BigEndian, ByteOrder};
 use bytes::{Bytes, BytesMut};
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::{Stream, TryStreamExt};
 use std::fmt::Debug;
 use std::io;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -13,8 +13,8 @@ use super::*;
 pub async fn dedup_merge_string_dictionaries_stream<
     'a,
     F: 'static + FileLoad + FileStore,
-    E: Debug + Into<io::Error> + Send + 'static,
-    S: Stream<Item = Result<SizedDictEntry, E>> + Send + Unpin + 'static,
+    E: Debug + Into<io::Error>,
+    S: Stream<Item = Result<SizedDictEntry, E>> + Send + Unpin,
     N: From<usize> + Into<usize> + Copy + Debug,
 >(
     dictionaries: Vec<S>,
@@ -26,17 +26,20 @@ pub async fn dedup_merge_string_dictionaries_stream<
         .enumerate()
         .map(|(ix, s)| s.map_ok(move |e| (e, ix)))
         .collect();
+    /*
+    let pick_fn = |vals: &[Option<&Result<(SizedDictEntry, usize), E>>]| {
+        vals.iter()
+            .enumerate()
+            .filter(|(_, v)| v.is_some())
+            .min_by(|(_, x), (_, y)| compare_or_result(x.as_ref().unwrap(), y.as_ref().unwrap()))
+            .map(|(ix, _)| ix)
+    };
+    */
 
     let mut sorted_stream = heap_sorted_stream(annotated_dictionary_streams)
         .await
         .map_err(|e| e.into())?
         .map_ok(|(elt, ix)| (elt.to_bytes(), ix));
-    let (tx, mut rx) = tokio::sync::mpsc::channel(10);
-    tokio::spawn(async move {
-        while let Some(x) = sorted_stream.next().await {
-            tx.send(x.map_err(|e|e.into())).await.unwrap();
-        }
-    });
 
     let mut blocks_file_writer = dict_files.blocks_file.open_write().await?;
     let mut offsets_file_writer = dict_files.offsets_file.open_write().await?;
@@ -51,8 +54,7 @@ pub async fn dedup_merge_string_dictionaries_stream<
         "{:?}: started main dict merge loop",
         chrono::offset::Local::now()
     );
-    while let Some(x) = rx.recv().await {
-        let (item, dict_index) = x?;
+    while let Some((item, dict_index)) = sorted_stream.try_next().await.map_err(|e| e.into())? {
         if Some(&item) != last_item.as_ref() {
             result.push((dict_index.into(), true));
             builder.add(item.clone());
@@ -211,8 +213,8 @@ pub async fn merge_typed_dictionaries<
 pub async fn dedup_merge_typed_dictionary_streams<
     'a,
     F: 'static + FileLoad + FileStore,
-    E: Debug + Into<io::Error> + Send + 'static,
-    S: Stream<Item = Result<TypedDictEntry, E>> + Send + Unpin + 'static,
+    E: Debug + Into<io::Error>,
+    S: Stream<Item = Result<TypedDictEntry, E>> + Send + Unpin,
     N: From<usize> + Into<usize> + Copy + Debug,
 >(
     dictionaries: Vec<S>,
@@ -224,16 +226,19 @@ pub async fn dedup_merge_typed_dictionary_streams<
         .enumerate()
         .map(|(ix, s)| s.map_ok(move |e| (e, ix)))
         .collect();
+    /*
+    let pick_fn = |vals: &[Option<&Result<(TypedDictEntry, usize), E>>]| {
+        vals.iter()
+            .enumerate()
+            .filter(|(_, v)| v.is_some())
+            .min_by(|(_, x), (_, y)| compare_or_result(x.as_ref().unwrap(), y.as_ref().unwrap()))
+            .map(|(ix, _)| ix)
+    };
+    */
 
     let mut sorted_stream = heap_sorted_stream(annotated_dictionary_streams)
         .await
         .map_err(|e| e.into())?;
-    let (tx, mut rx) = tokio::sync::mpsc::channel(10);
-    tokio::spawn(async move {
-        while let Some(x) = sorted_stream.next().await {
-            tx.send(x.map_err(|e|e.into())).await.unwrap();
-        }
-    });
 
     let mut types_present_file_writer = dict_files.types_present_file.open_write().await?;
     let mut type_offsets_file_writer = dict_files.type_offsets_file.open_write().await?;
@@ -255,8 +260,7 @@ pub async fn dedup_merge_typed_dictionary_streams<
         "{:?}: started main typed dict merge loop",
         chrono::offset::Local::now()
     );
-    while let Some(x) = rx.recv().await {
-        let (item, dict_index) = x?;
+    while let Some((item, dict_index)) = sorted_stream.try_next().await.map_err(|e| e.into())? {
         if Some(&item) != last_item.as_ref() {
             result.push((dict_index.into(), true));
             builder.add(item.clone());
