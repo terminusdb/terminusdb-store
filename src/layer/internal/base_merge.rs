@@ -24,9 +24,8 @@ fn try_enumerate<T, E, S: Stream<Item = Result<T, E>> + Send>(
 }
 
 async fn dicts_to_map<
-    'a,
     F: FileLoad + FileStore + 'static,
-    I: ExactSizeIterator<Item = &'a DictionaryFiles<F>>,
+    I: ExactSizeIterator<Item = DictionaryFiles<F>>,
 >(
     inputs: I,
     output: DictionaryFiles<F>,
@@ -46,9 +45,8 @@ async fn dicts_to_map<
 }
 
 async fn typed_dicts_to_map<
-    'a,
     F: FileLoad + FileStore + 'static,
-    I: ExactSizeIterator<Item = &'a TypedDictionaryFiles<F>>,
+    I: ExactSizeIterator<Item = TypedDictionaryFiles<F>>,
 >(
     inputs: I,
     output: TypedDictionaryFiles<F>,
@@ -166,28 +164,39 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
         "{:?}: started merge of base layers",
         chrono::offset::Local::now()
     );
-    let (node_map, node_count) = dicts_to_map(
-        inputs.iter().map(|i| &i.node_dictionary_files),
+    let node_dicts: Vec<_> = inputs
+        .iter()
+        .map(|i| i.node_dictionary_files.clone())
+        .collect();
+    let predicate_dicts: Vec<_> = inputs
+        .iter()
+        .map(|i| i.predicate_dictionary_files.clone())
+        .collect();
+    let value_dicts: Vec<_> = inputs
+        .iter()
+        .map(|i| i.value_dictionary_files.clone())
+        .collect();
+    let node_map_task = tokio::spawn(dicts_to_map(
+        node_dicts.into_iter(),
         output.node_dictionary_files.clone(),
-    )
-    .await?;
-    eprintln!("{:?}: merged node dicts", chrono::offset::Local::now());
-    test_write_dict("/tmp/node_dict", &output.node_dictionary_files).await?;
-
-    let (predicate_map, predicate_count) = dicts_to_map(
-        inputs.iter().map(|i| &i.predicate_dictionary_files),
+    ));
+    let predicate_map_task = tokio::spawn(dicts_to_map(
+        predicate_dicts.into_iter(),
         output.predicate_dictionary_files.clone(),
-    )
-    .await?;
-    eprintln!("{:?}: merged predicate dicts", chrono::offset::Local::now());
-    test_write_dict("/tmp/predicate_dict", &output.predicate_dictionary_files).await?;
-
-    let (value_map, value_count) = typed_dicts_to_map(
-        inputs.iter().map(|i| &i.value_dictionary_files),
+    ));
+    let value_map_task = tokio::spawn(typed_dicts_to_map(
+        value_dicts.into_iter(),
         output.value_dictionary_files.clone(),
-    )
-    .await?;
+    ));
+
+    let (node_map, node_count) = node_map_task.await??;
+    eprintln!("{:?}: merged node dicts", chrono::offset::Local::now());
+    let (predicate_map, predicate_count) = predicate_map_task.await??;
+    eprintln!("{:?}: merged predicate dicts", chrono::offset::Local::now());
+    let (value_map, value_count) = value_map_task.await??;
     eprintln!("{:?}: merged value dicts", chrono::offset::Local::now());
+    test_write_dict("/tmp/node_dict", &output.node_dictionary_files).await?;
+    test_write_dict("/tmp/predicate_dict", &output.predicate_dictionary_files).await?;
     test_write_typed_dict("/tmp/value_dict", &output.value_dictionary_files).await?;
 
     let mut triple_streams = Vec::with_capacity(inputs.len());
