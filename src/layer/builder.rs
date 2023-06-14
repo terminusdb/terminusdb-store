@@ -386,7 +386,7 @@ pub async fn build_object_index_from_direct_files<
         pairs.push((object, sp));
         tally += 1;
         if tally % 10000000 == 0 {
-            eprintln!("{:?}: collected {tally} pairs for o_ps index", chrono::offset::Local::now());
+            eprintln!("{:?}: collected {tally} pairs for o_ps index ({}%)", chrono::offset::Local::now(), (tally*100/count));
         }
     }
     eprintln!("{:?}: collected object pairs", chrono::offset::Local::now());
