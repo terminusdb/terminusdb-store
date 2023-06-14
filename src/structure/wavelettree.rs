@@ -1,5 +1,6 @@
 //! A succinct data structure for quick lookup of entry positions in a sequence.
 
+use bitvec::vec::BitVec;
 use futures::Stream;
 use futures::TryStreamExt;
 
@@ -211,7 +212,7 @@ struct FragmentBuilder {
     fragment_start: u64,
     fragment_half: u64,
     fragment_end: u64,
-    bits: Vec<bool>,
+    bits: BitVec,
 }
 
 impl FragmentBuilder {
@@ -222,7 +223,7 @@ impl FragmentBuilder {
             fragment_start,
             fragment_half,
             fragment_end,
-            bits: Vec::new(),
+            bits: BitVec::new()
         }
     }
 
@@ -238,7 +239,7 @@ impl FragmentBuilder {
 
 impl IntoIterator for FragmentBuilder {
     type Item = bool;
-    type IntoIter = std::vec::IntoIter<bool>;
+    type IntoIter = bitvec::boxed::IntoIter<usize>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.bits.into_iter()
