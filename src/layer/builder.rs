@@ -395,6 +395,7 @@ pub async fn build_object_index_from_direct_files<
     // large sorts. If so, we have to do something else.
     const SINGLE_SORT_LIMIT: u64 = 0x1_0000_0000;
     if count > SINGLE_SORT_LIMIT {
+        /*
         eprintln!("{:?}: perform multi sort", chrono::offset::Local::now());
         let mut tally: u64 = 0;
         while tally < count {
@@ -403,6 +404,7 @@ pub async fn build_object_index_from_direct_files<
             slice.par_sort_unstable();
             tally += SINGLE_SORT_LIMIT;
         }
+        */
         eprintln!("{:?}: perform final sort", chrono::offset::Local::now());
         // we use the normal par_sort as it is faster for cases where
         // you have a bunch of appended sorted slices.
