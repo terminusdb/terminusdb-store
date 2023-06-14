@@ -398,7 +398,7 @@ pub async fn build_object_index_from_direct_files<
         eprintln!("{:?}: perform multi sort", chrono::offset::Local::now());
         let mut tally: u64 = 0;
         while tally < count {
-            let end = (tally+SINGLE_SORT_LIMIT) as usize;
+            let end = std::cmp::min(count as usize, (tally+SINGLE_SORT_LIMIT) as usize);
             let slice = &mut pairs[tally as usize..end];
             slice.par_sort_unstable();
             tally += SINGLE_SORT_LIMIT;
