@@ -406,7 +406,7 @@ pub async fn build_object_index_from_direct_files<
         eprintln!("{:?}: perform final sort", chrono::offset::Local::now());
         // we use the normal par_sort as it is faster for cases where
         // you have a bunch of appended sorted slices.
-        pairs.par_sort();
+        pairs.sort();
 
     } else {
         eprintln!("{:?}: perform single sort", chrono::offset::Local::now());
