@@ -363,16 +363,18 @@ impl<F: 'static + FileLoad + FileStore> TripleFileBuilder<F> {
     }
 }
 
-pub async fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad + FileStore>(
-    sp_o_files: AdjacencyListFiles<FLoad>,
+pub async fn build_object_index_from_direct_files<
+    FLoad: 'static + FileLoad,
+    F: 'static + FileLoad + FileStore,
+>(
+    sp_o_nums_file: FLoad,
+    sp_o_bits_file: FLoad,
     o_ps_files: AdjacencyListFiles<F>,
     objects_file: Option<F>,
 ) -> io::Result<()> {
     let build_sparse_index = objects_file.is_some();
-    let (count, _) = logarray_file_get_length_and_width(sp_o_files.nums_file.clone()).await?;
-    let mut aj_stream =
-        adjacency_list_stream_pairs(sp_o_files.bitindex_files.bits_file, sp_o_files.nums_file)
-            .await?;
+    let (count, _) = logarray_file_get_length_and_width(sp_o_nums_file.clone()).await?;
+    let mut aj_stream = adjacency_list_stream_pairs(sp_o_bits_file, sp_o_nums_file).await?;
     let mut pairs = Vec::with_capacity(count as usize);
     let mut greatest_sp = 0;
     // gather up pairs
@@ -456,6 +458,20 @@ pub async fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad
     eprintln!("{:?}: finalized object index", chrono::offset::Local::now());
 
     Ok(())
+}
+
+pub async fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad + FileStore>(
+    sp_o_files: AdjacencyListFiles<FLoad>,
+    o_ps_files: AdjacencyListFiles<F>,
+    objects_file: Option<F>,
+) -> io::Result<()> {
+    build_object_index_from_direct_files(
+        sp_o_files.nums_file,
+        sp_o_files.bitindex_files.bits_file,
+        o_ps_files,
+        objects_file,
+    )
+    .await
 }
 
 pub async fn build_predicate_index<FLoad: 'static + FileLoad, F: 'static + FileLoad + FileStore>(
