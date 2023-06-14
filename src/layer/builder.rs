@@ -385,7 +385,7 @@ pub async fn build_object_index_from_direct_files<
         greatest_sp = sp;
         pairs.push((object, sp));
         tally += 1;
-        if tally % 1000000 == 0 {
+        if tally % 10000000 == 0 {
             eprintln!("{:?}: collected {tally} pairs for o_ps index", chrono::offset::Local::now());
         }
     }
