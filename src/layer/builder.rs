@@ -391,29 +391,27 @@ pub async fn build_object_index_from_direct_files<
     }
     eprintln!("{:?}: collected object pairs", chrono::offset::Local::now());
 
-    /*
-    let adjacency_list = AdjacencyList::parse(
-        sp_o_files.nums_file.map().await?,
-        sp_o_files.bitindex_files.bits_file.map().await?,
-        sp_o_files.bitindex_files.blocks_file.map().await?,
-        sp_o_files.bitindex_files.sblocks_file.map().await?,
-    );
-    eprintln!("loaded ajacency list for object index");
-    let greatest_sp = adjacency_list
-        .iter()
-        .par_bridge()
-        .max_by(|(sp1, _), (sp2, _)| sp1.cmp(sp2))
-        .map(|x| x.0)
-        .unwrap_or(0);
-    eprintln!("{:?}: figured out greatest sp", chrono::offset::Local::now());
-    let mut pairs: Vec<_> = adjacency_list
-        .iter()
-        .par_bridge()
-        .map(|(sp, object)| (object, sp))
-        .collect();
-    eprintln!("{:?}: collected object pairs", chrono::offset::Local::now());
-    */
-    pairs.par_sort_unstable();
+    // par_sort_unstable unfortunately can run out of stack for very
+    // large sorts. If so, we have to do something else.
+    const SINGLE_SORT_LIMIT: u64 = 0x1_0000_0000;
+    if count > SINGLE_SORT_LIMIT {
+        eprintln!("{:?}: perform multi sort", chrono::offset::Local::now());
+        let mut tally: u64 = 0;
+        while tally < count {
+            let end = (tally+SINGLE_SORT_LIMIT) as usize;
+            let slice = &mut pairs[tally as usize..end];
+            slice.par_sort_unstable();
+            tally += SINGLE_SORT_LIMIT;
+        }
+        eprintln!("{:?}: perform final sort", chrono::offset::Local::now());
+        // we use the normal par_sort as it is faster for cases where
+        // you have a bunch of appended sorted slices.
+        pairs.par_sort();
+
+    } else {
+        eprintln!("{:?}: perform single sort", chrono::offset::Local::now());
+        pairs.par_sort_unstable();
+    }
     eprintln!("{:?}: sorted object pairs", chrono::offset::Local::now());
 
     let aj_width = util::calculate_width(greatest_sp);
