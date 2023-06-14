@@ -372,15 +372,22 @@ pub async fn build_object_index_from_direct_files<
     o_ps_files: AdjacencyListFiles<F>,
     objects_file: Option<F>,
 ) -> io::Result<()> {
+    eprintln!("{:?}: starting object index build", chrono::offset::Local::now());
     let build_sparse_index = objects_file.is_some();
     let (count, _) = logarray_file_get_length_and_width(sp_o_nums_file.clone()).await?;
     let mut aj_stream = adjacency_list_stream_pairs(sp_o_bits_file, sp_o_nums_file).await?;
     let mut pairs = Vec::with_capacity(count as usize);
     let mut greatest_sp = 0;
+    eprintln!("{:?}: opened sp_o stream", chrono::offset::Local::now());
+    let mut tally: u64 = 0;
     // gather up pairs
     while let Some((sp, object)) = aj_stream.try_next().await? {
         greatest_sp = sp;
         pairs.push((object, sp));
+        tally += 1;
+        if tally % 1000000 == 0 {
+            eprintln!("{:?}: collected {tally} pairs for o_ps index", chrono::offset::Local::now());
+        }
     }
     eprintln!("{:?}: collected object pairs", chrono::offset::Local::now());
 
