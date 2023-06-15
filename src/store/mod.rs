@@ -3,7 +3,7 @@
 //! It is expected that most users of this library will work exclusively with the types contained in this module.
 pub mod sync;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use crate::layer::{IdTriple, Layer, LayerBuilder, LayerCounts, ObjectType, ValueTriple};
@@ -873,8 +873,12 @@ impl Store {
         StoreLayerBuilder::new(self.clone()).await
     }
 
-    pub async fn merge_base_layers(&self, layers: &[[u32; 5]]) -> io::Result<[u32; 5]> {
-        self.layer_store.merge_base_layer(layers).await
+    pub async fn merge_base_layers(
+        &self,
+        layers: &[[u32; 5]],
+        temp_dir: &Path,
+    ) -> io::Result<[u32; 5]> {
+        self.layer_store.merge_base_layer(layers, temp_dir).await
     }
 
     /// Export the given layers by creating a pack, a Vec<u8> that can later be used with `import_layers` on a different store.

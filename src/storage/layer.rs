@@ -26,6 +26,7 @@ use crate::Layer;
 use bitvec::prelude::*;
 use std::convert::TryInto;
 use std::io;
+use std::path::Path;
 use std::sync::Arc;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -220,7 +221,7 @@ pub trait LayerStore: 'static + Packable + Send + Sync {
     async fn squash(&self, layer: Arc<InternalLayer>) -> io::Result<[u32; 5]>;
     async fn squash_upto(&self, layer: Arc<InternalLayer>, upto: [u32; 5]) -> io::Result<[u32; 5]>;
 
-    async fn merge_base_layer(&self, layers: &[[u32; 5]]) -> io::Result<[u32; 5]>;
+    async fn merge_base_layer(&self, layers: &[[u32; 5]], temp_dir: &Path) -> io::Result<[u32; 5]>;
 
     async fn layer_is_ancestor_of(
         &self,
@@ -2186,7 +2187,11 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         Ok(layer_name)
     }
 
-    async fn merge_base_layer(&self, layers: &[[u32; 5]]) -> io::Result<[u32; 5]> {
+    async fn merge_base_layer(
+        &self,
+        layers: &[[u32; 5]],
+        temp_path: &Path,
+    ) -> io::Result<[u32; 5]> {
         let mut layer_files = Vec::with_capacity(layers.len());
         for layer in layers {
             if self.layer_has_parent(*layer).await? {
@@ -2204,7 +2209,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         let output_name = self.create_directory().await?;
         let output_layer_files = self.base_layer_files(output_name).await?;
 
-        merge_base_layers(&layer_files, output_layer_files).await?;
+        merge_base_layers(&layer_files, output_layer_files, temp_path).await?;
 
         self.finalize(output_name).await?;
 

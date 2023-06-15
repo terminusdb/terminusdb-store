@@ -4,6 +4,7 @@ use crate::structure::{StringDict, TypedDict};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::io;
+use std::path::Path;
 use std::sync::{Arc, RwLock, Weak};
 
 pub trait LayerCache: 'static + Send + Sync {
@@ -323,8 +324,8 @@ impl LayerStore for CachedLayerStore {
         self.inner.squash_upto(layer, upto).await
     }
 
-    async fn merge_base_layer(&self, layers: &[[u32; 5]]) -> io::Result<[u32; 5]> {
-        self.inner.merge_base_layer(layers).await
+    async fn merge_base_layer(&self, layers: &[[u32; 5]], temp_dir: &Path) -> io::Result<[u32; 5]> {
+        self.inner.merge_base_layer(layers, temp_dir).await
     }
 
     async fn layer_is_ancestor_of(

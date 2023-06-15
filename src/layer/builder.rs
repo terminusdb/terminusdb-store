@@ -372,7 +372,10 @@ pub async fn build_object_index_from_direct_files<
     o_ps_files: AdjacencyListFiles<F>,
     objects_file: Option<F>,
 ) -> io::Result<()> {
-    eprintln!("{:?}: starting object index build", chrono::offset::Local::now());
+    eprintln!(
+        "{:?}: starting object index build",
+        chrono::offset::Local::now()
+    );
     let build_sparse_index = objects_file.is_some();
     let (count, _) = logarray_file_get_length_and_width(sp_o_nums_file.clone()).await?;
     let mut aj_stream = adjacency_list_stream_pairs(sp_o_bits_file, sp_o_nums_file).await?;
@@ -386,7 +389,11 @@ pub async fn build_object_index_from_direct_files<
         pairs.push((object, sp));
         tally += 1;
         if tally % 10000000 == 0 {
-            eprintln!("{:?}: collected {tally} pairs for o_ps index ({}%)", chrono::offset::Local::now(), (tally*100/count));
+            eprintln!(
+                "{:?}: collected {tally} pairs for o_ps index ({}%)",
+                chrono::offset::Local::now(),
+                (tally * 100 / count)
+            );
         }
     }
     eprintln!("{:?}: collected object pairs", chrono::offset::Local::now());
@@ -398,7 +405,7 @@ pub async fn build_object_index_from_direct_files<
         eprintln!("{:?}: perform multi sort", chrono::offset::Local::now());
         let mut tally: u64 = 0;
         while tally < count {
-            let end = std::cmp::min(count as usize, (tally+SINGLE_SORT_LIMIT) as usize);
+            let end = std::cmp::min(count as usize, (tally + SINGLE_SORT_LIMIT) as usize);
             let slice = &mut pairs[tally as usize..end];
             slice.par_sort_unstable();
             tally += SINGLE_SORT_LIMIT;
@@ -407,7 +414,6 @@ pub async fn build_object_index_from_direct_files<
         // we use the normal sort as it is fast for cases where you
         // have a bunch of appended sorted slices.
         pairs.sort();
-
     } else {
         eprintln!("{:?}: perform single sort", chrono::offset::Local::now());
         pairs.par_sort_unstable();

@@ -1,13 +1,17 @@
-use std::{io, path::PathBuf};
+use std::{
+    io,
+    path::{Path, PathBuf},
+};
 
 use futures::{Stream, StreamExt, TryStreamExt};
+use tempfile::TempDir;
 use tokio::{fs::OpenOptions, io::AsyncWriteExt};
 
 use crate::{
     layer::{builder::build_indexes, open_base_triple_stream, BaseLayerFileBuilderPhase2},
     storage::{
-        AdjacencyListFiles, BaseLayerFiles, DictionaryFiles, FileLoad, FileStore,
-        TypedDictionaryFiles,
+        directory::DirectoryLayerStore, AdjacencyListFiles, BaseLayerFiles, DictionaryFiles,
+        FileLoad, FileStore, PersistentLayerStore, TypedDictionaryFiles,
     },
     structure::{
         dedup_merge_string_dictionaries_stream, dedup_merge_typed_dictionary_streams,
@@ -24,11 +28,12 @@ fn try_enumerate<T, E, S: Stream<Item = Result<T, E>> + Send>(
 }
 
 async fn dicts_to_map<
-    F: FileLoad + FileStore + 'static,
-    I: ExactSizeIterator<Item = DictionaryFiles<F>>,
+    F1: FileLoad + FileStore + 'static,
+    F2: FileLoad + FileStore + 'static,
+    I: ExactSizeIterator<Item = DictionaryFiles<F1>>,
 >(
     inputs: I,
-    output: DictionaryFiles<F>,
+    output: DictionaryFiles<F2>,
 ) -> io::Result<(Vec<Vec<usize>>, usize)> {
     let mut streams = Vec::with_capacity(inputs.len());
     for input in inputs {
@@ -45,11 +50,12 @@ async fn dicts_to_map<
 }
 
 async fn typed_dicts_to_map<
-    F: FileLoad + FileStore + 'static,
-    I: ExactSizeIterator<Item = TypedDictionaryFiles<F>>,
+    F1: FileLoad + FileStore + 'static,
+    F2: FileLoad + FileStore + 'static,
+    I: ExactSizeIterator<Item = TypedDictionaryFiles<F1>>,
 >(
     inputs: I,
-    output: TypedDictionaryFiles<F>,
+    output: TypedDictionaryFiles<F2>,
 ) -> io::Result<(Vec<Vec<usize>>, usize)> {
     let mut streams = Vec::with_capacity(inputs.len());
     for input in inputs {
@@ -155,15 +161,24 @@ async fn test_write_adjacency_list_files<F: FileLoad + FileStore + 'static>(
     Ok(())
 }
 
-pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
+pub async fn merge_base_layers<F: FileLoad + FileStore + 'static, P: AsRef<Path>>(
     inputs: &[BaseLayerFiles<F>],
     output: BaseLayerFiles<F>,
+    temp_path: P,
 ) -> io::Result<()> {
-    // TODO parallelize the merges
     eprintln!(
         "{:?}: started merge of base layers",
         chrono::offset::Local::now()
     );
+
+    // we are going to assume that this is a big expensive merge. all
+    // files will be constructed on disk first and only after being
+    // fully built will we actually copy things over to the output.
+    let temp_dir = TempDir::new_in(temp_path)?;
+    let temp_store = DirectoryLayerStore::new(temp_dir.path());
+    let temp_layer_id = temp_store.create_directory().await?;
+    let temp_output_files = temp_store.base_layer_files(temp_layer_id).await?;
+
     let node_dicts: Vec<_> = inputs
         .iter()
         .map(|i| i.node_dictionary_files.clone())
@@ -178,15 +193,15 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
         .collect();
     let node_map_task = tokio::spawn(dicts_to_map(
         node_dicts.into_iter(),
-        output.node_dictionary_files.clone(),
+        temp_output_files.node_dictionary_files.clone(),
     ));
     let predicate_map_task = tokio::spawn(dicts_to_map(
         predicate_dicts.into_iter(),
-        output.predicate_dictionary_files.clone(),
+        temp_output_files.predicate_dictionary_files.clone(),
     ));
     let value_map_task = tokio::spawn(typed_dicts_to_map(
         value_dicts.into_iter(),
-        output.value_dictionary_files.clone(),
+        temp_output_files.value_dictionary_files.clone(),
     ));
 
     let (node_map, node_count) = node_map_task.await??;
@@ -195,9 +210,13 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
     eprintln!("{:?}: merged predicate dicts", chrono::offset::Local::now());
     let (value_map, value_count) = value_map_task.await??;
     eprintln!("{:?}: merged value dicts", chrono::offset::Local::now());
-    test_write_dict("/tmp/node_dict", &output.node_dictionary_files).await?;
-    test_write_dict("/tmp/predicate_dict", &output.predicate_dictionary_files).await?;
-    test_write_typed_dict("/tmp/value_dict", &output.value_dictionary_files).await?;
+    test_write_dict("/tmp/node_dict", &temp_output_files.node_dictionary_files).await?;
+    test_write_dict(
+        "/tmp/predicate_dict",
+        &temp_output_files.predicate_dictionary_files,
+    )
+    .await?;
+    test_write_typed_dict("/tmp/value_dict", &temp_output_files.value_dictionary_files).await?;
 
     let mut triple_streams = Vec::with_capacity(inputs.len());
     for (ix, input) in inputs.into_iter().enumerate() {
@@ -232,8 +251,13 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
     */
     let mut merged_triples = heap_sorted_stream(triple_streams).await?;
 
-    let mut builder =
-        BaseLayerFileBuilderPhase2::new(output, node_count, predicate_count, value_count).await?;
+    let mut builder = BaseLayerFileBuilderPhase2::new(
+        temp_output_files.clone(),
+        node_count,
+        predicate_count,
+        value_count,
+    )
+    .await?;
     eprintln!(
         "{:?}: constructed phase 2 builder",
         chrono::offset::Local::now()
@@ -276,6 +300,9 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static>(
     )
     .await?;
     eprintln!("{:?}: built indexes", chrono::offset::Local::now());
+
+    // now that everything has been constructed on disk, copy over to the actual layer store
+    output.copy_from(&temp_output_files).await?;
 
     Ok(())
 }

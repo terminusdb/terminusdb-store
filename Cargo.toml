@@ -35,8 +35,6 @@ hex = "0.4"
 regex = "1.5"
 lru = "0.10"
 bitvec = "1.0"
-
-[dev-dependencies]
 tempfile = "3.1"
 
 [features]

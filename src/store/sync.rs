@@ -9,7 +9,7 @@ use futures::Future;
 use tokio::runtime::Runtime;
 
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::layer::{IdTriple, Layer, LayerCounts, ObjectType, ValueTriple};
 use crate::store::{
@@ -568,8 +568,12 @@ impl SyncStore {
         inner.map(SyncStoreLayerBuilder::wrap)
     }
 
-    pub fn merge_base_layers(&self, layers: &[[u32; 5]]) -> Result<[u32; 5], io::Error> {
-        let inner = task_sync(self.inner.merge_base_layers(layers))?;
+    pub fn merge_base_layers(
+        &self,
+        layers: &[[u32; 5]],
+        temp_dir: &Path,
+    ) -> Result<[u32; 5], io::Error> {
+        let inner = task_sync(self.inner.merge_base_layers(layers, temp_dir))?;
         Ok(inner)
     }
 

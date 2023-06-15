@@ -223,7 +223,7 @@ impl FragmentBuilder {
             fragment_start,
             fragment_half,
             fragment_end,
-            bits: BitVec::new()
+            bits: BitVec::new(),
         }
     }
 
