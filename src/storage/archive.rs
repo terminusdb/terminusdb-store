@@ -362,7 +362,8 @@ impl<M, D> LruArchiveBackend<M, D> {
 
 impl<M: ArchiveMetadataBackend, D: ArchiveBackend> LruArchiveBackend<M, D> {
     async fn layer_fits_in_cache(&self, id: [u32; 5]) -> io::Result<bool> {
-        Ok(self.layer_size(id).await? as usize <= self.limit_bytes())
+        let limit = self.limit_bytes();
+        Ok(limit != 0 && self.layer_size(id).await? as usize <= limit)
     }
 }
 
