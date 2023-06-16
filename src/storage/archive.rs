@@ -11,7 +11,7 @@ use std::{
     path::PathBuf,
     pin::Pin,
     sync::{Arc, RwLock},
-    task::Poll,
+    task::Poll, os::unix::prelude::MetadataExt,
 };
 
 use async_trait::async_trait;
@@ -124,9 +124,12 @@ impl ArchiveBackend for DirectoryArchiveBackend {
         options.read(true);
         options.create(false);
         let mut result = options.open(path).await?;
-        let mut buf = Vec::new();
+        let size = result.metadata().await?.size();
+        let mut buf = Vec::with_capacity(size as usize);
+        eprintln!("reading {size} bytes");
         result.read_to_end(&mut buf).await?;
         buf.shrink_to_fit();
+        eprintln!("done reading");
 
         Ok(buf.into())
     }
