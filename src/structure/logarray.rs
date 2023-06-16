@@ -223,7 +223,7 @@ impl Iterator for LogArrayIterator {
 
 const MAX_LOGARRAY_LEN: u64 = (1 << 56) - 1;
 
-fn parse_control_word(buf: &[u8]) -> (u64, u8) {
+pub fn parse_control_word(buf: &[u8]) -> (u64, u8) {
     let len_1 = BigEndian::read_u32(buf) as u64;
     let width = buf[4];
     let len_2 = (BigEndian::read_u32(&buf[4..]) & 0xFFFFFF) as u64; // ignore width byte
