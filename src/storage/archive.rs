@@ -423,7 +423,9 @@ impl<T: ArchiveBackend> ArchiveBackend for LruArchiveBackend<T> {
             Some(CacheEntry::Resolving(barrier)) => {
                 // someone is already looking up this layer. we'll wait for them to be done.
                 std::mem::drop(cache);
+                eprintln!("resolving.. wait for lock");
                 let guard = barrier.read().await;
+                eprintln!("unlocked, get layer bytes");
                 match guard.as_ref().unwrap() {
                     Ok(bytes) => Ok(bytes.clone()),
                     Err(kind) => Err(io::Error::new(*kind, "layer resolve failed")),
@@ -434,6 +436,7 @@ impl<T: ArchiveBackend> ArchiveBackend for LruArchiveBackend<T> {
                 let barrier = Arc::new(tokio::sync::RwLock::new(None));
                 let mut result = barrier.write().await;
                 cache.get_or_insert(id, || CacheEntry::Resolving(barrier.clone()));
+                eprintln!("inserted lock");
 
                 // drop the cache while doing the lookup
                 std::mem::drop(cache);
