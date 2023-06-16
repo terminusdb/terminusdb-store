@@ -119,12 +119,14 @@ impl DirectoryArchiveBackend {
 impl ArchiveBackend for DirectoryArchiveBackend {
     type Read = ArchiveSliceReader;
     async fn get_layer_bytes(&self, id: [u32; 5]) -> io::Result<Bytes> {
+        eprintln!("get layer bytes");
         let path = self.path_for_layer(id);
         let mut options = fs::OpenOptions::new();
         options.read(true);
         options.create(false);
         let mut result = options.open(path).await?;
         let size = result.metadata().await?.size();
+        eprintln!("allocating buffer for layer");
         let mut buf = Vec::with_capacity(size as usize);
         eprintln!("reading {size} bytes");
         result.read_to_end(&mut buf).await?;
