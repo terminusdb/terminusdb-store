@@ -400,7 +400,7 @@ pub async fn build_object_index_from_direct_files<
 
     // par_sort_unstable unfortunately can run out of stack for very
     // large sorts. If so, we have to do something else.
-    const SINGLE_SORT_LIMIT: u64 = 0x1_0000_0000;
+    const SINGLE_SORT_LIMIT: u64 = 0x8000_0000;
     if count > SINGLE_SORT_LIMIT {
         eprintln!("{:?}: perform multi sort", chrono::offset::Local::now());
         let mut tally: u64 = 0;
