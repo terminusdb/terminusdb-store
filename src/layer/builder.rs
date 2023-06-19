@@ -366,7 +366,7 @@ impl<F: 'static + FileLoad + FileStore> TripleFileBuilder<F> {
     }
 }
 
-const SP_PAIRS_PER_FILE: u64 = 0x1_0000_0000;
+const SP_PAIRS_PER_FILE: u64 = 0x1000_0000;
 pub async fn build_object_index_from_direct_files<
     FLoad: 'static + FileLoad,
     F: 'static + FileLoad + FileStore,
