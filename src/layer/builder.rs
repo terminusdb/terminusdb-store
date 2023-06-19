@@ -1,12 +1,15 @@
 use std::io;
+use std::path::PathBuf;
 
 use bytes::{Bytes, BytesMut};
-use futures::TryStreamExt;
+use futures::{StreamExt, TryStreamExt};
 use rayon::prelude::*;
+use tokio_util::either::Either;
 
 use super::layer::*;
+use crate::storage::directory::FileBackedStore;
 use crate::storage::*;
-use crate::structure::util;
+use crate::structure::util::{self, heap_sorted_stream, stream_iter_ok};
 use crate::structure::*;
 
 pub struct DictionarySetFileBuilder<F: 'static + FileLoad + FileStore> {
@@ -363,6 +366,7 @@ impl<F: 'static + FileLoad + FileStore> TripleFileBuilder<F> {
     }
 }
 
+const SP_PAIRS_PER_FILE: u64 = 0x1_0000_0000;
 pub async fn build_object_index_from_direct_files<
     FLoad: 'static + FileLoad,
     F: 'static + FileLoad + FileStore,
@@ -371,19 +375,22 @@ pub async fn build_object_index_from_direct_files<
     sp_o_bits_file: FLoad,
     o_ps_files: AdjacencyListFiles<F>,
     objects_file: Option<F>,
+    temp_dir_path: Option<PathBuf>,
 ) -> io::Result<()> {
     eprintln!(
         "{:?}: starting object index build",
         chrono::offset::Local::now()
     );
     let build_sparse_index = objects_file.is_some();
-    let (count, _) = logarray_file_get_length_and_width(sp_o_nums_file.clone()).await?;
+    let (count, spo_width) = logarray_file_get_length_and_width(sp_o_nums_file.clone()).await?;
     let mut aj_stream = adjacency_list_stream_pairs(sp_o_bits_file, sp_o_nums_file).await?;
-    let mut pairs = Vec::with_capacity(count as usize);
+    let mut pairs = Vec::with_capacity(std::cmp::min(count, SP_PAIRS_PER_FILE) as usize);
     let mut greatest_sp = 0;
     eprintln!("{:?}: opened sp_o stream", chrono::offset::Local::now());
     let mut tally: u64 = 0;
-    // gather up pairs
+    let mut temp_files: Vec<_> = Vec::new();
+    let mut temp_dir = None;
+    // gather up pars
     while let Some((sp, object)) = aj_stream.try_next().await? {
         greatest_sp = sp;
         pairs.push((object, sp));
@@ -395,16 +402,52 @@ pub async fn build_object_index_from_direct_files<
                 (tally * 100 / count)
             );
         }
+
+        if temp_dir_path.is_some() && tally % SP_PAIRS_PER_FILE == 0 {
+            let file_index = tally / SP_PAIRS_PER_FILE;
+            if temp_dir.is_none() {
+                temp_dir = Some(tempfile::tempdir_in(temp_dir_path.as_ref().unwrap())?);
+            }
+            eprintln!(
+                "{:?}: collect currently gathered elements into a file",
+                chrono::offset::Local::now(),
+            );
+            pairs.par_sort_unstable();
+            let sp_file_path = {
+                let mut p: PathBuf = temp_dir.as_ref().unwrap().path().into();
+                p.push(format!("sp_{file_index}"));
+                p
+            };
+            let o_file_path = {
+                let mut p: PathBuf = temp_dir.as_ref().unwrap().path().into();
+                p.push(format!("o_{file_index}"));
+                p
+            };
+            let sp_file = FileBackedStore::new(sp_file_path);
+            let o_file = FileBackedStore::new(o_file_path);
+            let sp_width = util::calculate_width(greatest_sp);
+            let mut sp_logarray = LogArrayFileBuilder::new(sp_file.open_write().await?, sp_width);
+            let mut o_logarray = LogArrayFileBuilder::new(o_file.open_write().await?, spo_width);
+            for (o, sp) in pairs.iter_mut() {
+                sp_logarray.push(*sp).await?;
+                o_logarray.push(*o).await?;
+            }
+            sp_logarray.finalize().await?;
+            o_logarray.finalize().await?;
+            temp_files.push((sp_file, o_file));
+
+            pairs.clear();
+        }
     }
     eprintln!("{:?}: collected object pairs", chrono::offset::Local::now());
 
     // par_sort_unstable unfortunately can run out of stack for very
     // large sorts. If so, we have to do something else.
     const SINGLE_SORT_LIMIT: u64 = 0x8000_0000;
-    if count > SINGLE_SORT_LIMIT {
+    if pairs.len() as u64 > SINGLE_SORT_LIMIT {
         eprintln!("{:?}: perform multi sort", chrono::offset::Local::now());
         let mut tally: u64 = 0;
-        while tally < count {
+        while tally < pairs.len() as u64 {
             let end = std::cmp::min(count as usize, (tally + SINGLE_SORT_LIMIT) as usize);
             let slice = &mut pairs[tally as usize..end];
             slice.par_sort_unstable();
@@ -430,6 +473,24 @@ pub async fn build_object_index_from_direct_files<
     )
     .await?;
 
+    // now construct a sorted stream out of the part still in memory and the parts written out to files
+    let mut streams = Vec::with_capacity(temp_files.len() + 1);
+    for (sp_file, o_file) in temp_files {
+        let sp_stream = logarray_stream_entries(sp_file).await?;
+        let o_stream = logarray_stream_entries(o_file).await?;
+
+        let stream = o_stream.zip(sp_stream).map(|(l, r)| match (l, r) {
+            (Ok(l), Ok(r)) => Ok((l, r)),
+            (Err(e), _) => Err(e),
+            (_, Err(e)) => Err(e),
+        });
+        streams.push(Either::Left(stream));
+    }
+    streams.push(Either::Right(stream_iter_ok::<_, io::Error, _>(
+        pairs.into_iter(),
+    )));
+    let mut merged_stream = heap_sorted_stream(streams).await?;
+
     if build_sparse_index {
         // a sparse index compresses the adjacency list so that all objects in use are remapped to form a continuous range.
         // We need to iterate over the pairs, and write them out without gaps.
@@ -437,7 +498,7 @@ pub async fn build_object_index_from_direct_files<
         let mut objects = Vec::new();
         let mut last_object = 0;
         let mut object_ix = 0;
-        for (object, sp) in pairs {
+        while let Some((object, sp)) = merged_stream.try_next().await? {
             if object > last_object {
                 object_ix += 1;
                 last_object = object;
@@ -456,9 +517,7 @@ pub async fn build_object_index_from_direct_files<
         objects_builder.push_vec(objects).await?;
         objects_builder.finalize().await?;
     } else {
-        o_ps_adjacency_list_builder
-            .push_all(util::stream_iter_ok(pairs))
-            .await?;
+        o_ps_adjacency_list_builder.push_all(merged_stream).await?;
     }
     eprintln!(
         "{:?}: added object pairs to adjacency list builder",
@@ -475,12 +534,14 @@ pub async fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad
     sp_o_files: AdjacencyListFiles<FLoad>,
     o_ps_files: AdjacencyListFiles<F>,
     objects_file: Option<F>,
+    temp_dir: Option<PathBuf>,
 ) -> io::Result<()> {
     build_object_index_from_direct_files(
         sp_o_files.nums_file,
         sp_o_files.bitindex_files.bits_file,
         o_ps_files,
         objects_file,
+        temp_dir,
     )
     .await
 }
@@ -506,8 +567,14 @@ pub async fn build_indexes<FLoad: 'static + FileLoad, F: 'static + FileLoad + Fi
     o_ps_files: AdjacencyListFiles<F>,
     objects_file: Option<F>,
     wavelet_files: BitIndexFiles<F>,
+    temp_dir: Option<PathBuf>,
 ) -> io::Result<()> {
-    let object_index_task = tokio::spawn(build_object_index(sp_o_files, o_ps_files, objects_file));
+    let object_index_task = tokio::spawn(build_object_index(
+        sp_o_files,
+        o_ps_files,
+        objects_file,
+        temp_dir,
+    ));
     let predicate_index_task = tokio::spawn(build_predicate_index(
         s_p_files.nums_file,
         wavelet_files.bits_file,

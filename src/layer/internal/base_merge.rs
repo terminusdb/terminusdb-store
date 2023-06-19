@@ -174,7 +174,7 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static, P: AsRef<Path>
     // we are going to assume that this is a big expensive merge. all
     // files will be constructed on disk first and only after being
     // fully built will we actually copy things over to the output.
-    let temp_dir = TempDir::new_in(temp_path)?;
+    let temp_dir = TempDir::new_in(&temp_path)?;
     let temp_store = DirectoryLayerStore::new(temp_dir.path());
     let temp_layer_id = temp_store.create_directory().await?;
     let temp_output_files = temp_store.base_layer_files(temp_layer_id).await?;
@@ -291,12 +291,15 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static, P: AsRef<Path>
     let sp_o_adjacency_list_files = files.sp_o_adjacency_list_files.clone();
     let o_ps_adjacency_list_files = files.o_ps_adjacency_list_files.clone();
     let predicate_wavelet_tree_files = files.predicate_wavelet_tree_files.clone();
+    let mut temp_pathbuf = PathBuf::new();
+    temp_pathbuf.push(temp_path);
     build_indexes(
         s_p_adjacency_list_files,
         sp_o_adjacency_list_files,
         o_ps_adjacency_list_files,
         None,
         predicate_wavelet_tree_files,
+        Some(temp_pathbuf),
     )
     .await?;
     eprintln!("{:?}: built indexes", chrono::offset::Local::now());

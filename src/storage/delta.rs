@@ -296,6 +296,7 @@ pub async fn delta_rollup<F: 'static + FileLoad + FileStore>(
         files.o_ps_adjacency_list_files.clone(),
         None,
         files.predicate_wavelet_tree_files.clone(),
+        None,
     )
     .await
 }
@@ -353,6 +354,7 @@ pub async fn imprecise_delta_rollup_upto<S: LayerStore, F: 'static + FileLoad + 
         files.pos_o_ps_adjacency_list_files.clone(),
         Some(files.pos_objects_file.clone()),
         files.pos_predicate_wavelet_tree_files.clone(),
+        None,
     )
     .await?;
 
@@ -362,6 +364,7 @@ pub async fn imprecise_delta_rollup_upto<S: LayerStore, F: 'static + FileLoad + 
         files.neg_o_ps_adjacency_list_files.clone(),
         Some(files.neg_objects_file.clone()),
         files.neg_predicate_wavelet_tree_files.clone(),
+        None,
     )
     .await
 }
@@ -422,6 +425,7 @@ pub async fn delta_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore>
         files.pos_o_ps_adjacency_list_files.clone(),
         Some(files.pos_objects_file.clone()),
         files.pos_predicate_wavelet_tree_files.clone(),
+        None,
     )
     .await?;
 
@@ -431,6 +435,7 @@ pub async fn delta_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore>
         files.neg_o_ps_adjacency_list_files.clone(),
         Some(files.neg_objects_file.clone()),
         files.neg_predicate_wavelet_tree_files.clone(),
+        None,
     )
     .await
 }

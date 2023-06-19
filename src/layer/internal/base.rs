@@ -399,6 +399,7 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
             o_ps_adjacency_list_files,
             None,
             predicate_wavelet_tree_files,
+            None,
         )
         .await?;
 
