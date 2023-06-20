@@ -67,6 +67,57 @@ pub async fn write_u64<W: AsyncWrite + Unpin>(w: &mut W, num: u64) -> Result<()>
     Ok(())
 }
 
+pub struct HeapSortedIterator<'a, T: Ord, I: 'a + Iterator<Item = T> + Unpin + Send> {
+    iters: Vec<I>,
+    heap: BinaryHeap<(Reverse<T>, usize)>,
+    _x: PhantomData<&'a ()>,
+}
+
+pub fn heap_sorted_iter<'a, T: Ord, I: 'a + Iterator<Item = T> + Unpin + Send>(
+    mut iters: Vec<I>,
+) -> HeapSortedIterator<'a, T, I> {
+    let mut heap = BinaryHeap::with_capacity(iters.len());
+
+    for (ix, i) in iters.iter_mut().enumerate() {
+        if let Some(item) = i.next() {
+            heap.push((Reverse(item), ix));
+        }
+    }
+
+    HeapSortedIterator {
+        iters,
+        heap,
+        _x: Default::default(),
+    }
+}
+
+impl<'a, T: Ord + Unpin, I: 'a + Iterator<Item = T> + Unpin + Send> Iterator
+    for HeapSortedIterator<'a, T, I>
+{
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(ix) = self.heap.peek().map(|(_, ix)| *ix) {
+            // we're about to pop an element from the heap. we'll need to read the next item in its corresponding stream to add to the heap afterwards.
+            let iter = &mut self.iters[ix];
+            match iter.next() {
+                Some(next_item) => {
+                    let item = self.heap.pop().unwrap();
+                    self.heap.push((Reverse(next_item), ix));
+
+                    Some(item.0 .0)
+                }
+                None => {
+                    let item = self.heap.pop().unwrap();
+                    Some(item.0 .0)
+                }
+            }
+        } else {
+            None
+        }
+    }
+}
+
 pub struct HeapSortedStream<
     'a,
     T: Ord,

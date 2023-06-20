@@ -240,15 +240,6 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static, P: AsRef<Path>
         triple_streams.push(stream);
     }
 
-    /*
-    let pick_fn = |vals: &[Option<&io::Result<(u64, u64, u64)>>]| {
-        vals.iter()
-            .enumerate()
-            .filter(|(_, v)| v.is_some())
-            .min_by(|(_, x), (_, y)| compare_or_result(x.as_ref().unwrap(), y.as_ref().unwrap()))
-            .map(|(ix, _)| ix)
-    };
-    */
     let mut merged_triples = heap_sorted_stream(triple_streams).await?;
 
     let mut builder = BaseLayerFileBuilderPhase2::new(

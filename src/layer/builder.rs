@@ -1,13 +1,12 @@
 use std::io;
 
 use bytes::{Bytes, BytesMut};
-use futures::{StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 use rayon::prelude::*;
-use tokio_util::either::Either;
 
 use super::layer::*;
 use crate::storage::*;
-use crate::structure::util::{self, heap_sorted_stream, stream_iter_ok};
+use crate::structure::util::{self, heap_sorted_iter, stream_iter_ok};
 use crate::structure::*;
 
 pub struct DictionarySetFileBuilder<F: 'static + FileLoad + FileStore> {
@@ -460,22 +459,16 @@ pub async fn build_object_index_from_direct_files<
     .await?;
 
     // now construct a sorted stream out of the part still in memory and the parts written out to files
-    let mut streams = Vec::with_capacity(temp_arrays.len() + 1);
+    let mut iters = Vec::with_capacity(temp_arrays.len() + 1);
     for (sp_file, o_file) in temp_arrays {
-        let sp_stream = stream_iter_ok::<_, io::Error, _>(sp_file.iter());
-        let o_stream = stream_iter_ok::<_, io::Error, _>(o_file.iter());
+        let sp_iter = sp_file.iter();
+        let o_iter = o_file.iter();
 
-        let stream = o_stream.zip(sp_stream).map(|(l, r)| match (l, r) {
-            (Ok(l), Ok(r)) => Ok((l, r)),
-            (Err(e), _) => Err(e),
-            (_, Err(e)) => Err(e),
-        });
-        streams.push(Either::Left(stream));
+        let iter = o_iter.zip(sp_iter);
+        iters.push(itertools::Either::Left(iter));
     }
-    streams.push(Either::Right(stream_iter_ok::<_, io::Error, _>(
-        pairs.into_iter(),
-    )));
-    let mut merged_stream = heap_sorted_stream(streams).await?;
+    iters.push(itertools::Either::Right(pairs.into_iter()));
+    let mut merged_iters = heap_sorted_iter(iters);
 
     if build_sparse_index {
         // a sparse index compresses the adjacency list so that all objects in use are remapped to form a continuous range.
@@ -484,7 +477,7 @@ pub async fn build_object_index_from_direct_files<
         let mut objects = Vec::new();
         let mut last_object = 0;
         let mut object_ix = 0;
-        while let Some((object, sp)) = merged_stream.try_next().await? {
+        while let Some((object, sp)) = merged_iters.next() {
             if object > last_object {
                 object_ix += 1;
                 last_object = object;
@@ -503,7 +496,9 @@ pub async fn build_object_index_from_direct_files<
         objects_builder.push_vec(objects).await?;
         objects_builder.finalize().await?;
     } else {
-        o_ps_adjacency_list_builder.push_all(merged_stream).await?;
+        o_ps_adjacency_list_builder
+            .push_all(stream_iter_ok::<_, io::Error, _>(merged_iters))
+            .await?;
     }
     eprintln!(
         "{:?}: added object pairs to adjacency list builder",
