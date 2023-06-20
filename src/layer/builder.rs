@@ -364,7 +364,7 @@ impl<F: 'static + FileLoad + FileStore> TripleFileBuilder<F> {
     }
 }
 
-const SP_PAIRS_PER_FILE: u64 = 0x1000_0000;
+const SINGLE_SORT_LIMIT: u64 = 0x8000_0000;
 pub async fn build_object_index_from_direct_files<
     FLoad: 'static + FileLoad,
     F: 'static + FileLoad + FileStore,
@@ -381,7 +381,7 @@ pub async fn build_object_index_from_direct_files<
     let build_sparse_index = objects_file.is_some();
     let (count, spo_width) = logarray_file_get_length_and_width(sp_o_nums_file.clone()).await?;
     let mut aj_stream = adjacency_list_stream_pairs(sp_o_bits_file, sp_o_nums_file).await?;
-    let mut pairs = Vec::with_capacity(std::cmp::min(count, SP_PAIRS_PER_FILE) as usize);
+    let mut pairs = Vec::with_capacity(std::cmp::min(count, SINGLE_SORT_LIMIT) as usize);
     let mut greatest_sp = 0;
     eprintln!("{:?}: opened sp_o stream", chrono::offset::Local::now());
     let mut tally: u64 = 0;
@@ -430,7 +430,6 @@ pub async fn build_object_index_from_direct_files<
 
     // par_sort_unstable unfortunately can run out of stack for very
     // large sorts. If so, we have to do something else.
-    const SINGLE_SORT_LIMIT: u64 = 0x8000_0000;
     if pairs.len() as u64 > SINGLE_SORT_LIMIT {
         eprintln!("{:?}: perform multi sort", chrono::offset::Local::now());
         let mut tally: u64 = 0;
