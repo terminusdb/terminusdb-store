@@ -426,8 +426,8 @@ pub async fn build_object_index_from_direct_files<
                 p
             };
             */
-            let mut sp_file = BytesMut::new();
-            let mut o_file = BytesMut::new();
+            let mut sp_file = BytesMut::with_capacity(0);
+            let mut o_file = BytesMut::with_capacity(0);
             let sp_width = util::calculate_width(greatest_sp);
             let mut sp_logarray = LogArrayBufBuilder::new(&mut sp_file, sp_width);
             sp_logarray.reserve(pairs.len());
