@@ -291,15 +291,12 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static, P: AsRef<Path>
     let sp_o_adjacency_list_files = files.sp_o_adjacency_list_files.clone();
     let o_ps_adjacency_list_files = files.o_ps_adjacency_list_files.clone();
     let predicate_wavelet_tree_files = files.predicate_wavelet_tree_files.clone();
-    let mut temp_pathbuf = PathBuf::new();
-    temp_pathbuf.push(temp_path);
     build_indexes(
         s_p_adjacency_list_files,
         sp_o_adjacency_list_files,
         o_ps_adjacency_list_files,
         None,
         predicate_wavelet_tree_files,
-        Some(temp_pathbuf),
     )
     .await?;
     eprintln!("{:?}: built indexes", chrono::offset::Local::now());

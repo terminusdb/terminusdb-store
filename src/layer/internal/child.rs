@@ -542,7 +542,6 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
             self.files.pos_o_ps_adjacency_list_files,
             Some(self.files.pos_objects_file),
             self.files.pos_predicate_wavelet_tree_files,
-            None,
         ));
         let neg_indexes_task = tokio::spawn(build_indexes(
             self.files.neg_s_p_adjacency_list_files,
@@ -550,7 +549,6 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
             self.files.neg_o_ps_adjacency_list_files,
             Some(self.files.neg_objects_file),
             self.files.neg_predicate_wavelet_tree_files,
-            None,
         ));
 
         pos_indexes_task.await??;

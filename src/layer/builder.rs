@@ -1,5 +1,4 @@
 use std::io;
-use std::path::PathBuf;
 
 use bytes::{Bytes, BytesMut};
 use futures::{StreamExt, TryStreamExt};
@@ -374,7 +373,6 @@ pub async fn build_object_index_from_direct_files<
     sp_o_bits_file: FLoad,
     o_ps_files: AdjacencyListFiles<F>,
     objects_file: Option<F>,
-    _temp_dir_path: Option<PathBuf>,
 ) -> io::Result<()> {
     eprintln!(
         "{:?}: starting object index build",
@@ -388,7 +386,6 @@ pub async fn build_object_index_from_direct_files<
     eprintln!("{:?}: opened sp_o stream", chrono::offset::Local::now());
     let mut tally: u64 = 0;
     let mut temp_arrays: Vec<(LogArray, LogArray)> = Vec::new();
-    //let mut temp_dir = None;
     // gather up pars
     while let Some((sp, object)) = aj_stream.try_next().await? {
         greatest_sp = sp;
@@ -402,30 +399,12 @@ pub async fn build_object_index_from_direct_files<
             );
         }
 
-        if /* temp_dir_path.is_some() && */ tally % SP_PAIRS_PER_FILE == 0 {
-            /*
-            let file_index = tally / SP_PAIRS_PER_FILE;
-            if temp_dir.is_none() {
-                temp_dir = Some(tempfile::tempdir_in(temp_dir_path.as_ref().unwrap())?);
-            }
-            */
+        if tally % SINGLE_SORT_LIMIT == 0 {
             eprintln!(
                 "{:?}: collect currently gathered elements into a file",
                 chrono::offset::Local::now(),
             );
             pairs.par_sort_unstable();
-            /*
-            let sp_file_path = {
-                let mut p: PathBuf = temp_dir.as_ref().unwrap().path().into();
-                p.push(format!("sp_{file_index}"));
-                p
-            };
-            let o_file_path = {
-                let mut p: PathBuf = temp_dir.as_ref().unwrap().path().into();
-                p.push(format!("o_{file_index}"));
-                p
-            };
-            */
             let mut sp_file = BytesMut::with_capacity(0);
             let mut o_file = BytesMut::with_capacity(0);
             let sp_width = util::calculate_width(greatest_sp);
@@ -439,7 +418,10 @@ pub async fn build_object_index_from_direct_files<
             }
             sp_logarray.finalize();
             o_logarray.finalize();
-            temp_arrays.push((LogArray::parse(sp_file.freeze()).unwrap(), LogArray::parse(o_file.freeze()).unwrap()));
+            temp_arrays.push((
+                LogArray::parse(sp_file.freeze()).unwrap(),
+                LogArray::parse(o_file.freeze()).unwrap(),
+            ));
 
             pairs.clear();
         }
@@ -539,14 +521,12 @@ pub async fn build_object_index<FLoad: 'static + FileLoad, F: 'static + FileLoad
     sp_o_files: AdjacencyListFiles<FLoad>,
     o_ps_files: AdjacencyListFiles<F>,
     objects_file: Option<F>,
-    temp_dir: Option<PathBuf>,
 ) -> io::Result<()> {
     build_object_index_from_direct_files(
         sp_o_files.nums_file,
         sp_o_files.bitindex_files.bits_file,
         o_ps_files,
         objects_file,
-        temp_dir,
     )
     .await
 }
@@ -572,14 +552,8 @@ pub async fn build_indexes<FLoad: 'static + FileLoad, F: 'static + FileLoad + Fi
     o_ps_files: AdjacencyListFiles<F>,
     objects_file: Option<F>,
     wavelet_files: BitIndexFiles<F>,
-    temp_dir: Option<PathBuf>,
 ) -> io::Result<()> {
-    let object_index_task = tokio::spawn(build_object_index(
-        sp_o_files,
-        o_ps_files,
-        objects_file,
-        temp_dir,
-    ));
+    let object_index_task = tokio::spawn(build_object_index(sp_o_files, o_ps_files, objects_file));
     let predicate_index_task = tokio::spawn(build_predicate_index(
         s_p_files.nums_file,
         wavelet_files.bits_file,
