@@ -417,6 +417,12 @@ pub struct LogArrayBufBuilder<'a, B: BufMut> {
     count: u64,
 }
 
+impl<'a> LogArrayBufBuilder<'a, BytesMut> {
+    pub fn reserve(&mut self, additional: usize) {
+        self.buf.reserve(additional * self.width as usize / 8);
+    }
+}
+
 impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
     pub fn new(buf: &'a mut B, width: u8) -> Self {
         Self {
