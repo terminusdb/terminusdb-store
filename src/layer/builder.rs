@@ -7,7 +7,6 @@ use rayon::prelude::*;
 use tokio_util::either::Either;
 
 use super::layer::*;
-use crate::storage::directory::FileBackedStore;
 use crate::storage::*;
 use crate::structure::util::{self, heap_sorted_stream, stream_iter_ok};
 use crate::structure::*;
@@ -375,7 +374,7 @@ pub async fn build_object_index_from_direct_files<
     sp_o_bits_file: FLoad,
     o_ps_files: AdjacencyListFiles<F>,
     objects_file: Option<F>,
-    temp_dir_path: Option<PathBuf>,
+    _temp_dir_path: Option<PathBuf>,
 ) -> io::Result<()> {
     eprintln!(
         "{:?}: starting object index build",
@@ -388,8 +387,8 @@ pub async fn build_object_index_from_direct_files<
     let mut greatest_sp = 0;
     eprintln!("{:?}: opened sp_o stream", chrono::offset::Local::now());
     let mut tally: u64 = 0;
-    let mut temp_files: Vec<_> = Vec::new();
-    let mut temp_dir = None;
+    let mut temp_arrays: Vec<(LogArray, LogArray)> = Vec::new();
+    //let mut temp_dir = None;
     // gather up pars
     while let Some((sp, object)) = aj_stream.try_next().await? {
         greatest_sp = sp;
@@ -403,16 +402,19 @@ pub async fn build_object_index_from_direct_files<
             );
         }
 
-        if temp_dir_path.is_some() && tally % SP_PAIRS_PER_FILE == 0 {
+        if /* temp_dir_path.is_some() && */ tally % SP_PAIRS_PER_FILE == 0 {
+            /*
             let file_index = tally / SP_PAIRS_PER_FILE;
             if temp_dir.is_none() {
                 temp_dir = Some(tempfile::tempdir_in(temp_dir_path.as_ref().unwrap())?);
             }
+            */
             eprintln!(
                 "{:?}: collect currently gathered elements into a file",
                 chrono::offset::Local::now(),
             );
             pairs.par_sort_unstable();
+            /*
             let sp_file_path = {
                 let mut p: PathBuf = temp_dir.as_ref().unwrap().path().into();
                 p.push(format!("sp_{file_index}"));
@@ -423,18 +425,19 @@ pub async fn build_object_index_from_direct_files<
                 p.push(format!("o_{file_index}"));
                 p
             };
-            let sp_file = FileBackedStore::new(sp_file_path);
-            let o_file = FileBackedStore::new(o_file_path);
+            */
+            let mut sp_file = BytesMut::new();
+            let mut o_file = BytesMut::new();
             let sp_width = util::calculate_width(greatest_sp);
-            let mut sp_logarray = LogArrayFileBuilder::new(sp_file.open_write().await?, sp_width);
-            let mut o_logarray = LogArrayFileBuilder::new(o_file.open_write().await?, spo_width);
+            let mut sp_logarray = LogArrayBufBuilder::new(&mut sp_file, sp_width);
+            let mut o_logarray = LogArrayBufBuilder::new(&mut o_file, spo_width);
             for (o, sp) in pairs.iter_mut() {
-                sp_logarray.push(*sp).await?;
-                o_logarray.push(*o).await?;
+                sp_logarray.push(*sp);
+                o_logarray.push(*o);
             }
-            sp_logarray.finalize().await?;
-            o_logarray.finalize().await?;
-            temp_files.push((sp_file, o_file));
+            sp_logarray.finalize();
+            o_logarray.finalize();
+            temp_arrays.push((LogArray::parse(sp_file.freeze()).unwrap(), LogArray::parse(o_file.freeze()).unwrap()));
 
             pairs.clear();
         }
@@ -474,10 +477,10 @@ pub async fn build_object_index_from_direct_files<
     .await?;
 
     // now construct a sorted stream out of the part still in memory and the parts written out to files
-    let mut streams = Vec::with_capacity(temp_files.len() + 1);
-    for (sp_file, o_file) in temp_files {
-        let sp_stream = logarray_stream_entries(sp_file).await?;
-        let o_stream = logarray_stream_entries(o_file).await?;
+    let mut streams = Vec::with_capacity(temp_arrays.len() + 1);
+    for (sp_file, o_file) in temp_arrays {
+        let sp_stream = stream_iter_ok::<_, io::Error, _>(sp_file.iter());
+        let o_stream = stream_iter_ok::<_, io::Error, _>(o_file.iter());
 
         let stream = o_stream.zip(sp_stream).map(|(l, r)| match (l, r) {
             (Ok(l), Ok(r)) => Ok((l, r)),
