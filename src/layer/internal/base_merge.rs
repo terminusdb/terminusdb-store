@@ -113,6 +113,7 @@ async fn test_write_file<F: FileLoad + FileStore + 'static, P: Into<PathBuf>>(
     Ok(())
 }
 
+#[allow(unused)]
 async fn test_write_dict<F: FileLoad + FileStore + 'static>(
     prefix: &str,
     files: &DictionaryFiles<F>,
@@ -127,6 +128,7 @@ async fn test_write_dict<F: FileLoad + FileStore + 'static>(
     Ok(())
 }
 
+#[allow(unused)]
 async fn test_write_typed_dict<F: FileLoad + FileStore + 'static>(
     prefix: &str,
     files: &TypedDictionaryFiles<F>,
@@ -145,6 +147,7 @@ async fn test_write_typed_dict<F: FileLoad + FileStore + 'static>(
     Ok(())
 }
 
+#[allow(unused)]
 async fn test_write_adjacency_list_files<F: FileLoad + FileStore + 'static>(
     prefix: &str,
     files: &AdjacencyListFiles<F>,
@@ -208,13 +211,13 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static, P: AsRef<Path>
     chrono_log!(" merged predicate dicts");
     let (value_map, value_count) = value_map_task.await??;
     chrono_log!("merged value dicts");
-    test_write_dict("/tmp/node_dict", &temp_output_files.node_dictionary_files).await?;
-    test_write_dict(
-        "/tmp/predicate_dict",
-        &temp_output_files.predicate_dictionary_files,
-    )
-    .await?;
-    test_write_typed_dict("/tmp/value_dict", &temp_output_files.value_dictionary_files).await?;
+    //test_write_dict("/tmp/node_dict", &temp_output_files.node_dictionary_files).await?;
+    //test_write_dict(
+    //    "/tmp/predicate_dict",
+    //    &temp_output_files.predicate_dictionary_files,
+    //)
+    //.await?;
+    //test_write_typed_dict("/tmp/value_dict", &temp_output_files.value_dictionary_files).await?;
 
     let mut triple_streams = Vec::with_capacity(inputs.len());
     for (ix, input) in inputs.into_iter().enumerate() {
@@ -267,8 +270,8 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static, P: AsRef<Path>
 
     let files = builder.partial_finalize().await?;
     chrono_log!("finalized triple map");
-    test_write_adjacency_list_files("/tmp/triples_s_p", &files.s_p_adjacency_list_files).await?;
-    test_write_adjacency_list_files("/tmp/triples_sp_o", &files.sp_o_adjacency_list_files).await?;
+    //test_write_adjacency_list_files("/tmp/triples_s_p", &files.s_p_adjacency_list_files).await?;
+    //test_write_adjacency_list_files("/tmp/triples_sp_o", &files.sp_o_adjacency_list_files).await?;
 
     let s_p_adjacency_list_files = files.s_p_adjacency_list_files.clone();
     let sp_o_adjacency_list_files = files.sp_o_adjacency_list_files.clone();
