@@ -50,7 +50,7 @@ pub fn log(content: &str) {
 // a temporary solution while we work on something better.
 // This needs to be replaced by a proper logging solution that prolog can hook into.
 
-#[cfg(features = "eprint_log")]
+#[cfg(feature = "eprint_log")]
 #[macro_export]
 macro_rules! chrono_log {
     ($msg:expr) => {
@@ -63,7 +63,7 @@ macro_rules! chrono_log {
     }
 }
 
-#[cfg(not(features = "eprint_log"))]
+#[cfg(not(feature = "eprint_log"))]
 #[macro_export]
 macro_rules! chrono_log {
     ($msg:expr) => {};
