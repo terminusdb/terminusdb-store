@@ -55,11 +55,11 @@ pub fn log(content: &str) {
 macro_rules! chrono_log {
     ($msg:expr) => {
         eprint!("{:?}: ", chrono::offset::Local::now());
-        eprintln!(#msg)
+        eprintln!($msg)
     };
     ($format:expr, $($arg:expr),+) => {
         eprint!("{:?}: ", chrono::offset::Local::now());
-        eprintln!($format, $(($arg),+))
+        eprintln!($format, ($($arg),+))
     }
 }
 
