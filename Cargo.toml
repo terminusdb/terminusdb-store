@@ -39,3 +39,4 @@ tempfile = "3.1"
 
 [features]
 noreadlock = []
+eprint_log = []

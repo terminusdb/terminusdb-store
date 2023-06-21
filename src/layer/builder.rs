@@ -5,9 +5,9 @@ use futures::TryStreamExt;
 use rayon::prelude::*;
 
 use super::layer::*;
-use crate::storage::*;
 use crate::structure::util::{self, heap_sorted_iter, stream_iter_ok};
 use crate::structure::*;
+use crate::{chrono_log, storage::*};
 
 pub struct DictionarySetFileBuilder<F: 'static + FileLoad + FileStore> {
     node_files: DictionaryFiles<F>,
@@ -373,16 +373,13 @@ pub async fn build_object_index_from_direct_files<
     o_ps_files: AdjacencyListFiles<F>,
     objects_file: Option<F>,
 ) -> io::Result<()> {
-    eprintln!(
-        "{:?}: starting object index build",
-        chrono::offset::Local::now()
-    );
+    chrono_log!("starting object index build");
     let build_sparse_index = objects_file.is_some();
     let (count, spo_width) = logarray_file_get_length_and_width(sp_o_nums_file.clone()).await?;
     let mut aj_stream = adjacency_list_stream_pairs(sp_o_bits_file, sp_o_nums_file).await?;
     let mut pairs = Vec::with_capacity(std::cmp::min(count, SINGLE_SORT_LIMIT) as usize);
     let mut greatest_sp = 0;
-    eprintln!("{:?}: opened sp_o stream", chrono::offset::Local::now());
+    chrono_log!("opened sp_o stream");
     let mut tally: u64 = 0;
     let mut temp_arrays: Vec<(LogArray, LogArray)> = Vec::new();
     // gather up pars
@@ -391,18 +388,14 @@ pub async fn build_object_index_from_direct_files<
         pairs.push((object, sp));
         tally += 1;
         if tally % 10000000 == 0 {
-            eprintln!(
-                "{:?}: collected {tally} pairs for o_ps index ({}%)",
-                chrono::offset::Local::now(),
+            chrono_log!(
+                "collected {tally} pairs for o_ps index ({}%)",
                 (tally * 100 / count)
             );
         }
 
         if tally % SINGLE_SORT_LIMIT == 0 {
-            eprintln!(
-                "{:?}: collect currently gathered elements into a file",
-                chrono::offset::Local::now(),
-            );
+            chrono_log!("collect currently gathered elements into a file");
             pairs.par_sort_unstable();
             let mut sp_file = BytesMut::with_capacity(0);
             let mut o_file = BytesMut::with_capacity(0);
@@ -425,12 +418,12 @@ pub async fn build_object_index_from_direct_files<
             pairs.clear();
         }
     }
-    eprintln!("{:?}: collected object pairs", chrono::offset::Local::now());
+    chrono_log!("collected object pairs");
 
     // par_sort_unstable unfortunately can run out of stack for very
     // large sorts. If so, we have to do something else.
     if pairs.len() as u64 > SINGLE_SORT_LIMIT {
-        eprintln!("{:?}: perform multi sort", chrono::offset::Local::now());
+        chrono_log!("perform multi sort");
         let mut tally: u64 = 0;
         while tally < pairs.len() as u64 {
             let end = std::cmp::min(count as usize, (tally + SINGLE_SORT_LIMIT) as usize);
@@ -438,15 +431,15 @@ pub async fn build_object_index_from_direct_files<
             slice.par_sort_unstable();
             tally += SINGLE_SORT_LIMIT;
         }
-        eprintln!("{:?}: perform final sort", chrono::offset::Local::now());
+        chrono_log!("perform final sort");
         // we use the normal sort as it is fast for cases where you
         // have a bunch of appended sorted slices.
         pairs.sort();
     } else {
-        eprintln!("{:?}: perform single sort", chrono::offset::Local::now());
+        chrono_log!("perform single sort");
         pairs.par_sort_unstable();
     }
-    eprintln!("{:?}: sorted object pairs", chrono::offset::Local::now());
+    chrono_log!("sorted object pairs");
 
     let aj_width = util::calculate_width(greatest_sp);
     let mut o_ps_adjacency_list_builder = AdjacencyListBuilder::new(
@@ -500,13 +493,10 @@ pub async fn build_object_index_from_direct_files<
             .push_all(stream_iter_ok::<_, io::Error, _>(merged_iters))
             .await?;
     }
-    eprintln!(
-        "{:?}: added object pairs to adjacency list builder",
-        chrono::offset::Local::now()
-    );
+    chrono_log!("added object pairs to adjacency list builder");
 
     o_ps_adjacency_list_builder.finalize().await?;
-    eprintln!("{:?}: finalized object index", chrono::offset::Local::now());
+    chrono_log!("finalized object index");
 
     Ok(())
 }
@@ -556,9 +546,9 @@ pub async fn build_indexes<FLoad: 'static + FileLoad, F: 'static + FileLoad + Fi
     ));
 
     object_index_task.await??;
-    eprintln!("{:?}: built object index", chrono::offset::Local::now());
+    chrono_log!("built object index");
     predicate_index_task.await??;
-    eprintln!("{:?}: built predicate index", chrono::offset::Local::now());
+    chrono_log!("built predicate index");
 
     Ok(())
 }

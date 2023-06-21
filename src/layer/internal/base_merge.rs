@@ -8,6 +8,7 @@ use tempfile::TempDir;
 use tokio::{fs::OpenOptions, io::AsyncWriteExt};
 
 use crate::{
+    chrono_log,
     layer::{builder::build_indexes, open_base_triple_stream, BaseLayerFileBuilderPhase2},
     storage::{
         directory::DirectoryLayerStore, AdjacencyListFiles, BaseLayerFiles, DictionaryFiles,
@@ -108,7 +109,7 @@ async fn test_write_file<F: FileLoad + FileStore + 'static, P: Into<PathBuf>>(
 
     tokio::io::copy(&mut input_file, &mut output_file).await?;
     output_file.flush().await?;
-    eprintln!("{:?}: wrote {to:?}", chrono::offset::Local::now());
+    chrono_log!("wrote {to:?}");
     Ok(())
 }
 
@@ -116,7 +117,7 @@ async fn test_write_dict<F: FileLoad + FileStore + 'static>(
     prefix: &str,
     files: &DictionaryFiles<F>,
 ) -> io::Result<()> {
-    eprintln!("writing {prefix} files");
+    chrono_log!("writing {prefix} files");
     let blocks_path = format!("{prefix}.blocks");
     let offsets_path = format!("{prefix}.offsets");
 
@@ -130,7 +131,7 @@ async fn test_write_typed_dict<F: FileLoad + FileStore + 'static>(
     prefix: &str,
     files: &TypedDictionaryFiles<F>,
 ) -> io::Result<()> {
-    eprintln!("writing {prefix} files");
+    chrono_log!("writing {prefix} files");
     let types_present_path = format!("{prefix}.types_present");
     let type_offsets_path = format!("{prefix}.type_offsets");
     let blocks_path = format!("{prefix}.blocks");
@@ -166,10 +167,7 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static, P: AsRef<Path>
     output: BaseLayerFiles<F>,
     temp_path: P,
 ) -> io::Result<()> {
-    eprintln!(
-        "{:?}: started merge of base layers",
-        chrono::offset::Local::now()
-    );
+    chrono_log!("started merge of base layers");
 
     // we are going to assume that this is a big expensive merge. all
     // files will be constructed on disk first and only after being
@@ -205,11 +203,11 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static, P: AsRef<Path>
     ));
 
     let (node_map, node_count) = node_map_task.await??;
-    eprintln!("{:?}: merged node dicts", chrono::offset::Local::now());
+    chrono_log!(" merged node dicts");
     let (predicate_map, predicate_count) = predicate_map_task.await??;
-    eprintln!("{:?}: merged predicate dicts", chrono::offset::Local::now());
+    chrono_log!(" merged predicate dicts");
     let (value_map, value_count) = value_map_task.await??;
-    eprintln!("{:?}: merged value dicts", chrono::offset::Local::now());
+    chrono_log!("merged value dicts");
     test_write_dict("/tmp/node_dict", &temp_output_files.node_dictionary_files).await?;
     test_write_dict(
         "/tmp/predicate_dict",
@@ -249,10 +247,7 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static, P: AsRef<Path>
         value_count,
     )
     .await?;
-    eprintln!(
-        "{:?}: constructed phase 2 builder",
-        chrono::offset::Local::now()
-    );
+    chrono_log!("constructed phase 2 builder");
 
     let mut last_triple = None;
     let mut tally: u64 = 0;
@@ -265,16 +260,13 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static, P: AsRef<Path>
         builder.add_triple(triple.0, triple.1, triple.2).await?;
         tally += 1;
         if tally % 1000000 == 0 {
-            eprintln!("{:?}: wrote {tally} triples", chrono::offset::Local::now());
+            chrono_log!("wrote {tally} triples");
         }
     }
-    eprintln!(
-        "{:?}: added all merged triples",
-        chrono::offset::Local::now()
-    );
+    chrono_log!("added all merged triples");
 
     let files = builder.partial_finalize().await?;
-    eprintln!("{:?}: finalized triple map", chrono::offset::Local::now());
+    chrono_log!("finalized triple map");
     test_write_adjacency_list_files("/tmp/triples_s_p", &files.s_p_adjacency_list_files).await?;
     test_write_adjacency_list_files("/tmp/triples_sp_o", &files.sp_o_adjacency_list_files).await?;
 
@@ -290,7 +282,7 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static, P: AsRef<Path>
         predicate_wavelet_tree_files,
     )
     .await?;
-    eprintln!("{:?}: built indexes", chrono::offset::Local::now());
+    chrono_log!(" built indexes");
 
     // now that everything has been constructed on disk, copy over to the actual layer store
     output.copy_from(&temp_output_files).await?;

@@ -121,19 +121,15 @@ impl DirectoryArchiveBackend {
 impl ArchiveBackend for DirectoryArchiveBackend {
     type Read = ArchiveSliceReader;
     async fn get_layer_bytes(&self, id: [u32; 5]) -> io::Result<Bytes> {
-        eprintln!("get layer bytes");
         let path = self.path_for_layer(id);
         let mut options = fs::OpenOptions::new();
         options.read(true);
         options.create(false);
         let mut result = options.open(path).await?;
         let size = result.metadata().await?.size();
-        eprintln!("allocating buffer for layer");
         let mut buf = Vec::with_capacity(size as usize);
-        eprintln!("reading {size} bytes");
         result.read_to_end(&mut buf).await?;
         buf.shrink_to_fit();
-        eprintln!("done reading");
 
         Ok(buf.into())
     }
@@ -439,9 +435,7 @@ impl<M: ArchiveMetadataBackend, D: ArchiveBackend> ArchiveBackend for LruArchive
             Some(CacheEntry::Resolving(barrier)) => {
                 // someone is already looking up this layer. we'll wait for them to be done.
                 std::mem::drop(cache);
-                eprintln!("resolving.. wait for lock");
                 let guard = barrier.read().await;
-                eprintln!("unlocked, get layer bytes");
                 match guard.as_ref().unwrap() {
                     Ok(bytes) => Ok(bytes.clone()),
                     Err(kind) => Err(io::Error::new(*kind, "layer resolve failed")),
@@ -452,7 +446,6 @@ impl<M: ArchiveMetadataBackend, D: ArchiveBackend> ArchiveBackend for LruArchive
                 let barrier = Arc::new(tokio::sync::RwLock::new(None));
                 let mut result = barrier.write().await;
                 cache.get_or_insert(id, || CacheEntry::Resolving(barrier.clone()));
-                eprintln!("inserted lock");
 
                 // drop the cache while doing the lookup
                 std::mem::drop(cache);

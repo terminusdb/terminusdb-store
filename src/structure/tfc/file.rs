@@ -50,10 +50,7 @@ pub async fn dedup_merge_string_dictionaries_stream<
     let mut tally = 0;
     let mut last_tally = 0;
     let mut last_item: Option<Bytes> = None;
-    eprintln!(
-        "{:?}: started main dict merge loop",
-        chrono::offset::Local::now()
-    );
+    chrono_log!("started main dict merge loop");
     while let Some((item, dict_index)) = sorted_stream.try_next().await.map_err(|e| e.into())? {
         if Some(&item) != last_item.as_ref() {
             result.push((dict_index.into(), true));
@@ -65,31 +62,22 @@ pub async fn dedup_merge_string_dictionaries_stream<
         }
         if tally % 100000 == 0 && tally != last_tally {
             last_tally = tally;
-            eprintln!(
-                "{:?}: wrote {tally} items to dict",
-                chrono::offset::Local::now()
-            );
+            chrono_log!("wrote {tally} items to dict");
         }
     }
-    eprintln!(
-        "{:?}: ended main dict merge loop",
-        chrono::offset::Local::now()
-    );
+    chrono_log!("ended main dict merge loop");
     let (offsets_buf, data_buf) = builder.finalize();
-    eprintln!(
-        "{:?}: finalized dict building",
-        chrono::offset::Local::now()
-    );
+    chrono_log!("finalized dict building");
 
     offsets_file_writer.write_all(offsets_buf.as_ref()).await?;
     offsets_file_writer.flush().await?;
     offsets_file_writer.sync_all().await?;
-    eprintln!("{:?}: wrote offsets", chrono::offset::Local::now());
+    chrono_log!("wrote offsets");
 
     blocks_file_writer.write_all(data_buf.as_ref()).await?;
     blocks_file_writer.flush().await?;
     blocks_file_writer.sync_all().await?;
-    eprintln!("{:?}: wrote blocks", chrono::offset::Local::now());
+    chrono_log!("wrote blocks");
 
     Ok((as_maps(dictionaries_len, &result), tally))
 }
@@ -256,10 +244,7 @@ pub async fn dedup_merge_typed_dictionary_streams<
     let mut tally = 0;
     let mut last_tally = 0;
     let mut last_item: Option<TypedDictEntry> = None;
-    eprintln!(
-        "{:?}: started main typed dict merge loop",
-        chrono::offset::Local::now()
-    );
+    chrono_log!("started main typed dict merge loop");
     while let Some((item, dict_index)) = sorted_stream.try_next().await.map_err(|e| e.into())? {
         if Some(&item) != last_item.as_ref() {
             result.push((dict_index.into(), true));
@@ -271,45 +256,36 @@ pub async fn dedup_merge_typed_dictionary_streams<
         }
         if tally % 100000 == 0 && tally != last_tally {
             last_tally = tally;
-            eprintln!(
-                "{:?}: wrote {tally} items to typed dict",
-                chrono::offset::Local::now()
-            );
+            chrono_log!("wrote {tally} items to typed dict");
         }
     }
-    eprintln!(
-        "{:?}: ended main typed dict merge loop",
-        chrono::offset::Local::now()
-    );
+    chrono_log!("ended main typed dict merge loop");
     let (types_present_buf, type_offsets_buf, offsets_buf, data_buf) = builder.finalize();
-    eprintln!(
-        "{:?}: finalized typed dict building",
-        chrono::offset::Local::now()
-    );
+    chrono_log!("finalized typed dict building");
 
     types_present_file_writer
         .write_all(types_present_buf.as_ref())
         .await?;
     types_present_file_writer.flush().await?;
     types_present_file_writer.sync_all().await?;
-    eprintln!("{:?}: wrote types present", chrono::offset::Local::now());
+    chrono_log!("wrote types present");
 
     type_offsets_file_writer
         .write_all(type_offsets_buf.as_ref())
         .await?;
     type_offsets_file_writer.flush().await?;
     type_offsets_file_writer.sync_all().await?;
-    eprintln!("{:?}: wrote type offsets", chrono::offset::Local::now());
+    chrono_log!("wrote type offsets");
 
     offsets_file_writer.write_all(offsets_buf.as_ref()).await?;
     offsets_file_writer.flush().await?;
     offsets_file_writer.sync_all().await?;
-    eprintln!("{:?}: wrote offsets", chrono::offset::Local::now());
+    chrono_log!("wrote offsets");
 
     blocks_file_writer.write_all(data_buf.as_ref()).await?;
     blocks_file_writer.flush().await?;
     blocks_file_writer.sync_all().await?;
-    eprintln!("{:?}: wrote blocks", chrono::offset::Local::now());
+    chrono_log!("wrote blocks");
 
     Ok((as_maps(dictionaries_len, &result), tally))
 }
