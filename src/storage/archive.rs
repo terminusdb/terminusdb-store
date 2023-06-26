@@ -8,12 +8,16 @@ use std::{
     collections::HashMap,
     io::{self, ErrorKind, SeekFrom},
     ops::Range,
-    os::unix::prelude::MetadataExt,
     path::PathBuf,
     pin::Pin,
     sync::{Arc, RwLock},
     task::Poll,
 };
+
+#[cfg(not(target_os = "windows"))]
+use std::os::unix::fs::MetadataExt;
+#[cfg(target_os = "windows")]
+use std::os::windows::fs::MetadataExt;
 
 use async_trait::async_trait;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
@@ -126,7 +130,11 @@ impl ArchiveBackend for DirectoryArchiveBackend {
         options.read(true);
         options.create(false);
         let mut result = options.open(path).await?;
-        let size = result.metadata().await?.size();
+        let metadata = result.metadata().await?;
+        #[cfg(target_os = "windows")]
+        let size = metadata.file_size();
+        #[cfg(not(target_os = "windows"))]
+        let size = metadata.size();
         let mut buf = Vec::with_capacity(size as usize);
         result.read_to_end(&mut buf).await?;
         buf.shrink_to_fit();

@@ -395,7 +395,7 @@ pub async fn build_object_index_from_direct_files<
         }
 
         if tally % SINGLE_SORT_LIMIT == 0 {
-            chrono_log!("collect currently gathered elements into a file");
+            chrono_log!("collect currently gathered elements into a logarray");
             pairs.par_sort_unstable();
             let mut sp_file = BytesMut::with_capacity(0);
             let mut o_file = BytesMut::with_capacity(0);
