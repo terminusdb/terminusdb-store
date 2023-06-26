@@ -1,8 +1,11 @@
 use futures::io::Result;
 use futures::stream::{Peekable, Stream, StreamExt};
 use futures::task::{Context, Poll};
-use std::cmp::Ordering;
-use std::marker::Unpin;
+use futures::TryStreamExt;
+use std::cmp::{Ordering, Reverse};
+use std::collections::BinaryHeap;
+use std::fmt;
+use std::marker::{PhantomData, Unpin};
 use std::pin::Pin;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
@@ -64,20 +67,141 @@ pub async fn write_u64<W: AsyncWrite + Unpin>(w: &mut W, num: u64) -> Result<()>
     Ok(())
 }
 
-struct SortedStream<
+pub struct HeapSortedIterator<'a, T: Ord, I: 'a + Iterator<Item = T> + Unpin + Send> {
+    iters: Vec<I>,
+    heap: BinaryHeap<(Reverse<T>, usize)>,
+    _x: PhantomData<&'a ()>,
+}
+
+pub fn heap_sorted_iter<'a, T: Ord, I: 'a + Iterator<Item = T> + Unpin + Send>(
+    mut iters: Vec<I>,
+) -> HeapSortedIterator<'a, T, I> {
+    let mut heap = BinaryHeap::with_capacity(iters.len());
+
+    for (ix, i) in iters.iter_mut().enumerate() {
+        if let Some(item) = i.next() {
+            heap.push((Reverse(item), ix));
+        }
+    }
+
+    HeapSortedIterator {
+        iters,
+        heap,
+        _x: Default::default(),
+    }
+}
+
+impl<'a, T: Ord + Unpin, I: 'a + Iterator<Item = T> + Unpin + Send> Iterator
+    for HeapSortedIterator<'a, T, I>
+{
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(ix) = self.heap.peek().map(|(_, ix)| *ix) {
+            // we're about to pop an element from the heap. we'll need to read the next item in its corresponding stream to add to the heap afterwards.
+            let iter = &mut self.iters[ix];
+            match iter.next() {
+                Some(next_item) => {
+                    let item = self.heap.pop().unwrap();
+                    self.heap.push((Reverse(next_item), ix));
+
+                    Some(item.0 .0)
+                }
+                None => {
+                    let item = self.heap.pop().unwrap();
+                    Some(item.0 .0)
+                }
+            }
+        } else {
+            None
+        }
+    }
+}
+
+pub struct HeapSortedStream<
+    'a,
+    T: Ord,
+    E,
+    S: 'a + Stream<Item = std::result::Result<T, E>> + Unpin + Send,
+> {
+    streams: Vec<S>,
+    heap: BinaryHeap<(Reverse<T>, usize)>,
+    _x: PhantomData<&'a ()>,
+}
+
+pub async fn heap_sorted_stream<
+    'a,
+    T: Ord,
+    E,
+    S: 'a + Stream<Item = std::result::Result<T, E>> + Unpin + Send,
+>(
+    mut streams: Vec<S>,
+) -> std::result::Result<HeapSortedStream<'a, T, E, S>, E> {
+    let mut heap = BinaryHeap::with_capacity(streams.len());
+
+    for (ix, s) in streams.iter_mut().enumerate() {
+        if let Some(item) = s.try_next().await? {
+            heap.push((Reverse(item), ix));
+        }
+    }
+
+    Ok(HeapSortedStream {
+        streams,
+        heap,
+        _x: Default::default(),
+    })
+}
+
+impl<'a, T: Ord + Unpin, E, S: 'a + Stream<Item = std::result::Result<T, E>> + Unpin + Send> Stream
+    for HeapSortedStream<'a, T, E, S>
+{
+    type Item = std::result::Result<T, E>;
+
+    fn poll_next(
+        self: Pin<&mut Self>,
+        cx: &mut Context,
+    ) -> Poll<Option<std::result::Result<T, E>>> {
+        let self_ = self.get_mut();
+        if let Some(ix) = self_.heap.peek().map(|(_, ix)| *ix) {
+            // we're about to pop an element from the heap. we'll need to read the next item in its corresponding stream to add to the heap afterwards.
+            let stream = &mut self_.streams[ix];
+            match Pin::new(stream).poll_next(cx) {
+                Poll::Ready(Some(Ok(next_item))) => {
+                    let item = self_.heap.pop().unwrap();
+                    self_.heap.push((Reverse(next_item), ix));
+
+                    Poll::Ready(Some(Ok(item.0 .0)))
+                }
+                Poll::Ready(None) => {
+                    let item = self_.heap.pop().unwrap();
+                    Poll::Ready(Some(Ok(item.0 .0)))
+                }
+                Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
+                Poll::Pending => Poll::Pending,
+            }
+        } else {
+            Poll::Ready(None)
+        }
+    }
+}
+
+pub struct SortedStream<
+    'a,
     T,
-    S: 'static + Stream<Item = T> + Unpin + Send,
-    F: 'static + Fn(&[Option<&T>]) -> Option<usize>,
+    S: 'a + Stream<Item = T> + Unpin + Send,
+    F: 'a + Fn(&[Option<&T>]) -> Option<usize>,
 > {
     streams: Vec<Peekable<S>>,
     pick_fn: F,
+    _x: PhantomData<&'a ()>,
 }
 
 impl<
+        'a,
         T,
-        S: 'static + Stream<Item = T> + Unpin + Send,
-        F: 'static + Fn(&[Option<&T>]) -> Option<usize> + Unpin,
-    > Stream for SortedStream<T, S, F>
+        S: 'a + Stream<Item = T> + Unpin + Send,
+        F: 'a + Fn(&[Option<&T>]) -> Option<usize> + Unpin,
+    > Stream for SortedStream<'a, T, S, F>
 {
     type Item = T;
 
@@ -107,17 +231,36 @@ impl<
 }
 
 pub fn sorted_stream<
-    T,
-    S: 'static + Stream<Item = T> + Unpin + Send,
-    F: 'static + Fn(&[Option<&T>]) -> Option<usize> + Unpin,
+    'a,
+    T: 'a,
+    S: 'a + Stream<Item = T> + Unpin + Send,
+    F: 'a + Fn(&[Option<&T>]) -> Option<usize> + Unpin,
 >(
     streams: Vec<S>,
     pick_fn: F,
-) -> impl Stream<Item = T> {
+) -> SortedStream<'a, T, S, F> {
     let peekable_streams = streams.into_iter().map(|s| s.peekable()).collect();
     SortedStream {
         streams: peekable_streams,
         pick_fn,
+        _x: Default::default(),
+    }
+}
+
+pub fn compare_or_result<T: Ord, E: fmt::Debug>(
+    r1: &std::result::Result<T, E>,
+    r2: &std::result::Result<T, E>,
+) -> Ordering {
+    if r1.is_err() {
+        if r2.is_err() {
+            Ordering::Equal
+        } else {
+            Ordering::Less
+        }
+    } else if r2.is_err() {
+        Ordering::Greater
+    } else {
+        r1.as_ref().unwrap().cmp(r2.as_ref().unwrap())
     }
 }
 

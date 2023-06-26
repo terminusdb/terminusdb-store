@@ -9,7 +9,7 @@ use futures::Future;
 use tokio::runtime::Runtime;
 
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::layer::{IdTriple, Layer, LayerCounts, ObjectType, ValueTriple};
 use crate::store::{
@@ -17,7 +17,7 @@ use crate::store::{
 };
 use crate::structure::TypedDictEntry;
 
-use super::open_archive_store;
+use super::{open_archive_store, open_raw_archive_store};
 
 lazy_static! {
     static ref RUNTIME: Runtime = Runtime::new().unwrap();
@@ -568,6 +568,15 @@ impl SyncStore {
         inner.map(SyncStoreLayerBuilder::wrap)
     }
 
+    pub fn merge_base_layers(
+        &self,
+        layers: &[[u32; 5]],
+        temp_dir: &Path,
+    ) -> Result<[u32; 5], io::Error> {
+        let inner = task_sync(self.inner.merge_base_layers(layers, temp_dir))?;
+        Ok(inner)
+    }
+
     /// Export the given layers by creating a pack, a Vec<u8> that can later be used with `import_layers` on a different store.
     pub fn export_layers(
         &self,
@@ -609,6 +618,13 @@ pub fn open_sync_directory_store<P: Into<PathBuf>>(path: P) -> SyncStore {
 /// subsequent loads.
 pub fn open_sync_archive_store<P: Into<PathBuf>>(path: P, cache_size: usize) -> SyncStore {
     SyncStore::wrap(open_archive_store(path, cache_size))
+}
+
+/// Open a store that stores its data in the given directory as archive files.
+///
+/// This version doesn't use lru caching.
+pub fn open_sync_raw_archive_store<P: Into<PathBuf>>(path: P) -> SyncStore {
+    SyncStore::wrap(open_raw_archive_store(path))
 }
 
 #[cfg(test)]

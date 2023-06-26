@@ -258,7 +258,7 @@ impl SizedDict {
     }
 }
 
-type OwnedSizedDictBlockIterator = SizedDictBlockIterator<'static>;
+pub type OwnedSizedDictBlockIterator = SizedDictBlockIterator<'static>;
 
 #[derive(Clone)]
 pub struct SizedDictBlockIterator<'a> {

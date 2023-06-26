@@ -22,7 +22,7 @@ lazy_static = "1.4"
 fs2 = "0.4.3"
 tar = "0.4"
 flate2 = "1.0"
-rayon = "1.4"
+rayon = "1.7"
 thiserror = "1.0"
 async-trait = "0.1"
 itertools = "0.10"
@@ -35,9 +35,8 @@ hex = "0.4"
 regex = "1.5"
 lru = "0.10"
 bitvec = "1.0"
-
-[dev-dependencies]
 tempfile = "3.1"
 
 [features]
 noreadlock = []
+eprint_log = []

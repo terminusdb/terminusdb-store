@@ -3,13 +3,11 @@
 //! It is expected that most users of this library will work exclusively with the types contained in this module.
 pub mod sync;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use crate::layer::{IdTriple, Layer, LayerBuilder, LayerCounts, ObjectType, ValueTriple};
-use crate::storage::archive::{
-    ArchiveLayerStore, DirectoryArchiveBackend, LruArchiveBackend, LruMetadataArchiveBackend,
-};
+use crate::storage::archive::{ArchiveLayerStore, DirectoryArchiveBackend, LruArchiveBackend};
 use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore};
 use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
 use crate::storage::{CachedLayerStore, LabelStore, LayerStore, LockingHashMapLayerCache};
@@ -873,6 +871,14 @@ impl Store {
         StoreLayerBuilder::new(self.clone()).await
     }
 
+    pub async fn merge_base_layers(
+        &self,
+        layers: &[[u32; 5]],
+        temp_dir: &Path,
+    ) -> io::Result<[u32; 5]> {
+        self.layer_store.merge_base_layer(layers, temp_dir).await
+    }
+
     /// Export the given layers by creating a pack, a Vec<u8> that can later be used with `import_layers` on a different store.
     pub async fn export_layers(
         &self,
@@ -913,13 +919,30 @@ pub fn open_memory_store() -> Store {
 pub fn open_archive_store<P: Into<PathBuf>>(path: P, cache_size: usize) -> Store {
     let p = path.into();
     let directory_archive_backend = DirectoryArchiveBackend::new(p.clone());
-    let archive_backend = LruArchiveBackend::new(directory_archive_backend.clone(), cache_size);
-    let archive_metadata_backend =
-        LruMetadataArchiveBackend::new(directory_archive_backend, archive_backend.clone());
+    let archive_backend = LruArchiveBackend::new(
+        directory_archive_backend.clone(),
+        directory_archive_backend,
+        cache_size,
+    );
     Store::new(
         DirectoryLabelStore::new(p),
         CachedLayerStore::new(
-            ArchiveLayerStore::new(archive_metadata_backend, archive_backend),
+            ArchiveLayerStore::new(archive_backend.clone(), archive_backend),
+            LockingHashMapLayerCache::new(),
+        ),
+    )
+}
+
+/// Open a store that stores its data in the given directory as archive files.
+///
+/// This version doesn't use lru caching.
+pub fn open_raw_archive_store<P: Into<PathBuf>>(path: P) -> Store {
+    let p = path.into();
+    let archive_backend = DirectoryArchiveBackend::new(p.clone());
+    Store::new(
+        DirectoryLabelStore::new(p),
+        CachedLayerStore::new(
+            ArchiveLayerStore::new(archive_backend.clone(), archive_backend),
             LockingHashMapLayerCache::new(),
         ),
     )

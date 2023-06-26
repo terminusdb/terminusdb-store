@@ -1,5 +1,9 @@
 //! A succinct data structure for quick lookup of entry positions in a sequence.
 
+use bitvec::vec::BitVec;
+use futures::Stream;
+use futures::TryStreamExt;
+
 use super::bitarray::*;
 use super::bitindex::*;
 use super::logarray::*;
@@ -208,7 +212,7 @@ struct FragmentBuilder {
     fragment_start: u64,
     fragment_half: u64,
     fragment_end: u64,
-    bits: Vec<bool>,
+    bits: BitVec,
 }
 
 impl FragmentBuilder {
@@ -219,7 +223,7 @@ impl FragmentBuilder {
             fragment_start,
             fragment_half,
             fragment_end,
-            bits: Vec::new(),
+            bits: BitVec::new(),
         }
     }
 
@@ -235,7 +239,7 @@ impl FragmentBuilder {
 
 impl IntoIterator for FragmentBuilder {
     type Item = bool;
-    type IntoIter = std::vec::IntoIter<bool>;
+    type IntoIter = bitvec::boxed::IntoIter<usize>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.bits.into_iter()
@@ -266,6 +270,39 @@ fn push_to_fragments(num: u64, width: u8, fragments: &mut Vec<FragmentBuilder>) 
         let index = num_it + 2_usize.pow((width - i - 1) as u32) - 1;
         fragments[index].push(num);
     }
+}
+
+/// Build a wavelet tree from a stream
+pub async fn build_wavelet_tree_from_stream<
+    S: Stream<Item = io::Result<u64>> + Unpin,
+    F: 'static + FileLoad + FileStore,
+>(
+    width: u8,
+    mut source: S,
+    destination_bits: F,
+    destination_blocks: F,
+    destination_sblocks: F,
+) -> io::Result<()> {
+    let mut bits = BitArrayFileBuilder::new(destination_bits.open_write().await?);
+    let mut fragments = create_fragments(width);
+
+    while let Some(num) = source.try_next().await? {
+        push_to_fragments(num, width, &mut fragments);
+    }
+
+    let iter = fragments.into_iter().flat_map(|f| f.into_iter());
+
+    bits.push_all(util::stream_iter_ok(iter)).await?;
+    bits.finalize().await?;
+
+    build_bitindex(
+        destination_bits.open_read().await?,
+        destination_blocks.open_write().await?,
+        destination_sblocks.open_write().await?,
+    )
+    .await?;
+
+    Ok(())
 }
 
 /// Build a wavelet tree from an iterator
@@ -311,12 +348,12 @@ pub async fn build_wavelet_tree_from_logarray<
     destination_blocks: F,
     destination_sblocks: F,
 ) -> io::Result<()> {
-    let bytes = source.map().await?;
-    let logarray = LogArray::parse(bytes)?;
+    let (_, width) = logarray_file_get_length_and_width(source.clone()).await?;
+    let stream = logarray_stream_entries(source).await?;
 
-    build_wavelet_tree_from_iter(
-        logarray.width(),
-        logarray.iter(),
+    build_wavelet_tree_from_stream(
+        width,
+        stream,
         destination_bits,
         destination_blocks,
         destination_sblocks,
