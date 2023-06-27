@@ -1,10 +1,11 @@
 use bytes::Buf;
-use chrono::NaiveDateTime;
+use chrono::{Datelike, NaiveDate, NaiveDateTime, Timelike};
 use rug::Integer;
 
 use super::{
     decimal::{decode_fraction, integer_and_fraction_to_storage},
     integer::storage_to_bigint_and_sign,
+    BigDateTime, DateTime,
 };
 
 pub fn datetime_to_parts(datetime: &NaiveDateTime) -> (bool, Integer, u32) {
@@ -20,43 +21,128 @@ pub fn datetime_to_parts(datetime: &NaiveDateTime) -> (bool, Integer, u32) {
     (is_neg, seconds, nanos)
 }
 
-pub fn datetime_to_storage(datetime: &NaiveDateTime) -> Vec<u8> {
-    let (is_neg, seconds, nanos) = datetime_to_parts(datetime);
-    let fraction = if nanos == 0 {
-        None
-    } else if nanos % 1_000_000 == 0 {
-        Some(format!("{:03}", nanos / 1_000_000))
-    } else if nanos % 1_000 == 0 {
-        Some(format!("{:06}", nanos / 1_000))
-    } else {
-        Some(format!("{nanos:09}"))
-    };
+pub fn datetime_to_storage(datetime: &DateTime) -> Vec<u8> {
+    match datetime {
+        DateTime::Naive(datetime) => {
+            let (is_neg, seconds, nanos) = datetime_to_parts(datetime);
+            let fraction = if nanos == 0 {
+                None
+            } else if nanos % 1_000_000 == 0 {
+                Some(format!("{:03}", nanos / 1_000_000))
+            } else if nanos % 1_000 == 0 {
+                Some(format!("{:06}", nanos / 1_000))
+            } else {
+                Some(format!("{nanos:09}"))
+            };
 
-    integer_and_fraction_to_storage(is_neg, seconds, fraction.as_ref().map(|b| b.as_ref()))
+            integer_and_fraction_to_storage(is_neg, seconds, fraction.as_ref().map(|b| b.as_ref()))
+        }
+        DateTime::Big(datetime) => {
+            let is_leap = leapyear(&datetime.year);
+            let leap = if is_leap { 1 } else { 0 };
+            let year_seconds = datetime.year.clone() * 3600 * 24 * (365 + leap);
+            let false_year = if is_leap { 4 } else { 1 };
+            let dt = NaiveDate::from_ymd_opt(false_year, datetime.month, datetime.day)
+                .unwrap()
+                .and_hms_nano_opt(
+                    datetime.hour,
+                    datetime.minute,
+                    datetime.second,
+                    datetime.nano,
+                )
+                .unwrap();
+            let (is_neg, seconds, nanos) = datetime_to_parts(&dt);
+
+            let fraction = if nanos == 0 {
+                None
+            } else if nanos % 1_000_000 == 0 {
+                Some(format!("{:03}", nanos / 1_000_000))
+            } else if nanos % 1_000 == 0 {
+                Some(format!("{:06}", nanos / 1_000))
+            } else {
+                Some(format!("{nanos:09}"))
+            };
+
+            integer_and_fraction_to_storage(
+                is_neg,
+                year_seconds + seconds,
+                fraction.as_ref().map(|b| b.as_ref()),
+            )
+        }
+    }
 }
 
-pub fn storage_to_datetime<B: Buf>(bytes: &mut B) -> NaiveDateTime {
+fn leapyear(year: &Integer) -> bool {
+    (year.clone() % 4 == 0 || year.clone() % 100 != 0) || year.clone() % 400 == 0
+}
+
+pub fn storage_to_datetime<B: Buf>(bytes: &mut B) -> DateTime {
     let (int, is_pos) = storage_to_bigint_and_sign(bytes);
     let fraction = decode_fraction(bytes, is_pos);
-    let seconds = int
+
+    let seconds: DateTime = int
         .to_i64()
-        .expect("This is a surprisingly large number of seconds!");
-    if fraction.is_empty() {
-        if is_pos {
-            NaiveDateTime::from_timestamp_opt(seconds, 0).unwrap()
-        } else {
-            NaiveDateTime::from_timestamp_opt(-seconds, 0).unwrap()
-        }
-    } else {
-        let zeros = "0".repeat(9 - fraction.len());
-        let fraction = format!("{fraction}{zeros}");
-        let nanos = fraction
-            .parse::<u32>()
-            .expect("Nano seconds should actually fit in u32");
-        if is_pos {
-            NaiveDateTime::from_timestamp_opt(seconds, nanos).unwrap()
-        } else {
-            NaiveDateTime::from_timestamp_opt(seconds - 1, 1_000_000_000 - nanos).unwrap()
+        .and_then(|seconds| {
+            if fraction.is_empty() {
+                if is_pos {
+                    NaiveDateTime::from_timestamp_opt(seconds, 0).map(DateTime::Naive)
+                } else {
+                    NaiveDateTime::from_timestamp_opt(-seconds, 0).map(DateTime::Naive)
+                }
+            } else {
+                let zeros = "0".repeat(9 - fraction.len());
+                let fraction = format!("{fraction}{zeros}");
+                let nanos = fraction
+                    .parse::<u32>()
+                    .expect("Nano seconds should actually fit in u32");
+                if is_pos {
+                    NaiveDateTime::from_timestamp_opt(seconds, nanos).map(DateTime::Naive)
+                } else {
+                    NaiveDateTime::from_timestamp_opt(seconds - 1, 1_000_000_000 - nanos)
+                        .map(DateTime::Naive)
+                }
+            }
+        })
+        .unwrap_or_else(move || {
+            let minimal_seconds: i64 = (int.clone() % (3600 * 24 * 365 as i64)).to_i64().unwrap();
+            let sign = if is_pos { 1 } else { -1 };
+            let year = (sign * int) - minimal_seconds;
+            let zeros = "0".repeat(9 - fraction.len());
+            let fraction = format!("{fraction}{zeros}");
+            let nanos = fraction
+                .parse::<u32>()
+                .expect("Nano seconds should actually fit in u32");
+            let dt: NaiveDateTime = if is_pos {
+                NaiveDateTime::from_timestamp_opt(minimal_seconds, nanos)
+            } else {
+                NaiveDateTime::from_timestamp_opt(minimal_seconds - 1, 1_000_000_000 - nanos)
+            }
+            .unwrap();
+            DateTime::Big(BigDateTime {
+                year,
+                month: dt.month(),
+                day: dt.day(),
+                hour: dt.hour(),
+                minute: dt.minute(),
+                second: dt.second(),
+                nano: dt.nanosecond(),
+            })
+        });
+    seconds
+}
+
+pub fn format_datetime(dt: &DateTime) -> String {
+    match dt {
+        DateTime::Naive(dt) => dt.format("%Y-%m-%dT%H:%M:%S%.fZ").to_string(),
+        DateTime::Big(dt) => {
+            let is_leap = leapyear(&dt.year);
+            let false_year = if is_leap { 4 } else { 1 };
+            let ndt = NaiveDate::from_ymd_opt(false_year, dt.month, dt.day)
+                .unwrap()
+                .and_hms_nano_opt(dt.hour, dt.minute, dt.second, dt.nano)
+                .unwrap();
+            let yearless = ndt.format("%m-%dT%H:%M:%S%.fZ").to_string();
+            format!("{}-{yearless}", dt.year)
         }
     }
 }

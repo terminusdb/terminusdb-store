@@ -1,5 +1,5 @@
 use super::{
-    datetime::{datetime_to_storage, storage_to_datetime},
+    datetime::{datetime_to_storage, format_datetime, storage_to_datetime},
     decimal::{decimal_to_storage, storage_to_decimal, Decimal},
     integer::{bigint_to_storage, storage_to_bigint},
     TypedDictEntry,
@@ -449,32 +449,47 @@ impl ToLexical<bool> for bool {
     }
 }
 
-impl TdbDataType for NaiveDateTime {
+pub struct BigDateTime {
+    pub year: Integer,
+    pub month: u32,
+    pub day: u32,
+    pub hour: u32,
+    pub minute: u32,
+    pub second: u32,
+    pub nano: u32,
+}
+
+pub enum DateTime {
+    Naive(NaiveDateTime),
+    Big(BigDateTime),
+}
+
+impl TdbDataType for DateTime {
     fn datatype() -> Datatype {
         Datatype::DateTime
     }
 }
 
-impl ToLexical<NaiveDateTime> for NaiveDateTime {
+impl ToLexical<DateTime> for DateTime {
     fn to_lexical(&self) -> Bytes {
         Bytes::from(datetime_to_storage(self))
     }
 }
 
-impl FromLexical<NaiveDateTime> for NaiveDateTime {
+impl FromLexical<DateTime> for DateTime {
     fn from_lexical<B: Buf>(mut b: B) -> Self {
         storage_to_datetime(&mut b)
     }
 }
 
-impl FromLexical<NaiveDateTime> for String {
+impl FromLexical<DateTime> for String {
     fn from_lexical<B: Buf>(mut b: B) -> Self {
         let ndt = storage_to_datetime(&mut b);
-        ndt.format("%Y-%m-%dT%H:%M:%S%.fZ").to_string()
+        format_datetime(&ndt)
     }
 }
 
-pub struct DateTimeStamp(pub NaiveDateTime);
+pub struct DateTimeStamp(pub DateTime);
 
 impl TdbDataType for DateTimeStamp {
     fn datatype() -> Datatype {
@@ -497,7 +512,7 @@ impl FromLexical<DateTimeStamp> for DateTimeStamp {
 impl FromLexical<DateTimeStamp> for String {
     fn from_lexical<B: Buf>(mut b: B) -> Self {
         let ndt = storage_to_datetime(&mut b);
-        ndt.format("%Y-%m-%dT%H:%M:%S%.fZ").to_string()
+        format_datetime(&ndt)
     }
 }
 
