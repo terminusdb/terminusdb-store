@@ -111,7 +111,6 @@ pub fn decode_fraction<B: Buf>(fraction_buf: &mut B, is_pos: bool) -> String {
 }
 
 pub fn decimal_to_storage(decimal: &str) -> Vec<u8> {
-    eprintln!("processing decimal {decimal}");
     lazy_static! {
         static ref STD: Regex = Regex::new(r"^-?\d+(\.\d*)?$").unwrap();
         static ref SCIENTIFIC: Regex = Regex::new(
@@ -120,7 +119,6 @@ pub fn decimal_to_storage(decimal: &str) -> Vec<u8> {
         .unwrap();
     }
     if STD.is_match(decimal) {
-        eprintln!("Standard mode");
         let mut parts = decimal.split('.');
         let bigint = parts.next().unwrap_or(decimal);
         let fraction = parts.next();
@@ -183,7 +181,6 @@ pub fn integer_and_fraction_to_storage(
     integer: Integer,
     fraction: Option<&str>,
 ) -> Vec<u8> {
-    eprintln!("is_neg: {is_neg}, integer: {integer}, fraction: {fraction:?}");
     let prefix = bigint_to_storage(integer.clone());
     let mut prefix = if integer == 0 && is_neg {
         vec![NEGATIVE_ZERO] // negative zero
