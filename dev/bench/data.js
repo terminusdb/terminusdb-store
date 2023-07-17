@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1689605129300,
+  "lastUpdate": 1689620650335,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -17591,6 +17591,126 @@ window.BENCHMARK_DATA = {
             "name": "logarray_w5_empty",
             "value": 427,
             "range": "± 166",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "gavin@terminusdb.com",
+            "name": "Gavin Mendel-Gleason",
+            "username": "GavinMendelGleason"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9813a7ae6e9bed1549b5308ee27e3acd804dab3f",
+          "message": "Add scientific notation to terminus store (#136)\n\n* Add scientific notation to terminus store\r\n\r\n* Remove extraneous eprintln!s\r\n\r\n* Fix big float to accept +",
+          "timestamp": "2023-07-17T20:56:44+02:00",
+          "tree_id": "f4924667782db6a9d1503d64f348f2b9df4622db",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/9813a7ae6e9bed1549b5308ee27e3acd804dab3f"
+        },
+        "date": 1689620648424,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 974,
+            "range": "± 193",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 9943553,
+            "range": "± 759030",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 905951,
+            "range": "± 411680",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 1350188,
+            "range": "± 458206",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 10227132,
+            "range": "± 801015",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 6651604,
+            "range": "± 617301",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w10_1000",
+            "value": 9655,
+            "range": "± 125",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1",
+            "value": 404,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10",
+            "value": 464,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_100",
+            "value": 1388,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1000",
+            "value": 9341,
+            "range": "± 183",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000",
+            "value": 90476,
+            "range": "± 1713",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_as_stream",
+            "value": 99478,
+            "range": "± 2136",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent",
+            "value": 805371,
+            "range": "± 237161",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent_as_stream",
+            "value": 875117,
+            "range": "± 273027",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_empty",
+            "value": 357,
+            "range": "± 2",
             "unit": "ns/iter"
           }
         ]
