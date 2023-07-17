@@ -23,7 +23,7 @@ impl Decimal {
 
 pub fn validate_decimal(s: &str) -> Result<(), DecimalValidationError> {
     lazy_static! {
-        static ref RE: Regex = Regex::new(r"-?\d+(\.\d+)?").unwrap();
+        static ref RE: Regex = Regex::new(r"^-?\d+(\.\d+)?([eE@](-|\+)?\d+)?$").unwrap();
     }
     if RE.is_match(s) {
         Ok(())
@@ -111,24 +111,69 @@ pub fn decode_fraction<B: Buf>(fraction_buf: &mut B, is_pos: bool) -> String {
 }
 
 pub fn decimal_to_storage(decimal: &str) -> Vec<u8> {
-    let mut parts = decimal.split('.');
-    let bigint = parts.next().unwrap_or(decimal);
-    let fraction = parts.next();
-    let integer_part = bigint.parse::<Integer>().unwrap();
-    let is_neg = decimal.starts_with('-');
-    integer_and_fraction_to_storage(is_neg, integer_part, fraction)
+    lazy_static! {
+        static ref STD: Regex = Regex::new(r"^-?\d+(\.\d*)?$").unwrap();
+        static ref SCIENTIFIC: Regex = Regex::new(
+            r"^(?P<sign>-)?(?P<integer>\d+)(\.(?P<fraction>\d+))?([eE@](?P<exp>(-|\+)?\d+))?$"
+        )
+        .unwrap();
+    }
+    if STD.is_match(decimal) {
+        let mut parts = decimal.split('.');
+        let bigint = parts.next().unwrap_or(decimal);
+        let fraction = parts.next();
+        let integer_part = bigint.parse::<Integer>().unwrap();
+        let is_neg = decimal.starts_with('-');
+        integer_and_fraction_to_storage(is_neg, integer_part, fraction)
+    } else {
+        let captures = SCIENTIFIC.captures(decimal).unwrap(); // prevalidated
+        let is_neg = captures.name("sign").is_some();
+        let exp: i32 = if let Some(exp_string) = captures.name("exp") {
+            exp_string.as_str().parse::<i32>().unwrap()
+        } else {
+            0_i32
+        };
+        let integer_str = captures.name("integer").map(|m| m.as_str()).unwrap();
+        let fraction_str = captures.name("fraction").map_or_else(|| "", |m| m.as_str());
+        let left_pad = if -exp > integer_str.len() as i32 {
+            "0.".to_string()
+                + &"0".repeat((-exp - integer_str.len() as i32).unsigned_abs() as usize)
+        } else {
+            "".to_string()
+        };
+        let right_pad = if exp > fraction_str.len() as i32 {
+            "0".repeat((exp - fraction_str.len() as i32) as usize)
+        } else {
+            "".to_string()
+        };
+        let left_len = left_pad.len() as i32 + integer_str.len() as i32;
+        let combined = left_pad + integer_str + fraction_str + &right_pad;
+        let shift = (left_len + exp) as usize;
+        let integer_str = &combined[0..shift];
+        let sign = if is_neg { -1 } else { 1 };
+        let integer_part = sign
+            * integer_str
+                .parse::<Integer>()
+                .unwrap_or_else(|_| Integer::from(0));
+        let fraction = &combined[shift..];
+        let fraction = if fraction.is_empty() {
+            None
+        } else {
+            Some(fraction)
+        };
+        integer_and_fraction_to_storage(is_neg, integer_part, fraction)
+    }
 }
 
 pub fn storage_to_decimal<B: Buf>(bytes: &mut B) -> String {
     let (int, is_pos) = storage_to_bigint_and_sign(bytes);
     let fraction = decode_fraction(bytes, is_pos);
-    let decimal = if fraction.is_empty() {
+    if fraction.is_empty() {
         format!("{int:}")
     } else {
         let sign = if int == 0 && !is_pos { "-" } else { "" };
         format!("{sign:}{int:}.{fraction:}")
-    };
-    decimal
+    }
 }
 
 pub fn integer_and_fraction_to_storage(
@@ -144,8 +189,8 @@ pub fn integer_and_fraction_to_storage(
     };
     let suffix = if is_neg {
         let mut suffix = encode_fraction(fraction);
-        for i in 0..suffix.len() {
-            suffix[i] = !suffix[i]
+        for elt in &mut suffix {
+            *elt = !(*elt)
         }
         suffix
     } else {

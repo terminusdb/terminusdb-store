@@ -1079,6 +1079,86 @@ mod tests {
     }
 
     #[test]
+    fn test_scientific_floats() {
+        let entries: Vec<TypedDictEntry> = vec![
+            Decimal::make_entry(&Decimal("342343.234e3".to_string())),
+            Decimal::make_entry(&Decimal("-342343.234e3".to_string())),
+            Decimal::make_entry(&Decimal("-342343.234e20".to_string())),
+            Decimal::make_entry(&Decimal("-342343.234e-12".to_string())),
+            Decimal::make_entry(&Decimal("1.6021766208e-19".to_string())),
+            Decimal::make_entry(&Decimal("1.6021766208e+30".to_string())),
+        ];
+        let mut vec = entries.clone();
+        let entry_two = Decimal::make_entry(&Decimal("-342343234".to_string()));
+        let sci_entry_two = Decimal::make_entry(&Decimal("-342343.234e3".to_string()));
+        assert_eq!(entry_two, sci_entry_two);
+        let entry_four = Decimal::make_entry(&Decimal("-0.000000342343234".to_string()));
+        assert!(entry_two < entry_four);
+        assert!(entries[3] < entries[4]);
+        assert!(entries[2] < entries[3]);
+        assert!(entries[2] < entries[4]);
+        vec.sort();
+
+        let used_types_buf = BytesMut::new();
+        let type_offsets_buf = BytesMut::new();
+        let block_offsets_buf = BytesMut::new();
+        let data_buf = BytesMut::new();
+
+        let mut typed_builder = TypedDictBufBuilder::new(
+            used_types_buf,
+            type_offsets_buf,
+            block_offsets_buf,
+            data_buf,
+        );
+
+        let _results: Vec<u64> = vec
+            .clone()
+            .into_iter()
+            .map(|entry| typed_builder.add(entry))
+            .collect();
+
+        let (used_types, type_offsets, block_offsets, data) = typed_builder.finalize();
+
+        let dict = TypedDict::from_parts(
+            used_types.freeze(),
+            type_offsets.freeze(),
+            block_offsets.freeze(),
+            data.freeze(),
+        );
+
+        for (i, item) in vec.iter().enumerate() {
+            assert_eq!(*item, dict.entry(i + 1).unwrap())
+        }
+
+        assert_eq!(
+            dict.entry(1).unwrap().as_val::<Decimal, String>(),
+            "-34234323400000000000000000".to_string()
+        );
+        assert_eq!(
+            dict.entry(2).unwrap().as_val::<Decimal, String>(),
+            "-342343234".to_string()
+        );
+        assert_eq!(
+            dict.entry(3).unwrap().as_val::<Decimal, String>(),
+            "-0.000000342343234".to_string()
+        );
+        assert_eq!(-0.000000342343234, -342343.234e-12);
+        assert_eq!(
+            dict.entry(4).unwrap().as_val::<Decimal, String>(),
+            "0.00000000000000000016021766208".to_string()
+        );
+        assert_eq!(0.00000000000000000016021766208, 1.6021766208e-19);
+        assert_eq!(
+            dict.entry(5).unwrap().as_val::<Decimal, String>(),
+            "342343234".to_string()
+        );
+        assert_eq!(
+            dict.entry(6).unwrap().as_val::<Decimal, String>(),
+            "1602176620800000000000000000000".to_string()
+        );
+    }
+
+    #[test]
     fn test_two_blocks() {
         let mut vec: Vec<TypedDictEntry> = vec![
             String::make_entry(&"fdsa"),
