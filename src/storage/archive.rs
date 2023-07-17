@@ -182,13 +182,15 @@ impl ArchiveBackend for DirectoryArchiveBackend {
         file.flush().await?;
         file.sync_all().await?;
 
-        // ensure the underlying directory record is properly synchronized
-        let mut options = tokio::fs::OpenOptions::new();
-        options.create(false);
-        options.read(true);
-        options.write(false);
-        let dir_fd = options.open(directory_path).await?;
-        dir_fd.sync_all().await?;
+        if cfg!(unix) {
+            // ensure the underlying directory record is properly synchronized
+            let mut options = tokio::fs::OpenOptions::new();
+            options.create(false);
+            options.read(true);
+            options.write(false);
+            let dir_fd = options.open(directory_path).await?;
+            dir_fd.sync_all().await?;
+        }
 
         Ok(())
     }
