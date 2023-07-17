@@ -167,7 +167,7 @@ impl ArchiveBackend for DirectoryArchiveBackend {
         let path = self.path_for_layer(id);
         let mut directory_path = path.clone();
         directory_path.pop();
-        fs::create_dir_all(directory_path).await?;
+        fs::create_dir_all(&directory_path).await?;
 
         let mut options = tokio::fs::OpenOptions::new();
         options.create(true);
@@ -180,7 +180,17 @@ impl ArchiveBackend for DirectoryArchiveBackend {
         }
 
         file.flush().await?;
-        file.sync_data().await?;
+        file.sync_all().await?;
+
+        if cfg!(unix) {
+            // ensure the underlying directory record is properly synchronized
+            let mut options = tokio::fs::OpenOptions::new();
+            options.create(false);
+            options.read(true);
+            options.write(false);
+            let dir_fd = options.open(directory_path).await?;
+            dir_fd.sync_all().await?;
+        }
 
         Ok(())
     }

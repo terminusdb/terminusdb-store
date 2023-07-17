@@ -179,6 +179,24 @@ impl PersistentLayerStore for DirectoryLayerStore {
             Err(_) => Ok(false),
         }
     }
+    async fn finalize(&self, directory: [u32; 5]) -> io::Result<()> {
+        if cfg!(unix) {
+            // ensure the underlying directory record is properly synchronized
+            let mut directory_path = self.path.clone();
+            let dir_name = name_to_string(directory);
+            directory_path.push(&dir_name[0..PREFIX_DIR_SIZE]);
+            directory_path.push(dir_name);
+
+            let mut options = tokio::fs::OpenOptions::new();
+            options.create(false);
+            options.read(true);
+            options.write(false);
+            let dir_fd = options.open(directory_path).await?;
+            dir_fd.sync_all().await?;
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
