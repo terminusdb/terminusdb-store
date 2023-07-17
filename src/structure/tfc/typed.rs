@@ -1086,6 +1086,7 @@ mod tests {
             Decimal::make_entry(&Decimal("-342343.234e20".to_string())),
             Decimal::make_entry(&Decimal("-342343.234e-12".to_string())),
             Decimal::make_entry(&Decimal("1.6021766208e-19".to_string())),
+            Decimal::make_entry(&Decimal("1.6021766208e+30".to_string())),
         ];
         let mut vec = entries.clone();
         let entry_two = Decimal::make_entry(&Decimal("-342343234".to_string()));
@@ -1150,6 +1151,10 @@ mod tests {
         assert_eq!(
             dict.entry(5).unwrap().as_val::<Decimal, String>(),
             "342343234".to_string()
+        );
+        assert_eq!(
+            dict.entry(6).unwrap().as_val::<Decimal, String>(),
+            "1602176620800000000000000000000".to_string()
         );
     }
 
