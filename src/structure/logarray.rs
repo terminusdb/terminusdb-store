@@ -71,13 +71,13 @@ pub struct LogArray {
     ///
     /// For an original log array, this is initialized to 0. For a slice, this is the index to the
     /// first element of the slice.
-    first: u32,
+    first: u64,
 
     /// Number of accessible elements
     ///
     /// For an original log array, this is initialized to the value read from the control word. For
     /// a slice, it is the length of the slice.
-    len: u32,
+    len: u64,
 
     /// Bit width of each element
     width: u8,
@@ -99,7 +99,7 @@ impl std::fmt::Debug for LogArray {
 pub enum LogArrayError {
     InputBufferTooSmall(usize),
     WidthTooLarge(u8),
-    UnexpectedInputBufferSize(u64, u64, u32, u8),
+    UnexpectedInputBufferSize(u64, u64, u64, u8),
 }
 
 impl LogArrayError {
@@ -119,14 +119,14 @@ impl LogArrayError {
     ///
     /// The input buffer size should be the appropriate multiple of 8 to include the exact number
     /// of encoded elements plus the control word.
-    fn validate_len_and_width(input_buf_size: usize, len: u32, width: u8) -> Result<(), Self> {
+    fn validate_len_and_width(input_buf_size: usize, len: u64, width: u8) -> Result<(), Self> {
         if width > 64 {
             return Err(LogArrayError::WidthTooLarge(width));
         }
 
         // Calculate the expected input buffer size. This includes the control word.
         // To avoid overflow, convert `len: u32` to `u64` and do the addition in `u64`.
-        let expected_buf_size = u64::from(len) * u64::from(width) + 127 >> 6 << 3;
+        let expected_buf_size = len * u64::from(width) + 127 >> 6 << 3;
         let input_buf_size = u64::try_from(input_buf_size).unwrap();
 
         if input_buf_size != expected_buf_size {
@@ -150,7 +150,7 @@ impl LogArrayError {
     /// plus the control word. It is allowed to be larger.
     fn validate_len_and_width_trailing(
         input_buf_size: usize,
-        len: u32,
+        len: u64,
         width: u8,
     ) -> Result<(), Self> {
         if width > 64 {
@@ -159,7 +159,7 @@ impl LogArrayError {
 
         // Calculate the expected input buffer size. This includes the control word.
         // To avoid overflow, convert `len: u32` to `u64` and do the addition in `u64`.
-        let expected_buf_size = u64::from(len) * u64::from(width) + 127 >> 6 << 3;
+        let expected_buf_size = len * u64::from(width) + 127 >> 6 << 3;
         let input_buf_size = u64::try_from(input_buf_size).unwrap();
 
         if input_buf_size < expected_buf_size {
@@ -221,11 +221,21 @@ impl Iterator for LogArrayIterator {
     }
 }
 
+const MAX_LOGARRAY_LEN: u64 = (1 << 56) - 1;
+
+pub fn parse_control_word(buf: &[u8]) -> (u64, u8) {
+    let len_1 = BigEndian::read_u32(buf) as u64;
+    let width = buf[4];
+    let len_2 = (BigEndian::read_u32(&buf[4..]) & 0xFFFFFF) as u64; // ignore width byte
+    let len: u64 = (len_2 << 32) + len_1;
+
+    (len, width)
+}
+
 /// Read the length and bit width from the control word buffer. `buf` must start at the first word
 /// after the data buffer. `input_buf_size` is used for validation.
-fn read_control_word(buf: &[u8], input_buf_size: usize) -> Result<(u32, u8), LogArrayError> {
-    let len = BigEndian::read_u32(buf);
-    let width = buf[4];
+fn read_control_word(buf: &[u8], input_buf_size: usize) -> Result<(u64, u8), LogArrayError> {
+    let (len, width) = parse_control_word(buf);
     LogArrayError::validate_len_and_width(input_buf_size, len, width)?;
     Ok((len, width))
 }
@@ -235,14 +245,13 @@ fn read_control_word(buf: &[u8], input_buf_size: usize) -> Result<(u32, u8), Log
 fn read_control_word_trailing(
     buf: &[u8],
     input_buf_size: usize,
-) -> Result<(u32, u8), LogArrayError> {
-    let len = BigEndian::read_u32(buf);
-    let width = buf[4];
+) -> Result<(u64, u8), LogArrayError> {
+    let (len, width) = parse_control_word(buf);
     LogArrayError::validate_len_and_width_trailing(input_buf_size, len, width)?;
     Ok((len, width))
 }
 
-fn logarray_length_from_len_width(len: u32, width: u8) -> usize {
+fn logarray_length_from_len_width(len: u64, width: u8) -> usize {
     let num_bits = width as usize * len as usize;
     let num_u64 = num_bits / 64 + (if num_bits % 64 == 0 { 0 } else { 1 });
     let num_bytes = num_u64 * 8;
@@ -251,8 +260,7 @@ fn logarray_length_from_len_width(len: u32, width: u8) -> usize {
 }
 
 pub fn logarray_length_from_control_word(buf: &[u8]) -> usize {
-    let len = BigEndian::read_u32(buf);
-    let width = buf[4];
+    let (len, width) = parse_control_word(buf);
 
     logarray_length_from_len_width(len, width)
 }
@@ -374,10 +382,8 @@ impl LogArray {
     ///
     /// Panics if `index` + `length` is >= the length of the log array.
     pub fn slice(&self, offset: usize, len: usize) -> LogArray {
-        let offset = u32::try_from(offset)
-            .unwrap_or_else(|_| panic!("expected 32-bit slice offset ({})", offset));
-        let len =
-            u32::try_from(len).unwrap_or_else(|_| panic!("expected 32-bit slice length ({})", len));
+        let offset = offset as u64;
+        let len = len as u64;
         let slice_end = offset.checked_add(len).unwrap_or_else(|| {
             panic!("overflow from slice offset ({}) + length ({})", offset, len)
         });
@@ -408,7 +414,13 @@ pub struct LogArrayBufBuilder<'a, B: BufMut> {
     /// Bit offset in `current` for the msb of the next encoded element
     offset: u8,
     /// Number of elements written to the buffer
-    count: u32,
+    count: u64,
+}
+
+impl<'a> LogArrayBufBuilder<'a, BytesMut> {
+    pub fn reserve(&mut self, additional: usize) {
+        self.buf.reserve(additional * self.width as usize / 8);
+    }
 }
 
 impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
@@ -425,7 +437,7 @@ impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
         }
     }
 
-    pub fn count(&self) -> u32 {
+    pub fn count(&self) -> u64 {
         self.count
     }
 
@@ -499,9 +511,18 @@ impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
     }
 }
 
-pub(crate) fn control_word(len: u32, width: u8) -> [u8; 8] {
+pub(crate) fn control_word(len: u64, width: u8) -> [u8; 8] {
+    if len > MAX_LOGARRAY_LEN {
+        panic!(
+            "length is too large for control word of a logarray: {} (limit is {}",
+            len, MAX_LOGARRAY_LEN
+        );
+    }
     let mut buf = [0; 8];
-    BigEndian::write_u32(&mut buf, len);
+    let len_1 = (len & 0xFFFFFFFF) as u32;
+    let len_2 = ((len >> 32) & 0xFFFFFF) as u32;
+    BigEndian::write_u32(&mut buf, len_1);
+    BigEndian::write_u32(&mut buf[4..], len_2);
     buf[4] = width;
 
     buf
@@ -524,8 +545,8 @@ impl<B: BufMut> LateLogArrayBufBuilder<B> {
         }
     }
 
-    pub fn count(&self) -> u32 {
-        self.vals.len() as u32
+    pub fn count(&self) -> u64 {
+        self.vals.len() as u64
     }
 
     pub fn push(&mut self, val: u64) {
@@ -578,7 +599,7 @@ pub struct LogArrayFileBuilder<W: SyncableFile> {
     /// Bit offset in `current` for the msb of the next encoded element
     offset: u8,
     /// Number of elements written to the buffer
-    count: u32,
+    count: u64,
 }
 
 impl<W: SyncableFile> LogArrayFileBuilder<W> {
@@ -595,7 +616,7 @@ impl<W: SyncableFile> LogArrayFileBuilder<W> {
         }
     }
 
-    pub fn count(&self) -> u32 {
+    pub fn count(&self) -> u64 {
         self.count
     }
 
@@ -662,7 +683,7 @@ impl<W: SyncableFile> LogArrayFileBuilder<W> {
     }
 
     async fn finalize_data(&mut self) -> io::Result<()> {
-        if u64::from(self.count) * u64::from(self.width) & 0b11_1111 != 0 {
+        if self.count * u64::from(self.width) & 0b11_1111 != 0 {
             util::write_u64(&mut self.file, self.current).await?;
         }
 
@@ -677,9 +698,7 @@ impl<W: SyncableFile> LogArrayFileBuilder<W> {
         self.finalize_data().await?;
 
         // Write the control word.
-        let mut buf = [0; 8];
-        BigEndian::write_u32(&mut buf, len);
-        buf[4] = width;
+        let buf = control_word(len, width);
         self.file.write_all(&buf).await?;
 
         self.file.flush().await?;
@@ -697,7 +716,7 @@ struct LogArrayDecoder {
     /// Bit offset from the msb of `current` to the msb of the encoded element
     offset: u8,
     /// Number of elements remaining to decode
-    remaining: u32,
+    remaining: u64,
 }
 
 impl fmt::Debug for LogArrayDecoder {
@@ -719,7 +738,7 @@ impl LogArrayDecoder {
     ///
     /// This function does not validate the parameters. Validation of `width` and `remaining` must
     /// be done before calling this function.
-    fn new_unchecked(width: u8, remaining: u32) -> Self {
+    fn new_unchecked(width: u8, remaining: u64) -> Self {
         LogArrayDecoder {
             // The initial value of `current` is ignored by `decode()` because `offset` is 64.
             current: 0,
@@ -815,7 +834,7 @@ impl Decoder for LogArrayDecoder {
     }
 }
 
-pub async fn logarray_file_get_length_and_width<F: FileLoad>(f: F) -> io::Result<(u32, u8)> {
+pub async fn logarray_file_get_length_and_width<F: FileLoad>(f: F) -> io::Result<(u64, u8)> {
     LogArrayError::validate_input_buf_size(f.size().await?)?;
 
     let mut buf = [0; 8];
@@ -1017,7 +1036,7 @@ mod tests {
             Ok(()),
             val(
                 usize::try_from(u64::from(u32::max_value()) + 1 << 3).unwrap(),
-                u32::max_value(),
+                u32::max_value() as u64,
                 64
             )
         );
@@ -1121,23 +1140,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "expected 32-bit slice offset (4294967296)")]
+    #[should_panic(expected = "expected slice offset (4294967296)")]
     #[cfg(target_pointer_width = "64")]
     fn slice_panic2() {
         let _ = test0_logarray().slice(usize::try_from(u32::max_value()).unwrap() + 1, 2);
-    }
-
-    #[test]
-    #[should_panic(expected = "expected 32-bit slice length (4294967296)")]
-    #[cfg(target_pointer_width = "64")]
-    fn slice_panic3() {
-        let _ = test0_logarray().slice(0, usize::try_from(u32::max_value()).unwrap() + 1);
-    }
-
-    #[test]
-    #[should_panic(expected = "overflow from slice offset (4294967295) + length (1)")]
-    fn slice_panic4() {
-        let _ = test0_logarray().slice(usize::try_from(u32::max_value()).unwrap(), 1);
     }
 
     #[test]
@@ -1357,5 +1363,17 @@ mod tests {
         assert_eq!(original, logarray.iter().collect::<Vec<_>>());
         assert_eq!(16, logarray.len());
         assert_eq!(4, logarray.width());
+    }
+
+    #[test]
+    fn large_control_word() {
+        let num: u64 = 0xFF_FFFF_FFFF_FFFF;
+        let width: u8 = 32;
+
+        let control_word = control_word(num, width);
+        assert_eq!([255, 255, 255, 255, 32, 255, 255, 255], control_word);
+        let (out_num, out_width) = parse_control_word(&control_word);
+        assert_eq!(num, out_num);
+        assert_eq!(width, out_width);
     }
 }

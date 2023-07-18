@@ -9,8 +9,8 @@ use super::super::builder::*;
 use super::super::id_map::*;
 use super::super::layer::*;
 use crate::layer::InternalLayer;
-use crate::storage::*;
 use crate::structure::*;
+use crate::{chrono_log, storage::*};
 
 use std::io;
 use std::pin::Pin;
@@ -328,7 +328,7 @@ pub struct BaseLayerFileBuilderPhase2<F: 'static + FileLoad + FileStore> {
 }
 
 impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
-    async fn new(
+    pub async fn new(
         files: BaseLayerFiles<F>,
 
         num_nodes: usize,
@@ -373,14 +373,20 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
         self.builder.add_id_triples(triples).await
     }
 
-    pub async fn finalize(self) -> io::Result<()> {
-        let s_p_adjacency_list_files = self.files.s_p_adjacency_list_files;
-        let sp_o_adjacency_list_files = self.files.sp_o_adjacency_list_files;
-        let o_ps_adjacency_list_files = self.files.o_ps_adjacency_list_files;
-        let predicate_wavelet_tree_files = self.files.predicate_wavelet_tree_files;
-
+    pub(crate) async fn partial_finalize(self) -> io::Result<BaseLayerFiles<F>> {
         self.builder.finalize().await?;
+        chrono_log!("finalized base triples builder");
 
+        Ok(self.files)
+    }
+
+    pub async fn finalize(self) -> io::Result<()> {
+        self.builder.finalize().await?;
+        chrono_log!("finalized base triples builder");
+        let s_p_adjacency_list_files = self.files.s_p_adjacency_list_files.clone();
+        let sp_o_adjacency_list_files = self.files.sp_o_adjacency_list_files.clone();
+        let o_ps_adjacency_list_files = self.files.o_ps_adjacency_list_files.clone();
+        let predicate_wavelet_tree_files = self.files.predicate_wavelet_tree_files.clone();
         build_indexes(
             s_p_adjacency_list_files,
             sp_o_adjacency_list_files,
@@ -388,7 +394,11 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
             None,
             predicate_wavelet_tree_files,
         )
-        .await
+        .await?;
+
+        chrono_log!("finalized base builder");
+
+        Ok(())
     }
 }
 
@@ -400,7 +410,7 @@ pub struct BaseTripleStream<S: Stream<Item = io::Result<(u64, u64)>> + Send> {
 }
 
 impl<S: Stream<Item = io::Result<(u64, u64)>> + Unpin + Send> BaseTripleStream<S> {
-    fn new(s_p_stream: S, sp_o_stream: S) -> BaseTripleStream<S> {
+    pub fn new(s_p_stream: S, sp_o_stream: S) -> BaseTripleStream<S> {
         BaseTripleStream {
             s_p_stream: s_p_stream.peekable(),
             sp_o_stream: sp_o_stream.peekable(),

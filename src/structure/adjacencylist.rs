@@ -224,49 +224,21 @@ pub async fn adjacency_list_stream_pairs<F: 'static + FileLoad>(
     )
 }
 
-pub struct AdjacencyListBuilder<F, W1, W2, W3>
-where
-    F: 'static + FileLoad + FileStore,
-    W1: 'static + SyncableFile,
-    W2: 'static + SyncableFile,
-    W3: 'static + SyncableFile,
-{
-    bitfile: F,
-    bitarray: BitArrayFileBuilder<F::Write>,
-    bitindex_blocks: W1,
-    bitindex_sblocks: W2,
-    nums: LogArrayFileBuilder<W3>,
+pub struct UnindexedAdjacencyListBuilder<W1: SyncableFile, W2: SyncableFile> {
+    bitarray: BitArrayFileBuilder<W1>,
+    nums: LogArrayFileBuilder<W2>,
     last_left: u64,
     last_right: u64,
 }
 
-impl<F, W1, W2, W3> AdjacencyListBuilder<F, W1, W2, W3>
-where
-    F: 'static + FileLoad + FileStore,
-    W1: 'static + SyncableFile,
-    W2: 'static + SyncableFile,
-    W3: 'static + SyncableFile,
-{
-    pub async fn new(
-        bitfile: F,
-        bitindex_blocks: W1,
-        bitindex_sblocks: W2,
-        nums_writer: W3,
-        width: u8,
-    ) -> io::Result<AdjacencyListBuilder<F, W1, W2, W3>> {
-        let bitarray = BitArrayFileBuilder::new(bitfile.open_write().await?);
-
-        let nums = LogArrayFileBuilder::new(nums_writer, width);
-
-        Ok(AdjacencyListBuilder {
-            bitfile,
-            bitarray,
-            bitindex_blocks,
-            bitindex_sblocks,
-            nums,
+impl<W1: SyncableFile, W2: SyncableFile> UnindexedAdjacencyListBuilder<W1, W2> {
+    pub fn new(bits_file: W1, nums_file: W2, width: u8) -> Self {
+        Self {
+            bitarray: BitArrayFileBuilder::new(bits_file),
+            nums: LogArrayFileBuilder::new(nums_file, width),
             last_left: 0,
             last_right: 0,
-        })
+        }
     }
 
     pub async fn push(&mut self, left: u64, right: u64) -> io::Result<()> {
@@ -318,24 +290,81 @@ where
         Ok(())
     }
 
+    pub async fn finalize(mut self) -> io::Result<()> {
+        if self.nums.count() != 0 {
+            // push last bit to bitarray
+            self.bitarray.push(true).await?;
+        }
+
+        self.bitarray.finalize().await?;
+        self.nums.finalize().await?;
+
+        Ok(())
+    }
+
+    pub fn count(&self) -> u64 {
+        self.bitarray.count()
+    }
+}
+
+pub struct AdjacencyListBuilder<F, W1, W2, W3>
+where
+    F: 'static + FileLoad + FileStore,
+    W1: 'static + SyncableFile,
+    W2: 'static + SyncableFile,
+    W3: 'static + SyncableFile,
+{
+    bitfile: F,
+    builder: UnindexedAdjacencyListBuilder<F::Write, W3>,
+    bitindex_blocks: W1,
+    bitindex_sblocks: W2,
+}
+
+impl<F, W1, W2, W3> AdjacencyListBuilder<F, W1, W2, W3>
+where
+    F: 'static + FileLoad + FileStore,
+    W1: 'static + SyncableFile,
+    W2: 'static + SyncableFile,
+    W3: 'static + SyncableFile,
+{
+    pub async fn new(
+        bitfile: F,
+        bitindex_blocks: W1,
+        bitindex_sblocks: W2,
+        nums_writer: W3,
+        width: u8,
+    ) -> io::Result<AdjacencyListBuilder<F, W1, W2, W3>> {
+        Ok(AdjacencyListBuilder {
+            builder: UnindexedAdjacencyListBuilder::new(
+                bitfile.open_write().await?,
+                nums_writer,
+                width,
+            ),
+            bitfile,
+            bitindex_blocks,
+            bitindex_sblocks,
+        })
+    }
+
+    pub async fn push(&mut self, left: u64, right: u64) -> io::Result<()> {
+        self.builder.push(left, right).await
+    }
+
+    pub async fn push_all<S: Stream<Item = io::Result<(u64, u64)>> + Unpin>(
+        &mut self,
+        stream: S,
+    ) -> io::Result<()> {
+        self.builder.push_all(stream).await
+    }
+
     pub async fn finalize(self) -> io::Result<()> {
         let AdjacencyListBuilder {
             bitfile,
-            mut bitarray,
+            builder,
             bitindex_blocks,
             bitindex_sblocks,
-            nums,
-            last_left: _,
-            last_right: _,
         } = self;
-
-        if nums.count() != 0 {
-            // push last bit to bitarray
-            bitarray.push(true).await?;
-        }
-
-        bitarray.finalize().await?;
-        nums.finalize().await?;
+        builder.finalize().await?;
 
         build_bitindex(
             bitfile.open_read().await?,
@@ -348,7 +377,7 @@ where
     }
 
     pub fn count(&self) -> u64 {
-        self.bitarray.count()
+        self.builder.count()
     }
 }
 

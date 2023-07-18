@@ -15,7 +15,8 @@
 //! [Protocol Buffers]: https://developers.google.com/protocol-buffers/docs/encoding
 
 use futures::io;
-use tokio::io::{AsyncWrite, AsyncWriteExt};
+use thiserror::Error;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use bytes::Buf;
 
@@ -30,15 +31,37 @@ pub fn encoding_len(num: u64) -> usize {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Error)]
 /// An error returned by `decode`.
 pub enum DecodeError {
     /// `decode` cannot fit the encoded value into a `u64`.
+    #[error("cannot fit the encoded value into a u64")]
     EncodedValueTooLarge,
     /// `decode` did not find the last encoded byte before reaching the end of the buffer.
+    #[error("could not find the last encoded byte before reaching the end of the buffer")]
     UnexpectedEndOfBuffer,
     /// `decode` did not find the last encoded byte before reaching the maximum encoding length.
+    #[error("could not find the last encoded byte before reaching the maximum encoding length")]
     UnexpectedEncodingLen,
+}
+
+#[derive(Debug, Error)]
+pub enum DecodeReaderError {
+    #[error(transparent)]
+    Io(io::Error),
+    #[error(transparent)]
+    DecodeError(#[from] DecodeError),
+}
+
+impl From<io::Error> for DecodeReaderError {
+    fn from(value: io::Error) -> Self {
+        match value.kind() {
+            io::ErrorKind::UnexpectedEof => {
+                DecodeReaderError::DecodeError(DecodeError::UnexpectedEndOfBuffer)
+            }
+            _ => DecodeReaderError::Io(value),
+        }
+    }
 }
 
 /// Returns `true` if the most significant bit (msb) of the byte is set. This indicates the byte is
@@ -121,6 +144,49 @@ pub fn decode_buf<B: Buf>(buf: &mut B) -> Result<(u64, usize), DecodeError> {
             // We have reached the maximum encoding length without encountering the last encoded
             // byte.
             return Err(DecodeError::UnexpectedEncodingLen);
+        }
+    }
+}
+
+/// Decodes a `u64` from a variable-byte-encoded slice.
+///
+/// On success, this function returns `Ok` with the decoded value and encoding length. Otherwise,
+/// the slice data is invalid, and the function returns `Err` with the corresponding `DecodeError`
+/// giving the reason.
+///
+/// This function expects the encoded value to start at the beginning of the slice; and the slice
+/// must be large enough to include all of the encoded bytes of one value. Decoding stops at the
+/// end of the encoded value, so it doesn't matter if the slice is longer.
+pub async fn decode_reader<R: AsyncRead + Unpin>(
+    mut reader: R,
+) -> Result<(u64, usize), DecodeReaderError> {
+    // This will be the decoded result.
+    let mut num: u64 = 0;
+    // This is how many bits we shift `num` by on each iteration in increments of 7.
+    let mut shift: u32 = 0;
+    // Loop through each 8-bit byte value with its index.
+    let mut count = 0;
+    loop {
+        let b = reader.read_u8().await?;
+        count += 1;
+
+        if is_last_encoded_byte(b) {
+            return if max_byte_too_large(shift, b) {
+                Err(DecodeError::EncodedValueTooLarge.into())
+            } else {
+                // Return the result (clearing the msb) and the encoding length.
+                Ok((num | ((clear_msb(b) as u64) << shift), count))
+            };
+        }
+        // This is not the last byte. Update the result.
+        num |= (b as u64) << shift;
+        // Increment the shift amount for the next 7 bits.
+        shift += 7;
+        // Stop if we are about to exceed the maximum encoding length.
+        if shift > 64 {
+            // We have reached the maximum encoding length without encountering the last encoded
+            // byte.
+            return Err(DecodeError::UnexpectedEncodingLen.into());
         }
     }
 }

@@ -14,6 +14,11 @@ use std::{
     task::Poll,
 };
 
+#[cfg(not(target_os = "windows"))]
+use std::os::unix::fs::MetadataExt;
+#[cfg(target_os = "windows")]
+use std::os::windows::fs::MetadataExt;
+
 use async_trait::async_trait;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use lru::LruCache;
@@ -21,6 +26,7 @@ use tokio::{
     fs::{self, File},
     io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWrite, AsyncWriteExt},
 };
+use tokio_util::either::Either;
 
 use crate::structure::{
     logarray_length_from_control_word, smallbitarray::SmallBitArray, LateLogArrayBufBuilder,
@@ -124,7 +130,12 @@ impl ArchiveBackend for DirectoryArchiveBackend {
         options.read(true);
         options.create(false);
         let mut result = options.open(path).await?;
-        let mut buf = Vec::new();
+        let metadata = result.metadata().await?;
+        #[cfg(target_os = "windows")]
+        let size = metadata.file_size();
+        #[cfg(not(target_os = "windows"))]
+        let size = metadata.size();
+        let mut buf = Vec::with_capacity(size as usize);
         result.read_to_end(&mut buf).await?;
         buf.shrink_to_fit();
 
@@ -140,15 +151,23 @@ impl ArchiveBackend for DirectoryArchiveBackend {
         let mut options = tokio::fs::OpenOptions::new();
         options.read(true);
         let mut file = options.open(path).await?;
-        let archive = Archive::parse_from_reader(&mut file).await?;
-        Ok(archive.slice_for(file_type))
+        let header = ArchiveHeader::parse_from_reader(&mut file).await?;
+        if let Some(range) = header.range_for(file_type) {
+            let mut data = vec![0; range.len()];
+            file.seek(SeekFrom::Current((range.start) as i64)).await?;
+            file.read_exact(&mut data).await?;
+
+            Ok(Some(Bytes::from(data)))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn store_layer_file(&self, id: [u32; 5], mut bytes: Bytes) -> io::Result<()> {
         let path = self.path_for_layer(id);
         let mut directory_path = path.clone();
         directory_path.pop();
-        fs::create_dir_all(directory_path).await?;
+        fs::create_dir_all(&directory_path).await?;
 
         let mut options = tokio::fs::OpenOptions::new();
         options.create(true);
@@ -161,7 +180,17 @@ impl ArchiveBackend for DirectoryArchiveBackend {
         }
 
         file.flush().await?;
-        file.sync_data().await?;
+        file.sync_all().await?;
+
+        if cfg!(unix) {
+            // ensure the underlying directory record is properly synchronized
+            let mut options = tokio::fs::OpenOptions::new();
+            options.create(false);
+            options.read(true);
+            options.write(false);
+            let dir_fd = options.open(directory_path).await?;
+            dir_fd.sync_all().await?;
+        }
 
         Ok(())
     }
@@ -303,11 +332,12 @@ impl ArchiveMetadataBackend for DirectoryArchiveBackend {
 }
 
 #[derive(Clone)]
-pub struct LruArchiveBackend<T> {
+pub struct LruArchiveBackend<M, D> {
     cache: Arc<tokio::sync::Mutex<LruCache<[u32; 5], CacheEntry>>>,
     limit: usize,
     current: usize,
-    origin: T,
+    metadata_origin: M,
+    data_origin: D,
 }
 
 #[derive(Clone)]
@@ -326,20 +356,28 @@ impl CacheEntry {
     }
 }
 
-impl<T> LruArchiveBackend<T> {
-    pub fn new(origin: T, limit: usize) -> Self {
+impl<M, D> LruArchiveBackend<M, D> {
+    pub fn new(metadata_origin: M, data_origin: D, limit: usize) -> Self {
         let cache = Arc::new(tokio::sync::Mutex::new(LruCache::unbounded()));
 
         Self {
             cache,
             limit,
             current: 0,
-            origin,
+            metadata_origin,
+            data_origin,
         }
     }
 
     fn limit_bytes(&self) -> usize {
         self.limit * 1024 * 1024
+    }
+}
+
+impl<M: ArchiveMetadataBackend, D: ArchiveBackend> LruArchiveBackend<M, D> {
+    async fn layer_fits_in_cache(&self, id: [u32; 5]) -> io::Result<bool> {
+        let limit = self.limit_bytes();
+        Ok(limit != 0 && self.layer_size(id).await? as usize <= limit)
     }
 }
 
@@ -404,8 +442,8 @@ fn drop_from_cache(cache: &mut LruCache<[u32; 5], CacheEntry>, id: [u32; 5]) {
 }
 
 #[async_trait]
-impl<T: ArchiveBackend> ArchiveBackend for LruArchiveBackend<T> {
-    type Read = BytesAsyncReader;
+impl<M: ArchiveMetadataBackend, D: ArchiveBackend> ArchiveBackend for LruArchiveBackend<M, D> {
+    type Read = Either<BytesAsyncReader, D::Read>;
     async fn get_layer_bytes(&self, id: [u32; 5]) -> io::Result<Bytes> {
         let mut cache = self.cache.lock().await;
         let cached = cache.get(&id).cloned();
@@ -429,7 +467,7 @@ impl<T: ArchiveBackend> ArchiveBackend for LruArchiveBackend<T> {
 
                 // drop the cache while doing the lookup
                 std::mem::drop(cache);
-                let lookup = self.origin.get_layer_bytes(id).await;
+                let lookup = self.data_origin.get_layer_bytes(id).await;
 
                 *result = Some(lookup.as_ref().map_err(|e| e.kind()).cloned());
 
@@ -467,12 +505,18 @@ impl<T: ArchiveBackend> ArchiveBackend for LruArchiveBackend<T> {
         id: [u32; 5],
         file_type: LayerFileEnum,
     ) -> io::Result<Option<Bytes>> {
-        let bytes = self.get_layer_bytes(id).await?;
-        let archive = Archive::parse(bytes);
-        Ok(archive.slice_for(file_type))
+        if self.layer_fits_in_cache(id).await? {
+            let bytes = self.get_layer_bytes(id).await?;
+            let archive = Archive::parse(bytes);
+            Ok(archive.slice_for(file_type))
+        } else {
+            self.data_origin
+                .get_layer_structure_bytes(id, file_type)
+                .await
+        }
     }
     async fn store_layer_file(&self, id: [u32; 5], bytes: Bytes) -> io::Result<()> {
-        self.origin.store_layer_file(id, bytes.clone()).await?;
+        self.data_origin.store_layer_file(id, bytes.clone()).await?;
 
         let mut cache = self.cache.lock().await;
         cache.get_or_insert(id, move || CacheEntry::Resolved(bytes));
@@ -485,58 +529,53 @@ impl<T: ArchiveBackend> ArchiveBackend for LruArchiveBackend<T> {
         file_type: LayerFileEnum,
         read_from: usize,
     ) -> io::Result<Self::Read> {
-        let mut bytes = self
-            .get_layer_structure_bytes(id, file_type)
-            .await?
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "slice not found in archive"))?;
-        bytes.advance(read_from);
+        if self.layer_fits_in_cache(id).await? {
+            let mut bytes = self
+                .get_layer_structure_bytes(id, file_type)
+                .await?
+                .ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::NotFound, "slice not found in archive")
+                })?;
+            bytes.advance(read_from);
 
-        Ok(BytesAsyncReader(bytes))
-    }
-}
-
-#[derive(Clone)]
-pub struct LruMetadataArchiveBackend<M, D> {
-    metadata_backend: M,
-    data_backend: LruArchiveBackend<D>,
-}
-
-impl<M, D> LruMetadataArchiveBackend<M, D> {
-    pub fn new(metadata_backend: M, data_backend: LruArchiveBackend<D>) -> Self {
-        Self {
-            metadata_backend,
-            data_backend,
+            Ok(Either::Left(BytesAsyncReader(bytes)))
+        } else {
+            Ok(Either::Right(
+                self.data_origin
+                    .read_layer_structure_bytes_from(id, file_type, read_from)
+                    .await?,
+            ))
         }
     }
 }
 
 #[async_trait]
 impl<M: ArchiveMetadataBackend, D: ArchiveBackend> ArchiveMetadataBackend
-    for LruMetadataArchiveBackend<M, D>
+    for LruArchiveBackend<M, D>
 {
     async fn get_layer_names(&self) -> io::Result<Vec<[u32; 5]>> {
-        self.metadata_backend.get_layer_names().await
+        self.metadata_origin.get_layer_names().await
     }
     async fn layer_exists(&self, id: [u32; 5]) -> io::Result<bool> {
-        if let Some(CacheEntry::Resolved(_)) = self.data_backend.cache.lock().await.peek(&id) {
+        if let Some(CacheEntry::Resolved(_)) = self.cache.lock().await.peek(&id) {
             Ok(true)
         } else {
-            self.metadata_backend.layer_exists(id).await
+            self.metadata_origin.layer_exists(id).await
         }
     }
     async fn layer_size(&self, id: [u32; 5]) -> io::Result<u64> {
-        if let Some(CacheEntry::Resolved(bytes)) = self.data_backend.cache.lock().await.peek(&id) {
+        if let Some(CacheEntry::Resolved(bytes)) = self.cache.lock().await.peek(&id) {
             Ok(bytes.len() as u64)
         } else {
-            self.metadata_backend.layer_size(id).await
+            self.metadata_origin.layer_size(id).await
         }
     }
     async fn layer_file_exists(&self, id: [u32; 5], file_type: LayerFileEnum) -> io::Result<bool> {
-        if let Some(CacheEntry::Resolved(bytes)) = self.data_backend.cache.lock().await.peek(&id) {
+        if let Some(CacheEntry::Resolved(bytes)) = self.cache.lock().await.peek(&id) {
             let header = ArchiveFilePresenceHeader::new(bytes.clone().get_u64());
             Ok(header.is_present(file_type))
         } else {
-            self.metadata_backend.layer_file_exists(id, file_type).await
+            self.metadata_origin.layer_file_exists(id, file_type).await
         }
     }
     async fn get_layer_structure_size(
@@ -544,7 +583,7 @@ impl<M: ArchiveMetadataBackend, D: ArchiveBackend> ArchiveMetadataBackend
         id: [u32; 5],
         file_type: LayerFileEnum,
     ) -> io::Result<usize> {
-        if let Some(CacheEntry::Resolved(bytes)) = self.data_backend.cache.lock().await.peek(&id) {
+        if let Some(CacheEntry::Resolved(bytes)) = self.cache.lock().await.peek(&id) {
             let (header, _) = ArchiveHeader::parse(bytes.clone());
 
             if let Some(size) = header.size_of(file_type) {
@@ -559,21 +598,20 @@ impl<M: ArchiveMetadataBackend, D: ArchiveBackend> ArchiveMetadataBackend
                 ))
             }
         } else {
-            self.metadata_backend
+            self.metadata_origin
                 .get_layer_structure_size(id, file_type)
                 .await
         }
     }
     async fn get_rollup(&self, id: [u32; 5]) -> io::Result<Option<[u32; 5]>> {
-        self.metadata_backend.get_rollup(id).await
+        self.metadata_origin.get_rollup(id).await
     }
     async fn set_rollup(&self, id: [u32; 5], rollup: [u32; 5]) -> io::Result<()> {
-        self.metadata_backend.set_rollup(id, rollup).await
+        self.metadata_origin.set_rollup(id, rollup).await
     }
 
     async fn get_parent(&self, id: [u32; 5]) -> io::Result<Option<[u32; 5]>> {
         if let Some(parent_bytes) = self
-            .data_backend
             .get_layer_structure_bytes(id, LayerFileEnum::Parent)
             .await?
         {
@@ -878,8 +916,8 @@ impl ArchiveHeader {
 }
 
 pub struct Archive {
-    header: ArchiveHeader,
-    data: Bytes,
+    pub header: ArchiveHeader,
+    pub data: Bytes,
 }
 
 impl Archive {
@@ -943,6 +981,16 @@ pub struct ArchiveSliceReader {
     remaining: usize,
 }
 
+impl ArchiveSliceReader {
+    pub fn new(file: File, remaining: usize) -> Self {
+        Self { file, remaining }
+    }
+
+    pub fn end_early(&mut self, end: usize) {
+        self.remaining -= end;
+    }
+}
+
 impl AsyncRead for ArchiveSliceReader {
     fn poll_read(
         mut self: Pin<&mut Self>,
@@ -953,16 +1001,21 @@ impl AsyncRead for ArchiveSliceReader {
             return Poll::Ready(Ok(()));
         }
 
+        let before_len = buf.filled().len();
         let read = AsyncRead::poll_read(Pin::new(&mut self.file), cx, buf);
         if let Poll::Pending = read {
             return Poll::Pending;
         }
 
-        if buf.filled().len() > self.remaining {
-            buf.set_filled(self.remaining);
-        }
+        let after_len = buf.filled().len();
+        let read_len = after_len - before_len;
 
-        self.remaining -= buf.filled().len();
+        if read_len > self.remaining {
+            buf.set_filled(before_len + self.remaining);
+            self.remaining = 0;
+        } else {
+            self.remaining -= read_len;
+        }
 
         Poll::Ready(Ok(()))
     }
