@@ -751,6 +751,8 @@ fn record_size_decoding(enc: u8) -> Option<u8> {
         0 => None,
         3 => Some(4),
         4 => Some(8),
+        5 => Some(12),
+        6 => Some(16),
         _ => panic!("Ok, this is not known"),
     }
 }
@@ -760,6 +762,8 @@ fn record_size_encoding(record_size: Option<u8>) -> u8 {
         None => 0,
         Some(4) => 3 << 3,
         Some(8) => 4 << 3,
+        Some(12) => 5 << 3,
+        Some(16) => 6 << 3,
         _ => {
             panic!("This is really bad!")
         }
