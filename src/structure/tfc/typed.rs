@@ -498,9 +498,9 @@ impl<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<B1, B2,
 
 #[cfg(test)]
 mod tests {
+    use bson::Decimal128;
     use bytes::BytesMut;
     use chrono::{NaiveDate, NaiveDateTime};
-    use dec::Decimal128;
     use rug::Integer;
 
     use crate::structure::{BSONObjectId, Decimal};
@@ -1487,8 +1487,8 @@ mod tests {
             "{:?}",
             entries
                 .iter()
-                .map(|e| e.as_val())
-                .collect::<Vec<Decimal128>>()
+                .map(|e| e.as_val::<Decimal128, Decimal128>().to_string())
+                .collect::<Vec<String>>()
         );
         panic!("wah");
     }

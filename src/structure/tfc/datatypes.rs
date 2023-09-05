@@ -5,10 +5,10 @@ use super::{
     TypedDictEntry,
 };
 use base64::display::Base64Display;
+use bson::Decimal128;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use chrono::{NaiveDateTime, NaiveTime};
-use dec::Decimal128;
 use num_derive::FromPrimitive;
 use rug::Integer;
 
@@ -1045,7 +1045,7 @@ const DEC128_COMPLEMENT: u128 = 0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff;
 
 impl ToLexical<Decimal128> for Decimal128 {
     fn to_lexical(&self) -> Bytes {
-        let bits: u128 = u128::from_be_bytes(self.to_be_bytes());
+        let bits: u128 = u128::from_le_bytes(self.bytes());
         let transformed = if bits & DEC128_SIGN_MASK > 0 {
             bits ^ DEC128_COMPLEMENT
         } else {
@@ -1059,9 +1059,9 @@ impl FromLexical<Decimal128> for Decimal128 {
     fn from_lexical<B: Buf>(mut b: B) -> Self {
         let i = b.get_u128();
         if i & DEC128_SIGN_MASK > 0 {
-            Decimal128::from_be_bytes((i ^ DEC128_SIGN_MASK).to_be_bytes())
+            Decimal128::from_bytes((i ^ DEC128_SIGN_MASK).to_le_bytes())
         } else {
-            Decimal128::from_be_bytes((i ^ DEC128_COMPLEMENT).to_be_bytes())
+            Decimal128::from_bytes((i ^ DEC128_COMPLEMENT).to_le_bytes())
         }
     }
 }
