@@ -160,6 +160,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
             files.node_dictionary_files.clone(),
             files.predicate_dictionary_files.clone(),
             files.value_dictionary_files.clone(),
+            files.blank_counts_file.clone(),
         )
         .await?;
 

@@ -1,8 +1,9 @@
 use std::io;
 
-use bytes::{Bytes, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use futures::TryStreamExt;
 use rayon::prelude::*;
+use tokio::io::AsyncWriteExt;
 
 use super::layer::*;
 use crate::structure::util::{self, heap_sorted_iter, stream_iter_ok};
@@ -13,9 +14,11 @@ pub struct DictionarySetFileBuilder<F: 'static + FileLoad + FileStore> {
     node_files: DictionaryFiles<F>,
     predicate_files: DictionaryFiles<F>,
     value_files: TypedDictionaryFiles<F>,
+    blank_counts_file: F,
     node_dictionary_builder: StringDictBufBuilder<BytesMut, BytesMut>,
     predicate_dictionary_builder: StringDictBufBuilder<BytesMut, BytesMut>,
     value_dictionary_builder: TypedDictBufBuilder<BytesMut, BytesMut, BytesMut, BytesMut>,
+    blank_node_count: u64,
 }
 
 impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
@@ -23,6 +26,7 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
         node_files: DictionaryFiles<F>,
         predicate_files: DictionaryFiles<F>,
         value_files: TypedDictionaryFiles<F>,
+        blank_counts_file: F,
     ) -> io::Result<Self> {
         let node_dictionary_builder = StringDictBufBuilder::new(BytesMut::new(), BytesMut::new());
         let predicate_dictionary_builder =
@@ -38,9 +42,11 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
             node_files,
             predicate_files,
             value_files,
+            blank_counts_file,
             node_dictionary_builder,
             predicate_dictionary_builder,
             value_dictionary_builder,
+            blank_node_count: 0,
         })
     }
 
@@ -48,6 +54,9 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
     ///
     /// Panics if the given node string is not a lexical successor of the previous node string.
     pub fn add_node(&mut self, node: &str) -> u64 {
+        if self.blank_node_count != 0 {
+            panic!("blank node already registered, so can't save a non-blank node");
+        }
         let id = self
             .node_dictionary_builder
             .add(Bytes::copy_from_slice(node.as_bytes()));
@@ -56,6 +65,9 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
     }
 
     pub fn add_node_bytes(&mut self, node: Bytes) -> u64 {
+        if self.blank_node_count != 0 {
+            panic!("blank node already registered, so can't save a non-blank node");
+        }
         let id = self.node_dictionary_builder.add(node);
 
         id
@@ -176,6 +188,11 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
         ids
     }
 
+    pub fn add_blank_node(&mut self) -> u64 {
+        self.blank_node_count += 1;
+        self.node_dictionary_builder.id_offset() + self.blank_node_count
+    }
+
     pub async fn finalize(self) -> io::Result<()> {
         let (mut node_offsets_buf, mut node_data_buf) = self.node_dictionary_builder.finalize();
         let (mut predicate_offsets_buf, mut predicate_data_buf) =
@@ -202,6 +219,20 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
                 &mut value_data_buf,
             )
             .await?;
+
+        if self.blank_node_count != 0 {
+            let mut blank_counts_content = BytesMut::with_capacity(16);
+            blank_counts_content.put_u64(self.blank_node_count);
+            blank_counts_content.put_u64(0);
+            let mut blank_counts_content = blank_counts_content.freeze();
+
+            let mut blank_counts = self.blank_counts_file.open_write().await?;
+            blank_counts
+                .write_all_buf(&mut blank_counts_content)
+                .await?;
+            blank_counts.flush().await?;
+            blank_counts.sync_all().await?;
+        }
 
         Ok(())
     }

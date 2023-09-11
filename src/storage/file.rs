@@ -92,6 +92,7 @@ pub struct BaseLayerFiles<F: 'static + FileLoad + FileStore> {
     pub node_dictionary_files: DictionaryFiles<F>,
     pub predicate_dictionary_files: DictionaryFiles<F>,
     pub value_dictionary_files: TypedDictionaryFiles<F>,
+    pub blank_counts_file: F,
 
     pub id_map_files: IdMapFiles<F>,
 
@@ -111,6 +112,7 @@ pub struct BaseLayerMaps {
     pub node_dictionary_maps: DictionaryMaps,
     pub predicate_dictionary_maps: DictionaryMaps,
     pub value_dictionary_maps: TypedDictionaryMaps,
+    pub blank_counts_map: Option<Bytes>,
 
     pub id_map_maps: IdMapMaps,
 
@@ -130,6 +132,7 @@ impl<F: FileLoad + FileStore> BaseLayerFiles<F> {
         let node_dictionary_maps = self.node_dictionary_files.map_all().await?;
         let predicate_dictionary_maps = self.predicate_dictionary_files.map_all().await?;
         let value_dictionary_maps = self.value_dictionary_files.map_all().await?;
+        let blank_counts_map = self.blank_counts_file.map_if_exists().await?;
 
         let id_map_maps = self.id_map_files.map_all().await?;
 
@@ -146,6 +149,7 @@ impl<F: FileLoad + FileStore> BaseLayerFiles<F> {
             node_dictionary_maps,
             predicate_dictionary_maps,
             value_dictionary_maps,
+            blank_counts_map,
 
             id_map_maps,
 
@@ -166,6 +170,7 @@ pub struct ChildLayerFiles<F: 'static + FileLoad + FileStore + Clone + Send + Sy
     pub node_dictionary_files: DictionaryFiles<F>,
     pub predicate_dictionary_files: DictionaryFiles<F>,
     pub value_dictionary_files: TypedDictionaryFiles<F>,
+    pub blank_counts_file: F,
 
     pub id_map_files: IdMapFiles<F>,
 
@@ -190,6 +195,7 @@ pub struct ChildLayerMaps {
     pub node_dictionary_maps: DictionaryMaps,
     pub predicate_dictionary_maps: DictionaryMaps,
     pub value_dictionary_maps: TypedDictionaryMaps,
+    pub blank_counts_map: Option<Bytes>,
 
     pub id_map_maps: IdMapMaps,
 
@@ -214,6 +220,7 @@ impl<F: FileLoad + FileStore + Clone> ChildLayerFiles<F> {
         let node_dictionary_maps = self.node_dictionary_files.map_all().await?;
         let predicate_dictionary_maps = self.predicate_dictionary_files.map_all().await?;
         let value_dictionary_maps = self.value_dictionary_files.map_all().await?;
+        let blank_counts_map = self.blank_counts_file.map_if_exists().await?;
 
         let id_map_maps = self.id_map_files.map_all().await?;
 
@@ -239,6 +246,7 @@ impl<F: FileLoad + FileStore + Clone> ChildLayerFiles<F> {
             node_dictionary_maps,
             predicate_dictionary_maps,
             value_dictionary_maps,
+            blank_counts_map,
 
             id_map_maps,
 

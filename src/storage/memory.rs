@@ -332,6 +332,7 @@ pub fn base_layer_memory_files() -> BaseLayerFiles<MemoryBackedStore> {
             blocks_file: MemoryBackedStore::new(),
             offsets_file: MemoryBackedStore::new(),
         },
+        blank_counts_file: MemoryBackedStore::new(),
 
         id_map_files: IdMapFiles {
             node_value_idmap_files: BitIndexFiles {
@@ -398,6 +399,7 @@ pub fn child_layer_memory_files() -> ChildLayerFiles<MemoryBackedStore> {
             blocks_file: MemoryBackedStore::new(),
             offsets_file: MemoryBackedStore::new(),
         },
+        blank_counts_file: MemoryBackedStore::new(),
 
         id_map_files: IdMapFiles {
             node_value_idmap_files: BitIndexFiles {

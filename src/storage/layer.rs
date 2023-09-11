@@ -427,6 +427,7 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
             FILENAMES.base_predicate_wavelet_tree_bits,
             FILENAMES.base_predicate_wavelet_tree_bit_index_blocks,
             FILENAMES.base_predicate_wavelet_tree_bit_index_sblocks,
+            FILENAMES.blank_counts,
         ];
 
         let mut files = Vec::with_capacity(filenames.len());
@@ -450,6 +451,7 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
                 offsets_file: files[6].clone(),
                 blocks_file: files[7].clone(),
             },
+            blank_counts_file: files[31].clone(),
 
             id_map_files: IdMapFiles {
                 node_value_idmap_files: BitIndexFiles {
@@ -549,6 +551,7 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
             FILENAMES.neg_predicate_wavelet_tree_bits,
             FILENAMES.neg_predicate_wavelet_tree_bit_index_blocks,
             FILENAMES.neg_predicate_wavelet_tree_bit_index_sblocks,
+            FILENAMES.blank_counts,
         ];
 
         let mut files = Vec::with_capacity(filenames.len());
@@ -571,6 +574,7 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
                 offsets_file: files[6].clone(),
                 blocks_file: files[7].clone(),
             },
+            blank_counts_file: files[48].clone(),
 
             id_map_files: IdMapFiles {
                 node_value_idmap_files: BitIndexFiles {
@@ -2118,6 +2122,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             child_layer_files.node_dictionary_files.clone(),
             child_layer_files.predicate_dictionary_files.clone(),
             child_layer_files.value_dictionary_files.clone(),
+            child_layer_files.blank_counts_file.clone(),
         )
         .await?;
 
