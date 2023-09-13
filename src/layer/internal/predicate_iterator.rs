@@ -293,7 +293,7 @@ mod tests {
 
         let layer = store.get_layer(child4_name).await.unwrap().unwrap();
 
-        let predicate_id = layer.predicate_id("likes").unwrap();
+        let predicate_id = layer.predicate_id(Blankable::Val("likes")).unwrap();
         let triples: Vec<_> = layer
             .triples_p(predicate_id)
             .map(|t| layer.id_triple_to_string(&t).unwrap())
@@ -319,7 +319,7 @@ mod tests {
         builder.commit_boxed().await.unwrap();
 
         let layer = store.get_layer(base_name).await.unwrap().unwrap();
-        let predicate_id = layer.predicate_id("says").unwrap();
+        let predicate_id = layer.predicate_id(Blankable::Val("says")).unwrap();
         let triples: Vec<_> = layer
             .triples_p(predicate_id)
             .map(|t| layer.id_triple_to_string(&t).unwrap())

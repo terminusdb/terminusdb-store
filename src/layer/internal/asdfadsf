@@ -1,0 +1,10 @@
+blank nodes:
+- we have an id
+- need t be able to tell if a given id is a blank node
+
+indexes:
+- we have an index num
+- we need to be able to tell if this index num is covered
+- need to find the layer this index num is in
+- need to find up to what index num each layer goes
+- index_id = {l=layer_for(index_num);(index_num-l.parent.max_index)+l.num_predicates

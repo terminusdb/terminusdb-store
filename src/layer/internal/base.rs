@@ -283,6 +283,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     pub async fn into_phase2(self) -> io::Result<BaseLayerFileBuilderPhase2<F>> {
         let BaseLayerFileBuilder { files, builder } = self;
 
+        let blank_node_count = builder.blank_node_count();
         builder.finalize().await?;
 
         let node_dict_blocks_map = files.node_dictionary_files.blocks_file.map().await?;
@@ -310,7 +311,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
         );
 
         // TODO: it is a bit silly to parse the dictionaries just for this. surely we can get the counts in an easier way?
-        let num_nodes = node_dict.num_entries();
+        let num_nodes = node_dict.num_entries() + blank_node_count as usize;
         let num_predicates = pred_dict.num_entries();
         let num_values = val_dict.num_entries();
 
@@ -556,9 +557,9 @@ pub mod tests {
     async fn dictionary_entries_in_base() {
         let base_layer = example_base_layer().await;
 
-        assert_eq!(3, base_layer.subject_id("bbbbb").unwrap());
-        assert_eq!(2, base_layer.predicate_id("fghij").unwrap());
-        assert_eq!(1, base_layer.object_node_id("aaaaa").unwrap());
+        assert_eq!(3, base_layer.subject_id("bbbbb".into()).unwrap());
+        assert_eq!(2, base_layer.predicate_id("fghij".into()).unwrap());
+        assert_eq!(1, base_layer.object_node_id("aaaaa".into()).unwrap());
         assert_eq!(
             6,
             base_layer
@@ -566,10 +567,10 @@ pub mod tests {
                 .unwrap()
         );
 
-        assert_eq!("bbbbb", base_layer.id_subject(3).unwrap());
-        assert_eq!("fghij", base_layer.id_predicate(2).unwrap());
+        assert_eq!(Blankable::Val("bbbbb"), base_layer.id_subject(3).unwrap());
+        assert_eq!(Blankable::Val("fghij"), base_layer.id_predicate(2).unwrap());
         assert_eq!(
-            ObjectType::Node("aaaaa".to_string()),
+            ObjectType::string_node("aaaaa".to_string()),
             base_layer.id_object(1).unwrap()
         );
         assert_eq!(

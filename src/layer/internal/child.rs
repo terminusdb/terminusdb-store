@@ -236,7 +236,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// panics if the given node string is not a lexical successor of
     /// the previous node string.
     pub fn add_node(&mut self, node: &str) -> u64 {
-        match self.parent.subject_id(node) {
+        match self.parent.subject_id(Blankable::Val(node)) {
             None => self.builder.add_node(node),
             Some(id) => id,
         }
@@ -248,7 +248,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     /// panics if the given predicate string is not a lexical successor of
     /// the previous predicate string.
     pub fn add_predicate(&mut self, predicate: &str) -> u64 {
-        match self.parent.predicate_id(predicate) {
+        match self.parent.predicate_id(Blankable::Val(predicate)) {
             None => self.builder.add_predicate(predicate),
             Some(id) => id,
         }
@@ -343,6 +343,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
             builder,
         } = self;
 
+        let blank_nodes_count = builder.blank_node_count();
         builder.finalize().await?;
 
         let node_dict_offsets_map = files.node_dictionary_files.offsets_file.map().await?;
@@ -370,7 +371,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         );
 
         // TODO: it is a bit silly to parse the dictionaries just for this. surely we can get the counts in an easier way?
-        let num_nodes = node_dict.num_entries();
+        let num_nodes = node_dict.num_entries() + blank_nodes_count as usize;
         let num_predicates = pred_dict.num_entries();
         let num_values = val_dict.num_entries();
 
@@ -968,9 +969,15 @@ pub mod tests {
             .await
             .unwrap();
 
-        assert_eq!(3, child_layer.subject_id("bbbbb").unwrap());
-        assert_eq!(2, child_layer.predicate_id("fghij").unwrap());
-        assert_eq!(1, child_layer.object_node_id("aaaaa").unwrap());
+        assert_eq!(3, child_layer.subject_id(Blankable::Val("bbbbb")).unwrap());
+        assert_eq!(
+            2,
+            child_layer.predicate_id(Blankable::Val("fghij")).unwrap()
+        );
+        assert_eq!(
+            1,
+            child_layer.object_node_id(Blankable::Val("aaaaa")).unwrap()
+        );
         assert_eq!(
             6,
             child_layer
@@ -978,10 +985,13 @@ pub mod tests {
                 .unwrap()
         );
 
-        assert_eq!("bbbbb", child_layer.id_subject(3).unwrap());
-        assert_eq!("fghij", child_layer.id_predicate(2).unwrap());
+        assert_eq!(Blankable::Val("bbbbb"), child_layer.id_subject(3).unwrap());
         assert_eq!(
-            ObjectType::Node("aaaaa".to_string()),
+            Blankable::Val("fghij"),
+            child_layer.id_predicate(2).unwrap()
+        );
+        assert_eq!(
+            ObjectType::string_node("aaaaa".to_string()),
             child_layer.id_object(1).unwrap()
         );
         assert_eq!(
@@ -1011,9 +1021,12 @@ pub mod tests {
             .await
             .unwrap();
 
-        assert_eq!(11, child_layer.subject_id("foo").unwrap());
-        assert_eq!(5, child_layer.predicate_id("bar").unwrap());
-        assert_eq!(11, child_layer.object_node_id("foo").unwrap());
+        assert_eq!(11, child_layer.subject_id(Blankable::Val("foo")).unwrap());
+        assert_eq!(5, child_layer.predicate_id(Blankable::Val("bar")).unwrap());
+        assert_eq!(
+            11,
+            child_layer.object_node_id(Blankable::Val("foo")).unwrap()
+        );
         assert_eq!(
             12,
             child_layer
@@ -1021,10 +1034,10 @@ pub mod tests {
                 .unwrap()
         );
 
-        assert_eq!("foo", child_layer.id_subject(11).unwrap());
-        assert_eq!("bar", child_layer.id_predicate(5).unwrap());
+        assert_eq!(Blankable::Val("foo"), child_layer.id_subject(11).unwrap());
+        assert_eq!(Blankable::Val("bar"), child_layer.id_predicate(5).unwrap());
         assert_eq!(
-            ObjectType::Node("foo".to_string()),
+            ObjectType::string_node("foo".to_string()),
             child_layer.id_object(11).unwrap()
         );
         assert_eq!(

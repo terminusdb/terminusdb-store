@@ -50,6 +50,10 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
         })
     }
 
+    pub(crate) fn blank_node_count(&self) -> u64 {
+        self.blank_node_count
+    }
+
     /// Add a node string.
     ///
     /// Panics if the given node string is not a lexical successor of the previous node string.

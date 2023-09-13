@@ -6,6 +6,11 @@ mod predicate_iterator;
 pub mod rollup;
 mod subject_iterator;
 
+pub mod blank_range;
+
+use self::blank_range::BlankNodes;
+use self::blank_range::Indexes;
+
 use super::id_map::*;
 use super::layer::*;
 use crate::structure::*;
@@ -530,6 +535,13 @@ impl InternalLayer {
             _ => false,
         }
     }
+
+    pub fn blank_range(&self) -> BlankNodes {
+        todo!();
+    }
+    pub fn indexes(&self) -> Indexes {
+        todo!();
+    }
 }
 
 impl Layer for InternalLayer {
@@ -551,58 +563,88 @@ impl Layer for InternalLayer {
         self.parent_predicate_count() + self.predicate_dictionary().num_entries()
     }
 
-    fn subject_id<'a>(&'a self, subject: &str) -> Option<u64> {
-        let to_result = |layer: &'a InternalLayer| {
-            (
-                layer
-                    .node_dict_id(subject)
-                    .into_option()
-                    .map(|id| layer.node_value_id_map().inner_to_outer(id)),
-                layer.immediate_parent(),
-            )
-        };
-        let mut result = to_result(self);
-        while let (None, Some(layer)) = result {
-            result = to_result(layer);
+    fn subject_id<'a>(&'a self, subject: Blankable<&str>) -> Option<u64> {
+        match subject {
+            Blankable::Blank(b) => {
+                if self.blank_range().is_blank_node(b) {
+                    Some(b as u64)
+                } else {
+                    None
+                }
+            }
+            Blankable::Val(subject) => {
+                let to_result = |layer: &'a InternalLayer| {
+                    (
+                        layer
+                            .node_dict_id(subject)
+                            .into_option()
+                            .map(|id| layer.node_value_id_map().inner_to_outer(id)),
+                        layer.immediate_parent(),
+                    )
+                };
+                let mut result = to_result(self);
+                while let (None, Some(layer)) = result {
+                    result = to_result(layer);
+                }
+                let (id_option, parent_option) = result;
+                id_option
+                    .map(|id| id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
+            }
         }
-        let (id_option, parent_option) = result;
-        id_option.map(|id| id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
     }
 
-    fn predicate_id<'a>(&'a self, predicate: &str) -> Option<u64> {
-        let to_result = |layer: &'a InternalLayer| {
-            (
-                layer
-                    .predicate_dict_id(predicate)
-                    .into_option()
-                    .map(|id| layer.predicate_id_map().inner_to_outer(id)),
-                layer.immediate_parent(),
-            )
-        };
-        let mut result = to_result(self);
-        while let (None, Some(layer)) = result {
-            result = to_result(layer);
+    fn predicate_id<'a>(&'a self, predicate: Blankable<&str>) -> Option<u64> {
+        match predicate {
+            Blankable::Blank(b) => {
+                if let Some(id) = self.indexes().id_for_index(b) {
+                    Some(id)
+                } else {
+                    None
+                }
+            }
+            Blankable::Val(predicate) => {
+                let to_result = |layer: &'a InternalLayer| {
+                    (
+                        layer
+                            .predicate_dict_id(predicate)
+                            .into_option()
+                            .map(|id| layer.predicate_id_map().inner_to_outer(id)),
+                        layer.immediate_parent(),
+                    )
+                };
+                let mut result = to_result(self);
+                while let (None, Some(layer)) = result {
+                    result = to_result(layer);
+                }
+                let (id_option, parent_option) = result;
+                id_option.map(|id| id + parent_option.map_or(0, |p| p.predicate_count() as u64))
+            }
         }
-        let (id_option, parent_option) = result;
-        id_option.map(|id| id + parent_option.map_or(0, |p| p.predicate_count() as u64))
     }
 
-    fn object_node_id<'a>(&'a self, object: &str) -> Option<u64> {
-        let to_result = |layer: &'a InternalLayer| {
-            (
-                layer
-                    .node_dict_id(object)
-                    .into_option()
-                    .map(|id| layer.node_value_id_map().inner_to_outer(id)),
-                layer.immediate_parent(),
-            )
-        };
-        let mut result = to_result(self);
-        while let (None, Some(layer)) = result {
-            result = to_result(layer);
+    fn object_node_id<'a>(&'a self, object: Blankable<&str>) -> Option<u64> {
+        match object {
+            Blankable::Blank(b) if self.blank_range().is_blank_node(b) => Some(b as u64),
+            Blankable::Blank(b) => None,
+            Blankable::Val(object) => {
+                let to_result = |layer: &'a InternalLayer| {
+                    (
+                        layer
+                            .node_dict_id(object)
+                            .into_option()
+                            .map(|id| layer.node_value_id_map().inner_to_outer(id)),
+                        layer.immediate_parent(),
+                    )
+                };
+                let mut result = to_result(self);
+                while let (None, Some(layer)) = result {
+                    result = to_result(layer);
+                }
+                let (id_option, parent_option) = result;
+                id_option
+                    .map(|id| id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
+            }
         }
-        let (id_option, parent_option) = result;
-        id_option.map(|id| id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
     }
 
     fn object_value_id<'a>(&'a self, object: &TypedDictEntry) -> Option<u64> {
@@ -624,9 +666,12 @@ impl Layer for InternalLayer {
         id_option.map(|id| id + parent_option.map_or(0, |p| p.node_and_value_count() as u64))
     }
 
-    fn id_subject(&self, id: u64) -> Option<String> {
+    fn id_subject(&self, id: u64) -> Option<Blankable<String>> {
         if id == 0 {
             return None;
+        }
+        if self.blank_range().is_blank_node(id as usize) {
+            return Some(Blankable::Blank(id as usize));
         }
         let mut corrected_id = id;
         let mut current_option: Option<&InternalLayer> = Some(self);
@@ -645,21 +690,26 @@ impl Layer for InternalLayer {
                 }
             }
 
-            return current_layer.node_dict_get(
-                current_layer
-                    .node_value_id_map()
-                    .outer_to_inner(corrected_id)
-                    .try_into()
-                    .unwrap(),
-            );
+            return current_layer
+                .node_dict_get(
+                    current_layer
+                        .node_value_id_map()
+                        .outer_to_inner(corrected_id)
+                        .try_into()
+                        .unwrap(),
+                )
+                .map(Blankable::Val);
         }
 
         None
     }
 
-    fn id_predicate(&self, id: u64) -> Option<String> {
+    fn id_predicate(&self, id: u64) -> Option<Blankable<String>> {
         if id == 0 {
             return None;
+        }
+        if let Some(index) = self.indexes().index_for_id(id) {
+            return Some(Blankable::Blank(index));
         }
         let mut current_option: Option<&InternalLayer> = Some(self);
         let mut parent_count = self.predicate_count() as u64;
@@ -676,13 +726,15 @@ impl Layer for InternalLayer {
                 }
             }
 
-            return current_layer.predicate_dict_get(
-                current_layer
-                    .predicate_id_map()
-                    .outer_to_inner(corrected_id)
-                    .try_into()
-                    .unwrap(),
-            );
+            return current_layer
+                .predicate_dict_get(
+                    current_layer
+                        .predicate_id_map()
+                        .outer_to_inner(corrected_id)
+                        .try_into()
+                        .unwrap(),
+                )
+                .map(Blankable::Val);
         }
 
         None
@@ -714,6 +766,7 @@ impl Layer for InternalLayer {
                 .node_value_id_map()
                 .outer_to_inner(corrected_id);
 
+            //TODO fix for blank nodes
             if corrected_id > current_layer.node_dict_len() as u64 {
                 // object, if it exists, must be a value
                 corrected_id -= current_layer.node_dict_len() as u64;
@@ -723,7 +776,7 @@ impl Layer for InternalLayer {
             } else {
                 return current_layer
                     .node_dict_get(corrected_id.try_into().unwrap())
-                    .map(ObjectType::Node);
+                    .map(|v| ObjectType::Node(Blankable::Val(v)));
             }
         }
 

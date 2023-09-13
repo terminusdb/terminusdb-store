@@ -36,6 +36,7 @@ regex = "1.5"
 lru = "0.10"
 bitvec = "1.0"
 tempfile = "3.1"
+range_union_find = "0.5.0"
 
 [features]
 noreadlock = []

@@ -4,6 +4,8 @@ use std::hash::Hash;
 
 use crate::structure::{TdbDataType, TypedDictEntry};
 
+use super::blank_range::{BlankNodes, Indexes};
+
 /// A layer containing dictionary entries and triples.
 ///
 /// A layer can be queried. To answer queries, layers will check their
@@ -22,18 +24,18 @@ pub trait Layer: Send + Sync {
     fn predicate_count(&self) -> usize;
 
     /// The numerical id of a subject, or None if the subject cannot be found.
-    fn subject_id(&self, subject: &str) -> Option<u64>;
+    fn subject_id(&self, subject: Blankable<&str>) -> Option<u64>;
     /// The numerical id of a predicate, or None if the predicate cannot be found.
-    fn predicate_id(&self, predicate: &str) -> Option<u64>;
+    fn predicate_id(&self, predicate: Blankable<&str>) -> Option<u64>;
     /// The numerical id of a node object, or None if the node object cannot be found.
-    fn object_node_id(&self, object: &str) -> Option<u64>;
+    fn object_node_id(&self, object: Blankable<&str>) -> Option<u64>;
     /// The numerical id of a value object, or None if the value object cannot be found.
     fn object_value_id(&self, object: &TypedDictEntry) -> Option<u64>;
     /// The subject corresponding to a numerical id, or None if it cannot be found.
-    fn id_subject(&self, id: u64) -> Option<String>;
+    fn id_subject(&self, id: u64) -> Option<Blankable<String>>;
 
     /// The predicate corresponding to a numerical id, or None if it cannot be found.
-    fn id_predicate(&self, id: u64) -> Option<String>;
+    fn id_predicate(&self, id: u64) -> Option<Blankable<String>>;
     /// The object corresponding to a numerical id, or None if it cannot be found.
     fn id_object(&self, id: u64) -> Option<ObjectType>;
 
@@ -95,19 +97,21 @@ pub trait Layer: Send + Sync {
 
     /// Convert a `ValueTriple` to an `IdTriple`, returning None if any of the strings in the triple could not be resolved.
     fn value_triple_to_id(&self, triple: &ValueTriple) -> Option<IdTriple> {
-        self.subject_id(&triple.subject).and_then(|subject| {
-            self.predicate_id(&triple.predicate).and_then(|predicate| {
-                match &triple.object {
-                    ObjectType::Node(node) => self.object_node_id(&node),
-                    ObjectType::Value(value) => self.object_value_id(&value),
-                }
-                .map(|object| IdTriple {
-                    subject,
-                    predicate,
-                    object,
-                })
+        self.subject_id(triple.subject.as_ref())
+            .and_then(|subject| {
+                self.predicate_id(triple.predicate.as_ref())
+                    .and_then(|predicate| {
+                        match &triple.object {
+                            ObjectType::Node(node) => self.object_node_id(node.as_ref()),
+                            ObjectType::Value(value) => self.object_value_id(&value),
+                        }
+                        .map(|object| IdTriple {
+                            subject,
+                            predicate,
+                            object,
+                        })
+                    })
             })
-        })
     }
 
     fn triples_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
@@ -118,16 +122,16 @@ pub trait Layer: Send + Sync {
     fn value_triple_to_partially_resolved(&self, triple: ValueTriple) -> PartiallyResolvedTriple {
         PartiallyResolvedTriple {
             subject: self
-                .subject_id(&triple.subject)
+                .subject_id(triple.subject.as_ref())
                 .map(PossiblyResolved::Resolved)
                 .unwrap_or(PossiblyResolved::Unresolved(triple.subject)),
             predicate: self
-                .predicate_id(&triple.predicate)
+                .predicate_id(triple.predicate.as_ref())
                 .map(PossiblyResolved::Resolved)
                 .unwrap_or(PossiblyResolved::Unresolved(triple.predicate)),
             object: match &triple.object {
                 ObjectType::Node(node) => self
-                    .object_node_id(&node)
+                    .object_node_id(node.as_ref())
                     .map(PossiblyResolved::Resolved)
                     .unwrap_or(PossiblyResolved::Unresolved(triple.object)),
                 ObjectType::Value(value) => self
@@ -199,11 +203,87 @@ impl IdTriple {
     }
 }
 
+#[derive(Debug, Clone, Hash, Eq)]
+pub enum Blankable<T> {
+    Blank(usize),
+    Val(T),
+}
+
+impl<T> From<T> for Blankable<T> {
+    fn from(value: T) -> Self {
+        Self::Val(value)
+    }
+}
+
+impl<T: PartialEq<Q>, Q> PartialEq<Blankable<Q>> for Blankable<T> {
+    fn eq(&self, other: &Blankable<Q>) -> bool {
+        match (self, other) {
+            (Blankable::Blank(b1), Blankable::Blank(b2)) => b1 == b2,
+            (Blankable::Val(v1), Blankable::Val(v2)) => v1 == v2,
+            _ => false,
+        }
+    }
+}
+
+impl<T: PartialOrd<Q>, Q> PartialOrd<Blankable<Q>> for Blankable<T> {
+    fn partial_cmp(&self, other: &Blankable<Q>) -> Option<std::cmp::Ordering> {
+        match (self, other) {
+            (Blankable::Blank(b1), Blankable::Blank(b2)) => b1.partial_cmp(b2),
+            (Blankable::Val(v1), Blankable::Val(v2)) => v1.partial_cmp(v2),
+            (Blankable::Blank(_), Blankable::Val(_)) => Some(std::cmp::Ordering::Greater),
+            (Blankable::Val(_), Blankable::Blank(_)) => Some(std::cmp::Ordering::Less),
+        }
+    }
+}
+
+impl<T: Ord> Ord for Blankable<T> {
+    fn cmp(&self, other: &Blankable<T>) -> std::cmp::Ordering {
+        match (self, other) {
+            (Blankable::Blank(b1), Blankable::Blank(b2)) => b1.cmp(b2),
+            (Blankable::Val(v1), Blankable::Val(v2)) => v1.cmp(v2),
+            (Blankable::Blank(_), Blankable::Val(_)) => std::cmp::Ordering::Greater,
+            (Blankable::Val(_), Blankable::Blank(_)) => std::cmp::Ordering::Less,
+        }
+    }
+}
+
+/*
+impl<T: PartialEq> PartialEq<T> for Blankable<T> {
+    fn eq(&self, other: &T) -> bool {
+        match self {
+            Self::Blank(_) => false,
+            Self::Val(v) => v.eq(other),
+        }
+    }
+}
+
+impl<T: PartialOrd> PartialOrd<T> for Blankable<T> {
+    fn partial_cmp(&self, other: &T) -> Option<std::cmp::Ordering> {
+        match self {
+            Self::Blank(_) => Some(std::cmp::Ordering::Greater),
+            Self::Val(v) => v.partial_cmp(other),
+        }
+    }
+}
+*/
+
+impl<T> Blankable<T> {
+    pub fn as_ref<Q: ?Sized>(&self) -> Blankable<&Q>
+    where
+        T: AsRef<Q>,
+    {
+        match self {
+            Blankable::Blank(b) => Blankable::Blank(*b),
+            Blankable::Val(v) => Blankable::Val(v.as_ref()),
+        }
+    }
+}
+
 /// A triple stored as strings.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ValueTriple {
-    pub subject: String,
-    pub predicate: String,
+    pub subject: Blankable<String>,
+    pub predicate: Blankable<String>,
     pub object: ObjectType,
 }
 
@@ -213,9 +293,9 @@ impl ValueTriple {
     /// Nodes may appear in both the subject and object position.
     pub fn new_node(subject: &str, predicate: &str, object: &str) -> ValueTriple {
         ValueTriple {
-            subject: subject.to_owned(),
-            predicate: predicate.to_owned(),
-            object: ObjectType::Node(object.to_owned()),
+            subject: Blankable::Val(subject.to_owned()),
+            predicate: Blankable::Val(predicate.to_owned()),
+            object: ObjectType::Node(Blankable::Val(object.to_owned())),
         }
     }
 
@@ -224,8 +304,8 @@ impl ValueTriple {
     /// Values may only appear in the object position.
     pub fn new_value(subject: &str, predicate: &str, object: TypedDictEntry) -> ValueTriple {
         ValueTriple {
-            subject: subject.to_owned(),
-            predicate: predicate.to_owned(),
+            subject: Blankable::Val(subject.to_owned()),
+            predicate: Blankable::Val(predicate.to_owned()),
             object: ObjectType::Value(object),
         }
     }
@@ -235,8 +315,8 @@ impl ValueTriple {
     /// Values may only appear in the object position.
     pub fn new_string_value(subject: &str, predicate: &str, object: &str) -> ValueTriple {
         ValueTriple {
-            subject: subject.to_owned(),
-            predicate: predicate.to_owned(),
+            subject: Blankable::Val(subject.to_owned()),
+            predicate: Blankable::Val(predicate.to_owned()),
             object: ObjectType::Value(String::make_entry(&object)),
         }
     }
@@ -295,8 +375,8 @@ impl<T: Clone + PartialEq + Eq + PartialOrd + Ord + Hash> PossiblyResolved<T> {
 /// A triple where the subject, predicate and object can all either be fully resolved to an id, or unresolved.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PartiallyResolvedTriple {
-    pub subject: PossiblyResolved<String>,
-    pub predicate: PossiblyResolved<String>,
+    pub subject: PossiblyResolved<Blankable<String>>,
+    pub predicate: PossiblyResolved<Blankable<String>>,
     pub object: PossiblyResolved<ObjectType>,
 }
 
@@ -307,13 +387,24 @@ impl PartiallyResolvedTriple {
         node_map: &HashMap<String, u64>,
         predicate_map: &HashMap<String, u64>,
         value_map: &HashMap<TypedDictEntry, u64>,
+        blank_nodes: &BlankNodes,
+        indexes: &Indexes,
     ) -> Option<IdTriple> {
         let subject = match self.subject.as_ref() {
-            PossiblyResolved::Unresolved(s) => *node_map.get(s)?,
+            PossiblyResolved::Unresolved(Blankable::Val(s)) => *node_map.get(s)?,
+            PossiblyResolved::Unresolved(Blankable::Blank(b)) => {
+                if !blank_nodes.is_blank_node(*b) {
+                    return None;
+                }
+                *b as u64
+            }
             PossiblyResolved::Resolved(id) => id,
         };
         let predicate = match self.predicate.as_ref() {
-            PossiblyResolved::Unresolved(p) => *predicate_map.get(p)?,
+            PossiblyResolved::Unresolved(Blankable::Val(p)) => *predicate_map.get(p)?,
+            PossiblyResolved::Unresolved(Blankable::Blank(index)) => {
+                indexes.id_for_index(*index)?
+            }
             PossiblyResolved::Resolved(id) => id,
         };
         let object = match self.object.as_ref() {
@@ -368,11 +459,17 @@ impl PartiallyResolvedTriple {
 /// value, without this leading to conflicts.
 #[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Ord, Hash)]
 pub enum ObjectType {
-    Node(String),
+    Node(Blankable<String>),
     Value(TypedDictEntry),
 }
 
 impl ObjectType {
+    pub fn blank_node(id: usize) -> ObjectType {
+        Self::Node(Blankable::Blank(id))
+    }
+    pub fn string_node(s: String) -> ObjectType {
+        Self::Node(Blankable::Val(s))
+    }
     pub fn node(self) -> Option<String> {
         match self {
             ObjectType::Node(s) => Some(s),

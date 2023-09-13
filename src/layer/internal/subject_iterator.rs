@@ -907,7 +907,7 @@ mod tests {
 
         let layer = store.get_layer(child4_name).await.unwrap().unwrap();
 
-        let subject_id = layer.subject_id("duck").unwrap();
+        let subject_id = layer.subject_id(Blankable::Val("duck")).unwrap();
         let triples: Vec<_> = layer
             .triples_s(subject_id)
             .map(|t| layer.id_triple_to_string(&t).unwrap())
@@ -967,8 +967,8 @@ mod tests {
 
         let layer = store.get_layer(child4_name).await.unwrap().unwrap();
 
-        let subject_id = layer.subject_id("duck").unwrap();
-        let predicate_id = layer.predicate_id("likes").unwrap();
+        let subject_id = layer.subject_id(Blankable::Val("duck")).unwrap();
+        let predicate_id = layer.predicate_id(Blankable::Val("likes")).unwrap();
         let triples: Vec<_> = layer
             .triples_sp(subject_id, predicate_id)
             .map(|t| layer.id_triple_to_string(&t).unwrap())

@@ -12,6 +12,7 @@
 use super::internal::*;
 use super::layer::*;
 use crate::storage::*;
+use crate::structure::TypedDictEntry;
 use std::collections::HashMap;
 use std::io;
 use std::pin::Pin;
@@ -30,6 +31,7 @@ pub trait LayerBuilder: Send + Sync {
     fn name(&self) -> [u32; 5];
     /// Return the parent if it exists
     fn parent(&self) -> Option<Arc<dyn Layer>>;
+    fn reserve_blank_node(&mut self) -> BlankNode;
     /// Add a string triple
     fn add_value_triple(&mut self, triple: ValueTriple);
     /// Add an id triple
@@ -56,13 +58,63 @@ pub struct SimpleLayerBuilder<F: 'static + FileLoad + FileStore + Clone> {
     id_additions: Vec<IdTriple>,
     id_removals: Vec<IdTriple>,
 
-    nodes_values_map: HashMap<ObjectType, u64>,
+    nodes_values_map: HashMap<ExpandedObjectType, u64>,
     predicates_map: HashMap<String, u64>,
     nodes_values_map_count: usize,
     predicates_map_count: usize,
     node_count: usize,
     pred_count: usize,
     val_count: usize,
+    blank_node_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum ExpandedObjectType {
+    Node(String),
+    Value(TypedDictEntry),
+    Blank,
+}
+impl ExpandedObjectType {
+    pub fn node(self) -> Option<String> {
+        match self {
+            ExpandedObjectType::Node(s) => Some(s),
+            ExpandedObjectType::Value(_) => None,
+            ExpandedObjectType::Blank => None,
+        }
+    }
+
+    pub fn node_ref(&self) -> Option<&str> {
+        match self {
+            ExpandedObjectType::Node(s) => Some(s),
+            ExpandedObjectType::Value(_) => None,
+            ExpandedObjectType::Blank => None,
+        }
+    }
+
+    pub fn value(self) -> Option<TypedDictEntry> {
+        match self {
+            ExpandedObjectType::Node(_) => None,
+            ExpandedObjectType::Value(v) => Some(v),
+            ExpandedObjectType::Blank => None,
+        }
+    }
+
+    pub fn value_ref(&self) -> Option<&TypedDictEntry> {
+        match self {
+            ExpandedObjectType::Node(_) => None,
+            ExpandedObjectType::Value(v) => Some(v),
+            ExpandedObjectType::Blank => None,
+        }
+    }
+}
+
+impl From<ObjectType> for ExpandedObjectType {
+    fn from(value: ObjectType) -> Self {
+        match value {
+            ObjectType::Node(n) => Self::Node(n),
+            ObjectType::Value(v) => Self::Value(v),
+        }
+    }
 }
 
 impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
@@ -82,6 +134,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
             node_count: 0,
             pred_count: 0,
             val_count: 0,
+            blank_node_count: 0,
         }
     }
 
@@ -103,11 +156,12 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
             node_count: 0,
             pred_count: 0,
             val_count: 0,
+            blank_node_count: 0,
         }
     }
 
     fn calculate_triple(&mut self, triple: ValueTriple) -> IdTriple {
-        let subject = ObjectType::Node(triple.subject);
+        let subject = ExpandedObjectType::Node(triple.subject);
         let predicate = triple.predicate;
         let object = triple.object;
         let subject_id = if let Some(n) = self.nodes_values_map.get(&subject) {
@@ -147,7 +201,8 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
 
             predicate_id
         };
-        let object_id = if let Some(o) = self.nodes_values_map.get(&object) {
+        // TODO the clone here is not great
+        let object_id = if let Some(o) = self.nodes_values_map.get(&object.clone().into()) {
             *o
         } else {
             match object {
@@ -163,7 +218,8 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
                         self.node_count += 1;
                         self.nodes_values_map_count as u64
                     };
-                    self.nodes_values_map.insert(ObjectType::Node(n), node_id);
+                    self.nodes_values_map
+                        .insert(ExpandedObjectType::Node(n), node_id);
 
                     node_id
                 }
@@ -177,7 +233,8 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
                         self.val_count += 1;
                         self.nodes_values_map_count as u64
                     };
-                    self.nodes_values_map.insert(ObjectType::Value(v), value_id);
+                    self.nodes_values_map
+                        .insert(ExpandedObjectType::Value(v), value_id);
 
                     value_id
                 }
@@ -188,6 +245,9 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct BlankNode(usize);
+
 impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuilder<F> {
     fn name(&self) -> [u32; 5] {
         self.name
@@ -195,6 +255,11 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
 
     fn parent(&self) -> Option<Arc<dyn Layer>> {
         self.parent.clone()
+    }
+
+    fn reserve_blank_node(&mut self) -> BlankNode {
+        self.blank_node_count += 1;
+        BlankNode(self.blank_node_count)
     }
 
     fn add_value_triple(&mut self, addition: ValueTriple) {
@@ -230,6 +295,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
             node_count,
             pred_count,
             val_count,
+            blank_node_count,
         } = self;
         let parent_node_value_offset = parent
             .as_ref()
@@ -313,6 +379,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
         let mut nodes = Vec::with_capacity(node_count);
         let mut predicates = Vec::with_capacity(pred_count);
         let mut values = Vec::with_capacity(val_count);
+        let mut blanks = Vec::with_capacity(blank_node_count);
 
         for (entry, id) in nodes_values_map.into_iter() {
             if id <= parent_node_value_offset as u64 {
@@ -324,8 +391,9 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                 continue;
             }
             match entry {
-                ObjectType::Node(n) => nodes.push((n, id)),
-                ObjectType::Value(v) => values.push((v, id)),
+                ExpandedObjectType::Node(n) => nodes.push((n, id)),
+                ExpandedObjectType::Value(v) => values.push((v, id)),
+                ExpandedObjectType::Blank => blanks.push(id),
             }
         }
         for (entry, id) in predicates_map.into_iter() {

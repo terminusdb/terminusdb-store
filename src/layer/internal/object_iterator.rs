@@ -447,7 +447,7 @@ mod tests {
 
         let layer = store.get_layer(child4_name).await.unwrap().unwrap();
 
-        let object_id = layer.object_node_id("cow").unwrap();
+        let object_id = layer.object_node_id(Blankable::Val("cow")).unwrap();
         let triples: Vec<_> = layer
             .triples_o(object_id)
             .map(|t| layer.id_triple_to_string(&t).unwrap())
