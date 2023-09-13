@@ -58,63 +58,14 @@ pub struct SimpleLayerBuilder<F: 'static + FileLoad + FileStore + Clone> {
     id_additions: Vec<IdTriple>,
     id_removals: Vec<IdTriple>,
 
-    nodes_values_map: HashMap<ExpandedObjectType, u64>,
-    predicates_map: HashMap<String, u64>,
+    nodes_values_map: HashMap<ObjectType, u64>,
+    predicates_map: HashMap<Blankable<String>, u64>,
     nodes_values_map_count: usize,
     predicates_map_count: usize,
     node_count: usize,
     pred_count: usize,
     val_count: usize,
     blank_node_count: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum ExpandedObjectType {
-    Node(String),
-    Value(TypedDictEntry),
-    Blank,
-}
-impl ExpandedObjectType {
-    pub fn node(self) -> Option<String> {
-        match self {
-            ExpandedObjectType::Node(s) => Some(s),
-            ExpandedObjectType::Value(_) => None,
-            ExpandedObjectType::Blank => None,
-        }
-    }
-
-    pub fn node_ref(&self) -> Option<&str> {
-        match self {
-            ExpandedObjectType::Node(s) => Some(s),
-            ExpandedObjectType::Value(_) => None,
-            ExpandedObjectType::Blank => None,
-        }
-    }
-
-    pub fn value(self) -> Option<TypedDictEntry> {
-        match self {
-            ExpandedObjectType::Node(_) => None,
-            ExpandedObjectType::Value(v) => Some(v),
-            ExpandedObjectType::Blank => None,
-        }
-    }
-
-    pub fn value_ref(&self) -> Option<&TypedDictEntry> {
-        match self {
-            ExpandedObjectType::Node(_) => None,
-            ExpandedObjectType::Value(v) => Some(v),
-            ExpandedObjectType::Blank => None,
-        }
-    }
-}
-
-impl From<ObjectType> for ExpandedObjectType {
-    fn from(value: ObjectType) -> Self {
-        match value {
-            ObjectType::Node(n) => Self::Node(n),
-            ObjectType::Value(v) => Self::Value(v),
-        }
-    }
 }
 
 impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
@@ -161,7 +112,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
     }
 
     fn calculate_triple(&mut self, triple: ValueTriple) -> IdTriple {
-        let subject = ExpandedObjectType::Node(triple.subject);
+        let subject = ObjectType::Node(triple.subject);
         let predicate = triple.predicate;
         let object = triple.object;
         let subject_id = if let Some(n) = self.nodes_values_map.get(&subject) {
@@ -170,7 +121,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
             let node_id = if let Some(node_id) = self
                 .parent
                 .as_ref()
-                .and_then(|p| p.subject_id(subject.node_ref().unwrap()))
+                .and_then(|p| p.subject_id(subject.blank_node_ref().unwrap()))
             {
                 node_id
             } else {
@@ -189,7 +140,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
             let predicate_id = if let Some(predicate_id) = self
                 .parent
                 .as_ref()
-                .and_then(|p| p.predicate_id(&predicate))
+                .and_then(|p| p.predicate_id(predicate.as_ref()))
             {
                 predicate_id
             } else {
@@ -210,7 +161,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
                     let node_id = if let Some(node_id) = self
                         .parent
                         .as_ref()
-                        .and_then(|p| p.object_node_id(n.as_str()))
+                        .and_then(|p| p.object_node_id(n.as_ref()))
                     {
                         node_id
                     } else {
@@ -218,8 +169,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
                         self.node_count += 1;
                         self.nodes_values_map_count as u64
                     };
-                    self.nodes_values_map
-                        .insert(ExpandedObjectType::Node(n), node_id);
+                    self.nodes_values_map.insert(ObjectType::Node(n), node_id);
 
                     node_id
                 }
@@ -233,8 +183,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
                         self.val_count += 1;
                         self.nodes_values_map_count as u64
                     };
-                    self.nodes_values_map
-                        .insert(ExpandedObjectType::Value(v), value_id);
+                    self.nodes_values_map.insert(ObjectType::Value(v), value_id);
 
                     value_id
                 }
@@ -380,6 +329,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
         let mut predicates = Vec::with_capacity(pred_count);
         let mut values = Vec::with_capacity(val_count);
         let mut blanks = Vec::with_capacity(blank_node_count);
+        let mut indexes = Vec::with_capacity(index_count);
 
         for (entry, id) in nodes_values_map.into_iter() {
             if id <= parent_node_value_offset as u64 {
@@ -391,9 +341,9 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                 continue;
             }
             match entry {
-                ExpandedObjectType::Node(n) => nodes.push((n, id)),
-                ExpandedObjectType::Value(v) => values.push((v, id)),
-                ExpandedObjectType::Blank => blanks.push(id),
+                ObjectType::Node(Blankable::Val(n)) => nodes.push((n, id)),
+                ObjectType::Value(v) => values.push((v, id)),
+                _ => {}
             }
         }
         for (entry, id) in predicates_map.into_iter() {
@@ -420,10 +370,15 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
             let mapped_old_id = *old_id as usize - parent_node_value_offset - 1;
             node_value_id_map[mapped_old_id] = (new_id + parent_node_value_offset + 1) as u64;
         }
-        for (new_id, (_, old_id)) in values.iter().enumerate() {
+        for (new_id, (_, old_id)) in blanks.iter().enumerate() {
             let mapped_old_id = *old_id as usize - parent_node_value_offset - 1;
             node_value_id_map[mapped_old_id] =
                 (new_id + parent_node_value_offset + nodes.len() + 1) as u64;
+        }
+        for (new_id, (_, old_id)) in values.iter().enumerate() {
+            let mapped_old_id = *old_id as usize - parent_node_value_offset - 1;
+            node_value_id_map[mapped_old_id] =
+                (new_id + parent_node_value_offset + nodes.len() + blanks.len() + 1) as u64;
         }
         for (new_id, (_, old_id)) in predicates.iter().enumerate() {
             let mapped_old_id = *old_id as usize - parent_predicate_offset - 1;

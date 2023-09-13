@@ -570,7 +570,7 @@ pub mod tests {
         assert_eq!(Blankable::Val("bbbbb"), base_layer.id_subject(3).unwrap());
         assert_eq!(Blankable::Val("fghij"), base_layer.id_predicate(2).unwrap());
         assert_eq!(
-            ObjectType::string_node("aaaaa".to_string()),
+            ObjectType::new_string_node("aaaaa".to_string()),
             base_layer.id_object(1).unwrap()
         );
         assert_eq!(

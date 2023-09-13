@@ -991,7 +991,7 @@ pub mod tests {
             child_layer.id_predicate(2).unwrap()
         );
         assert_eq!(
-            ObjectType::string_node("aaaaa".to_string()),
+            ObjectType::new_string_node("aaaaa".to_string()),
             child_layer.id_object(1).unwrap()
         );
         assert_eq!(
@@ -1037,7 +1037,7 @@ pub mod tests {
         assert_eq!(Blankable::Val("foo"), child_layer.id_subject(11).unwrap());
         assert_eq!(Blankable::Val("bar"), child_layer.id_predicate(5).unwrap());
         assert_eq!(
-            ObjectType::string_node("foo".to_string()),
+            ObjectType::new_string_node("foo".to_string()),
             child_layer.id_object(11).unwrap()
         );
         assert_eq!(

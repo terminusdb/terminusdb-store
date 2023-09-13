@@ -408,7 +408,16 @@ impl PartiallyResolvedTriple {
             PossiblyResolved::Resolved(id) => id,
         };
         let object = match self.object.as_ref() {
-            PossiblyResolved::Unresolved(ObjectType::Node(n)) => *node_map.get(n)?,
+            PossiblyResolved::Unresolved(ObjectType::Node(Blankable::Blank(b))) => {
+                if blank_nodes.is_blank_node(*b) {
+                    *b as u64
+                } else {
+                    return None;
+                }
+            }
+            PossiblyResolved::Unresolved(ObjectType::Node(Blankable::Val(n))) => {
+                *node_map.get(n)?
+            }
             PossiblyResolved::Unresolved(ObjectType::Value(v)) => *value_map.get(v)?,
             PossiblyResolved::Resolved(id) => id,
         };
@@ -464,23 +473,38 @@ pub enum ObjectType {
 }
 
 impl ObjectType {
-    pub fn blank_node(id: usize) -> ObjectType {
+    pub fn new_blank_node(id: usize) -> ObjectType {
         Self::Node(Blankable::Blank(id))
     }
-    pub fn string_node(s: String) -> ObjectType {
+    pub fn new_string_node(s: String) -> ObjectType {
         Self::Node(Blankable::Val(s))
     }
+
+    pub fn blank_node(self) -> Option<Blankable<String>> {
+        match self {
+            ObjectType::Node(b) => Some(b),
+            _ => None,
+        }
+    }
+
+    pub fn blank_node_ref(&self) -> Option<Blankable<&str>> {
+        match self {
+            ObjectType::Node(b) => Some(b.as_ref()),
+            _ => None,
+        }
+    }
+
     pub fn node(self) -> Option<String> {
         match self {
-            ObjectType::Node(s) => Some(s),
-            ObjectType::Value(_) => None,
+            ObjectType::Node(Blankable::Val(s)) => Some(s),
+            _ => None,
         }
     }
 
     pub fn node_ref(&self) -> Option<&str> {
         match self {
-            ObjectType::Node(s) => Some(s),
-            ObjectType::Value(_) => None,
+            ObjectType::Node(Blankable::Val(s)) => Some(s),
+            _ => None,
         }
     }
 
@@ -665,16 +689,16 @@ mod tests {
 
         let id_triple_1 = child
             .single_triple_sp(
-                child.subject_id("cow").unwrap(),
-                child.predicate_id("says").unwrap(),
+                child.subject_id("cow".into()).unwrap(),
+                child.predicate_id("says".into()).unwrap(),
             )
             .unwrap();
         let triple_1 = child.id_triple_to_string(&id_triple_1).unwrap();
 
         let id_triple_2 = child
             .single_triple_sp(
-                child.subject_id("duck").unwrap(),
-                child.predicate_id("says").unwrap(),
+                child.subject_id("duck".into()).unwrap(),
+                child.predicate_id("says".into()).unwrap(),
             )
             .unwrap();
         let triple_2 = child.id_triple_to_string(&id_triple_2).unwrap();
@@ -735,7 +759,7 @@ mod tests {
         );
 
         let mut results: Vec<_> = base
-            .triples_p(base.predicate_id("num_feet").unwrap())
+            .triples_p(base.predicate_id("num_feet".into()).unwrap())
             .map(|t| {
                 (
                     base.id_subject(t.subject).unwrap(),
@@ -745,10 +769,10 @@ mod tests {
             .collect();
         results.sort();
 
-        let expected = vec![
-            ("cow".to_owned(), 4),
-            ("disabled_cow".to_owned(), 3),
-            ("duck".to_owned(), 2),
+        let expected: Vec<(Blankable<String>, u32)> = vec![
+            ("cow".to_string().into(), 4),
+            ("disabled_cow".to_string().into(), 3),
+            ("duck".to_string().into(), 2),
         ];
 
         assert_eq!(expected, results);

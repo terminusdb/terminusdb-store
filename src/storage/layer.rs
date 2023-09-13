@@ -2981,7 +2981,7 @@ mod tests {
 
         let mut triples: Vec<_> = contents
             .iter()
-            .filter(|(t, _)| t.object == ObjectType::string_node("cow".to_string()))
+            .filter(|(t, _)| t.object == ObjectType::new_string_node("cow".to_string()))
             .map(|(_, t)| t)
             .cloned()
             .collect();
@@ -3217,7 +3217,7 @@ mod tests {
 
         let mut triples: Vec<_> = contents
             .iter()
-            .filter(|(t, _)| t.object == ObjectType::string_node("platypus".to_string()))
+            .filter(|(t, _)| t.object == ObjectType::new_string_node("platypus".to_string()))
             .map(|(_, t)| t)
             .cloned()
             .collect();
@@ -3420,7 +3420,7 @@ mod tests {
 
         let mut triples: Vec<_> = removals
             .iter()
-            .filter(|(t, _)| t.object == ObjectType::string_node("cow".to_string()))
+            .filter(|(t, _)| t.object == ObjectType::new_string_node("cow".to_string()))
             .map(|(_, t)| t)
             .cloned()
             .collect();
