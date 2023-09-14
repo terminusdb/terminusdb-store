@@ -34,7 +34,7 @@ use super::util;
 use crate::storage::*;
 use crate::structure::bititer::BitIter;
 use byteorder::{BigEndian, ByteOrder};
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::{Buf, Bytes, BytesMut, BufMut};
 use futures::io;
 use futures::stream::{Stream, StreamExt, TryStreamExt};
 use std::{convert::TryFrom, error, fmt};
@@ -197,6 +197,73 @@ impl BitArray {
     pub fn iter(&self) -> impl Iterator<Item = bool> {
         let bits = self.clone();
         (0..bits.len()).map(move |index| bits.get(index))
+    }
+}
+
+pub struct BitArrayBufBuilder<B> {
+    /// Destination of the bit array data.
+    dest: B,
+    /// Storage for the next word to be written.
+    current: u64,
+    /// Number of bits written to the buffer
+    count: u64,
+}
+
+impl<B: BufMut> BitArrayBufBuilder<B> {
+    pub fn new(dest: B) -> BitArrayFileBuilder<B> {
+        BitArrayFileBuilder {
+            dest,
+            current: 0,
+            count: 0,
+        }
+    }
+
+    pub fn push(&mut self, bit: bool) {
+        // Set the bit in the current word.
+        if bit {
+            // Determine the position of the bit to be set from `count`.
+            let pos = self.count & 0b11_1111;
+            self.current |= 0x8000_0000_0000_0000 >> pos;
+        }
+
+        // Advance the bit count.
+        self.count += 1;
+
+        // Check if the new `count` has reached a word boundary.
+        if self.count & 0b11_1111 == 0 {
+            // We have filled `current`, so write it to the destination.
+            self.dest.put_u64(self.current);
+            self.current = 0;
+        }
+    }
+
+    pub fn push_all<I: Iterator<Item = bool>>(
+        &mut self,
+        mut iter: I,
+    )  {
+        while let Some(bit) = iter.next() {
+            self.push(bit);
+        }
+    }
+
+    fn finalize_data(&mut self) {
+        if self.count & 0b11_1111 != 0 {
+            self.dest.put_u64(self.current);
+        }
+    }
+
+    pub fn finalize(mut self) -> B{
+        let count = self.count;
+        // Write the final data word.
+        self.finalize_data();
+        // Write the control word.
+        self.dest.put_u64(count);
+
+        self.dest
+    }
+
+    pub fn count(&self) -> u64 {
+        self.count
     }
 }
 
