@@ -10,6 +10,7 @@ pub mod logarray;
 pub mod smallbitarray;
 //pub mod mapped_dict;
 //pub mod pfc;
+pub mod indexed_property;
 pub mod tfc;
 pub mod util;
 pub mod vbyte;
