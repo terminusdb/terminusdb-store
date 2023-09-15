@@ -251,6 +251,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
             files,
             mut id_additions,
             mut id_removals,
+            mut index_id_additions,
 
             nodes_values_map,
             predicates_map,
@@ -272,6 +273,8 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
         id_removals.sort();
         id_removals.dedup();
         id_removals.shrink_to_fit();
+        index_id_additions.sort();
+        index_id_additions.dedup();
 
         // we now need to figure out noops.
         let mut additions_it = id_additions.iter_mut().peekable();
@@ -317,6 +320,16 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
             }
         }
 
+        // check arrays for things
+        let mut last = (0, 0);
+        for triple in index_id_additions.iter() {
+            let cur = (triple.subject, triple.index);
+            if cur == last {
+                panic!("duplicate index");
+            }
+            last = cur;
+        }
+
         // some dict entries might now be unused. We need to do an existence check.
         let mut node_value_existences = bitvec![0;node_count + val_count];
         let mut predicate_existences = bitvec![0;pred_count];
@@ -330,6 +343,16 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                     triple.predicate as usize - parent_predicate_offset - 1,
                     true,
                 );
+            }
+            if triple.object > parent_node_value_offset as u64 {
+                node_value_existences
+                    .set(triple.object as usize - parent_node_value_offset - 1, true);
+            }
+        }
+        for triple in index_id_additions.iter() {
+            if triple.subject > parent_node_value_offset as u64 {
+                node_value_existences
+                    .set(triple.subject as usize - parent_node_value_offset - 1, true);
             }
             if triple.object > parent_node_value_offset as u64 {
                 node_value_existences
@@ -405,9 +428,20 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                 triple.object = node_value_id_map[mapped_id];
             }
         }
+        for triple in index_id_additions.iter_mut() {
+            if triple.subject > parent_node_value_offset as u64 {
+                let mapped_id = triple.subject as usize - parent_node_value_offset - 1;
+                triple.subject = node_value_id_map[mapped_id];
+            }
+            if triple.object > parent_node_value_offset as u64 {
+                let mapped_id = triple.object as usize - parent_node_value_offset - 1;
+                triple.object = node_value_id_map[mapped_id];
+            }
+        }
         // and resort them
         id_additions.sort();
         id_removals.sort();
+        index_id_additions.sort();
 
         // great! everything is now in order. Let's stuff it into an actual builder
         Box::pin(async {
