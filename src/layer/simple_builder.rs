@@ -38,6 +38,8 @@ pub trait LayerBuilder: Send + Sync {
     fn remove_value_triple(&mut self, triple: ValueTriple);
     /// Remove an id triple
     fn remove_id_triple(&mut self, triple: IdTriple);
+    fn set_index_value_triple(&mut self, triple: IndexValueTriple);
+    fn set_index_id_triple(&mut self, triple: IndexIdTriple);
     /// Commit the layer to storage
     fn commit(self) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>>;
     /// Commit a boxed layer to storage
@@ -55,6 +57,7 @@ pub struct SimpleLayerBuilder<F: 'static + FileLoad + FileStore + Clone> {
     files: LayerFiles<F>,
     id_additions: Vec<IdTriple>,
     id_removals: Vec<IdTriple>,
+    index_id_additions: Vec<IndexIdTriple>,
 
     nodes_values_map: HashMap<ObjectType, u64>,
     predicates_map: HashMap<String, u64>,
@@ -74,6 +77,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
             files: LayerFiles::Base(files),
             id_additions: Vec::with_capacity(0),
             id_removals: Vec::with_capacity(0),
+            index_id_additions: Vec::with_capacity(0),
 
             nodes_values_map: HashMap::new(),
             predicates_map: HashMap::new(),
@@ -95,6 +99,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
             files: LayerFiles::Child(files),
             id_additions: Vec::new(),
             id_removals: Vec::new(),
+            index_id_additions: Vec::new(),
 
             nodes_values_map: HashMap::new(),
             predicates_map: HashMap::new(),
@@ -106,11 +111,9 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
         }
     }
 
-    fn calculate_triple(&mut self, triple: ValueTriple) -> IdTriple {
-        let subject = ObjectType::Node(triple.subject);
-        let predicate = triple.predicate;
-        let object = triple.object;
-        let subject_id = if let Some(n) = self.nodes_values_map.get(&subject) {
+    fn calculate_triple_subject(&mut self, subject: String) -> u64 {
+        let subject = ObjectType::Node(subject);
+        if let Some(n) = self.nodes_values_map.get(&subject) {
             *n
         } else {
             let node_id = if let Some(node_id) = self
@@ -127,9 +130,11 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
             self.nodes_values_map.insert(subject, node_id);
 
             node_id
-        };
+        }
+    }
 
-        let predicate_id = if let Some(p) = self.predicates_map.get(&predicate) {
+    fn calculate_triple_predicate(&mut self, predicate: String) -> u64 {
+        if let Some(p) = self.predicates_map.get(&predicate) {
             *p
         } else {
             let predicate_id = if let Some(predicate_id) = self
@@ -146,8 +151,11 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
             self.predicates_map.insert(predicate, predicate_id);
 
             predicate_id
-        };
-        let object_id = if let Some(o) = self.nodes_values_map.get(&object) {
+        }
+    }
+
+    fn calculate_triple_object(&mut self, object: ObjectType) -> u64 {
+        if let Some(o) = self.nodes_values_map.get(&object) {
             *o
         } else {
             match object {
@@ -182,9 +190,22 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
                     value_id
                 }
             }
-        };
+        }
+    }
+
+    fn calculate_triple(&mut self, triple: ValueTriple) -> IdTriple {
+        let subject_id = self.calculate_triple_subject(triple.subject);
+        let predicate_id = self.calculate_triple_predicate(triple.predicate);
+        let object_id = self.calculate_triple_object(triple.object);
 
         IdTriple::new(subject_id, predicate_id, object_id)
+    }
+
+    fn calculate_index_triple(&mut self, triple: IndexValueTriple) -> IndexIdTriple {
+        let subject_id = self.calculate_triple_subject(triple.subject);
+        let object_id = self.calculate_triple_object(triple.object);
+
+        IndexIdTriple::new(subject_id, triple.index, object_id)
     }
 }
 
@@ -215,9 +236,17 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
         self.id_removals.push(triple);
     }
 
+    fn set_index_value_triple(&mut self, triple: IndexValueTriple) {
+        let triple = self.calculate_index_triple(triple);
+        self.set_index_id_triple(triple);
+    }
+
+    fn set_index_id_triple(&mut self, triple: IndexIdTriple) {
+        self.index_id_additions.push(triple);
+    }
+
     fn commit(self) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> {
         let SimpleLayerBuilder {
-            name: _,
             parent,
             files,
             mut id_additions,
@@ -225,11 +254,10 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
 
             nodes_values_map,
             predicates_map,
-            nodes_values_map_count: _,
-            predicates_map_count: _,
             node_count,
             pred_count,
             val_count,
+            ..
         } = self;
         let parent_node_value_offset = parent
             .as_ref()

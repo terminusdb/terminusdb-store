@@ -199,11 +199,35 @@ impl IdTriple {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct IndexIdTriple {
+    pub subject: u64,
+    pub index: usize,
+    pub object: u64,
+}
+
+impl IndexIdTriple {
+    pub fn new(subject: u64, index: usize, object: u64) -> Self {
+        IndexIdTriple {
+            subject,
+            index,
+            object,
+        }
+    }
+}
+
 /// A triple stored as strings.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ValueTriple {
     pub subject: String,
     pub predicate: String,
+    pub object: ObjectType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct IndexValueTriple {
+    pub subject: String,
+    pub index: usize,
     pub object: ObjectType,
 }
 
