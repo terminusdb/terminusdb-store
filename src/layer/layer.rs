@@ -405,9 +405,9 @@ impl ObjectType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layer::internal::base::tests::base_layer_files;
+    use crate::layer::internal::base::base_tests::base_layer_files;
     use crate::layer::internal::base::BaseLayer;
-    use crate::layer::internal::child::tests::child_layer_files;
+    use crate::layer::internal::child::child_tests::child_layer_files;
     use crate::layer::internal::child::ChildLayer;
     use crate::layer::internal::InternalLayer;
     use crate::layer::simple_builder::{LayerBuilder, SimpleLayerBuilder};
