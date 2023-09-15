@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1689777996410,
+  "lastUpdate": 1694770829878,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -17951,6 +17951,126 @@ window.BENCHMARK_DATA = {
             "name": "logarray_w5_empty",
             "value": 340,
             "range": "± 1",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "matthijs@terminusdb.com",
+            "name": "Matthijs van Otterdijk",
+            "username": "matko"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f807c741bfdbb59cf156319e5e1026d5082c8935",
+          "message": "More buf builders (#144)\n\n* bitarray bufbuilder\r\n\r\n* adjacency list buf builder\r\n\r\n* resolve warnings in test compilation\r\n\r\n* removed unnecessary lifetimes\r\n\r\n* conform to clippy expectations in ci",
+          "timestamp": "2023-09-15T11:31:32+02:00",
+          "tree_id": "f058e4e415e7ce428dc098b04c14df1fb827de69",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/f807c741bfdbb59cf156319e5e1026d5082c8935"
+        },
+        "date": 1694770828603,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 1193,
+            "range": "± 167",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 11291924,
+            "range": "± 1294431",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 1904254,
+            "range": "± 297316",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 1849132,
+            "range": "± 510796",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 11858312,
+            "range": "± 1842037",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 7682910,
+            "range": "± 731443",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w10_1000",
+            "value": 12011,
+            "range": "± 1460",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1",
+            "value": 439,
+            "range": "± 56",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10",
+            "value": 522,
+            "range": "± 47",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_100",
+            "value": 1634,
+            "range": "± 169",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1000",
+            "value": 11122,
+            "range": "± 1888",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000",
+            "value": 102393,
+            "range": "± 8039",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_as_stream",
+            "value": 111883,
+            "range": "± 10761",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent",
+            "value": 1337633,
+            "range": "± 278748",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent_as_stream",
+            "value": 1144657,
+            "range": "± 88193",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_empty",
+            "value": 363,
+            "range": "± 35",
             "unit": "ns/iter"
           }
         ]
