@@ -108,7 +108,7 @@ impl AdjacencyList {
         self.nums.entry(pos.try_into().unwrap())
     }
 
-    pub fn get(&self, index: u64) -> LogArray {
+    pub fn get(&self, index: u64) -> MonotonicLogArray {
         if index < 1 {
             panic!("minimum index has to be 1");
         }
@@ -124,7 +124,7 @@ impl AdjacencyList {
         let end = self.bits.select1(index).unwrap();
         let length = end - start + 1;
 
-        self.nums.slice(start as usize, length as usize)
+        MonotonicLogArray::from_logarray(self.nums.slice(start as usize, length as usize))
     }
 
     pub fn iter(&self) -> AdjacencyListIterator {
@@ -439,6 +439,7 @@ impl AdjacencyListBufBuilder {
     }
 }
 
+#[derive(Clone)]
 pub struct AdjacencyListBuffers {
     nums: Bytes,
     bits: Bytes,
