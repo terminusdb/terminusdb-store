@@ -235,8 +235,8 @@ pub async fn adjacency_list_stream_pairs<F: 'static + FileLoad>(
 }
 
 pub struct UnindexedAdjacencyListBufBuilder {
-    bitarray: BitArrayBufBuilder<'static, BytesMut>,
-    nums: LogArrayBufBuilder<'static, BytesMut>,
+    bitarray: BitArrayBufBuilder<BytesMut>,
+    nums: LogArrayBufBuilder<BytesMut>,
     last_left: u64,
     last_right: u64,
 }

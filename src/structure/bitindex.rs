@@ -438,12 +438,11 @@ pub async fn build_bitindex<
 }
 
 pub fn build_bitindex_from_block_iter<
-    'a,
     I: Iterator<Item = u64>,
-    B1: BufMut + 'a,
-    B2: BufMut + 'a,
+    B1: BufMut,
+    B2: BufMut,
 >(
-    blocks_iter: &'a mut I,
+    blocks_iter: I,
     blocks: B1,
     sblocks: B2,
 ) {
@@ -478,7 +477,7 @@ pub fn build_bitindex_from_block_iter<
     sblocks_builder.finalize();
 }
 
-pub fn build_bitindex_from_buf<'a, B1: Buf + 'a, B2: BufMut + 'a, B3: BufMut + 'a>(
+pub fn build_bitindex_from_buf<B1: Buf, B2: BufMut, B3: BufMut>(
     bitarray: B1,
     blocks: B2,
     sblocks: B3,
