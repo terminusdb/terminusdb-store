@@ -404,9 +404,9 @@ impl LogArray {
 }
 
 /// write a logarray directly to an AsyncWrite
-pub struct LogArrayBufBuilder<'a, B: BufMut> {
+pub struct LogArrayBufBuilder<'a, B: BufMut + 'a> {
     /// Destination of the log array data
-    buf: &'a mut B,
+    buf: B,
     /// Bit width of an element
     width: u8,
     /// Storage for the next word to be written to the buffer
@@ -415,16 +415,17 @@ pub struct LogArrayBufBuilder<'a, B: BufMut> {
     offset: u8,
     /// Number of elements written to the buffer
     count: u64,
+    _x: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> LogArrayBufBuilder<'a, BytesMut> {
+impl<'a, D: std::ops::DerefMut<Target = BytesMut> + BufMut> LogArrayBufBuilder<'a, D> {
     pub fn reserve(&mut self, additional: usize) {
         self.buf.reserve(additional * self.width as usize / 8);
     }
 }
 
-impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
-    pub fn new(buf: &'a mut B, width: u8) -> Self {
+impl<'a, B: BufMut + 'a> LogArrayBufBuilder<'a, B> {
+    pub fn new(buf: B, width: u8) -> Self {
         Self {
             buf,
             width,
@@ -434,6 +435,7 @@ impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
             offset: 0,
             // No elements have been written.
             count: 0,
+            _x: Default::default(),
         }
     }
 
@@ -492,10 +494,11 @@ impl<'a, B: BufMut> LogArrayBufBuilder<'a, B> {
         }
     }
 
-    pub fn finalize(mut self) {
+    pub fn finalize(mut self) -> B {
         self.finalize_data();
 
         self.write_control_word();
+        self.buf
     }
 
     pub(crate) fn finalize_without_control_word(mut self) {

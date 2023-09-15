@@ -34,7 +34,7 @@ use super::util;
 use crate::storage::*;
 use crate::structure::bititer::BitIter;
 use byteorder::{BigEndian, ByteOrder};
-use bytes::{Buf, Bytes, BytesMut, BufMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures::io;
 use futures::stream::{Stream, StreamExt, TryStreamExt};
 use std::{convert::TryFrom, error, fmt};
@@ -200,21 +200,23 @@ impl BitArray {
     }
 }
 
-pub struct BitArrayBufBuilder<B> {
+pub struct BitArrayBufBuilder<'a, B: 'a> {
     /// Destination of the bit array data.
     dest: B,
     /// Storage for the next word to be written.
     current: u64,
     /// Number of bits written to the buffer
     count: u64,
+    _x: std::marker::PhantomData<&'a ()>,
 }
 
-impl<B: BufMut> BitArrayBufBuilder<B> {
-    pub fn new(dest: B) -> BitArrayFileBuilder<B> {
-        BitArrayFileBuilder {
+impl<'a, B: BufMut + 'a> BitArrayBufBuilder<'a, B> {
+    pub fn new(dest: B) -> BitArrayBufBuilder<'a, B> {
+        BitArrayBufBuilder {
             dest,
             current: 0,
             count: 0,
+            _x: Default::default(),
         }
     }
 
@@ -237,10 +239,7 @@ impl<B: BufMut> BitArrayBufBuilder<B> {
         }
     }
 
-    pub fn push_all<I: Iterator<Item = bool>>(
-        &mut self,
-        mut iter: I,
-    )  {
+    pub fn push_all<I: Iterator<Item = bool>>(&mut self, mut iter: I) {
         while let Some(bit) = iter.next() {
             self.push(bit);
         }
@@ -252,7 +251,7 @@ impl<B: BufMut> BitArrayBufBuilder<B> {
         }
     }
 
-    pub fn finalize(mut self) -> B{
+    pub fn finalize(mut self) -> B {
         let count = self.count;
         // Write the final data word.
         self.finalize_data();
@@ -384,22 +383,24 @@ pub fn bitarray_stream_blocks<R: AsyncRead + Unpin>(r: R) -> FramedRead<R, BitAr
     FramedRead::new(r, BitArrayBlockDecoder { readahead: None })
 }
 
-pub fn bitarray_iter_blocks<B: Buf>(b: &mut B) -> BitArrayBlockIterator<B> {
+pub fn bitarray_iter_blocks<'a, B: Buf + 'a>(b: B) -> BitArrayBlockIterator<'a, B> {
     BitArrayBlockIterator {
         buf: b,
         readahead: None,
+        _x: Default::default(),
     }
 }
 
-pub struct BitArrayBlockIterator<'a, B: Buf> {
-    buf: &'a mut B,
+pub struct BitArrayBlockIterator<'a, B: Buf + 'a> {
+    buf: B,
     readahead: Option<u64>,
+    _x: std::marker::PhantomData<&'a ()>,
 }
 
 impl<'a, B: Buf> Iterator for BitArrayBlockIterator<'a, B> {
     type Item = u64;
     fn next(&mut self) -> Option<u64> {
-        decode_next_bitarray_block(self.buf, &mut self.readahead)
+        decode_next_bitarray_block(&mut self.buf, &mut self.readahead)
     }
 }
 

@@ -15,6 +15,7 @@ use std::io;
 use std::pin::Pin;
 
 use bytes::Bytes;
+use bytes::BytesMut;
 
 use super::bitarray::*;
 use super::bitindex::*;
@@ -34,6 +35,15 @@ impl AdjacencyList {
     pub fn from_parts(nums: LogArray, bits: BitIndex) -> AdjacencyList {
         debug_assert_eq!(nums.len(), bits.len());
         AdjacencyList { nums, bits }
+    }
+
+    pub fn from_buffers(buffers: AdjacencyListBuffers) -> AdjacencyList {
+        Self::parse(
+            buffers.nums,
+            buffers.bits,
+            buffers.bitindex_blocks,
+            buffers.bitindex_sblocks,
+        )
     }
 
     pub fn parse(
@@ -224,6 +234,82 @@ pub async fn adjacency_list_stream_pairs<F: 'static + FileLoad>(
     )
 }
 
+pub struct UnindexedAdjacencyListBufBuilder {
+    bitarray: BitArrayBufBuilder<'static, BytesMut>,
+    nums: LogArrayBufBuilder<'static, BytesMut>,
+    last_left: u64,
+    last_right: u64,
+}
+
+impl UnindexedAdjacencyListBufBuilder {
+    pub fn new(width: u8) -> Self {
+        Self {
+            bitarray: BitArrayBufBuilder::new(BytesMut::new()),
+            nums: LogArrayBufBuilder::new(BytesMut::new(), width),
+            last_left: 0,
+            last_right: 0,
+        }
+    }
+
+    pub fn push(&mut self, left: u64, right: u64) {
+        // the tricky thing with this code is that the bitarray lags one entry behind the logarray.
+        // The reason for this is that at push time, we do not yet know if this entry is going to be
+        // the last entry for `left`, we only know this when we push a greater `left` later on.
+        if left < self.last_left || (left == self.last_left && right <= self.last_right) {
+            panic!("tried to push an unordered adjacent pair");
+        }
+
+        // the left hand side of the adjacencylist is expected to be a continuous range from 1 up to the max
+        // but when adding entries, there may be holes. We handle holes by writing a '0' to the logarray
+        // (which is otherwise an invalid right-hand side) and pushing a 1 onto the bitarray to immediately close the segment.
+        let skip = left - self.last_left;
+
+        if self.last_left == 0 && skip == 1 {
+            // this is the first entry. we can't push a bit yet
+        } else if skip == 0 {
+            // same `left` as before. so the previous entry was not the last one, and the bitarray gets a 0 appended.
+            self.bitarray.push(false);
+        } else {
+            // if this is the first element, but we do need to skip, make sure we write one less bit than we'd usually do
+            let bitskip = if self.last_left == 0 { skip - 1 } else { skip };
+            // there's a different `left`. we push a bunch of 1s to the bitarray, and 0s to the num array.
+            for _ in 0..bitskip {
+                self.bitarray.push(true);
+            }
+            for _ in 0..(skip - 1) {
+                self.nums.push(0);
+            }
+        }
+
+        // finally push right to the logarray
+        self.nums.push(right);
+        self.last_left = left;
+        self.last_right = right;
+    }
+
+    pub fn push_all<I: Iterator<Item = (u64, u64)>>(&mut self, mut iter: I) {
+        while let Some((left, right)) = iter.next() {
+            self.push(left, right);
+        }
+    }
+
+    pub fn finalize(mut self) -> (Bytes, Bytes) {
+        if self.nums.count() != 0 {
+            // push last bit to bitarray
+            self.bitarray.push(true);
+        }
+
+        let ba = self.bitarray.finalize();
+        let nums = self.nums.finalize();
+
+        (ba.freeze(), nums.freeze())
+    }
+
+    pub fn count(&self) -> u64 {
+        self.bitarray.count()
+    }
+}
+
 pub struct UnindexedAdjacencyListBuilder<W1: SyncableFile, W2: SyncableFile> {
     bitarray: BitArrayFileBuilder<W1>,
     nums: LogArrayFileBuilder<W2>,
@@ -305,6 +391,59 @@ impl<W1: SyncableFile, W2: SyncableFile> UnindexedAdjacencyListBuilder<W1, W2> {
     pub fn count(&self) -> u64 {
         self.bitarray.count()
     }
+}
+
+pub struct AdjacencyListBufBuilder {
+    builder: UnindexedAdjacencyListBufBuilder,
+    bitindex_blocks: BytesMut,
+    bitindex_sblocks: BytesMut,
+}
+
+impl AdjacencyListBufBuilder {
+    pub fn new(width: u8) -> AdjacencyListBufBuilder {
+        AdjacencyListBufBuilder {
+            builder: UnindexedAdjacencyListBufBuilder::new(width),
+            bitindex_blocks: BytesMut::new(),
+            bitindex_sblocks: BytesMut::new(),
+        }
+    }
+
+    pub fn push(&mut self, left: u64, right: u64) {
+        self.builder.push(left, right)
+    }
+
+    pub fn push_all<I: Iterator<Item = (u64, u64)>>(&mut self, iter: I) {
+        self.builder.push_all(iter)
+    }
+
+    pub fn finalize(self) -> AdjacencyListBuffers {
+        let AdjacencyListBufBuilder {
+            builder,
+            mut bitindex_blocks,
+            mut bitindex_sblocks,
+        } = self;
+        let (bitfile, nums) = builder.finalize();
+
+        build_bitindex_from_buf(&bitfile[..], &mut bitindex_blocks, &mut bitindex_sblocks);
+
+        AdjacencyListBuffers {
+            nums,
+            bits: bitfile,
+            bitindex_blocks: bitindex_blocks.freeze(),
+            bitindex_sblocks: bitindex_sblocks.freeze(),
+        }
+    }
+
+    pub fn count(&self) -> u64 {
+        self.builder.count()
+    }
+}
+
+pub struct AdjacencyListBuffers {
+    nums: Bytes,
+    bits: Bytes,
+    bitindex_blocks: Bytes,
+    bitindex_sblocks: Bytes,
 }
 
 pub struct AdjacencyListBuilder<F, W1, W2, W3>
@@ -777,5 +916,17 @@ mod tests {
             ],
             result
         );
+    }
+
+    #[test]
+    fn adjacencylist_buf_builder_works() {
+        let adjacencies = [(1, 1), (1, 5), (2, 3), (2, 7), (4, 8)];
+        let mut builder = AdjacencyListBufBuilder::new(8);
+        builder.push_all(adjacencies.iter().copied());
+        let buffers = builder.finalize();
+        let aj = AdjacencyList::from_buffers(buffers);
+
+        let result: Vec<_> = aj.iter().collect();
+        assert_eq!(&adjacencies[..], &result[..]);
     }
 }
