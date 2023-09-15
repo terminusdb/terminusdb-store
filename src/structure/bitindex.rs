@@ -437,11 +437,7 @@ pub async fn build_bitindex<
     Ok(())
 }
 
-pub fn build_bitindex_from_block_iter<
-    I: Iterator<Item = u64>,
-    B1: BufMut,
-    B2: BufMut,
->(
+pub fn build_bitindex_from_block_iter<I: Iterator<Item = u64>, B1: BufMut, B2: BufMut>(
     blocks_iter: I,
     blocks: B1,
     sblocks: B2,
