@@ -56,9 +56,9 @@ impl IndexedPropertyBuilder {
             if added.0 != last.0 {
                 // we moved on to a next item
                 index += 1;
+                subjects_logarray.push(added.0);
             }
             last = (added.0, added.1);
-            subjects_logarray.push(added.0);
             aj_builder.push(index, added.1 as u64);
             objects_logarray.push(added.2);
         }
@@ -92,6 +92,7 @@ impl IndexedPropertyCollection {
 
     pub fn lookup_index(&self, subject: u64, index: usize) -> Option<u64> {
         if let Some(subject_index) = self.subjects.index_of(subject) {
+            let subject_index = subject_index + 1;
             let offset = self.adjacencies.offset_for(subject_index as u64);
             let indexes = self.adjacencies.get(subject_index as u64);
             if let Some(index_index) = indexes.index_of(index as u64) {
@@ -103,6 +104,40 @@ impl IndexedPropertyCollection {
         }
 
         None
+    }
+
+    pub fn indexes_for<'a>(&'a self, subject: u64) -> impl Iterator<Item = (usize, u64)> + 'a {
+        if let Some(subject_index) = self.subjects.index_of(subject) {
+            let subject_index = subject_index + 1;
+            let offset = self.adjacencies.offset_for(subject_index as u64);
+            let indexes = self.adjacencies.get(subject_index as u64);
+            itertools::Either::Left(
+                indexes.iter().enumerate().map(move |(ix_ix, ix)| {
+                    (ix as usize, self.objects.entry(ix_ix + offset as usize))
+                }),
+            )
+        } else {
+            itertools::Either::Right(std::iter::empty())
+        }
+    }
+
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = (u64, usize, u64)> + 'a {
+        // TODO this can be a lot more clever by walking the structure more lowlevel
+        self.subjects
+            .iter()
+            .enumerate()
+            .flat_map(move |(subject_ix, subject)| {
+                let subject_ix = subject_ix + 1;
+                let offset = self.adjacencies.offset_for(subject_ix as u64);
+                let indexes = self.adjacencies.get(subject_ix as u64);
+                indexes.iter().enumerate().map(move |(ix_ix, ix)| {
+                    (
+                        subject,
+                        ix as usize,
+                        self.objects.entry(ix_ix + offset as usize),
+                    )
+                })
+            })
     }
 }
 
@@ -122,5 +157,17 @@ mod tests {
         assert_eq!(Some(420), collection.lookup_index(3, 7));
         assert_eq!(Some(21), collection.lookup_index(5, 1));
         assert_eq!(None, collection.lookup_index(5, 2));
+
+        assert_eq!(
+            vec![(4, 42), (7, 420)],
+            collection.indexes_for(3).collect::<Vec<_>>()
+        );
+
+        assert_eq!(vec![(1, 21)], collection.indexes_for(5).collect::<Vec<_>>());
+
+        assert_eq!(
+            vec![(3, 4, 42), (3, 7, 420), (5, 1, 21)],
+            collection.iter().collect::<Vec<_>>()
+        );
     }
 }
