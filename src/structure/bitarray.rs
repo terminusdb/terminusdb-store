@@ -34,7 +34,7 @@ use super::util;
 use crate::storage::*;
 use crate::structure::bititer::BitIter;
 use byteorder::{BigEndian, ByteOrder};
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures::io;
 use futures::stream::{Stream, StreamExt, TryStreamExt};
 use std::{convert::TryFrom, error, fmt};
@@ -200,6 +200,70 @@ impl BitArray {
     }
 }
 
+pub struct BitArrayBufBuilder<B> {
+    /// Destination of the bit array data.
+    dest: B,
+    /// Storage for the next word to be written.
+    current: u64,
+    /// Number of bits written to the buffer
+    count: u64,
+}
+
+impl<B: BufMut> BitArrayBufBuilder<B> {
+    pub fn new(dest: B) -> BitArrayBufBuilder<B> {
+        BitArrayBufBuilder {
+            dest,
+            current: 0,
+            count: 0,
+        }
+    }
+
+    pub fn push(&mut self, bit: bool) {
+        // Set the bit in the current word.
+        if bit {
+            // Determine the position of the bit to be set from `count`.
+            let pos = self.count & 0b11_1111;
+            self.current |= 0x8000_0000_0000_0000 >> pos;
+        }
+
+        // Advance the bit count.
+        self.count += 1;
+
+        // Check if the new `count` has reached a word boundary.
+        if self.count & 0b11_1111 == 0 {
+            // We have filled `current`, so write it to the destination.
+            self.dest.put_u64(self.current);
+            self.current = 0;
+        }
+    }
+
+    pub fn push_all<I: Iterator<Item = bool>>(&mut self, mut iter: I) {
+        while let Some(bit) = iter.next() {
+            self.push(bit);
+        }
+    }
+
+    fn finalize_data(&mut self) {
+        if self.count & 0b11_1111 != 0 {
+            self.dest.put_u64(self.current);
+        }
+    }
+
+    pub fn finalize(mut self) -> B {
+        let count = self.count;
+        // Write the final data word.
+        self.finalize_data();
+        // Write the control word.
+        self.dest.put_u64(count);
+
+        self.dest
+    }
+
+    pub fn count(&self) -> u64 {
+        self.count
+    }
+}
+
 pub struct BitArrayFileBuilder<W> {
     /// Destination of the bit array data.
     dest: W,
@@ -317,22 +381,22 @@ pub fn bitarray_stream_blocks<R: AsyncRead + Unpin>(r: R) -> FramedRead<R, BitAr
     FramedRead::new(r, BitArrayBlockDecoder { readahead: None })
 }
 
-pub fn bitarray_iter_blocks<B: Buf>(b: &mut B) -> BitArrayBlockIterator<B> {
+pub fn bitarray_iter_blocks<B: Buf>(b: B) -> BitArrayBlockIterator<B> {
     BitArrayBlockIterator {
         buf: b,
         readahead: None,
     }
 }
 
-pub struct BitArrayBlockIterator<'a, B: Buf> {
-    buf: &'a mut B,
+pub struct BitArrayBlockIterator<B: Buf> {
+    buf: B,
     readahead: Option<u64>,
 }
 
-impl<'a, B: Buf> Iterator for BitArrayBlockIterator<'a, B> {
+impl<B: Buf> Iterator for BitArrayBlockIterator<B> {
     type Item = u64;
     fn next(&mut self) -> Option<u64> {
-        decode_next_bitarray_block(self.buf, &mut self.readahead)
+        decode_next_bitarray_block(&mut self.buf, &mut self.readahead)
     }
 }
 

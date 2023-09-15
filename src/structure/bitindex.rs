@@ -437,10 +437,10 @@ pub async fn build_bitindex<
     Ok(())
 }
 
-pub fn build_bitindex_from_block_iter<'a, I: Iterator<Item = u64>, B1: BufMut, B2: BufMut>(
-    blocks_iter: &'a mut I,
-    blocks: &mut B1,
-    sblocks: &mut B2,
+pub fn build_bitindex_from_block_iter<I: Iterator<Item = u64>, B1: BufMut, B2: BufMut>(
+    blocks_iter: I,
+    blocks: B1,
+    sblocks: B2,
 ) {
     // the following widths are unoptimized, but should always be large enough
     let mut blocks_builder =
@@ -474,9 +474,9 @@ pub fn build_bitindex_from_block_iter<'a, I: Iterator<Item = u64>, B1: BufMut, B
 }
 
 pub fn build_bitindex_from_buf<B1: Buf, B2: BufMut, B3: BufMut>(
-    bitarray: &mut B1,
-    blocks: &mut B2,
-    sblocks: &mut B3,
+    bitarray: B1,
+    blocks: B2,
+    sblocks: B3,
 ) {
     let mut iter = bitarray_iter_blocks(bitarray);
     build_bitindex_from_block_iter(&mut iter, blocks, sblocks)

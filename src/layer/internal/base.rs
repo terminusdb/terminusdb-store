@@ -490,7 +490,7 @@ pub async fn open_base_triple_stream<F: 'static + FileLoad + FileStore>(
 }
 
 #[cfg(test)]
-pub mod tests {
+pub mod base_tests {
     use super::*;
     use crate::storage::memory::*;
     use futures::stream::TryStreamExt;
