@@ -1098,7 +1098,7 @@ mod tests {
         assert_eq!(1, layer.triple_layer_removal_count().unwrap());
     }
 
-    use crate::layer::base::tests::*;
+    use crate::layer::base::base_tests::*;
     #[tokio::test]
     async fn base_layer_with_gaps_addition_count() {
         let files = base_layer_files();

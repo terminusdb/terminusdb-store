@@ -227,7 +227,7 @@ impl Iterator for InternalTripleObjectIterator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layer::base::tests::*;
+    use crate::layer::base::base_tests::*;
     use crate::storage::memory::*;
     use crate::storage::*;
 
