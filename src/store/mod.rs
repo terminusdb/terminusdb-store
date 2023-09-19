@@ -6,7 +6,9 @@ pub mod sync;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-use crate::layer::{IdTriple, Layer, LayerBuilder, LayerCounts, ObjectType, ValueTriple};
+use crate::layer::{
+    IdTriple, IndexIdTriple, Layer, LayerBuilder, LayerCounts, ObjectType, ValueTriple,
+};
 use crate::storage::archive::{ArchiveLayerStore, DirectoryArchiveBackend, LruArchiveBackend};
 use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore};
 use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
@@ -624,6 +626,14 @@ impl Layer for StoreLayer {
         self.layer.id_object_is_node(id)
     }
 
+    fn all_counts(&self) -> LayerCounts {
+        self.layer.all_counts()
+    }
+
+    fn clone_boxed(&self) -> Box<dyn Layer> {
+        Box::new(self.clone())
+    }
+
     fn triple_exists(&self, subject: u64, predicate: u64, object: u64) -> bool {
         self.layer.triple_exists(subject, predicate, object)
     }
@@ -652,10 +662,6 @@ impl Layer for StoreLayer {
         self.layer.triples_o(object)
     }
 
-    fn clone_boxed(&self) -> Box<dyn Layer> {
-        Box::new(self.clone())
-    }
-
     fn triple_addition_count(&self) -> usize {
         self.layer.triple_addition_count()
     }
@@ -664,12 +670,18 @@ impl Layer for StoreLayer {
         self.layer.triple_removal_count()
     }
 
-    fn all_counts(&self) -> LayerCounts {
-        self.layer.all_counts()
-    }
-
     fn single_triple_sp(&self, subject: u64, predicate: u64) -> Option<IdTriple> {
         self.layer.single_triple_sp(subject, predicate)
+    }
+
+    fn indexed_property_si(&self, subject: u64, index: usize) -> Option<IndexIdTriple> {
+        self.layer.indexed_property_si(subject, index)
+    }
+    fn indexed_property_s(&self, subject: u64) -> Box<dyn Iterator<Item = IndexIdTriple> + Send> {
+        self.layer.indexed_property_s(subject)
+    }
+    fn indexed_properties(&self) -> Box<dyn Iterator<Item = IndexIdTriple> + Send> {
+        self.layer.indexed_properties()
     }
 }
 

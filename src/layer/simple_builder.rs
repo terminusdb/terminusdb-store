@@ -459,6 +459,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
 
                     builder.add_id_triples(id_additions).await?;
                     builder.remove_id_triples(id_removals).await?;
+                    // TODO: while setting index triples for this layer, we need to make sure we're not duplicating assignments that were already present from the parent. This is currently not yet done bedcause the query logic has not been written yet.
                     builder.set_index_triples(index_id_additions);
 
                     builder.finalize().await

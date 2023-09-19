@@ -163,6 +163,13 @@ pub trait Layer: Send + Sync {
     }
 
     fn single_triple_sp(&self, subject: u64, predicate: u64) -> Option<IdTriple>;
+
+    fn indexed_property_si(&self, subject: u64, index: usize) -> Option<IndexIdTriple>;
+    fn indexed_property_exists(&self, subject: u64, index: usize) -> bool {
+        self.indexed_property_si(subject, index).is_some()
+    }
+    fn indexed_property_s(&self, subject: u64) -> Box<dyn Iterator<Item = IndexIdTriple> + Send>;
+    fn indexed_properties(&self) -> Box<dyn Iterator<Item = IndexIdTriple> + Send>;
 }
 
 pub struct LayerCounts {

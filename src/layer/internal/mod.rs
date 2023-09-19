@@ -8,6 +8,7 @@ mod subject_iterator;
 
 use super::id_map::*;
 use super::layer::*;
+use crate::structure::indexed_property::IndexedPropertyCollection;
 use crate::structure::*;
 
 use std::collections::HashSet;
@@ -215,6 +216,14 @@ impl InternalLayer {
             Base(_) => None,
             Child(child) => Some(&child.neg_objects),
             Rollup(rollup) => rollup.internal.neg_objects(),
+        }
+    }
+
+    pub fn indexed_property_collection(&self) -> Option<&IndexedPropertyCollection> {
+        match self {
+            Base(b) => b.indexed_property_collection.as_ref(),
+            Child(c) => c.indexed_property_collection.as_ref(),
+            Rollup(r) => r.internal.indexed_property_collection(),
         }
     }
 
@@ -943,6 +952,28 @@ impl Layer for InternalLayer {
                 return None;
             }
         }
+    }
+    fn indexed_property_si(&self, subject: u64, index: usize) -> Option<IndexIdTriple> {
+        let mut cur = self;
+        loop {
+            if let Some(ip) = cur.indexed_property_collection() {
+                if let Some(object) = ip.lookup_index(subject, index) {
+                    return Some(IndexIdTriple::new(subject, index, object));
+                }
+            }
+            if let Some(parent) = self.immediate_parent() {
+                cur = parent;
+            } else {
+                break;
+            }
+        }
+        None
+    }
+    fn indexed_property_s(&self, subject: u64) -> Box<dyn Iterator<Item = IndexIdTriple> + Send> {
+        todo!();
+    }
+    fn indexed_properties(&self) -> Box<dyn Iterator<Item = IndexIdTriple> + Send> {
+        todo!();
     }
 }
 

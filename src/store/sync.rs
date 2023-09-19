@@ -11,7 +11,7 @@ use tokio::runtime::Runtime;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::layer::{IdTriple, Layer, LayerCounts, ObjectType, ValueTriple};
+use crate::layer::{IdTriple, IndexIdTriple, Layer, LayerCounts, ObjectType, ValueTriple};
 use crate::store::{
     open_directory_store, open_memory_store, NamedGraph, Store, StoreLayer, StoreLayerBuilder,
 };
@@ -451,6 +451,16 @@ impl Layer for SyncStoreLayer {
 
     fn single_triple_sp(&self, subject: u64, predicate: u64) -> Option<IdTriple> {
         self.inner.single_triple_sp(subject, predicate)
+    }
+
+    fn indexed_property_si(&self, subject: u64, index: usize) -> Option<IndexIdTriple> {
+        self.inner.indexed_property_si(subject, index)
+    }
+    fn indexed_property_s(&self, subject: u64) -> Box<dyn Iterator<Item = IndexIdTriple> + Send> {
+        self.inner.indexed_property_s(subject)
+    }
+    fn indexed_properties(&self) -> Box<dyn Iterator<Item = IndexIdTriple> + Send> {
+        self.inner.indexed_properties()
     }
 }
 
