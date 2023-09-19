@@ -395,9 +395,22 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
         self.indexed_properties_builder.add(subject, index, object)
     }
 
+    pub fn set_index_triples<I: 'static + IntoIterator<Item = IndexIdTriple>>(
+        &mut self,
+        triples: I,
+    ) {
+        self.indexed_properties_builder.add_triples(triples)
+    }
+
     pub(crate) async fn partial_finalize(self) -> io::Result<BaseLayerFiles<F>> {
         self.triple_builder.finalize().await?;
-        let indexed_properties_collection_bufs = self.indexed_properties_builder.finalize();
+        if let Some(indexed_properties_collection_bufs) = self.indexed_properties_builder.finalize()
+        {
+            self.files
+                .indexed_property_files
+                .write_from_maps(indexed_properties_collection_bufs.into())
+                .await?;
+        }
         chrono_log!("finalized base triples builder");
 
         Ok(self.files)
@@ -405,6 +418,13 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
 
     pub async fn finalize(self) -> io::Result<()> {
         self.triple_builder.finalize().await?;
+        if let Some(indexed_properties_collection_bufs) = self.indexed_properties_builder.finalize()
+        {
+            self.files
+                .indexed_property_files
+                .write_from_maps(indexed_properties_collection_bufs.into())
+                .await?;
+        }
         chrono_log!("finalized base triples builder");
         let s_p_adjacency_list_files = self.files.s_p_adjacency_list_files.clone();
         let sp_o_adjacency_list_files = self.files.sp_o_adjacency_list_files.clone();

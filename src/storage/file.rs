@@ -20,6 +20,12 @@ pub trait SyncableFile: AsyncWrite + Unpin + Send {
 pub trait FileStore: Clone + Send + Sync {
     type Write: SyncableFile;
     async fn open_write(&self) -> io::Result<Self::Write>;
+    async fn write_bytes(&self, mut bytes: Bytes) -> io::Result<()> {
+        let mut writable = self.open_write().await?;
+        writable.write_all_buf(&mut bytes).await?;
+        writable.flush().await?;
+        writable.sync_all().await
+    }
 }
 
 #[async_trait]
@@ -102,7 +108,7 @@ pub struct BaseLayerFiles<F: 'static + FileLoad + FileStore> {
 
     pub s_p_adjacency_list_files: AdjacencyListFiles<F>,
     pub sp_o_adjacency_list_files: AdjacencyListFiles<F>,
-    pub index_property_files: IndexPropertyFiles<F>,
+    pub indexed_property_files: IndexedPropertyFiles<F>,
 
     pub o_ps_adjacency_list_files: AdjacencyListFiles<F>,
 
@@ -142,7 +148,7 @@ impl<F: FileLoad + FileStore> BaseLayerFiles<F> {
 
         let s_p_adjacency_list_maps = self.s_p_adjacency_list_files.map_all().await?;
         let sp_o_adjacency_list_maps = self.sp_o_adjacency_list_files.map_all().await?;
-        let index_property_maps = self.index_property_files.map_all_if_exists().await?;
+        let index_property_maps = self.indexed_property_files.map_all_if_exists().await?;
         let o_ps_adjacency_list_maps = self.o_ps_adjacency_list_files.map_all().await?;
 
         let predicate_wavelet_tree_maps = self.predicate_wavelet_tree_files.map_all().await?;
@@ -189,6 +195,8 @@ pub struct ChildLayerFiles<F: 'static + FileLoad + FileStore + Clone + Send + Sy
 
     pub pos_predicate_wavelet_tree_files: BitIndexFiles<F>,
     pub neg_predicate_wavelet_tree_files: BitIndexFiles<F>,
+
+    pub indexed_property_files: IndexedPropertyFiles<F>,
 }
 
 #[derive(Clone)]
@@ -213,6 +221,7 @@ pub struct ChildLayerMaps {
 
     pub pos_predicate_wavelet_tree_maps: BitIndexMaps,
     pub neg_predicate_wavelet_tree_maps: BitIndexMaps,
+    pub index_property_maps: Option<IndexPropertyMaps>,
 }
 
 impl<F: FileLoad + FileStore + Clone> ChildLayerFiles<F> {
@@ -241,6 +250,8 @@ impl<F: FileLoad + FileStore + Clone> ChildLayerFiles<F> {
         let neg_predicate_wavelet_tree_maps =
             self.neg_predicate_wavelet_tree_files.map_all().await?;
 
+        let index_property_maps = self.indexed_property_files.map_all_if_exists().await?;
+
         Ok(ChildLayerMaps {
             node_dictionary_maps,
             predicate_dictionary_maps,
@@ -262,6 +273,7 @@ impl<F: FileLoad + FileStore + Clone> ChildLayerFiles<F> {
 
             pos_predicate_wavelet_tree_maps,
             neg_predicate_wavelet_tree_maps,
+            index_property_maps,
         })
     }
 }
@@ -378,7 +390,7 @@ impl<F: 'static + FileLoad + FileStore> DictionaryFiles<F> {
 }
 
 #[derive(Clone)]
-pub struct IndexPropertyFiles<F: 'static + FileLoad + FileStore> {
+pub struct IndexedPropertyFiles<F: 'static + FileLoad + FileStore> {
     pub subjects_logarray_file: F,
     pub adjacency_files: AdjacencyListFiles<F>,
     pub objects_logarray_file: F,
@@ -391,7 +403,7 @@ pub struct IndexPropertyMaps {
     pub objects_logarray_map: Bytes,
 }
 
-impl<F: 'static + FileLoad + FileStore> IndexPropertyFiles<F> {
+impl<F: 'static + FileLoad + FileStore> IndexedPropertyFiles<F> {
     pub async fn map_all_if_exists(&self) -> io::Result<Option<IndexPropertyMaps>> {
         if let Some(subjects_logarray_map) = self.subjects_logarray_file.map_if_exists().await? {
             Ok(Some(IndexPropertyMaps {
@@ -402,6 +414,20 @@ impl<F: 'static + FileLoad + FileStore> IndexPropertyFiles<F> {
         } else {
             Ok(None)
         }
+    }
+
+    pub async fn write_from_maps(&self, maps: IndexPropertyMaps) -> io::Result<()> {
+        self.subjects_logarray_file
+            .write_bytes(maps.subjects_logarray_map)
+            .await?;
+        self.adjacency_files
+            .write_from_maps(maps.adjacency_maps)
+            .await?;
+        self.objects_logarray_file
+            .write_bytes(maps.objects_logarray_map)
+            .await?;
+
+        Ok(())
     }
 }
 
@@ -489,6 +515,14 @@ impl<F: 'static + FileLoad + FileStore> BitIndexFiles<F> {
             Ok(None)
         }
     }
+
+    pub async fn write_from_maps(&self, maps: BitIndexMaps) -> io::Result<()> {
+        self.bits_file.write_bytes(maps.bits_map).await?;
+        self.blocks_file.write_bytes(maps.blocks_map).await?;
+        self.sblocks_file.write_bytes(maps.sblocks_map).await?;
+
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -547,5 +581,14 @@ impl<F: 'static + FileLoad + FileStore> AdjacencyListFiles<F> {
             bitindex_maps,
             nums_map,
         })
+    }
+
+    pub async fn write_from_maps(&self, maps: AdjacencyListMaps) -> io::Result<()> {
+        self.bitindex_files
+            .write_from_maps(maps.bitindex_maps)
+            .await?;
+        self.nums_file.write_bytes(maps.nums_map).await?;
+
+        Ok(())
     }
 }

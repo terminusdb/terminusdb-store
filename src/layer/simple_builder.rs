@@ -459,6 +459,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
 
                     builder.add_id_triples(id_additions).await?;
                     builder.remove_id_triples(id_removals).await?;
+                    builder.set_index_triples(index_id_additions);
 
                     builder.finalize().await
                 }
@@ -474,6 +475,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                     let mut builder = builder.into_phase2().await?;
 
                     builder.add_id_triples(id_additions).await?;
+                    builder.set_index_triples(index_id_additions);
 
                     builder.finalize().await
                 }

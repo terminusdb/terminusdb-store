@@ -645,6 +645,7 @@ impl<M: ArchiveMetadataBackend, D: ArchiveBackend> ArchiveMetadataBackend
 }
 
 pub enum ConstructionFileState {
+    Fresh,
     UnderConstruction(BytesMut),
     Finalizing,
     Finalized(Bytes),
@@ -655,9 +656,7 @@ pub struct ConstructionFile(Arc<RwLock<ConstructionFileState>>);
 
 impl ConstructionFile {
     fn new() -> Self {
-        Self(Arc::new(RwLock::new(
-            ConstructionFileState::UnderConstruction(BytesMut::new()),
-        )))
+        Self(Arc::new(RwLock::new(ConstructionFileState::Fresh)))
     }
 
     fn new_finalized(bytes: Bytes) -> Self {
@@ -691,6 +690,17 @@ impl FileStore for ConstructionFile {
     async fn open_write(&self) -> io::Result<Self::Write> {
         Ok(self.clone())
     }
+
+    async fn write_bytes(&self, bytes: Bytes) -> io::Result<()> {
+        let mut guard = self.0.write().unwrap();
+        match *guard {
+            ConstructionFileState::Fresh => {
+                *guard = ConstructionFileState::Finalized(bytes);
+            }
+            _ => panic!("tried to write bytes to a construction file that was already written to"),
+        }
+        Ok(())
+    }
 }
 
 impl AsyncWrite for ConstructionFile {
@@ -701,6 +711,12 @@ impl AsyncWrite for ConstructionFile {
     ) -> Poll<Result<usize, io::Error>> {
         let mut guard = self.0.write().unwrap();
         match &mut *guard {
+            ConstructionFileState::Fresh => {
+                let mut bytes = BytesMut::new();
+                bytes.put_slice(buf);
+                *guard = ConstructionFileState::UnderConstruction(bytes);
+                Poll::Ready(Ok(buf.len()))
+            }
             ConstructionFileState::UnderConstruction(x) => {
                 x.put_slice(buf);
 
@@ -738,6 +754,11 @@ impl SyncableFile for ConstructionFile {
         std::mem::swap(&mut state, &mut *guard);
 
         match state {
+            ConstructionFileState::Fresh => {
+                *guard = ConstructionFileState::Finalized(Bytes::new());
+
+                Ok(())
+            }
             ConstructionFileState::UnderConstruction(x) => {
                 let buf = x.freeze();
                 *guard = ConstructionFileState::Finalized(buf);
@@ -1344,6 +1365,7 @@ impl<M, D> ArchiveLayerStore<M, D> {
     pub fn write_bytes(&self, name: [u32; 5], file: LayerFileEnum, bytes: Bytes) {
         let mut guard = self.construction.write().unwrap();
         if let Some(map) = guard.get_mut(&name) {
+            // TODO this could be fine if the file is there but in fresh state, but it's not a pattern that is in use now.
             if map.contains_key(&file) {
                 panic!("tried to write bytes to an archive, but file is already open");
             }

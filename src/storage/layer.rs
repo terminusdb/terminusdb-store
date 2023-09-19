@@ -502,7 +502,7 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
                 blocks_file: files[29].clone(),
                 sblocks_file: files[30].clone(),
             },
-            index_property_files: IndexPropertyFiles {
+            indexed_property_files: IndexedPropertyFiles {
                 subjects_logarray_file: files[31].clone(),
                 adjacency_files: AdjacencyListFiles {
                     nums_file: files[32].clone(),
@@ -567,6 +567,12 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
             FILENAMES.neg_predicate_wavelet_tree_bits,
             FILENAMES.neg_predicate_wavelet_tree_bit_index_blocks,
             FILENAMES.neg_predicate_wavelet_tree_bit_index_sblocks,
+            FILENAMES.index_property_subjects,
+            FILENAMES.index_property_adjacency_list_nums,
+            FILENAMES.index_property_adjacency_list_bits,
+            FILENAMES.index_property_adjacency_list_bit_index_blocks,
+            FILENAMES.index_property_adjacency_list_bit_index_sblocks,
+            FILENAMES.index_property_objects,
         ];
 
         let mut files = Vec::with_capacity(filenames.len());
@@ -665,6 +671,18 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
                 bits_file: files[45].clone(),
                 blocks_file: files[46].clone(),
                 sblocks_file: files[47].clone(),
+            },
+            indexed_property_files: IndexedPropertyFiles {
+                subjects_logarray_file: files[48].clone(),
+                adjacency_files: AdjacencyListFiles {
+                    nums_file: files[49].clone(),
+                    bitindex_files: BitIndexFiles {
+                        bits_file: files[50].clone(),
+                        blocks_file: files[51].clone(),
+                        sblocks_file: files[52].clone(),
+                    },
+                },
+                objects_logarray_file: files[53].clone(),
             },
         })
     }

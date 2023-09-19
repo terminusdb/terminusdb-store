@@ -7,6 +7,8 @@ use super::super::builder::*;
 use super::super::id_map::*;
 use crate::layer::*;
 use crate::storage::*;
+use crate::structure::indexed_property::IndexedPropertyBuilder;
+use crate::structure::indexed_property::IndexedPropertyCollection;
 use crate::structure::*;
 use rayon::prelude::*;
 
@@ -49,6 +51,8 @@ pub struct ChildLayer {
 
     pub(super) pos_predicate_wavelet_tree: WaveletTree,
     pub(super) neg_predicate_wavelet_tree: WaveletTree,
+
+    pub(super) indexed_property_collection: Option<IndexedPropertyCollection>,
 }
 
 impl ChildLayer {
@@ -164,6 +168,10 @@ impl ChildLayer {
             neg_predicate_wavelet_tree_width,
         );
 
+        let indexed_property_collection = maps
+            .index_property_maps
+            .map(|m| IndexedPropertyCollection::from_buffers(m.into()));
+
         InternalLayer::Child(ChildLayer {
             name,
             parent,
@@ -193,6 +201,8 @@ impl ChildLayer {
 
             pos_predicate_wavelet_tree,
             neg_predicate_wavelet_tree,
+
+            indexed_property_collection,
         })
     }
 }
@@ -388,6 +398,7 @@ pub struct ChildLayerFileBuilderPhase2<F: 'static + FileLoad + FileStore + Clone
 
     pos_builder: TripleFileBuilder<F>,
     neg_builder: TripleFileBuilder<F>,
+    indexed_properties_builder: IndexedPropertyBuilder,
 }
 
 impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuilderPhase2<F> {
@@ -420,12 +431,15 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         )
         .await?;
 
+        let indexed_properties_builder = IndexedPropertyBuilder::new();
+
         Ok(ChildLayerFileBuilderPhase2 {
             parent,
             files,
 
             pos_builder,
             neg_builder,
+            indexed_properties_builder,
         })
     }
 
@@ -507,6 +521,17 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         Ok(())
     }
 
+    pub fn set_index_triple(&mut self, subject: u64, index: usize, object: u64) {
+        self.indexed_properties_builder.add(subject, index, object)
+    }
+
+    pub fn set_index_triples<I: 'static + IntoIterator<Item = IndexIdTriple>>(
+        &mut self,
+        triples: I,
+    ) {
+        self.indexed_properties_builder.add_triples(triples)
+    }
+
     /// Remove the given triple.
     ///
     /// This will panic if a greater triple has already been removed,
@@ -532,6 +557,13 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
     pub async fn finalize(self) -> io::Result<()> {
         let pos_task = tokio::spawn(self.pos_builder.finalize());
         let neg_task = tokio::spawn(self.neg_builder.finalize());
+        if let Some(indexed_properties_collection_bufs) = self.indexed_properties_builder.finalize()
+        {
+            self.files
+                .indexed_property_files
+                .write_from_maps(indexed_properties_collection_bufs.into())
+                .await?;
+        }
 
         pos_task.await??;
         neg_task.await??;

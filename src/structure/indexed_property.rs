@@ -1,5 +1,7 @@
 use bytes::{Bytes, BytesMut};
 
+use crate::layer::IndexIdTriple;
+
 use super::{
     util::calculate_width, AdjacencyList, AdjacencyListBufBuilder, AdjacencyListBuffers, LogArray,
     LogArrayBufBuilder, MonotonicLogArray,
@@ -27,13 +29,19 @@ impl IndexedPropertyBuilder {
         self.added.push((subject_id, array_index, object_id));
     }
 
+    pub fn add_triples<I: 'static + IntoIterator<Item = IndexIdTriple>>(&mut self, triples: I) {
+        for triple in triples {
+            self.add(triple.subject, triple.index, triple.object);
+        }
+    }
+
     pub fn remove(&mut self, subject_id: u64, array_index: usize) {
         self.added.push((subject_id, array_index, 0));
     }
 
-    pub fn finalize(mut self) -> IndexPropertyBuffers {
+    pub fn finalize(mut self) -> Option<IndexPropertyBuffers> {
         if self.added.len() == 0 {
-            panic!("no data was added");
+            return None;
         }
 
         self.added.sort();
@@ -70,11 +78,11 @@ impl IndexedPropertyBuilder {
         let aj_bufs = aj_builder.finalize();
         let objects_buf = objects_logarray.finalize().freeze();
 
-        IndexPropertyBuffers {
+        Some(IndexPropertyBuffers {
             subjects_logarray_buf: subjects_buf,
             adjacency_bufs: aj_bufs,
             objects_logarray_buf: objects_buf,
-        }
+        })
     }
 }
 
@@ -154,7 +162,7 @@ mod tests {
         builder.add(3, 4, 42);
         builder.add(3, 7, 420);
         builder.add(5, 1, 21);
-        let buffers = builder.finalize();
+        let buffers = builder.finalize().unwrap();
         let collection = IndexedPropertyCollection::from_buffers(buffers);
 
         assert_eq!(Some(42), collection.lookup_index(3, 4));

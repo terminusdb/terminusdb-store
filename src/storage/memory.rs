@@ -88,6 +88,20 @@ impl FileStore for MemoryBackedStore {
             bytes: BytesMut::new(),
         })
     }
+
+    async fn write_bytes(&self, bytes: Bytes) -> io::Result<()> {
+        let mut guard = self.contents.write().unwrap();
+        match *guard {
+            MemoryBackedStoreContents::Nonexistent => {
+                *guard = MemoryBackedStoreContents::Existent(bytes)
+            }
+            MemoryBackedStoreContents::Existent(_) => {
+                panic!("tried to write to existing memory file")
+            }
+        }
+
+        Ok(())
+    }
 }
 
 pub struct MemoryBackedStoreReader {
@@ -378,6 +392,18 @@ pub fn base_layer_memory_files() -> BaseLayerFiles<MemoryBackedStore> {
             blocks_file: MemoryBackedStore::new(),
             sblocks_file: MemoryBackedStore::new(),
         },
+        indexed_property_files: IndexedPropertyFiles {
+            subjects_logarray_file: MemoryBackedStore::new(),
+            adjacency_files: AdjacencyListFiles {
+                bitindex_files: BitIndexFiles {
+                    bits_file: MemoryBackedStore::new(),
+                    blocks_file: MemoryBackedStore::new(),
+                    sblocks_file: MemoryBackedStore::new(),
+                },
+                nums_file: MemoryBackedStore::new(),
+            },
+            objects_logarray_file: MemoryBackedStore::new(),
+        },
     }
 }
 
@@ -474,6 +500,18 @@ pub fn child_layer_memory_files() -> ChildLayerFiles<MemoryBackedStore> {
             bits_file: MemoryBackedStore::new(),
             blocks_file: MemoryBackedStore::new(),
             sblocks_file: MemoryBackedStore::new(),
+        },
+        indexed_property_files: IndexedPropertyFiles {
+            subjects_logarray_file: MemoryBackedStore::new(),
+            adjacency_files: AdjacencyListFiles {
+                bitindex_files: BitIndexFiles {
+                    bits_file: MemoryBackedStore::new(),
+                    blocks_file: MemoryBackedStore::new(),
+                    sblocks_file: MemoryBackedStore::new(),
+                },
+                nums_file: MemoryBackedStore::new(),
+            },
+            objects_logarray_file: MemoryBackedStore::new(),
         },
     }
 }
