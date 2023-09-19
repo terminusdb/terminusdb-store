@@ -960,6 +960,10 @@ impl Layer for InternalLayer {
                 if let Some(object) = ip.lookup_index(subject, index) {
                     return Some(IndexIdTriple::new(subject, index, object));
                 }
+                let len = ip.len_for(subject).expect("len in indexed_property_si");
+                if index >= len {
+                    break;
+                }
             }
             if let Some(parent) = self.immediate_parent() {
                 cur = parent;

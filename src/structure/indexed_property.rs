@@ -68,6 +68,7 @@ impl IndexedPropertyBuilder {
         let mut objects_logarray = LogArrayBufBuilder::new(BytesMut::new(), object_width);
 
         let mut index = 0;
+        let mut len = 0;
         for added in self.added {
             if (added.0, added.1) == last {
                 panic!("multiple indexed properties for same index and node");
@@ -79,7 +80,11 @@ impl IndexedPropertyBuilder {
                     // The very first element is supposed to be a 0 for the length.
                     panic!("no length for subject");
                 }
+                len = added.2 as usize;
                 subjects_logarray.push(added.0);
+            } else if added.1 > len {
+                // same subject, different property
+                panic!("tried to add indexed property that was too big");
             }
             last = (added.0, added.1);
             aj_builder.push(index, added.1 as u64);
