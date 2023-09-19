@@ -26,7 +26,7 @@ impl IndexedPropertyBuilder {
         Self { added: Vec::new() }
     }
     pub fn add(&mut self, subject_id: u64, array_index: usize, object_id: u64) {
-        self.added.push((subject_id, array_index, object_id));
+        self.added.push((subject_id, array_index + 1, object_id));
     }
 
     pub fn add_triples<I: 'static + IntoIterator<Item = IndexIdTriple>>(&mut self, triples: I) {
@@ -36,7 +36,15 @@ impl IndexedPropertyBuilder {
     }
 
     pub fn remove(&mut self, subject_id: u64, array_index: usize) {
-        self.added.push((subject_id, array_index, 0));
+        self.added.push((subject_id, array_index + 1, 0));
+    }
+
+    pub fn set_len(&mut self, subject_id: u64, len: usize) {
+        self.added.push((subject_id, 0, len as u64));
+    }
+
+    pub fn remove_from(&mut self, subject_id: u64) {
+        self.set_len(subject_id, 0);
     }
 
     pub fn finalize(mut self) -> Option<IndexPropertyBuffers> {
@@ -67,6 +75,10 @@ impl IndexedPropertyBuilder {
             if added.0 != last.0 {
                 // we moved on to a next item
                 index += 1;
+                if added.1 != 0 {
+                    // The very first element is supposed to be a 0 for the length.
+                    panic!("no length for subject");
+                }
                 subjects_logarray.push(added.0);
             }
             last = (added.0, added.1);
@@ -102,7 +114,7 @@ impl IndexedPropertyCollection {
         }
     }
 
-    pub fn lookup_index(&self, subject: u64, index: usize) -> Option<u64> {
+    fn lookup_index0(&self, subject: u64, index: usize) -> Option<u64> {
         if let Some(subject_index) = self.subjects.index_of(subject) {
             let subject_index = subject_index + 1;
             let offset = self.adjacencies.offset_for(subject_index as u64);
@@ -118,16 +130,22 @@ impl IndexedPropertyCollection {
         None
     }
 
+    pub fn lookup_index(&self, subject: u64, index: usize) -> Option<u64> {
+        self.lookup_index0(subject, index + 1)
+    }
+
+    pub fn len_for(&self, subject: u64) -> Option<usize> {
+        self.lookup_index0(subject, 0).map(|n| n as usize)
+    }
+
     pub fn indexes_for<'a>(&'a self, subject: u64) -> impl Iterator<Item = (usize, u64)> + 'a {
         if let Some(subject_index) = self.subjects.index_of(subject) {
             let subject_index = subject_index + 1;
-            let offset = self.adjacencies.offset_for(subject_index as u64);
+            let offset = self.adjacencies.offset_for(subject_index as u64) + 1;
             let indexes = self.adjacencies.get(subject_index as u64);
-            itertools::Either::Left(
-                indexes.iter().enumerate().map(move |(ix_ix, ix)| {
-                    (ix as usize, self.objects.entry(ix_ix + offset as usize))
-                }),
-            )
+            itertools::Either::Left(indexes.iter().skip(1).enumerate().map(move |(ix_ix, ix)| {
+                (ix as usize - 1, self.objects.entry(ix_ix + offset as usize))
+            }))
         } else {
             itertools::Either::Right(std::iter::empty())
         }
@@ -140,12 +158,12 @@ impl IndexedPropertyCollection {
             .enumerate()
             .flat_map(move |(subject_ix, subject)| {
                 let subject_ix = subject_ix + 1;
-                let offset = self.adjacencies.offset_for(subject_ix as u64);
+                let offset = self.adjacencies.offset_for(subject_ix as u64) + 1;
                 let indexes = self.adjacencies.get(subject_ix as u64);
-                indexes.iter().enumerate().map(move |(ix_ix, ix)| {
+                indexes.iter().skip(1).enumerate().map(move |(ix_ix, ix)| {
                     (
                         subject,
-                        ix as usize,
+                        ix as usize - 1,
                         self.objects.entry(ix_ix + offset as usize),
                     )
                 })
@@ -162,6 +180,8 @@ mod tests {
         builder.add(3, 4, 42);
         builder.add(3, 7, 420);
         builder.add(5, 1, 21);
+        builder.set_len(3, 8);
+        builder.set_len(5, 4);
         let buffers = builder.finalize().unwrap();
         let collection = IndexedPropertyCollection::from_buffers(buffers);
 
@@ -170,16 +190,19 @@ mod tests {
         assert_eq!(Some(21), collection.lookup_index(5, 1));
         assert_eq!(None, collection.lookup_index(5, 2));
 
+        assert_eq!(vec![(1, 21)], collection.indexes_for(5).collect::<Vec<_>>());
+
         assert_eq!(
             vec![(4, 42), (7, 420)],
             collection.indexes_for(3).collect::<Vec<_>>()
         );
-
-        assert_eq!(vec![(1, 21)], collection.indexes_for(5).collect::<Vec<_>>());
-
         assert_eq!(
             vec![(3, 4, 42), (3, 7, 420), (5, 1, 21)],
             collection.iter().collect::<Vec<_>>()
         );
+
+        assert_eq!(Some(8), collection.len_for(3));
+        assert_eq!(Some(4), collection.len_for(5));
+        assert_eq!(None, collection.len_for(42));
     }
 }
