@@ -427,6 +427,12 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
             FILENAMES.base_predicate_wavelet_tree_bits,
             FILENAMES.base_predicate_wavelet_tree_bit_index_blocks,
             FILENAMES.base_predicate_wavelet_tree_bit_index_sblocks,
+            FILENAMES.index_property_subjects,
+            FILENAMES.index_property_adjacency_list_nums,
+            FILENAMES.index_property_adjacency_list_bits,
+            FILENAMES.index_property_adjacency_list_bit_index_blocks,
+            FILENAMES.index_property_adjacency_list_bit_index_sblocks,
+            FILENAMES.index_property_objects,
         ];
 
         let mut files = Vec::with_capacity(filenames.len());
@@ -495,6 +501,18 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
                 bits_file: files[28].clone(),
                 blocks_file: files[29].clone(),
                 sblocks_file: files[30].clone(),
+            },
+            index_property_files: IndexPropertyFiles {
+                subjects_logarray_file: files[31].clone(),
+                adjacency_files: AdjacencyListFiles {
+                    nums_file: files[32].clone(),
+                    bitindex_files: BitIndexFiles {
+                        bits_file: files[33].clone(),
+                        blocks_file: files[34].clone(),
+                        sblocks_file: files[35].clone(),
+                    },
+                },
+                objects_logarray_file: files[36].clone(),
             },
         })
     }

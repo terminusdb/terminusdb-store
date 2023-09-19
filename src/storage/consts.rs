@@ -90,6 +90,13 @@ pub struct Filenames {
 
     pub parent: &'static str,
     pub rollup: &'static str,
+
+    pub index_property_subjects: &'static str,
+    pub index_property_adjacency_list_nums: &'static str,
+    pub index_property_adjacency_list_bits: &'static str,
+    pub index_property_adjacency_list_bit_index_blocks: &'static str,
+    pub index_property_adjacency_list_bit_index_sblocks: &'static str,
+    pub index_property_objects: &'static str,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug, FromPrimitive)]
@@ -156,6 +163,13 @@ pub enum LayerFileEnum {
 
     Parent,
     Rollup,
+
+    IndexPropertySubjects,
+    IndexPropertyAdjacencyListNums,
+    IndexPropertyAdjacencyListBits,
+    IndexPropertyAdjacencyListBitIndexBlocks,
+    IndexPropertyAdjacencyListBitIndexSBlocks,
+    IndexPropertyObjects,
 }
 
 pub const FILENAMES: Filenames = Filenames {
@@ -254,6 +268,15 @@ pub const FILENAMES: Filenames = Filenames {
 
     parent: "parent.hex",
     rollup: "rollup.hex",
+
+    index_property_subjects: "index_property_subject_nums.logarray",
+    index_property_adjacency_list_nums: "index_property_adjacency_list_nums.logarray",
+    index_property_adjacency_list_bits: "index_property_adjacency_list_bits.bitarray",
+    index_property_adjacency_list_bit_index_blocks:
+        "index_property_adjacency_list_bit_index_blocks.nums",
+    index_property_adjacency_list_bit_index_sblocks:
+        "index_property_adjacency_list_bit_index_sblocks.nums",
+    index_property_objects: "index_property_object_nums.logarray",
 };
 
 lazy_static! {
@@ -502,6 +525,30 @@ lazy_static! {
         ),
         ("parent.hex", LayerFileEnum::Parent),
         ("rollup.hex", LayerFileEnum::Rollup),
+        (
+            "index_property_subject_nums.logarray",
+            LayerFileEnum::IndexPropertySubjects
+        ),
+        (
+            "index_property_adjacency_list_nums.logarray",
+            LayerFileEnum::IndexPropertyAdjacencyListNums
+        ),
+        (
+            "index_property_adjacency_list_bits.bitarray",
+            LayerFileEnum::IndexPropertyAdjacencyListBits
+        ),
+        (
+            "index_property_adjacency_list_bit_index_blocks.nums",
+            LayerFileEnum::IndexPropertyAdjacencyListBitIndexBlocks
+        ),
+        (
+            "index_property_adjacency_list_bit_index_sblocks.nums",
+            LayerFileEnum::IndexPropertyAdjacencyListBitIndexSBlocks
+        ),
+        (
+            "index_property_object_nums.logarray",
+            LayerFileEnum::IndexPropertyObjects
+        ),
     ]);
 }
 

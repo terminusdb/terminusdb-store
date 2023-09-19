@@ -9,6 +9,7 @@ use super::super::builder::*;
 use super::super::id_map::*;
 use super::super::layer::*;
 use crate::layer::InternalLayer;
+use crate::structure::indexed_property::{IndexedPropertyBuilder, IndexedPropertyCollection};
 use crate::structure::*;
 use crate::{chrono_log, storage::*};
 
@@ -38,6 +39,8 @@ pub struct BaseLayer {
     pub(super) o_ps_adjacency_list: AdjacencyList,
 
     pub(super) predicate_wavelet_tree: WaveletTree,
+
+    pub(super) indexed_property_collection: Option<IndexedPropertyCollection>,
 }
 
 impl BaseLayer {
@@ -119,6 +122,10 @@ impl BaseLayer {
             predicate_wavelet_tree_width,
         );
 
+        let indexed_property_collection = maps
+            .index_property_maps
+            .map(|m| IndexedPropertyCollection::from_buffers(m.into()));
+
         InternalLayer::Base(BaseLayer {
             name,
             node_dictionary,
@@ -137,6 +144,8 @@ impl BaseLayer {
             o_ps_adjacency_list,
 
             predicate_wavelet_tree,
+
+            indexed_property_collection,
         })
     }
 }
@@ -324,7 +333,8 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
 pub struct BaseLayerFileBuilderPhase2<F: 'static + FileLoad + FileStore> {
     files: BaseLayerFiles<F>,
 
-    builder: TripleFileBuilder<F>,
+    triple_builder: TripleFileBuilder<F>,
+    indexed_properties_builder: IndexedPropertyBuilder,
 }
 
 impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
@@ -335,7 +345,7 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
         num_predicates: usize,
         num_values: usize,
     ) -> io::Result<Self> {
-        let builder = TripleFileBuilder::new(
+        let triple_builder = TripleFileBuilder::new(
             files.s_p_adjacency_list_files.clone(),
             files.sp_o_adjacency_list_files.clone(),
             num_nodes,
@@ -345,7 +355,13 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
         )
         .await?;
 
-        Ok(BaseLayerFileBuilderPhase2 { files, builder })
+        let indexed_properties_builder = IndexedPropertyBuilder::new();
+
+        Ok(BaseLayerFileBuilderPhase2 {
+            files,
+            triple_builder,
+            indexed_properties_builder,
+        })
     }
 
     /// Add the given subject, predicate and object.
@@ -357,7 +373,9 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
         predicate: u64,
         object: u64,
     ) -> io::Result<()> {
-        self.builder.add_triple(subject, predicate, object).await
+        self.triple_builder
+            .add_triple(subject, predicate, object)
+            .await
     }
 
     /// Add the given triple.
@@ -370,18 +388,23 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
     where
         <I as std::iter::IntoIterator>::IntoIter: Unpin + Send,
     {
-        self.builder.add_id_triples(triples).await
+        self.triple_builder.add_id_triples(triples).await
+    }
+
+    pub fn set_index_triple(&mut self, subject: u64, index: usize, object: u64) {
+        self.indexed_properties_builder.add(subject, index, object)
     }
 
     pub(crate) async fn partial_finalize(self) -> io::Result<BaseLayerFiles<F>> {
-        self.builder.finalize().await?;
+        self.triple_builder.finalize().await?;
+        let indexed_properties_collection_bufs = self.indexed_properties_builder.finalize();
         chrono_log!("finalized base triples builder");
 
         Ok(self.files)
     }
 
     pub async fn finalize(self) -> io::Result<()> {
-        self.builder.finalize().await?;
+        self.triple_builder.finalize().await?;
         chrono_log!("finalized base triples builder");
         let s_p_adjacency_list_files = self.files.s_p_adjacency_list_files.clone();
         let sp_o_adjacency_list_files = self.files.sp_o_adjacency_list_files.clone();

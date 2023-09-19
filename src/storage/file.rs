@@ -7,7 +7,9 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use async_trait::async_trait;
 
-use crate::structure::{AdjacencyList, BitIndex};
+use crate::structure::{
+    indexed_property::IndexPropertyBuffers, AdjacencyList, AdjacencyListBuffers, BitIndex,
+};
 
 #[async_trait]
 pub trait SyncableFile: AsyncWrite + Unpin + Send {
@@ -100,6 +102,7 @@ pub struct BaseLayerFiles<F: 'static + FileLoad + FileStore> {
 
     pub s_p_adjacency_list_files: AdjacencyListFiles<F>,
     pub sp_o_adjacency_list_files: AdjacencyListFiles<F>,
+    pub index_property_files: IndexPropertyFiles<F>,
 
     pub o_ps_adjacency_list_files: AdjacencyListFiles<F>,
 
@@ -123,6 +126,7 @@ pub struct BaseLayerMaps {
     pub o_ps_adjacency_list_maps: AdjacencyListMaps,
 
     pub predicate_wavelet_tree_maps: BitIndexMaps,
+    pub index_property_maps: Option<IndexPropertyMaps>,
 }
 
 impl<F: FileLoad + FileStore> BaseLayerFiles<F> {
@@ -138,6 +142,7 @@ impl<F: FileLoad + FileStore> BaseLayerFiles<F> {
 
         let s_p_adjacency_list_maps = self.s_p_adjacency_list_files.map_all().await?;
         let sp_o_adjacency_list_maps = self.sp_o_adjacency_list_files.map_all().await?;
+        let index_property_maps = self.index_property_files.map_all_if_exists().await?;
         let o_ps_adjacency_list_maps = self.o_ps_adjacency_list_files.map_all().await?;
 
         let predicate_wavelet_tree_maps = self.predicate_wavelet_tree_files.map_all().await?;
@@ -154,8 +159,9 @@ impl<F: FileLoad + FileStore> BaseLayerFiles<F> {
 
             s_p_adjacency_list_maps,
             sp_o_adjacency_list_maps,
-            o_ps_adjacency_list_maps,
+            index_property_maps,
 
+            o_ps_adjacency_list_maps,
             predicate_wavelet_tree_maps,
         })
     }
@@ -372,6 +378,54 @@ impl<F: 'static + FileLoad + FileStore> DictionaryFiles<F> {
 }
 
 #[derive(Clone)]
+pub struct IndexPropertyFiles<F: 'static + FileLoad + FileStore> {
+    pub subjects_logarray_file: F,
+    pub adjacency_files: AdjacencyListFiles<F>,
+    pub objects_logarray_file: F,
+}
+
+#[derive(Clone)]
+pub struct IndexPropertyMaps {
+    pub subjects_logarray_map: Bytes,
+    pub adjacency_maps: AdjacencyListMaps,
+    pub objects_logarray_map: Bytes,
+}
+
+impl<F: 'static + FileLoad + FileStore> IndexPropertyFiles<F> {
+    pub async fn map_all_if_exists(&self) -> io::Result<Option<IndexPropertyMaps>> {
+        if let Some(subjects_logarray_map) = self.subjects_logarray_file.map_if_exists().await? {
+            Ok(Some(IndexPropertyMaps {
+                subjects_logarray_map,
+                adjacency_maps: self.adjacency_files.map_all().await?,
+                objects_logarray_map: self.objects_logarray_file.map().await?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+// a little silly
+impl Into<IndexPropertyBuffers> for IndexPropertyMaps {
+    fn into(self) -> IndexPropertyBuffers {
+        IndexPropertyBuffers {
+            subjects_logarray_buf: self.subjects_logarray_map,
+            adjacency_bufs: self.adjacency_maps.into(),
+            objects_logarray_buf: self.objects_logarray_map,
+        }
+    }
+}
+impl From<IndexPropertyBuffers> for IndexPropertyMaps {
+    fn from(value: IndexPropertyBuffers) -> Self {
+        Self {
+            subjects_logarray_map: value.subjects_logarray_buf,
+            adjacency_maps: value.adjacency_bufs.into(),
+            objects_logarray_map: value.objects_logarray_buf,
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct IdMapMaps {
     pub node_value_idmap_maps: Option<BitIndexMaps>,
     pub predicate_idmap_maps: Option<BitIndexMaps>,
@@ -451,6 +505,30 @@ impl Into<AdjacencyList> for AdjacencyListMaps {
             self.bitindex_maps.blocks_map,
             self.bitindex_maps.sblocks_map,
         )
+    }
+}
+
+impl Into<AdjacencyListBuffers> for AdjacencyListMaps {
+    fn into(self) -> AdjacencyListBuffers {
+        AdjacencyListBuffers {
+            nums: self.nums_map,
+            bits: self.bitindex_maps.bits_map,
+            bitindex_blocks: self.bitindex_maps.blocks_map,
+            bitindex_sblocks: self.bitindex_maps.sblocks_map,
+        }
+    }
+}
+
+impl From<AdjacencyListBuffers> for AdjacencyListMaps {
+    fn from(value: AdjacencyListBuffers) -> Self {
+        Self {
+            nums_map: value.nums,
+            bitindex_maps: BitIndexMaps {
+                bits_map: value.bits,
+                blocks_map: value.bitindex_blocks,
+                sblocks_map: value.bitindex_sblocks,
+            },
+        }
     }
 }
 

@@ -5,11 +5,14 @@ use super::{
     LogArrayBufBuilder, MonotonicLogArray,
 };
 
+// TODO this is a mirror of the file maps we define in file.rs.
+// It does make more sense to have them here, as they are not file dependent.
+// But we should probably eliminate some of those maps to instead map to types defined with the structurtes instead.
 #[derive(Clone)]
 pub struct IndexPropertyBuffers {
-    subjects_logarray_buf: Bytes,
-    adjacency_bufs: AdjacencyListBuffers,
-    objects_logarray_buf: Bytes,
+    pub subjects_logarray_buf: Bytes,
+    pub adjacency_bufs: AdjacencyListBuffers,
+    pub objects_logarray_buf: Bytes,
 }
 
 pub struct IndexedPropertyBuilder {
@@ -75,6 +78,7 @@ impl IndexedPropertyBuilder {
     }
 }
 
+#[derive(Clone)]
 pub struct IndexedPropertyCollection {
     subjects: MonotonicLogArray,
     adjacencies: AdjacencyList,

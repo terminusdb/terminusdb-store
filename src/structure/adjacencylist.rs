@@ -441,10 +441,10 @@ impl AdjacencyListBufBuilder {
 
 #[derive(Clone)]
 pub struct AdjacencyListBuffers {
-    nums: Bytes,
-    bits: Bytes,
-    bitindex_blocks: Bytes,
-    bitindex_sblocks: Bytes,
+    pub nums: Bytes,
+    pub bits: Bytes,
+    pub bitindex_blocks: Bytes,
+    pub bitindex_sblocks: Bytes,
 }
 
 pub struct AdjacencyListBuilder<F, W1, W2, W3>
