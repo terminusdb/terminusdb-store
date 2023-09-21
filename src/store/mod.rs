@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use crate::layer::{
-    IdTriple, IndexIdTriple, Layer, LayerBuilder, LayerCounts, ObjectType, ValueTriple,
+    IdTriple, IndexIdTriple, IndexValueTriple, Layer, LayerBuilder, LayerCounts, ObjectType,
+    ValueTriple,
 };
 use crate::storage::archive::{ArchiveLayerStore, DirectoryArchiveBackend, LruArchiveBackend};
 use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore};
@@ -112,6 +113,18 @@ impl StoreLayerBuilder {
     /// Remove an id triple.
     pub fn remove_id_triple(&self, triple: IdTriple) -> Result<(), io::Error> {
         self.with_builder(move |b| b.remove_id_triple(triple))
+    }
+
+    pub fn set_index_value_triple(&self, triple: IndexValueTriple) -> Result<(), io::Error> {
+        self.with_builder(move |b| b.set_index_value_triple(triple))
+    }
+
+    pub fn set_index_id_triple(&self, triple: IndexIdTriple) -> Result<(), io::Error> {
+        self.with_builder(move |b| b.set_index_id_triple(triple))
+    }
+
+    pub fn set_index_len(&self, subject: u64, len: usize) -> Result<(), io::Error> {
+        self.with_builder(move |b| b.set_index_len(subject, len))
     }
 
     /// Returns true if this layer has been committed, and false otherwise.
@@ -677,7 +690,10 @@ impl Layer for StoreLayer {
     fn indexed_property_si(&self, subject: u64, index: usize) -> Option<IndexIdTriple> {
         self.layer.indexed_property_si(subject, index)
     }
-    fn indexed_property_s(&self, subject: u64) -> Box<dyn Iterator<Item = IndexIdTriple> + Send> {
+    fn indexed_property_s<'a>(
+        &'a self,
+        subject: u64,
+    ) -> Box<dyn Iterator<Item = IndexIdTriple> + Send + 'a> {
         self.layer.indexed_property_s(subject)
     }
     fn indexed_properties(&self) -> Box<dyn Iterator<Item = IndexIdTriple> + Send> {

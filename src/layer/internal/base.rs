@@ -402,6 +402,10 @@ impl<F: 'static + FileLoad + FileStore> BaseLayerFileBuilderPhase2<F> {
         self.indexed_properties_builder.add_triples(triples)
     }
 
+    pub fn set_index_lengths<I: IntoIterator<Item = (u64, usize)>>(&mut self, lengths: I) {
+        self.indexed_properties_builder.set_lengths(lengths);
+    }
+
     pub(crate) async fn partial_finalize(self) -> io::Result<BaseLayerFiles<F>> {
         self.triple_builder.finalize().await?;
         if let Some(indexed_properties_collection_bufs) = self.indexed_properties_builder.finalize()

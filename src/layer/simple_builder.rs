@@ -40,6 +40,7 @@ pub trait LayerBuilder: Send + Sync {
     fn remove_id_triple(&mut self, triple: IdTriple);
     fn set_index_value_triple(&mut self, triple: IndexValueTriple);
     fn set_index_id_triple(&mut self, triple: IndexIdTriple);
+    fn set_index_len(&mut self, subject: u64, len: usize);
     /// Commit the layer to storage
     fn commit(self) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>>;
     /// Commit a boxed layer to storage
@@ -57,6 +58,7 @@ pub struct SimpleLayerBuilder<F: 'static + FileLoad + FileStore + Clone> {
     files: LayerFiles<F>,
     id_additions: Vec<IdTriple>,
     id_removals: Vec<IdTriple>,
+    index_lengths: Vec<(u64, usize)>,
     index_id_additions: Vec<IndexIdTriple>,
 
     nodes_values_map: HashMap<ObjectType, u64>,
@@ -77,6 +79,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
             files: LayerFiles::Base(files),
             id_additions: Vec::with_capacity(0),
             id_removals: Vec::with_capacity(0),
+            index_lengths: Vec::with_capacity(0),
             index_id_additions: Vec::with_capacity(0),
 
             nodes_values_map: HashMap::new(),
@@ -99,6 +102,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> SimpleLayerBuilder<F> {
             files: LayerFiles::Child(files),
             id_additions: Vec::new(),
             id_removals: Vec::new(),
+            index_lengths: Vec::new(),
             index_id_additions: Vec::new(),
 
             nodes_values_map: HashMap::new(),
@@ -245,12 +249,17 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
         self.index_id_additions.push(triple);
     }
 
+    fn set_index_len(&mut self, subject: u64, len: usize) {
+        self.index_lengths.push((subject, len));
+    }
+
     fn commit(self) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> {
         let SimpleLayerBuilder {
             parent,
             files,
             mut id_additions,
             mut id_removals,
+            mut index_lengths,
             mut index_id_additions,
 
             nodes_values_map,
@@ -275,6 +284,8 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
         id_removals.shrink_to_fit();
         index_id_additions.sort();
         index_id_additions.dedup();
+        index_lengths.sort();
+        index_lengths.dedup();
 
         // we now need to figure out noops.
         let mut additions_it = id_additions.iter_mut().peekable();
@@ -461,6 +472,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
                     builder.remove_id_triples(id_removals).await?;
                     // TODO: while setting index triples for this layer, we need to make sure we're not duplicating assignments that were already present from the parent. This is currently not yet done bedcause the query logic has not been written yet.
                     builder.set_index_triples(index_id_additions);
+                    builder.set_index_lengths(index_lengths);
 
                     builder.finalize().await
                 }
@@ -477,6 +489,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
 
                     builder.add_id_triples(id_additions).await?;
                     builder.set_index_triples(index_id_additions);
+                    builder.set_index_lengths(index_lengths);
 
                     builder.finalize().await
                 }

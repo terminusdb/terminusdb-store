@@ -43,6 +43,12 @@ impl IndexedPropertyBuilder {
         self.added.push((subject_id, 0, len as u64));
     }
 
+    pub fn set_lengths<I: IntoIterator<Item = (u64, usize)>>(&mut self, lengths: I) {
+        for (subject, len) in lengths {
+            self.set_len(subject, len);
+        }
+    }
+
     pub fn remove_from(&mut self, subject_id: u64) {
         self.set_len(subject_id, 0);
     }
@@ -143,16 +149,19 @@ impl IndexedPropertyCollection {
         self.lookup_index0(subject, 0).map(|n| n as usize)
     }
 
-    pub fn indexes_for<'a>(&'a self, subject: u64) -> impl Iterator<Item = (usize, u64)> + 'a {
+    pub fn indexes_for<'a>(
+        &'a self,
+        subject: u64,
+    ) -> Option<impl Iterator<Item = (usize, u64)> + 'a> {
         if let Some(subject_index) = self.subjects.index_of(subject) {
             let subject_index = subject_index + 1;
             let offset = self.adjacencies.offset_for(subject_index as u64) + 1;
             let indexes = self.adjacencies.get(subject_index as u64);
-            itertools::Either::Left(indexes.iter().skip(1).enumerate().map(move |(ix_ix, ix)| {
+            Some(indexes.iter().skip(1).enumerate().map(move |(ix_ix, ix)| {
                 (ix as usize - 1, self.objects.entry(ix_ix + offset as usize))
             }))
         } else {
-            itertools::Either::Right(std::iter::empty())
+            None
         }
     }
 
@@ -195,11 +204,14 @@ mod tests {
         assert_eq!(Some(21), collection.lookup_index(5, 1));
         assert_eq!(None, collection.lookup_index(5, 2));
 
-        assert_eq!(vec![(1, 21)], collection.indexes_for(5).collect::<Vec<_>>());
+        assert_eq!(
+            vec![(1, 21)],
+            collection.indexes_for(5).unwrap().collect::<Vec<_>>()
+        );
 
         assert_eq!(
             vec![(4, 42), (7, 420)],
-            collection.indexes_for(3).collect::<Vec<_>>()
+            collection.indexes_for(3).unwrap().collect::<Vec<_>>()
         );
         assert_eq!(
             vec![(3, 4, 42), (3, 7, 420), (5, 1, 21)],

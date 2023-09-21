@@ -532,6 +532,10 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
         self.indexed_properties_builder.add_triples(triples)
     }
 
+    pub fn set_index_lengths<I: IntoIterator<Item = (u64, usize)>>(&mut self, lengths: I) {
+        self.indexed_properties_builder.set_lengths(lengths);
+    }
+
     /// Remove the given triple.
     ///
     /// This will panic if a greater triple has already been removed,

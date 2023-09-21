@@ -956,6 +956,9 @@ impl Layer for InternalLayer {
     fn indexed_property_si(&self, subject: u64, index: usize) -> Option<IndexIdTriple> {
         let mut cur = self;
         loop {
+            if (cur.node_and_value_count() as u64) < subject {
+                break;
+            }
             if let Some(ip) = cur.indexed_property_collection() {
                 if let Some(object) = ip.lookup_index(subject, index) {
                     return Some(IndexIdTriple::new(subject, index, object));
@@ -973,9 +976,40 @@ impl Layer for InternalLayer {
         }
         None
     }
-    fn indexed_property_s(&self, subject: u64) -> Box<dyn Iterator<Item = IndexIdTriple> + Send> {
-        todo!();
+    fn indexed_property_s<'a>(
+        &'a self,
+        subject: u64,
+    ) -> Box<dyn Iterator<Item = IndexIdTriple> + Send + 'a> {
+        let mut iters = Vec::new();
+        let mut cur = self;
+        loop {
+            if (cur.node_and_value_count() as u64) < subject {
+                break;
+            }
+            if let Some(collection) = self.indexed_property_collection() {
+                if let Some(indexes_iter) = collection.indexes_for(subject) {
+                    iters.push(indexes_iter);
+                }
+            }
+            if let Some(parent) = self.immediate_parent() {
+                cur = parent;
+            } else {
+                break;
+            }
+        }
+
+        let mut seen = HashSet::new();
+        Box::new(iters.into_iter().flatten().filter_map(move |(p, o)| {
+            if seen.contains(&p) {
+                // already seen, so skip
+                None
+            } else {
+                seen.insert(p);
+                Some(IndexIdTriple::new(subject, p, o))
+            }
+        }))
     }
+
     fn indexed_properties(&self) -> Box<dyn Iterator<Item = IndexIdTriple> + Send> {
         todo!();
     }

@@ -168,7 +168,10 @@ pub trait Layer: Send + Sync {
     fn indexed_property_exists(&self, subject: u64, index: usize) -> bool {
         self.indexed_property_si(subject, index).is_some()
     }
-    fn indexed_property_s(&self, subject: u64) -> Box<dyn Iterator<Item = IndexIdTriple> + Send>;
+    fn indexed_property_s<'a>(
+        &'a self,
+        subject: u64,
+    ) -> Box<dyn Iterator<Item = IndexIdTriple> + Send + 'a>;
     fn indexed_properties(&self) -> Box<dyn Iterator<Item = IndexIdTriple> + Send>;
 }
 
@@ -231,13 +234,6 @@ pub struct ValueTriple {
     pub object: ObjectType,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct IndexValueTriple {
-    pub subject: String,
-    pub index: usize,
-    pub object: ObjectType,
-}
-
 impl ValueTriple {
     /// Construct a triple with a node object.
     ///
@@ -278,6 +274,48 @@ impl ValueTriple {
             subject: PossiblyResolved::Unresolved(self.subject),
             predicate: PossiblyResolved::Unresolved(self.predicate),
             object: PossiblyResolved::Unresolved(self.object),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct IndexValueTriple {
+    pub subject: String,
+    pub index: usize,
+    pub object: ObjectType,
+}
+
+impl IndexValueTriple {
+    /// Construct a triple with a node object.
+    ///
+    /// Nodes may appear in both the subject and object position.
+    pub fn new_node(subject: &str, index: usize, object: &str) -> IndexValueTriple {
+        IndexValueTriple {
+            subject: subject.to_owned(),
+            index,
+            object: ObjectType::Node(object.to_owned()),
+        }
+    }
+
+    /// Construct a triple with a value object.
+    ///
+    /// Values may only appear in the object position.
+    pub fn new_value(subject: &str, index: usize, object: TypedDictEntry) -> IndexValueTriple {
+        IndexValueTriple {
+            subject: subject.to_owned(),
+            index,
+            object: ObjectType::Value(object),
+        }
+    }
+
+    /// Construct a triple with a string value object.
+    ///
+    /// Values may only appear in the object position.
+    pub fn new_string_value(subject: &str, index: usize, object: &str) -> IndexValueTriple {
+        IndexValueTriple {
+            subject: subject.to_owned(),
+            index,
+            object: ObjectType::Value(String::make_entry(&object)),
         }
     }
 }

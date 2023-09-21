@@ -11,7 +11,9 @@ use tokio::runtime::Runtime;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::layer::{IdTriple, IndexIdTriple, Layer, LayerCounts, ObjectType, ValueTriple};
+use crate::layer::{
+    IdTriple, IndexIdTriple, IndexValueTriple, Layer, LayerCounts, ObjectType, ValueTriple,
+};
 use crate::store::{
     open_directory_store, open_memory_store, NamedGraph, Store, StoreLayer, StoreLayerBuilder,
 };
@@ -74,6 +76,18 @@ impl SyncStoreLayerBuilder {
     /// Remove an id triple.
     pub fn remove_id_triple(&self, triple: IdTriple) -> Result<(), io::Error> {
         self.inner.remove_id_triple(triple)
+    }
+
+    pub fn set_index_value_triple(&self, triple: IndexValueTriple) -> Result<(), io::Error> {
+        self.inner.set_index_value_triple(triple)
+    }
+
+    pub fn set_index_id_triple(&self, triple: IndexIdTriple) -> Result<(), io::Error> {
+        self.inner.set_index_id_triple(triple)
+    }
+
+    pub fn set_index_len(&self, subject: u64, len: usize) -> Result<(), io::Error> {
+        self.inner.set_index_len(subject, len)
     }
 
     /// Returns a boolean result which is true if this builder has been committed, and false otherwise.
@@ -456,7 +470,10 @@ impl Layer for SyncStoreLayer {
     fn indexed_property_si(&self, subject: u64, index: usize) -> Option<IndexIdTriple> {
         self.inner.indexed_property_si(subject, index)
     }
-    fn indexed_property_s(&self, subject: u64) -> Box<dyn Iterator<Item = IndexIdTriple> + Send> {
+    fn indexed_property_s<'a>(
+        &'a self,
+        subject: u64,
+    ) -> Box<dyn Iterator<Item = IndexIdTriple> + Send + 'a> {
         self.inner.indexed_property_s(subject)
     }
     fn indexed_properties(&self) -> Box<dyn Iterator<Item = IndexIdTriple> + Send> {
