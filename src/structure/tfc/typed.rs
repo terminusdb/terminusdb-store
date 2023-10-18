@@ -39,6 +39,22 @@ impl TypedDictEntry {
         T::from_lexical(self.entry.as_buf())
     }
 
+    pub fn as_casted_val<T, Q: Into<T> + TdbDataType + FromLexical<Q>>(&self) -> T {
+        assert_eq!(Q::datatype(), self.datatype);
+        Q::from_lexical(self.entry.as_buf()).into()
+    }
+
+    pub fn as_i32(&self) -> Option<i32> {
+        match self.datatype {
+            Datatype::Int32 => Some(self.as_casted_val::<i32, i32>()),
+            Datatype::UInt8 => Some(self.as_casted_val::<i32, u8>()),
+            Datatype::Int8 => Some(self.as_casted_val::<i32, i8>()),
+            Datatype::UInt16 => Some(self.as_casted_val::<i32, u16>()),
+            Datatype::Int16 => Some(self.as_casted_val::<i32, i16>()),
+            _ => None,
+        }
+    }
+
     pub fn datatype(&self) -> Datatype {
         self.datatype
     }
