@@ -44,13 +44,23 @@ impl TypedDictEntry {
         Q::from_lexical(self.entry.as_buf()).into()
     }
 
+    #[doc(hidden)]
     pub fn as_i32(&self) -> Option<i32> {
         match self.datatype {
-            Datatype::Int32 => Some(self.as_casted_val::<i32, i32>()),
+            Datatype::Int32 => Some(self.as_val::<i32, i32>()),
             Datatype::UInt8 => Some(self.as_casted_val::<i32, u8>()),
             Datatype::Int8 => Some(self.as_casted_val::<i32, i8>()),
             Datatype::UInt16 => Some(self.as_casted_val::<i32, u16>()),
             Datatype::Int16 => Some(self.as_casted_val::<i32, i16>()),
+            _ => None,
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn as_f64(&self) -> Option<f64> {
+        match self.datatype {
+            Datatype::Float64 => Some(self.as_val::<f64, f64>()),
+            Datatype::Float32 => Some(self.as_casted_val::<f64, f32>()),
             _ => None,
         }
     }
