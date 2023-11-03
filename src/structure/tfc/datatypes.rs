@@ -176,6 +176,12 @@ impl TdbDataType for u32 {
     }
 }
 
+impl FromLexical<u16> for u32 {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        b.reader().read_u16::<BigEndian>().unwrap() as u32
+    }
+}
+
 impl FromLexical<u32> for u32 {
     fn from_lexical<B: Buf>(b: B) -> Self {
         b.reader().read_u32::<BigEndian>().unwrap()
@@ -244,10 +250,46 @@ impl TdbDataType for i32 {
     }
 }
 
+impl FromLexical<i16> for i32 {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        b.reader().read_i16::<BigEndian>().unwrap() as i32
+    }
+}
+
+impl FromLexical<u16> for i32 {
+    fn from_lexical<B: Buf>(b: B) -> Self {
+        b.reader().read_u16::<BigEndian>().unwrap() as i32
+    }
+}
+
 impl FromLexical<i32> for i32 {
     fn from_lexical<B: Buf>(b: B) -> Self {
         let i = b.reader().read_u32::<BigEndian>().unwrap();
         (I32_BYTE_MASK ^ i) as i32
+    }
+}
+
+impl ToLexical<u8> for i32 {
+    fn to_lexical(&self) -> Bytes {
+        <i32 as ToLexical<i32>>::to_lexical(&self as &i32)
+    }
+}
+
+impl ToLexical<u16> for i32 {
+    fn to_lexical(&self) -> Bytes {
+        <i32 as ToLexical<i32>>::to_lexical(&self as &i32)
+    }
+}
+
+impl ToLexical<i8> for i32 {
+    fn to_lexical(&self) -> Bytes {
+        <i32 as ToLexical<i32>>::to_lexical(&self as &i32)
+    }
+}
+
+impl ToLexical<i16> for i32 {
+    fn to_lexical(&self) -> Bytes {
+        <i32 as ToLexical<i32>>::to_lexical(&self as &i32)
     }
 }
 

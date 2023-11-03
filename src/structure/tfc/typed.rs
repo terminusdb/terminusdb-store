@@ -39,6 +39,32 @@ impl TypedDictEntry {
         T::from_lexical(self.entry.as_buf())
     }
 
+    pub fn as_casted_val<T, Q: Into<T> + TdbDataType + FromLexical<Q>>(&self) -> T {
+        assert_eq!(Q::datatype(), self.datatype);
+        Q::from_lexical(self.entry.as_buf()).into()
+    }
+
+    #[doc(hidden)]
+    pub fn as_i32(&self) -> Option<i32> {
+        match self.datatype {
+            Datatype::Int32 => Some(self.as_val::<i32, i32>()),
+            Datatype::UInt8 => Some(self.as_casted_val::<i32, u8>()),
+            Datatype::Int8 => Some(self.as_casted_val::<i32, i8>()),
+            Datatype::UInt16 => Some(self.as_casted_val::<i32, u16>()),
+            Datatype::Int16 => Some(self.as_casted_val::<i32, i16>()),
+            _ => None,
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn as_f64(&self) -> Option<f64> {
+        match self.datatype {
+            Datatype::Float64 => Some(self.as_val::<f64, f64>()),
+            Datatype::Float32 => Some(self.as_casted_val::<f64, f32>()),
+            _ => None,
+        }
+    }
+
     pub fn datatype(&self) -> Datatype {
         self.datatype
     }
@@ -755,7 +781,7 @@ mod tests {
         let id = dict.id::<String, String>(&"Batty".to_string());
         assert_eq!(IdLookupResult::Found(2), id);
         assert_eq!(IdLookupResult::Found(6), dict.id(&20_u32));
-        assert_eq!(IdLookupResult::Found(7), dict.id(&(-500_i32)));
+        assert_eq!(IdLookupResult::Found(7), dict.id::<i32, i32>(&(-500_i32)));
 
         for i in 1..vec.len() + 1 {
             let entry = dict.entry(i).unwrap();
