@@ -781,7 +781,7 @@ mod tests {
         let id = dict.id::<String, String>(&"Batty".to_string());
         assert_eq!(IdLookupResult::Found(2), id);
         assert_eq!(IdLookupResult::Found(6), dict.id(&20_u32));
-        assert_eq!(IdLookupResult::Found(7), dict.id(&(-500_i32)));
+        assert_eq!(IdLookupResult::Found(7), dict.id::<i32, i32>(&(-500_i32)));
 
         for i in 1..vec.len() + 1 {
             let entry = dict.entry(i).unwrap();
