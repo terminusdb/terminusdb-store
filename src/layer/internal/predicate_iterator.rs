@@ -114,6 +114,7 @@ impl Iterator for OptInternalLayerTriplePredicateIterator {
     }
 }
 
+#[derive(Clone)]
 pub struct InternalTriplePredicateIterator {
     positives: Vec<OptInternalLayerTriplePredicateIterator>,
     negatives: Vec<OptInternalLayerTriplePredicateIterator>,

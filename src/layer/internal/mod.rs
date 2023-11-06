@@ -8,6 +8,7 @@ mod subject_iterator;
 
 use super::id_map::*;
 use super::layer::*;
+use crate::structure::util::ClonableIterator;
 use crate::structure::*;
 
 use std::collections::HashSet;
@@ -325,7 +326,7 @@ impl InternalLayer {
     pub fn internal_triple_additions_s(
         &self,
         subject: u64,
-    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+    ) -> Box<dyn ClonableIterator<Item = IdTriple> + Send> {
         Box::new(
             self.internal_triple_additions()
                 .seek_subject(subject)
@@ -336,7 +337,7 @@ impl InternalLayer {
     pub fn internal_triple_removals_s(
         &self,
         subject: u64,
-    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+    ) -> Box<dyn ClonableIterator<Item = IdTriple> + Send> {
         Box::new(
             self.internal_triple_removals()
                 .seek_subject(subject)
@@ -348,7 +349,7 @@ impl InternalLayer {
         &self,
         subject: u64,
         predicate: u64,
-    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+    ) -> Box<dyn ClonableIterator<Item = IdTriple> + Send> {
         Box::new(
             self.internal_triple_additions()
                 .seek_subject_predicate(subject, predicate)
@@ -360,7 +361,7 @@ impl InternalLayer {
         &self,
         subject: u64,
         predicate: u64,
-    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+    ) -> Box<dyn ClonableIterator<Item = IdTriple> + Send> {
         Box::new(
             self.internal_triple_removals()
                 .seek_subject_predicate(subject, predicate)
@@ -412,7 +413,7 @@ impl InternalLayer {
     pub fn internal_triple_additions_o(
         &self,
         object: u64,
-    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+    ) -> Box<dyn ClonableIterator<Item = IdTriple> + Send> {
         Box::new(
             self.internal_triple_additions_by_object()
                 .seek_object(object)
@@ -432,7 +433,7 @@ impl InternalLayer {
     pub fn internal_triple_removals_o(
         &self,
         object: u64,
-    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+    ) -> Box<dyn ClonableIterator<Item = IdTriple> + Send> {
         Box::new(
             self.internal_triple_removals_by_object()
                 .seek_object(object)
@@ -837,11 +838,11 @@ impl Layer for InternalLayer {
         }
     }
 
-    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+    fn triples(&self) -> Box<dyn ClonableIterator<Item = IdTriple> + Send> {
         Box::new(InternalTripleSubjectIterator::from_layer(self))
     }
 
-    fn triples_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+    fn triples_s(&self, subject: u64) -> Box<dyn ClonableIterator<Item = IdTriple> + Send> {
         Box::new(
             InternalTripleSubjectIterator::from_layer(self)
                 .seek_subject(subject)
@@ -853,7 +854,7 @@ impl Layer for InternalLayer {
         &self,
         subject: u64,
         predicate: u64,
-    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+    ) -> Box<dyn ClonableIterator<Item = IdTriple> + Send> {
         Box::new(
             InternalTripleSubjectIterator::from_layer(self)
                 .seek_subject_predicate(subject, predicate)
@@ -861,11 +862,11 @@ impl Layer for InternalLayer {
         )
     }
 
-    fn triples_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+    fn triples_p(&self, predicate: u64) -> Box<dyn ClonableIterator<Item = IdTriple> + Send> {
         Box::new(InternalTriplePredicateIterator::from_layer(self, predicate))
     }
 
-    fn triples_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+    fn triples_o(&self, object: u64) -> Box<dyn ClonableIterator<Item = IdTriple> + Send> {
         Box::new(
             InternalTripleObjectIterator::from_layer(self)
                 .seek_object(object)

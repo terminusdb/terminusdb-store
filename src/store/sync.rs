@@ -15,6 +15,7 @@ use crate::layer::{IdTriple, Layer, LayerCounts, ObjectType, ValueTriple};
 use crate::store::{
     open_directory_store, open_memory_store, NamedGraph, Store, StoreLayer, StoreLayerBuilder,
 };
+use crate::structure::util::ClonableIterator;
 use crate::structure::TypedDictEntry;
 
 use super::{open_archive_store, open_raw_archive_store};
@@ -224,7 +225,9 @@ impl SyncStoreLayer {
     ///
     /// Since this operation will involve io when this layer is a
     /// rollup layer, io errors may occur.
-    pub fn triple_additions(&self) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    pub fn triple_additions(
+        &self,
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         task_sync(self.inner.triple_additions())
     }
 
@@ -232,7 +235,7 @@ impl SyncStoreLayer {
     ///
     /// Since this operation will involve io when this layer is a
     /// rollup layer, io errors may occur.
-    pub fn triple_removals(&self) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    pub fn triple_removals(&self) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         task_sync(self.inner.triple_removals())
     }
 
@@ -243,7 +246,7 @@ impl SyncStoreLayer {
     pub fn triple_additions_s(
         &self,
         subject: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         task_sync(self.inner.triple_additions_s(subject))
     }
 
@@ -254,7 +257,7 @@ impl SyncStoreLayer {
     pub fn triple_removals_s(
         &self,
         subject: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         task_sync(self.inner.triple_removals_s(subject))
     }
 
@@ -266,7 +269,7 @@ impl SyncStoreLayer {
         &self,
         subject: u64,
         predicate: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         task_sync(self.inner.triple_additions_sp(subject, predicate))
     }
 
@@ -278,7 +281,7 @@ impl SyncStoreLayer {
         &self,
         subject: u64,
         predicate: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         task_sync(self.inner.triple_removals_sp(subject, predicate))
     }
 
@@ -289,7 +292,7 @@ impl SyncStoreLayer {
     pub fn triple_additions_p(
         &self,
         predicate: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         task_sync(self.inner.triple_additions_p(predicate))
     }
 
@@ -300,7 +303,7 @@ impl SyncStoreLayer {
     pub fn triple_removals_p(
         &self,
         predicate: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         task_sync(self.inner.triple_removals_p(predicate))
     }
 
@@ -311,7 +314,7 @@ impl SyncStoreLayer {
     pub fn triple_additions_o(
         &self,
         object: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         task_sync(self.inner.triple_additions_o(object))
     }
 
@@ -322,7 +325,7 @@ impl SyncStoreLayer {
     pub fn triple_removals_o(
         &self,
         object: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         task_sync(self.inner.triple_removals_o(object))
     }
 
@@ -409,11 +412,11 @@ impl Layer for SyncStoreLayer {
         self.inner.triple_exists(subject, predicate, object)
     }
 
-    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+    fn triples(&self) -> Box<dyn ClonableIterator<Item = IdTriple> + Send> {
         self.inner.triples()
     }
 
-    fn triples_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+    fn triples_s(&self, subject: u64) -> Box<dyn ClonableIterator<Item = IdTriple> + Send> {
         self.inner.triples_s(subject)
     }
 
@@ -421,15 +424,15 @@ impl Layer for SyncStoreLayer {
         &self,
         subject: u64,
         predicate: u64,
-    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+    ) -> Box<dyn ClonableIterator<Item = IdTriple> + Send> {
         self.inner.triples_sp(subject, predicate)
     }
 
-    fn triples_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+    fn triples_p(&self, predicate: u64) -> Box<dyn ClonableIterator<Item = IdTriple> + Send> {
         self.inner.triples_p(predicate)
     }
 
-    fn triples_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+    fn triples_o(&self, object: u64) -> Box<dyn ClonableIterator<Item = IdTriple> + Send> {
         self.inner.triples_o(object)
     }
 

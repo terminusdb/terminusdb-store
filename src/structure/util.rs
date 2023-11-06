@@ -334,6 +334,19 @@ pub fn calculate_width(size: u64) -> u8 {
     msb as u8
 }
 
+pub trait ClonableIterator: Iterator {
+    fn clone_box(&self) -> Box<dyn ClonableIterator<Item = Self::Item>>;
+}
+
+impl<T, I> ClonableIterator for I
+where
+    I: Iterator<Item = T> + Clone + 'static,
+{
+    fn clone_box(&self) -> Box<dyn ClonableIterator<Item = T>> {
+        Box::new(self.clone())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

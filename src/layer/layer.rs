@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-use crate::structure::{TdbDataType, TypedDictEntry};
+use crate::structure::{util::ClonableIterator, TdbDataType, TypedDictEntry};
 
 /// A layer containing dictionary entries and triples.
 ///
@@ -87,11 +87,14 @@ pub trait Layer: Send + Sync {
     }
 
     /// Iterator over all triples known to this layer.
-    fn triples(&self) -> Box<dyn Iterator<Item = IdTriple> + Send>;
+    fn triples(&self) -> Box<dyn ClonableIterator<Item = IdTriple> + Send>;
 
-    fn triples_s(&self, subject: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
-    fn triples_sp(&self, subject: u64, predicate: u64)
-        -> Box<dyn Iterator<Item = IdTriple> + Send>;
+    fn triples_s(&self, subject: u64) -> Box<dyn ClonableIterator<Item = IdTriple> + Send>;
+    fn triples_sp(
+        &self,
+        subject: u64,
+        predicate: u64,
+    ) -> Box<dyn ClonableIterator<Item = IdTriple> + Send>;
 
     /// Convert a `ValueTriple` to an `IdTriple`, returning None if any of the strings in the triple could not be resolved.
     fn value_triple_to_id(&self, triple: &ValueTriple) -> Option<IdTriple> {
@@ -110,9 +113,9 @@ pub trait Layer: Send + Sync {
         })
     }
 
-    fn triples_p(&self, predicate: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
+    fn triples_p(&self, predicate: u64) -> Box<dyn ClonableIterator<Item = IdTriple> + Send>;
 
-    fn triples_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
+    fn triples_o(&self, object: u64) -> Box<dyn ClonableIterator<Item = IdTriple> + Send>;
 
     /// Convert all known strings in the given string triple to ids.
     fn value_triple_to_partially_resolved(&self, triple: ValueTriple) -> PartiallyResolvedTriple {

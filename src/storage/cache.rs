@@ -1,5 +1,6 @@
 use super::layer::*;
 use crate::layer::*;
+use crate::structure::util::ClonableIterator;
 use crate::structure::{StringDict, TypedDict};
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -402,7 +403,7 @@ impl LayerStore for CachedLayerStore {
         &self,
         layer: [u32; 5],
         subject: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
                 return Ok(cached.internal_triple_additions_s(subject));
@@ -416,7 +417,7 @@ impl LayerStore for CachedLayerStore {
         &self,
         layer: [u32; 5],
         subject: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
                 return Ok(cached.internal_triple_removals_s(subject));
@@ -431,7 +432,7 @@ impl LayerStore for CachedLayerStore {
         layer: [u32; 5],
         subject: u64,
         predicate: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
                 return Ok(cached.internal_triple_additions_sp(subject, predicate));
@@ -448,7 +449,7 @@ impl LayerStore for CachedLayerStore {
         layer: [u32; 5],
         subject: u64,
         predicate: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
                 return Ok(cached.internal_triple_removals_sp(subject, predicate));
@@ -464,11 +465,11 @@ impl LayerStore for CachedLayerStore {
         &self,
         layer: [u32; 5],
         predicate: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
                 return Ok(Box::new(cached.internal_triple_additions_p(predicate))
-                    as Box<dyn Iterator<Item = _> + Send>);
+                    as Box<dyn ClonableIterator<Item = _> + Send>);
             }
         }
 
@@ -479,11 +480,11 @@ impl LayerStore for CachedLayerStore {
         &self,
         layer: [u32; 5],
         predicate: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
                 return Ok(Box::new(cached.internal_triple_removals_p(predicate))
-                    as Box<dyn Iterator<Item = _> + Send>);
+                    as Box<dyn ClonableIterator<Item = _> + Send>);
             }
         }
 
@@ -494,7 +495,7 @@ impl LayerStore for CachedLayerStore {
         &self,
         layer: [u32; 5],
         object: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
                 return Ok(cached.internal_triple_additions_o(object));
@@ -508,7 +509,7 @@ impl LayerStore for CachedLayerStore {
         &self,
         layer: [u32; 5],
         object: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         if let Some(cached) = self.cache.get_layer_from_cache(layer) {
             if !cached.is_rollup() {
                 return Ok(cached.internal_triple_removals_o(object));

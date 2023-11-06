@@ -18,6 +18,7 @@ use crate::layer::{
 use crate::structure::bitarray::bitarray_len_from_file;
 use crate::structure::dict_file_get_count;
 use crate::structure::logarray::logarray_file_get_length_and_width;
+use crate::structure::util::ClonableIterator;
 use crate::structure::StringDict;
 use crate::structure::TypedDict;
 use crate::structure::{util, AdjacencyList, BitIndex, LogArray, MonotonicLogArray, WaveletTree};
@@ -259,51 +260,51 @@ pub trait LayerStore: 'static + Packable + Send + Sync {
         &self,
         layer: [u32; 5],
         subject: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>;
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>>;
 
     async fn triple_removals_s(
         &self,
         layer: [u32; 5],
         subject: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>;
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>>;
 
     async fn triple_additions_sp(
         &self,
         layer: [u32; 5],
         subject: u64,
         predicate: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>;
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>>;
 
     async fn triple_removals_sp(
         &self,
         layer: [u32; 5],
         subject: u64,
         predicate: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>;
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>>;
 
     async fn triple_additions_p(
         &self,
         layer: [u32; 5],
         predicate: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>;
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>>;
 
     async fn triple_removals_o(
         &self,
         layer: [u32; 5],
         object: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>;
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>>;
 
     async fn triple_additions_o(
         &self,
         layer: [u32; 5],
         object: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>;
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>>;
 
     async fn triple_removals_p(
         &self,
         layer: [u32; 5],
         predicate: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>>;
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>>;
 
     async fn triple_layer_addition_count(&self, layer: [u32; 5]) -> io::Result<usize>;
 
@@ -2311,7 +2312,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         &self,
         layer: [u32; 5],
         subject: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         let (subjects_file, s_p_aj_files, sp_o_aj_files) =
             self.triple_addition_files(layer).await?;
 
@@ -2320,14 +2321,14 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                 .await?
                 .seek_subject(subject)
                 .take_while(move |t| t.subject == subject),
-        ) as Box<dyn Iterator<Item = _> + Send>)
+        ) as Box<dyn ClonableIterator<Item = _> + Send>)
     }
 
     async fn triple_removals_s(
         &self,
         layer: [u32; 5],
         subject: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         if let Some((subjects_file, s_p_aj_files, sp_o_aj_files)) =
             self.triple_removal_files(layer).await?
         {
@@ -2336,9 +2337,9 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                     .await?
                     .seek_subject(subject)
                     .take_while(move |t| t.subject == subject),
-            ) as Box<dyn Iterator<Item = _> + Send>)
+            ) as Box<dyn ClonableIterator<Item = _> + Send>)
         } else {
-            Ok(Box::new(std::iter::empty()) as Box<dyn Iterator<Item = _> + Send>)
+            Ok(Box::new(std::iter::empty()) as Box<dyn ClonableIterator<Item = _> + Send>)
         }
     }
 
@@ -2347,7 +2348,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         layer: [u32; 5],
         subject: u64,
         predicate: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         let (subjects_file, s_p_aj_files, sp_o_aj_files) =
             self.triple_addition_files(layer).await?;
 
@@ -2356,7 +2357,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                 .await?
                 .seek_subject_predicate(subject, predicate)
                 .take_while(move |t| t.predicate == predicate && t.subject == subject),
-        ) as Box<dyn Iterator<Item = _> + Send>)
+        ) as Box<dyn ClonableIterator<Item = _> + Send>)
     }
 
     async fn triple_removals_sp(
@@ -2364,7 +2365,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         layer: [u32; 5],
         subject: u64,
         predicate: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         if let Some((subjects_file, s_p_aj_files, sp_o_aj_files)) =
             self.triple_removal_files(layer).await?
         {
@@ -2373,9 +2374,9 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                     .await?
                     .seek_subject_predicate(subject, predicate)
                     .take_while(move |t| t.predicate == predicate && t.subject == subject),
-            ) as Box<dyn Iterator<Item = _> + Send>)
+            ) as Box<dyn ClonableIterator<Item = _> + Send>)
         } else {
-            Ok(Box::new(std::iter::empty()) as Box<dyn Iterator<Item = _> + Send>)
+            Ok(Box::new(std::iter::empty()) as Box<dyn ClonableIterator<Item = _> + Send>)
         }
     }
 
@@ -2383,7 +2384,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         &self,
         layer: [u32; 5],
         predicate: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         let (subjects_file, s_p_aj_files, sp_o_aj_files) =
             self.triple_addition_files(layer).await?;
         let predicate_wavelet_files = self.predicate_wavelet_addition_files(layer).await?;
@@ -2397,14 +2398,14 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                 predicate,
             )
             .await?,
-        ) as Box<dyn Iterator<Item = _> + Send>)
+        ) as Box<dyn ClonableIterator<Item = _> + Send>)
     }
 
     async fn triple_removals_p(
         &self,
         layer: [u32; 5],
         predicate: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         if let (Some((subjects_file, s_p_aj_files, sp_o_aj_files)), Some(predicate_wavelet_files)) = (
             self.triple_removal_files(layer).await?,
             self.predicate_wavelet_removal_files(layer).await?,
@@ -2418,9 +2419,9 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                     predicate,
                 )
                 .await?,
-            ) as Box<dyn Iterator<Item = _> + Send>)
+            ) as Box<dyn ClonableIterator<Item = _> + Send>)
         } else {
-            Ok(Box::new(std::iter::empty()) as Box<dyn Iterator<Item = _> + Send>)
+            Ok(Box::new(std::iter::empty()) as Box<dyn ClonableIterator<Item = _> + Send>)
         }
     }
 
@@ -2428,7 +2429,7 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         &self,
         layer: [u32; 5],
         object: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         let (subjects_file, objects_file, o_ps_aj_files, s_p_aj_files) =
             self.triple_addition_files_by_object(layer).await?;
 
@@ -2442,14 +2443,14 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
             )
             .await?
             .take_while(move |t| t.object == object),
-        ) as Box<dyn Iterator<Item = _> + Send>)
+        ) as Box<dyn ClonableIterator<Item = _> + Send>)
     }
 
     async fn triple_removals_o(
         &self,
         layer: [u32; 5],
         object: u64,
-    ) -> io::Result<Box<dyn Iterator<Item = IdTriple> + Send>> {
+    ) -> io::Result<Box<dyn ClonableIterator<Item = IdTriple> + Send>> {
         if let Some((subjects_file, objects_file, o_ps_aj_files, s_p_aj_files)) =
             self.triple_removal_files_by_object(layer).await?
         {
@@ -2463,9 +2464,9 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                 )
                 .await?
                 .take_while(move |t| t.object == object),
-            ) as Box<dyn Iterator<Item = _> + Send>)
+            ) as Box<dyn ClonableIterator<Item = _> + Send>)
         } else {
-            Ok(Box::new(std::iter::empty()) as Box<dyn Iterator<Item = _> + Send>)
+            Ok(Box::new(std::iter::empty()) as Box<dyn ClonableIterator<Item = _> + Send>)
         }
     }
 
@@ -2581,7 +2582,7 @@ pub(crate) async fn file_triple_iterator_by_predicate<F: FileLoad + FileStore>(
     sp_o_adjacency_list_files: AdjacencyListFiles<F>,
     predicate_wavelet_files: BitIndexFiles<F>,
     predicate: u64,
-) -> io::Result<impl Iterator<Item = IdTriple> + Send> {
+) -> io::Result<OptInternalLayerTriplePredicateIterator> {
     let s_p_maps = s_p_adjacency_list_files.map_all().await?;
     let sp_o_maps = sp_o_adjacency_list_files.map_all().await?;
     let predicate_wavelet_maps = predicate_wavelet_files.map_all().await?;
@@ -2610,7 +2611,7 @@ pub(crate) async fn file_triple_iterator_by_object<F: FileLoad + FileStore>(
     o_ps_adjacency_list_files: AdjacencyListFiles<F>,
     s_p_adjacency_list_files: AdjacencyListFiles<F>,
     object: u64,
-) -> io::Result<impl Iterator<Item = IdTriple> + Send> {
+) -> io::Result<InternalLayerTripleObjectIterator> {
     let subjects: Option<MonotonicLogArray> = subjects_file
         .map_if_exists()
         .await?
