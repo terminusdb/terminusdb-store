@@ -107,14 +107,6 @@ mod tests {
         assert_eq!(dt, dt_storage)
     }
 
-    /*
-    #[test]
-    fn integer_and_fraction() {
-        let vec = integer_and_fraction_to_storage(true, Integer::from(-322704000), None);
-        let (int, is_pos) = storage_to_bigint_and_sign(vec.to_bytes());
-        let fract = decode_fraction(vec);
-    }*/
-
     #[test]
     fn no_time_ns() {
         let year: i32 = 1959;
