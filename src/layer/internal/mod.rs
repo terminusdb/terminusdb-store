@@ -426,6 +426,7 @@ impl InternalLayer {
             self.pos_objects().cloned(),
             self.pos_o_ps_adjacency_list().clone(),
             self.pos_s_p_adjacency_list().clone(),
+            true,
         )))
     }
 
@@ -458,6 +459,7 @@ impl InternalLayer {
                     neg_objects.cloned(),
                     neg_o_ps_adjacency_list.clone(),
                     neg_s_p_adjacency_list.clone(),
+                    true,
                 )),
                 _ => None,
             },

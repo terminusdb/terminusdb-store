@@ -8,10 +8,12 @@ pub struct InternalLayerTripleObjectIterator {
     objects: Option<MonotonicLogArray>,
     o_ps_adjacency_list: AdjacencyList,
     s_p_adjacency_list: AdjacencyList,
+    stop_at_boundary: bool,
 
     o_position: u64,
     o_ps_position: u64,
     peeked: Option<IdTriple>,
+    hit_boundary: bool,
 }
 
 impl InternalLayerTripleObjectIterator {
@@ -20,15 +22,18 @@ impl InternalLayerTripleObjectIterator {
         objects: Option<MonotonicLogArray>,
         o_ps_adjacency_list: AdjacencyList,
         s_p_adjacency_list: AdjacencyList,
+        stop_at_boundary: bool,
     ) -> Self {
         Self {
-            subjects: subjects,
-            objects: objects,
-            o_ps_adjacency_list: o_ps_adjacency_list,
-            s_p_adjacency_list: s_p_adjacency_list,
+            subjects,
+            objects,
+            o_ps_adjacency_list,
+            s_p_adjacency_list,
+            stop_at_boundary,
             o_position: 0,
             o_ps_position: 0,
             peeked: None,
+            hit_boundary: false,
         }
     }
 
@@ -40,6 +45,7 @@ impl InternalLayerTripleObjectIterator {
 
     pub fn seek_object_ref(&mut self, object: u64) {
         self.peeked = None;
+        self.hit_boundary = false;
 
         if object == 0 {
             self.o_position = 0;
@@ -65,6 +71,10 @@ impl InternalLayerTripleObjectIterator {
 
         self.peeked.as_ref()
     }
+
+    pub fn continue_from_boundary(&mut self) {
+        self.hit_boundary = false;
+    }
 }
 
 impl Iterator for InternalLayerTripleObjectIterator {
@@ -79,19 +89,22 @@ impl Iterator for InternalLayerTripleObjectIterator {
         }
 
         loop {
+            if self.stop_at_boundary && self.hit_boundary {
+                return None;
+            }
+
             if self.o_ps_position >= self.o_ps_adjacency_list.right_count() as u64 {
                 return None;
             } else {
-                let object = match self.objects.as_ref() {
-                    Some(objects) => objects.entry(self.o_position.try_into().unwrap()),
-                    None => self.o_position + 1,
-                };
-
+                let o_pos = self.o_position;
                 let o_ps_bit = self.o_ps_adjacency_list.bit_at_pos(self.o_ps_position);
                 let sp_pair_num = self.o_ps_adjacency_list.num_at_pos(self.o_ps_position);
 
                 if o_ps_bit {
                     self.o_position += 1;
+                    if self.stop_at_boundary {
+                        self.hit_boundary = true;
+                    }
                 }
                 self.o_ps_position += 1;
 
@@ -105,6 +118,11 @@ impl Iterator for InternalLayerTripleObjectIterator {
                 let subject = match self.subjects.as_ref() {
                     Some(subjects) => subjects.entry(mapped_subject as usize - 1),
                     None => mapped_subject,
+                };
+
+                let object = match self.objects.as_ref() {
+                    Some(objects) => objects.entry(o_pos.try_into().unwrap()),
+                    None => o_pos + 1,
                 };
 
                 return Some(IdTriple::new(subject, predicate, object));
