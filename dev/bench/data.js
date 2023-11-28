@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1700820965554,
+  "lastUpdate": 1701160615827,
   "repoUrl": "https://github.com/terminusdb/terminusdb-store",
   "entries": {
     "Rust Benchmark": [
@@ -18431,6 +18431,126 @@ window.BENCHMARK_DATA = {
             "name": "logarray_w5_empty",
             "value": 220,
             "range": "± 4",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "gavin@terminusdb.com",
+            "name": "Gavin Mendel-Gleason",
+            "username": "GavinMendelGleason"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "63a0f8ebe46a6dee88d7258e40765c6d4e8202bb",
+          "message": "Merge pull request #148 from terminusdb/object_iteration_with_gaps\n\nmake object iteration faster for base layer with gaps",
+          "timestamp": "2023-11-28T09:32:14+01:00",
+          "tree_id": "8acd97971b846850931a2b5730aa7adc0b607262",
+          "url": "https://github.com/terminusdb/terminusdb-store/commit/63a0f8ebe46a6dee88d7258e40765c6d4e8202bb"
+        },
+        "date": 1701160615057,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_add_string_triple",
+            "value": 778,
+            "range": "± 91",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_base_layer_1000",
+            "value": 9942873,
+            "range": "± 4291831",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_base_layer",
+            "value": 1264737,
+            "range": "± 342377",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_empty_child_layer_on_empty_base_layer",
+            "value": 1320997,
+            "range": "± 213487",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_empty_base_layer",
+            "value": 9943767,
+            "range": "± 1170948",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_nonempty_child_layer_on_nonempty_base_layer",
+            "value": 5914955,
+            "range": "± 494526",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w10_1000",
+            "value": 8115,
+            "range": "± 120",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1",
+            "value": 262,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10",
+            "value": 313,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_100",
+            "value": 1021,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_1000",
+            "value": 7732,
+            "range": "± 56",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000",
+            "value": 74434,
+            "range": "± 729",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_as_stream",
+            "value": 79781,
+            "range": "± 557",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent",
+            "value": 947990,
+            "range": "± 661889",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_10000_persistent_as_stream",
+            "value": 899901,
+            "range": "± 254634",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "logarray_w5_empty",
+            "value": 227,
+            "range": "± 5",
             "unit": "ns/iter"
           }
         ]
