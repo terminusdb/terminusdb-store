@@ -416,7 +416,7 @@ impl InternalLayer {
         Box::new(
             self.internal_triple_additions_by_object()
                 .seek_object(object)
-                .take_while(move |t| t.object == object),
+                .stop_at_boundary(true),
         )
     }
 
@@ -426,6 +426,7 @@ impl InternalLayer {
             self.pos_objects().cloned(),
             self.pos_o_ps_adjacency_list().clone(),
             self.pos_s_p_adjacency_list().clone(),
+            false,
         )))
     }
 
@@ -436,7 +437,7 @@ impl InternalLayer {
         Box::new(
             self.internal_triple_removals_by_object()
                 .seek_object(object)
-                .take_while(move |t| t.object == object),
+                .stop_at_boundary(true),
         )
     }
 
@@ -458,6 +459,7 @@ impl InternalLayer {
                     neg_objects.cloned(),
                     neg_o_ps_adjacency_list.clone(),
                     neg_s_p_adjacency_list.clone(),
+                    false,
                 )),
                 _ => None,
             },

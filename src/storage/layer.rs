@@ -2626,7 +2626,7 @@ pub(crate) async fn file_triple_iterator_by_object<F: FileLoad + FileStore>(
     let s_p_aj: AdjacencyList = s_p_maps.into();
 
     Ok(
-        InternalLayerTripleObjectIterator::new(subjects, objects, o_ps_aj, s_p_aj)
+        InternalLayerTripleObjectIterator::new(subjects, objects, o_ps_aj, s_p_aj, true)
             .seek_object(object),
     )
 }

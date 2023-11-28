@@ -63,7 +63,7 @@ impl StoreLayerBuilder {
         }
     }
 
-    fn with_builder<R, F: FnOnce(&mut Box<dyn LayerBuilder>) -> R>(
+    pub fn with_builder<R, F: FnOnce(&mut Box<dyn LayerBuilder>) -> R>(
         &self,
         f: F,
     ) -> Result<R, io::Error> {

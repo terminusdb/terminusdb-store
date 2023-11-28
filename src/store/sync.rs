@@ -11,7 +11,7 @@ use tokio::runtime::Runtime;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::layer::{IdTriple, Layer, LayerCounts, ObjectType, ValueTriple};
+use crate::layer::{IdTriple, Layer, LayerBuilder, LayerCounts, ObjectType, ValueTriple};
 use crate::store::{
     open_directory_store, open_memory_store, NamedGraph, Store, StoreLayer, StoreLayerBuilder,
 };
@@ -49,6 +49,13 @@ pub struct SyncStoreLayerBuilder {
 impl SyncStoreLayerBuilder {
     fn wrap(inner: StoreLayerBuilder) -> Self {
         SyncStoreLayerBuilder { inner }
+    }
+
+    pub fn with_builder<R, F: FnOnce(&mut Box<dyn LayerBuilder>) -> R>(
+        &self,
+        f: F,
+    ) -> Result<R, io::Error> {
+        self.inner.with_builder(f)
     }
 
     /// Returns the name of the layer being built.
