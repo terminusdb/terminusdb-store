@@ -72,6 +72,16 @@ impl InternalLayerTripleObjectIterator {
         self.peeked.as_ref()
     }
 
+    pub fn stop_at_boundary(mut self, stop: bool) -> Self {
+        self.stop_at_boundary_ref(stop);
+
+        self
+    }
+
+    pub fn stop_at_boundary_ref(&mut self, stop: bool) {
+        self.stop_at_boundary = stop;
+    }
+
     pub fn continue_from_boundary(&mut self) {
         self.hit_boundary = false;
     }
@@ -141,6 +151,16 @@ impl OptInternalLayerTripleObjectIterator {
     pub fn seek_object_ref(&mut self, object: u64) {
         if let Some(i) = self.0.as_mut() {
             i.seek_object_ref(object)
+        }
+    }
+
+    pub fn stop_at_boundary(self, stop: bool) -> Self {
+        OptInternalLayerTripleObjectIterator(self.0.map(|i| i.stop_at_boundary(stop)))
+    }
+
+    pub fn stop_at_boundary_ref(&mut self, stop: bool) {
+        if let Some(i) = self.0.as_mut() {
+            i.stop_at_boundary_ref(stop)
         }
     }
 
