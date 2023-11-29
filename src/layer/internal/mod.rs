@@ -737,7 +737,7 @@ impl Layer for InternalLayer {
             return None;
         }
 
-        let mut corrected_id = id;
+        let mut corrected_id = id - 1;
         let mut current_option: Option<&InternalLayer> = Some(self);
         let mut parent_count = self.node_and_value_count() as u64;
         while let Some(current_layer) = current_option {
@@ -759,7 +759,15 @@ impl Layer for InternalLayer {
                 .node_value_id_map()
                 .outer_to_inner(corrected_id);
 
-            return Some(corrected_id < current_layer.node_dict_len() as u64);
+            return if corrected_id < current_layer.node_dict_len() as u64 {
+                Some(true)
+            } else if corrected_id
+                < (current_layer.node_dict_len() + current_layer.value_dict_len()) as u64
+            {
+                Some(false)
+            } else {
+                None
+            };
         }
 
         None
@@ -1052,9 +1060,11 @@ pub(crate) fn layer_triple_exists(
 
 #[cfg(test)]
 mod tests {
+    use tempfile::tempdir;
+
     use super::*;
-    use crate::open_sync_memory_store;
     use crate::store::sync::*;
+    use crate::{open_directory_store, open_sync_memory_store};
 
     fn create_base_layer(store: &SyncStore) -> SyncStoreLayer {
         let builder = store.create_base_layer().unwrap();
@@ -1122,5 +1132,23 @@ mod tests {
             .unwrap();
 
         assert_eq!(1, layer.internal_triple_layer_addition_count());
+    }
+
+    #[tokio::test]
+    async fn object_is_node_in_base_layer() {
+        let dir = tempdir().unwrap();
+        let store = open_directory_store(dir.path());
+        let builder = store.create_base_layer().await.unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_node("foo", "links_to", "bar"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("foo", "links_to_data", "wow"))
+            .unwrap();
+        let layer = builder.commit().await.unwrap();
+        assert_eq!(Some(true), layer.id_object_is_node(1));
+        assert_eq!(Some(true), layer.id_object_is_node(2));
+        assert_eq!(Some(false), layer.id_object_is_node(3));
+        assert_eq!(None, layer.id_object_is_node(4));
     }
 }
