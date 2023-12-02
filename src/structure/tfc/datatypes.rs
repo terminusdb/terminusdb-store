@@ -5,6 +5,7 @@ use super::{
     TypedDictEntry,
 };
 use base64::display::Base64Display;
+use bson::Decimal128;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use chrono::{NaiveDateTime, NaiveTime};
@@ -59,6 +60,14 @@ pub enum Datatype {
     Base64Binary,
     HexBinary,
     AnySimpleType,
+
+    Decimal128,
+    BSONObjectId,
+    TimeStamp64,
+    BSONTimeStamp,
+    Regex,
+    Javascript,
+    BSONBinary,
 }
 
 impl Datatype {
@@ -84,6 +93,10 @@ impl Datatype {
             Datatype::BigInt => None,
             Datatype::Token => None,
             Datatype::LangString => None,
+            Datatype::Decimal128 => Some(16),
+            Datatype::BSONObjectId => Some(12),
+            Datatype::TimeStamp64 => Some(8),
+            Datatype::BSONTimeStamp => Some(8),
             _ => None,
         }
     }
@@ -1040,6 +1053,67 @@ impl TdbDataType for HexBinary {
     }
 }
 
+pub struct BSONObjectId([u8; 12]);
+
+impl FromLexical<BSONObjectId> for BSONObjectId {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        let mut result = [0; 12];
+        b.copy_to_slice(&mut result);
+
+        BSONObjectId(result)
+    }
+}
+
+impl ToLexical<BSONObjectId> for BSONObjectId {
+    fn to_lexical(&self) -> Bytes {
+        Bytes::copy_from_slice(&self.0)
+    }
+}
+
+impl ToLexical<BSONObjectId> for [u8; 12] {
+    fn to_lexical(&self) -> Bytes {
+        Bytes::copy_from_slice(self)
+    }
+}
+
+impl TdbDataType for BSONObjectId {
+    fn datatype() -> Datatype {
+        Datatype::BSONObjectId
+    }
+}
+
+const DEC128_SIGN_MASK: u128 = 0x8000_0000_0000_0000_0000_0000_0000_0000;
+const DEC128_COMPLEMENT: u128 = 0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff;
+
+impl ToLexical<Decimal128> for Decimal128 {
+    fn to_lexical(&self) -> Bytes {
+        let bits: u128 = u128::from_le_bytes(self.bytes());
+        let transformed = if bits & DEC128_SIGN_MASK > 0 {
+            bits ^ DEC128_COMPLEMENT
+        } else {
+            bits ^ DEC128_SIGN_MASK
+        };
+        Bytes::copy_from_slice(&transformed.to_be_bytes())
+    }
+}
+
+impl FromLexical<Decimal128> for Decimal128 {
+    fn from_lexical<B: Buf>(mut b: B) -> Self {
+        let i = b.get_u128();
+        if i & DEC128_SIGN_MASK > 0 {
+            Decimal128::from_bytes((i ^ DEC128_SIGN_MASK).to_le_bytes())
+        } else {
+            Decimal128::from_bytes((i ^ DEC128_COMPLEMENT).to_le_bytes())
+        }
+    }
+}
+
+impl TdbDataType for Decimal128 {
+    fn datatype() -> Datatype {
+        Datatype::Decimal128
+    }
+}
+
 macro_rules! stringy_type {
     ($ty:ident) => {
         stringy_type!($ty, $ty);
@@ -1124,6 +1198,39 @@ macro_rules! biginty_type {
     };
 }
 
+macro_rules! u64y_type {
+    ($ty:ident) => {
+        u64y_type!($ty, $ty);
+    };
+    ($ty:ident, $datatype:ident) => {
+        #[derive(PartialEq, Debug)]
+        pub struct $ty(pub u64);
+
+        impl TdbDataType for $ty {
+            fn datatype() -> Datatype {
+                Datatype::$datatype
+            }
+        }
+
+        impl FromLexical<$ty> for $ty {
+            fn from_lexical<B: Buf>(b: B) -> Self {
+                $ty(FromLexical::<u64>::from_lexical(b))
+            }
+        }
+        impl FromLexical<$ty> for u64 {
+            fn from_lexical<B: Buf>(b: B) -> Self {
+                FromLexical::<u64>::from_lexical(b)
+            }
+        }
+
+        impl ToLexical<$ty> for $ty {
+            fn to_lexical(&self) -> Bytes {
+                self.0.to_lexical()
+            }
+        }
+    };
+}
+
 stringy_type!(LangString);
 stringy_type!(NCName);
 stringy_type!(Name);
@@ -1140,7 +1247,13 @@ stringy_type!(Entity);
 
 stringy_type!(AnySimpleType);
 
+stringy_type!(Regex);
+stringy_type!(Javascript);
+
 biginty_type!(PositiveInteger);
 biginty_type!(NonNegativeInteger);
 biginty_type!(NegativeInteger);
 biginty_type!(NonPositiveInteger);
+
+u64y_type!(TimeStamp64);
+u64y_type!(BSONTimeStamp);

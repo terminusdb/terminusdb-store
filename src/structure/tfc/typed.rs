@@ -524,11 +524,12 @@ impl<B1: BufMut, B2: BufMut, B3: BufMut, B4: BufMut> TypedDictBufBuilder<B1, B2,
 
 #[cfg(test)]
 mod tests {
+    use bson::Decimal128;
     use bytes::BytesMut;
     use chrono::{NaiveDate, NaiveDateTime};
     use rug::Integer;
 
-    use crate::structure::Decimal;
+    use crate::structure::{BSONObjectId, Decimal};
 
     use super::*;
     fn build_multiple_segments<
@@ -1369,5 +1370,152 @@ mod tests {
             dict.entry(2).unwrap().as_val::<NaiveDateTime, String>(),
             "2002-11-04T11:30:12.000000003Z".to_string()
         )
+    }
+
+    #[test]
+    fn test_blah() {
+        let used_types_buf = BytesMut::new();
+        let type_offsets_buf = BytesMut::new();
+        let block_offsets_buf = BytesMut::new();
+        let data_buf = BytesMut::new();
+
+        let mut typed_builder = TypedDictBufBuilder::new(
+            used_types_buf,
+            type_offsets_buf,
+            block_offsets_buf,
+            data_buf,
+        );
+
+        let mut vec = vec![
+            u64::make_entry(&42),
+            u64::make_entry(&43),
+            u64::make_entry(&44),
+            u64::make_entry(&41),
+            u64::make_entry(&25),
+        ];
+        vec.sort();
+        typed_builder.add_all(vec.into_iter());
+        let (b1, b2, b3, b4) = typed_builder.finalize();
+        let data = b4.freeze();
+        let dict = TypedDict::from_parts(b1.freeze(), b2.freeze(), b3.freeze(), data.clone());
+
+        let entries: Vec<_> = dict.iter().collect();
+        eprintln!("{entries:?}");
+        eprintln!("{data:?}");
+        panic!("wah");
+    }
+
+    #[test]
+    fn test_bson_objectid() {
+        let used_types_buf = BytesMut::new();
+        let type_offsets_buf = BytesMut::new();
+        let block_offsets_buf = BytesMut::new();
+        let data_buf = BytesMut::new();
+
+        let mut typed_builder = TypedDictBufBuilder::new(
+            used_types_buf,
+            type_offsets_buf,
+            block_offsets_buf,
+            data_buf,
+        );
+
+        let mut vec = vec![
+            BSONObjectId::make_entry(&[42; 12]),
+            BSONObjectId::make_entry(&[43; 12]),
+            BSONObjectId::make_entry(&[44; 12]),
+            BSONObjectId::make_entry(&[41; 12]),
+            BSONObjectId::make_entry(&[25; 12]),
+        ];
+        vec.sort();
+        typed_builder.add_all(vec.into_iter());
+        let (b1, b2, b3, b4) = typed_builder.finalize();
+        let data = b4.freeze();
+        let dict = TypedDict::from_parts(b1.freeze(), b2.freeze(), b3.freeze(), data.clone());
+
+        let entries: Vec<_> = dict.iter().collect();
+        eprintln!("{entries:?}");
+        eprintln!("{data:?}");
+        panic!("wah");
+    }
+
+    #[test]
+    fn test_bson_objectid_overlap() {
+        let used_types_buf = BytesMut::new();
+        let type_offsets_buf = BytesMut::new();
+        let block_offsets_buf = BytesMut::new();
+        let data_buf = BytesMut::new();
+
+        let mut typed_builder = TypedDictBufBuilder::new(
+            used_types_buf,
+            type_offsets_buf,
+            block_offsets_buf,
+            data_buf,
+        );
+
+        let mut ids = [[42; 12], [43; 12], [44; 12], [41; 12], [25; 12]];
+        for id in ids.iter_mut() {
+            id[0] = 42;
+        }
+
+        let mut vec: Vec<_> = ids.iter().map(BSONObjectId::make_entry).collect();
+        vec.sort();
+        typed_builder.add_all(vec.into_iter());
+        let (b1, b2, b3, b4) = typed_builder.finalize();
+        let data = b4.freeze();
+        let dict = TypedDict::from_parts(b1.freeze(), b2.freeze(), b3.freeze(), data.clone());
+
+        let entries: Vec<_> = dict.iter().collect();
+        eprintln!("{entries:?}");
+        eprintln!("{data:?}");
+        panic!("wah");
+    }
+
+    #[test]
+    fn test_decimal128() {
+        let used_types_buf = BytesMut::new();
+        let type_offsets_buf = BytesMut::new();
+        let block_offsets_buf = BytesMut::new();
+        let data_buf = BytesMut::new();
+
+        let mut typed_builder = TypedDictBufBuilder::new(
+            used_types_buf,
+            type_offsets_buf,
+            block_offsets_buf,
+            data_buf,
+        );
+
+        let numbers: Vec<Decimal128> = [
+            "0.1",
+            "2.3",
+            "0.00000028",
+            "1000000",
+            "4.2",
+            "-1.3",
+            "-12",
+            "-0.0000005",
+        ]
+        .iter()
+        .map(|n| n.parse().unwrap())
+        .collect();
+
+        let mut entries: Vec<_> = numbers.iter().map(Decimal128::make_entry).collect();
+        entries.sort();
+
+        typed_builder.add_all(entries.into_iter());
+        let (b1, b2, b3, b4) = typed_builder.finalize();
+        let data = b4.freeze();
+        let dict = TypedDict::from_parts(b1.freeze(), b2.freeze(), b3.freeze(), data.clone());
+
+        let entries: Vec<_> = dict.iter().collect();
+        eprintln!("{entries:?}");
+        eprintln!("{data:?}");
+        eprintln!(
+            "{:?}",
+            entries
+                .iter()
+                .map(|e| e.as_val::<Decimal128, Decimal128>().to_string())
+                .collect::<Vec<String>>()
+        );
+        panic!("wah");
     }
 }
