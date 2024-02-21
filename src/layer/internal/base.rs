@@ -9,8 +9,8 @@ use super::super::builder::*;
 use super::super::id_map::*;
 use super::super::layer::*;
 use crate::layer::InternalLayer;
-use crate::structure::*;
 use crate::{chrono_log, storage::*};
+use tdb_succinct::*;
 
 use std::io;
 use std::pin::Pin;

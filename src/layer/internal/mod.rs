@@ -8,7 +8,7 @@ mod subject_iterator;
 
 use super::id_map::*;
 use super::layer::*;
-use crate::structure::*;
+use tdb_succinct::*;
 
 use std::collections::HashSet;
 use std::convert::TryInto;

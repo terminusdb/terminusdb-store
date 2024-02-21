@@ -15,7 +15,7 @@ use crate::layer::{IdTriple, Layer, LayerBuilder, LayerCounts, ObjectType, Value
 use crate::store::{
     open_directory_store, open_memory_store, NamedGraph, Store, StoreLayer, StoreLayerBuilder,
 };
-use crate::structure::TypedDictEntry;
+use tdb_succinct::TypedDictEntry;
 
 use super::{open_archive_store, open_raw_archive_store};
 

@@ -28,7 +28,7 @@ use tokio::{
 };
 use tokio_util::either::Either;
 
-use crate::structure::{
+use tdb_succinct::{
     logarray_length_from_control_word, smallbitarray::SmallBitArray, LateLogArrayBufBuilder,
     MonotonicLogArray,
 };

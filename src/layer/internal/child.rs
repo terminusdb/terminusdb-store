@@ -7,8 +7,8 @@ use super::super::builder::*;
 use super::super::id_map::*;
 use crate::layer::*;
 use crate::storage::*;
-use crate::structure::*;
 use rayon::prelude::*;
+use tdb_succinct::*;
 
 use std::io;
 use std::pin::Pin;

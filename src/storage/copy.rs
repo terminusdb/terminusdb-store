@@ -1,75 +1,8 @@
 use std::io;
 
-use tokio::io::AsyncWriteExt;
+use super::{BaseLayerFiles, ChildLayerFiles, FileLoad, FileStore, IdMapFiles};
 
-use super::{
-    AdjacencyListFiles, BaseLayerFiles, BitIndexFiles, ChildLayerFiles, DictionaryFiles, FileLoad,
-    FileStore, IdMapFiles, SyncableFile, TypedDictionaryFiles,
-};
-
-pub async fn copy_file<F1: FileLoad, F2: FileStore>(f1: &F1, f2: &F2) -> io::Result<()> {
-    if !f1.exists().await? {
-        return Ok(());
-    }
-    let mut input = f1.open_read().await?;
-    let mut output = f2.open_write().await?;
-
-    tokio::io::copy(&mut input, &mut output).await?;
-    output.flush().await?;
-    output.sync_all().await?;
-
-    Ok(())
-}
-
-impl<F1: 'static + FileLoad + FileStore> DictionaryFiles<F1> {
-    pub async fn copy_from<F2: 'static + FileLoad + FileStore>(
-        &self,
-        from: &DictionaryFiles<F2>,
-    ) -> io::Result<()> {
-        copy_file(&from.blocks_file, &self.blocks_file).await?;
-        copy_file(&from.offsets_file, &self.offsets_file).await?;
-
-        Ok(())
-    }
-}
-
-impl<F1: 'static + FileLoad + FileStore> TypedDictionaryFiles<F1> {
-    pub async fn copy_from<F2: 'static + FileLoad + FileStore>(
-        &self,
-        from: &TypedDictionaryFiles<F2>,
-    ) -> io::Result<()> {
-        copy_file(&from.types_present_file, &self.types_present_file).await?;
-        copy_file(&from.type_offsets_file, &self.type_offsets_file).await?;
-        copy_file(&from.blocks_file, &self.blocks_file).await?;
-        copy_file(&from.offsets_file, &self.offsets_file).await?;
-
-        Ok(())
-    }
-}
-
-impl<F1: 'static + FileLoad + FileStore> BitIndexFiles<F1> {
-    pub async fn copy_from<F2: 'static + FileLoad + FileStore>(
-        &self,
-        from: &BitIndexFiles<F2>,
-    ) -> io::Result<()> {
-        copy_file(&from.bits_file, &self.bits_file).await?;
-        copy_file(&from.blocks_file, &self.blocks_file).await?;
-        copy_file(&from.sblocks_file, &self.sblocks_file).await?;
-
-        Ok(())
-    }
-}
-impl<F1: 'static + FileLoad + FileStore> AdjacencyListFiles<F1> {
-    pub async fn copy_from<F2: 'static + FileLoad + FileStore>(
-        &self,
-        from: &AdjacencyListFiles<F2>,
-    ) -> io::Result<()> {
-        copy_file(&from.nums_file, &self.nums_file).await?;
-        self.bitindex_files.copy_from(&from.bitindex_files).await?;
-
-        Ok(())
-    }
-}
+use tdb_succinct::storage::copy_file;
 
 impl<F1: 'static + FileLoad + FileStore> IdMapFiles<F1> {
     pub async fn copy_from<F2: 'static + FileLoad + FileStore>(

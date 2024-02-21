@@ -11,7 +11,7 @@ use crate::storage::archive::{ArchiveLayerStore, DirectoryArchiveBackend, LruArc
 use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore};
 use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
 use crate::storage::{CachedLayerStore, LabelStore, LayerStore, LockingHashMapLayerCache};
-use crate::structure::TypedDictEntry;
+use tdb_succinct::TypedDictEntry;
 
 use std::io;
 

@@ -1,9 +1,9 @@
 use super::*;
 use crate::storage::{BitIndexMaps, FileLoad, FileStore, IdMapFiles};
-use crate::structure::util::sorted_iterator;
-use crate::structure::*;
 use std::convert::TryInto;
 use std::io;
+use tdb_succinct::util::sorted_iterator;
+use tdb_succinct::*;
 
 #[derive(Clone)]
 pub struct IdMap {
