@@ -1,7 +1,7 @@
 use std::env;
 
 use std::io;
-use terminus_store::structure::TdbDataType;
+use tdb_succinct::TdbDataType;
 use terminus_store::*;
 use tokio;
 
