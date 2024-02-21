@@ -5,7 +5,7 @@ use tfc::file::{merge_string_dictionaries, merge_typed_dictionaries};
 use crate::layer::builder::{build_indexes, TripleFileBuilder};
 use crate::layer::*;
 use crate::storage::*;
-use crate::structure::*;
+use tdb_succinct::*;
 
 async fn safe_upto_bound<S: LayerStore>(
     store: &S,

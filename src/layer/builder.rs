@@ -5,9 +5,9 @@ use futures::TryStreamExt;
 use rayon::prelude::*;
 
 use super::layer::*;
-use crate::structure::util::{self, heap_sorted_iter, stream_iter_ok};
-use crate::structure::*;
 use crate::{chrono_log, storage::*};
+use tdb_succinct::util::{self, heap_sorted_iter, stream_iter_ok};
+use tdb_succinct::*;
 
 pub struct DictionarySetFileBuilder<F: 'static + FileLoad + FileStore> {
     node_files: DictionaryFiles<F>,

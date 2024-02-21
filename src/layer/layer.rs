@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-use crate::structure::{TdbDataType, TypedDictEntry};
+use tdb_succinct::{TdbDataType, TypedDictEntry};
 
 /// A layer containing dictionary entries and triples.
 ///

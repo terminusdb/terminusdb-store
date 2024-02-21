@@ -15,13 +15,13 @@ use crate::layer::{
     OptInternalLayerTriplePredicateIterator, OptInternalLayerTripleSubjectIterator, RollupLayer,
     SimpleLayerBuilder,
 };
-use crate::structure::bitarray::bitarray_len_from_file;
-use crate::structure::dict_file_get_count;
-use crate::structure::logarray::logarray_file_get_length_and_width;
-use crate::structure::StringDict;
-use crate::structure::TypedDict;
-use crate::structure::{util, AdjacencyList, BitIndex, LogArray, MonotonicLogArray, WaveletTree};
 use crate::Layer;
+use tdb_succinct::bitarray::bitarray_len_from_file;
+use tdb_succinct::dict_file_get_count;
+use tdb_succinct::logarray::logarray_file_get_length_and_width;
+use tdb_succinct::StringDict;
+use tdb_succinct::TypedDict;
+use tdb_succinct::{util, AdjacencyList, BitIndex, LogArray, MonotonicLogArray, WaveletTree};
 
 use bitvec::prelude::*;
 use std::convert::TryInto;

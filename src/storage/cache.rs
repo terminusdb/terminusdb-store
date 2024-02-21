@@ -1,11 +1,11 @@
 use super::layer::*;
 use crate::layer::*;
-use crate::structure::{StringDict, TypedDict};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 use std::sync::{Arc, RwLock, Weak};
+use tdb_succinct::{StringDict, TypedDict};
 
 pub trait LayerCache: 'static + Send + Sync {
     fn get_layer_from_cache(&self, name: [u32; 5]) -> Option<Arc<InternalLayer>>;

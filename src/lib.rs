@@ -36,7 +36,6 @@ pub mod layer;
 pub(crate) mod logging;
 pub mod storage;
 pub mod store;
-pub mod structure;
 
 pub use layer::{IdTriple, Layer, ObjectType, ValueTriple};
 pub use store::sync::{open_sync_archive_store, open_sync_directory_store, open_sync_memory_store};

@@ -37,7 +37,6 @@ pub mod memory;
 pub mod pack;
 
 pub use cache::*;
-pub use copy::*;
 pub use delta::*;
 pub use file::*;
 pub use label::*;

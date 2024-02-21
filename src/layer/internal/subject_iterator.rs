@@ -1,7 +1,7 @@
 use crate::layer::*;
-use crate::structure::*;
 use std::cmp::Ordering;
 use std::convert::TryInto;
+use tdb_succinct::*;
 use thiserror::Error;
 
 #[derive(Clone)]
@@ -457,7 +457,7 @@ mod tests {
     use crate::layer::base::base_tests::*;
     use crate::layer::child::child_tests::*;
     use crate::layer::*;
-    use crate::structure::TdbDataType;
+    use tdb_succinct::TdbDataType;
 
     use std::sync::Arc;
 

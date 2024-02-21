@@ -14,11 +14,11 @@ use crate::{
         directory::DirectoryLayerStore, AdjacencyListFiles, BaseLayerFiles, DictionaryFiles,
         FileLoad, FileStore, PersistentLayerStore, TypedDictionaryFiles,
     },
-    structure::{
-        dedup_merge_string_dictionaries_stream, dedup_merge_typed_dictionary_streams,
-        stream::{TfcDictStream, TfcTypedDictStream},
-        util::heap_sorted_stream,
-    },
+};
+use tdb_succinct::{
+    dedup_merge_string_dictionaries_stream, dedup_merge_typed_dictionary_streams,
+    stream::{TfcDictStream, TfcTypedDictStream},
+    util::heap_sorted_stream,
 };
 
 #[allow(unused)]

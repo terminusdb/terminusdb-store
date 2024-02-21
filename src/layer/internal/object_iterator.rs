@@ -1,6 +1,6 @@
 use crate::layer::*;
-use crate::structure::*;
 use std::convert::TryInto;
+use tdb_succinct::*;
 
 #[derive(Clone)]
 pub struct InternalLayerTripleObjectIterator {

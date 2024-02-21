@@ -5,11 +5,11 @@ use tempfile::tempdir;
 use test::Bencher;
 use tokio::runtime::Runtime;
 
+use tdb_succinct::util::stream_iter_ok;
+use tdb_succinct::LogArrayFileBuilder;
 use terminus_store::storage::directory::*;
 use terminus_store::storage::memory::*;
 use terminus_store::storage::*;
-use terminus_store::structure::util::stream_iter_ok;
-use terminus_store::structure::LogArrayFileBuilder;
 
 fn logarray_test(b: &mut Bencher, width: u8, size: usize, as_vec: bool) {
     let rt = Runtime::new().unwrap();
