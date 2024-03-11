@@ -6,7 +6,7 @@ use rayon::prelude::*;
 
 use super::layer::*;
 use crate::{chrono_log, storage::*};
-use tdb_succinct::util::{self, heap_sorted_iter, stream_iter_ok};
+use tdb_succinct::util::{heap_sorted_iter, stream_iter_ok};
 use tdb_succinct::*;
 
 pub struct DictionarySetFileBuilder<F: 'static + FileLoad + FileStore> {

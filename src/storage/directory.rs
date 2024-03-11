@@ -460,7 +460,6 @@ impl LabelStore for CachedDirectoryLabelStore {
 mod tests {
     use super::*;
     use crate::layer::*;
-    use std::sync::Arc;
     use tempfile::tempdir;
 
     #[tokio::test]

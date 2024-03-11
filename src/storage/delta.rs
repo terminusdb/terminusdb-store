@@ -1,7 +1,5 @@
 use std::io;
 
-use tfc::file::{merge_string_dictionaries, merge_typed_dictionaries};
-
 use crate::layer::builder::{build_indexes, TripleFileBuilder};
 use crate::layer::*;
 use crate::storage::*;

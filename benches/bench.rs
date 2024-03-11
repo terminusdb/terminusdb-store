@@ -2,7 +2,6 @@
 extern crate test;
 
 use tempfile::tempdir;
-use terminus_store;
 use terminus_store::layer::ValueTriple;
 use test::Bencher;
 
