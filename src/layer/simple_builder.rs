@@ -428,7 +428,6 @@ impl<F: 'static + FileLoad + FileStore + Clone> LayerBuilder for SimpleLayerBuil
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layer::internal::InternalLayer;
     use crate::storage::memory::*;
     use tdb_succinct::TdbDataType;
 

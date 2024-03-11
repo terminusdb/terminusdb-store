@@ -2651,11 +2651,10 @@ pub(crate) async fn file_triple_layer_count<F: FileLoad + FileStore>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layer::{Layer, ObjectType, ValueTriple};
+    use crate::layer::{ObjectType, ValueTriple};
     use crate::storage::directory::DirectoryLayerStore;
     use crate::storage::memory::MemoryLayerStore;
     use std::collections::HashMap;
-    use std::io;
     use tempfile::{tempdir, TempDir};
     // these tests are for both the memory store and the directory store
     // They test functionality that should really work for both

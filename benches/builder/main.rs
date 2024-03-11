@@ -4,7 +4,6 @@ mod data;
 
 use rand::prelude::*;
 use tempfile::tempdir;
-use terminus_store;
 use test::Bencher;
 
 use data::*;
