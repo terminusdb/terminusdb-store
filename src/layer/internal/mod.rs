@@ -736,8 +736,7 @@ impl Layer for InternalLayer {
         if id == 0 {
             return None;
         }
-
-        let mut corrected_id = id - 1;
+        let mut corrected_id = id;
         let mut current_option: Option<&InternalLayer> = Some(self);
         let mut parent_count = self.node_and_value_count() as u64;
         while let Some(current_layer) = current_option {
@@ -746,7 +745,7 @@ impl Layer for InternalLayer {
                     - current_layer.node_dict_len() as u64
                     - current_layer.value_dict_len() as u64;
 
-                if corrected_id >= parent_count {
+                if corrected_id > parent_count {
                     // object, if it exists, is in this layer
                     corrected_id -= parent_count;
                 } else {
@@ -759,15 +758,17 @@ impl Layer for InternalLayer {
                 .node_value_id_map()
                 .outer_to_inner(corrected_id);
 
-            return if corrected_id < current_layer.node_dict_len() as u64 {
-                Some(true)
-            } else if corrected_id
-                < (current_layer.node_dict_len() + current_layer.value_dict_len()) as u64
+            if corrected_id
+                > (current_layer.node_dict_len() + current_layer.value_dict_len()) as u64
             {
-                Some(false)
-            } else {
-                None
-            };
+                return None;
+            }
+            if corrected_id > current_layer.node_dict_len() as u64 {
+                // object, if it exists, must be a value
+                return Some(false);
+            }
+
+            return Some(true);
         }
 
         None
@@ -1063,8 +1064,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+    use crate::open_directory_store;
     use crate::store::sync::*;
-    use crate::{open_directory_store, open_sync_memory_store};
 
     fn create_base_layer(store: &SyncStore) -> SyncStoreLayer {
         let builder = store.create_base_layer().unwrap();
