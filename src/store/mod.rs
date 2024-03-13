@@ -222,6 +222,52 @@ impl StoreLayerBuilder {
 
         Ok(())
     }
+
+    // Apply changes required to change our parent layer into after merge.
+    // This is a three-way merge with other layers relative to the merge base if given.
+    pub fn apply_merge(
+        &self,
+        others: Vec<&StoreLayer>,
+        merge_base: Option<&StoreLayer>,
+    ) -> Result<(), io::Error> {
+        rayon::join(
+            || match merge_base {
+                Some(base) => {
+                    base.triples().par_bridge().for_each(|b| {
+                        if let Some(t) = base.id_triple_to_string(&b) {
+                            if others
+                                .iter()
+                                .par_bridge()
+                                .any(|o| !o.value_triple_exists(&t))
+                            {
+                                self.remove_value_triple(t).unwrap();
+                            }
+                        }
+                    });
+                }
+                None => {}
+            },
+            || {
+                others.iter().par_bridge().for_each(|os| {
+                    os.triples().par_bridge().for_each(|o| {
+                        if let Some(t) = os.id_triple_to_string(&o) {
+                            match merge_base {
+                                Some(base) => {
+                                    if !base.value_triple_exists(&t) {
+                                        self.add_value_triple(t).unwrap();
+                                    }
+                                }
+                                None => {
+                                    self.add_value_triple(t).unwrap();
+                                }
+                            }
+                        }
+                    })
+                })
+            },
+        );
+        Ok(())
+    }
 }
 
 /// A layer that keeps track of the store it came out of, allowing the creation of a layer builder on top of this layer.
@@ -1648,6 +1694,64 @@ mod tests {
         );
         assert!(!rebase_layer
             .value_triple_exists(&ValueTriple::new_string_value("cat", "says", "meow")));
+    }
+
+    #[tokio::test]
+    async fn apply_a_merge() {
+        let store = open_memory_store();
+        let builder = store.create_base_layer().await.unwrap();
+
+        builder
+            .add_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple::new_string_value("cat", "says", "meow"))
+            .unwrap();
+
+        let merge_base = builder.commit().await.unwrap();
+
+        let builder2 = merge_base.open_write().await.unwrap();
+
+        builder2
+            .add_value_triple(ValueTriple::new_string_value("dog", "says", "woof"))
+            .unwrap();
+
+        let layer2 = builder2.commit().await.unwrap();
+
+        let builder3 = merge_base.open_write().await.unwrap();
+
+        builder3
+            .remove_value_triple(ValueTriple::new_string_value("cow", "says", "moo"))
+            .unwrap();
+
+        let layer3 = builder3.commit().await.unwrap();
+
+        let builder4 = merge_base.open_write().await.unwrap();
+
+        builder4
+            .add_value_triple(ValueTriple::new_string_value("bird", "says", "twe"))
+            .unwrap();
+
+        let layer4 = builder4.commit().await.unwrap();
+
+        let merge_builder = layer4.open_write().await.unwrap();
+
+        let _ = merge_builder.apply_merge(vec![&layer2, &layer3], Some(&merge_base));
+
+        let merged_layer = merge_builder.commit().await.unwrap();
+
+        assert!(
+            merged_layer.value_triple_exists(&ValueTriple::new_string_value("cat", "says", "meow"))
+        );
+        assert!(
+            merged_layer.value_triple_exists(&ValueTriple::new_string_value("bird", "says", "twe"))
+        );
+        assert!(
+            merged_layer.value_triple_exists(&ValueTriple::new_string_value("dog", "says", "woof"))
+        );
+        assert!(
+            !merged_layer.value_triple_exists(&ValueTriple::new_string_value("cow", "says", "moo"))
+        );
     }
 
     async fn cached_layer_name_does_not_change_after_rollup(store: Store) {
