@@ -1,10 +1,10 @@
 use super::layer::*;
 use crate::layer::*;
 use async_trait::async_trait;
-use std::collections::HashMap;
+use dashmap::DashMap;
 use std::io;
 use std::path::Path;
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, Weak};
 use tdb_succinct::{StringDict, TypedDict};
 
 pub trait LayerCache: 'static + Send + Sync {
@@ -30,12 +30,10 @@ lazy_static! {
     pub static ref NOCACHE: Arc<dyn LayerCache> = Arc::new(NoCache);
 }
 
-// locking isn't really ideal but the lock window will be relatively small so it shouldn't hurt performance too much except on heavy updates.
-// ideally we should be using some concurrent hashmap implementation instead.
-// furthermore, there should be some logic to remove stale entries, like a periodic pass. right now, there isn't.
+/// Concurrent layer cache using DashMap with cleanup on access
 #[derive(Default)]
 pub struct LockingHashMapLayerCache {
-    cache: RwLock<HashMap<[u32; 5], Weak<InternalLayer>>>,
+    cache: DashMap<[u32; 5], Weak<InternalLayer>>,
 }
 
 impl LockingHashMapLayerCache {
@@ -46,45 +44,30 @@ impl LockingHashMapLayerCache {
 
 impl LayerCache for LockingHashMapLayerCache {
     fn get_layer_from_cache(&self, name: [u32; 5]) -> Option<Arc<InternalLayer>> {
-        let cache = self
-            .cache
-            .read()
-            .expect("rwlock read should always succeed");
+        // First check if we have a cached entry and if it's still valid
+        let needs_cleanup = if let Some(weak) = self.cache.get(&name) {
+            weak.upgrade().is_none()
+        } else {
+            false
+        };
 
-        let result = cache.get(&name).map(|c| c.to_owned());
-        std::mem::drop(cache);
-
-        match result {
-            None => None,
-            Some(weak) => match weak.upgrade() {
-                None => {
-                    self.cache
-                        .write()
-                        .expect("rwlock write should always succeed")
-                        .remove(&name);
-                    None
-                }
-                Some(result) => Some(result),
-            },
+        if needs_cleanup {
+            // Remove stale entry
+            self.cache.remove(&name);
+            None
+        } else if let Some(weak) = self.cache.get(&name) {
+            weak.upgrade()
+        } else {
+            None
         }
     }
 
     fn cache_layer(&self, layer: Arc<InternalLayer>) {
-        let mut cache = self
-            .cache
-            .write()
-            .expect("rwlock write should always succeed");
-        cache.insert(layer.name(), Arc::downgrade(&layer));
+        self.cache.insert(layer.name(), Arc::downgrade(&layer));
     }
 
     fn invalidate(&self, name: [u32; 5]) {
-        // the dumb way - we just delete the thing from cache forcing a refresh
-        let mut cache = self
-            .cache
-            .write()
-            .expect("rwlock read should always succeed");
-
-        cache.remove(&name);
+        self.cache.remove(&name);
     }
 }
 

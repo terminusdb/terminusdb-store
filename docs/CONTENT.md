@@ -2,6 +2,10 @@
 
 Right now we have various places where we assign a random name. It'd be much better if these names were content hashes instead.
 
+## Cache Implementation
+
+For details on the recent cache implementation improvements, including the migration from `RwLock<HashMap>` to `DashMap` for better concurrency, see [CACHE_PORTING.md](CACHE_PORTING.md).
+
 A content hash is a kind of name that is calculated from the content. hashing involves a one-way function that takes an arbitrary string of data and condenses it to a fixed-length number. This number has no obvious relationship back to the original *content*. A good hash function has the property that when you flip one bit in the input data, each bit of the hash has a 50% chance to flip as well. In other words, a good hash appears to be pretty much a random string.
 
 ## Advantages of content hashing
