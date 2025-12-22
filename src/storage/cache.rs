@@ -12,6 +12,18 @@ pub trait LayerCache: 'static + Send + Sync {
     fn cache_layer(&self, layer: Arc<InternalLayer>);
 
     fn invalidate(&self, name: [u32; 5]);
+
+    /// Returns statistics about the cache: (total_entries, live_entries, dead_entries)
+    /// Default implementation returns (0, 0, 0) for caches that don't track this.
+    fn cache_stats(&self) -> (usize, usize, usize) {
+        (0, 0, 0)
+    }
+
+    /// Remove stale entries from the cache. Returns number of entries removed.
+    /// Default implementation does nothing.
+    fn cleanup_stale_entries(&self) -> usize {
+        0
+    }
 }
 
 pub struct NoCache;
@@ -32,7 +44,13 @@ lazy_static! {
 
 // locking isn't really ideal but the lock window will be relatively small so it shouldn't hurt performance too much except on heavy updates.
 // ideally we should be using some concurrent hashmap implementation instead.
-// furthermore, there should be some logic to remove stale entries, like a periodic pass. right now, there isn't.
+
+/// Threshold for automatic cleanup: when cache size exceeds this, trigger cleanup on next cache_layer call.
+const CACHE_CLEANUP_THRESHOLD: usize = 100;
+
+/// Only cleanup if dead entries exceed this percentage of total.
+const DEAD_ENTRY_PERCENTAGE_THRESHOLD: usize = 20;
+
 #[derive(Default)]
 pub struct LockingHashMapLayerCache {
     cache: RwLock<HashMap<[u32; 5], Weak<InternalLayer>>>,
@@ -41,6 +59,33 @@ pub struct LockingHashMapLayerCache {
 impl LockingHashMapLayerCache {
     pub fn new() -> Self {
         Default::default()
+    }
+
+    /// Returns statistics about the cache: (total_entries, live_entries, dead_entries)
+    /// Live entries are those where the Weak reference can still be upgraded.
+    /// Dead entries are stale weak references that should be cleaned up.
+    pub fn stats(&self) -> (usize, usize, usize) {
+        let cache = self
+            .cache
+            .read()
+            .expect("rwlock read should always succeed, but got poisoned");
+        let total = cache.len();
+        let live = cache.values().filter(|w| w.strong_count() > 0).count();
+        let dead = total - live;
+        (total, live, dead)
+    }
+
+    /// Remove all stale (dead) weak references from the cache.
+    /// Returns the number of entries removed.
+    pub fn cleanup_stale(&self) -> usize {
+        let mut cache = self
+            .cache
+            .write()
+            .expect("rwlock write should always succeed, but got poisoned");
+        let before = cache.len();
+        cache.retain(|_, weak| weak.strong_count() > 0);
+        let after = cache.len();
+        before - after
     }
 }
 
@@ -74,6 +119,20 @@ impl LayerCache for LockingHashMapLayerCache {
             .cache
             .write()
             .expect("rwlock write should always succeed");
+
+        // Automatic cleanup: when cache exceeds threshold, check for stale entries
+        let cache_size = cache.len();
+        if cache_size >= CACHE_CLEANUP_THRESHOLD {
+            // Count dead entries
+            let dead_count = cache.values().filter(|w| w.strong_count() == 0).count();
+            let dead_percentage = (dead_count * 100) / cache_size.max(1);
+
+            // Only cleanup if dead entries exceed threshold percentage
+            if dead_percentage >= DEAD_ENTRY_PERCENTAGE_THRESHOLD {
+                cache.retain(|_, weak| weak.strong_count() > 0);
+            }
+        }
+
         cache.insert(layer.name(), Arc::downgrade(&layer));
     }
 
@@ -85,6 +144,14 @@ impl LayerCache for LockingHashMapLayerCache {
             .expect("rwlock read should always succeed");
 
         cache.remove(&name);
+    }
+
+    fn cache_stats(&self) -> (usize, usize, usize) {
+        self.stats()
+    }
+
+    fn cleanup_stale_entries(&self) -> usize {
+        self.cleanup_stale()
     }
 }
 
@@ -104,6 +171,16 @@ impl CachedLayerStore {
 
     pub fn invalidate(&self, name: [u32; 5]) {
         self.cache.invalidate(name);
+    }
+
+    /// Returns cache statistics: (total_entries, live_entries, dead_entries)
+    pub fn cache_stats(&self) -> (usize, usize, usize) {
+        self.cache.cache_stats()
+    }
+
+    /// Remove stale entries from the cache. Returns number of entries removed.
+    pub fn cleanup_stale_entries(&self) -> usize {
+        self.cache.cleanup_stale_entries()
     }
 }
 
@@ -305,8 +382,20 @@ impl LayerStore for CachedLayerStore {
     async fn register_rollup(&self, layer: [u32; 5], rollup: [u32; 5]) -> io::Result<()> {
         // when registering a rollup layer, we need to make sure that
         // the cached version is updated as well.
+
+        // Get the entire parent chain before registering the rollup
+        // so we can invalidate all old layers from the cache
+        let layer_stack = self.inner.retrieve_layer_stack_names(layer).await?;
+
         self.inner.register_rollup(layer, rollup).await?;
-        self.cache.invalidate(layer);
+
+        // Invalidate the entire parent chain from cache, not just the rolled-up layer.
+        // This ensures old layers become "dead" entries that can be cleaned up.
+        // Without this, the old parent chain stays "live" because Arc references
+        // are held by child layers.
+        for old_layer in layer_stack {
+            self.cache.invalidate(old_layer);
+        }
 
         Ok(())
     }
@@ -548,6 +637,14 @@ impl LayerStore for CachedLayerStore {
         upto: [u32; 5],
     ) -> io::Result<Vec<[u32; 5]>> {
         self.inner.retrieve_layer_stack_names_upto(name, upto).await
+    }
+
+    fn layer_cache_stats(&self) -> (usize, usize, usize) {
+        self.cache.cache_stats()
+    }
+
+    fn cleanup_layer_cache(&self) -> usize {
+        self.cache.cleanup_stale_entries()
     }
 }
 

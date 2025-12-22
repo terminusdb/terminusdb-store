@@ -350,6 +350,22 @@ pub trait LayerStore: 'static + Packable + Send + Sync {
             positives, negatives,
         ))
     }
+
+    /// Returns cache statistics: (total_entries, live_entries, dead_entries)
+    /// Default implementation returns (0, 0, 0) for stores without caching.
+    fn layer_cache_stats(&self) -> (usize, usize, usize) {
+        (0, 0, 0)
+    }
+
+    /// Remove stale entries from the layer cache. Returns number of entries removed.
+    /// Default implementation does nothing and returns 0.
+    fn cleanup_layer_cache(&self) -> usize {
+        0
+    }
+
+    /// Invalidate a specific layer from the cache, forcing reload from disk on next access.
+    /// Default implementation does nothing for stores without caching.
+    fn invalidate(&self, _name: [u32; 5]) {}
 }
 
 #[async_trait]
