@@ -49,6 +49,8 @@ pub struct ChildLayer {
 
     pub(super) pos_predicate_wavelet_tree: WaveletTree,
     pub(super) neg_predicate_wavelet_tree: WaveletTree,
+
+    pub(super) stored_size: usize,
 }
 
 impl ChildLayer {
@@ -62,6 +64,7 @@ impl ChildLayer {
     }
 
     pub fn load(name: [u32; 5], parent: Arc<InternalLayer>, maps: ChildLayerMaps) -> InternalLayer {
+        let stored_size = maps.byte_size();
         let node_dictionary = StringDict::parse(
             maps.node_dictionary_maps.offsets_map,
             maps.node_dictionary_maps.blocks_map,
@@ -193,6 +196,8 @@ impl ChildLayer {
 
             pos_predicate_wavelet_tree,
             neg_predicate_wavelet_tree,
+
+            stored_size,
         })
     }
 }

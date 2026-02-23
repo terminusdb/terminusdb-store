@@ -8,10 +8,47 @@ pub use tdb_succinct::storage::{
     DictionaryMaps, FileLoad, FileStore, SyncableFile, TypedDictionaryFiles, TypedDictionaryMaps,
 };
 
+/// Compute the total byte size of a BitIndexMaps (3 Bytes buffers).
+pub fn bit_index_maps_byte_size(maps: &BitIndexMaps) -> usize {
+    maps.bits_map.len() + maps.blocks_map.len() + maps.sblocks_map.len()
+}
+
+/// Compute the total byte size of a DictionaryMaps (2 Bytes buffers).
+pub fn dictionary_maps_byte_size(maps: &DictionaryMaps) -> usize {
+    maps.blocks_map.len() + maps.offsets_map.len()
+}
+
+/// Compute the total byte size of a TypedDictionaryMaps (4 Bytes buffers).
+pub fn typed_dictionary_maps_byte_size(maps: &TypedDictionaryMaps) -> usize {
+    maps.types_present_map.len()
+        + maps.type_offsets_map.len()
+        + maps.offsets_map.len()
+        + maps.blocks_map.len()
+}
+
+/// Compute the total byte size of an AdjacencyListMaps (BitIndex + nums).
+pub fn adjacency_list_maps_byte_size(maps: &AdjacencyListMaps) -> usize {
+    bit_index_maps_byte_size(&maps.bitindex_maps) + maps.nums_map.len()
+}
+
 #[derive(Clone)]
 pub struct IdMapMaps {
     pub node_value_idmap_maps: Option<BitIndexMaps>,
     pub predicate_idmap_maps: Option<BitIndexMaps>,
+}
+
+impl IdMapMaps {
+    pub fn byte_size(&self) -> usize {
+        let nv = self
+            .node_value_idmap_maps
+            .as_ref()
+            .map_or(0, bit_index_maps_byte_size);
+        let p = self
+            .predicate_idmap_maps
+            .as_ref()
+            .map_or(0, bit_index_maps_byte_size);
+        nv + p
+    }
 }
 
 #[derive(Clone)]
@@ -114,6 +151,21 @@ pub struct BaseLayerMaps {
     pub predicate_wavelet_tree_maps: BitIndexMaps,
 }
 
+impl BaseLayerMaps {
+    pub fn byte_size(&self) -> usize {
+        dictionary_maps_byte_size(&self.node_dictionary_maps)
+            + dictionary_maps_byte_size(&self.predicate_dictionary_maps)
+            + typed_dictionary_maps_byte_size(&self.value_dictionary_maps)
+            + self.id_map_maps.byte_size()
+            + self.subjects_map.as_ref().map_or(0, |b| b.len())
+            + self.objects_map.as_ref().map_or(0, |b| b.len())
+            + adjacency_list_maps_byte_size(&self.s_p_adjacency_list_maps)
+            + adjacency_list_maps_byte_size(&self.sp_o_adjacency_list_maps)
+            + adjacency_list_maps_byte_size(&self.o_ps_adjacency_list_maps)
+            + bit_index_maps_byte_size(&self.predicate_wavelet_tree_maps)
+    }
+}
+
 impl<F: FileLoad + FileStore> BaseLayerFiles<F> {
     pub async fn map_all(&self) -> io::Result<BaseLayerMaps> {
         let node_dictionary_maps = self.node_dictionary_files.map_all().await?;
@@ -196,6 +248,27 @@ pub struct ChildLayerMaps {
 
     pub pos_predicate_wavelet_tree_maps: BitIndexMaps,
     pub neg_predicate_wavelet_tree_maps: BitIndexMaps,
+}
+
+impl ChildLayerMaps {
+    pub fn byte_size(&self) -> usize {
+        dictionary_maps_byte_size(&self.node_dictionary_maps)
+            + dictionary_maps_byte_size(&self.predicate_dictionary_maps)
+            + typed_dictionary_maps_byte_size(&self.value_dictionary_maps)
+            + self.id_map_maps.byte_size()
+            + self.pos_subjects_map.len()
+            + self.pos_objects_map.len()
+            + self.neg_subjects_map.len()
+            + self.neg_objects_map.len()
+            + adjacency_list_maps_byte_size(&self.pos_s_p_adjacency_list_maps)
+            + adjacency_list_maps_byte_size(&self.pos_sp_o_adjacency_list_maps)
+            + adjacency_list_maps_byte_size(&self.pos_o_ps_adjacency_list_maps)
+            + adjacency_list_maps_byte_size(&self.neg_s_p_adjacency_list_maps)
+            + adjacency_list_maps_byte_size(&self.neg_sp_o_adjacency_list_maps)
+            + adjacency_list_maps_byte_size(&self.neg_o_ps_adjacency_list_maps)
+            + bit_index_maps_byte_size(&self.pos_predicate_wavelet_tree_maps)
+            + bit_index_maps_byte_size(&self.neg_predicate_wavelet_tree_maps)
+    }
 }
 
 impl<F: FileLoad + FileStore + Clone> ChildLayerFiles<F> {

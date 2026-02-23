@@ -218,6 +218,15 @@ impl InternalLayer {
         }
     }
 
+    /// Returns the byte size of this layer's own backing data (not parents).
+    pub fn stored_size(&self) -> usize {
+        match self {
+            Base(base) => base.stored_size,
+            Child(child) => child.stored_size,
+            Rollup(rollup) => rollup.internal.stored_size(),
+        }
+    }
+
     pub fn predicate_dict_get(&self, id: usize) -> Option<String> {
         self.predicate_dictionary().get(id)
     }
@@ -882,6 +891,126 @@ impl Layer for InternalLayer {
                 .seek_object(object)
                 .take_while(move |t| t.object == object),
         )
+    }
+
+    fn triples_value_range(
+        &self,
+        low: &TypedDictEntry,
+        high: &TypedDictEntry,
+    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+        if low.datatype() != high.datatype() {
+            return Box::new(std::iter::empty());
+        }
+
+        let dt = low.datatype();
+        let layers = self.immediate_layers();
+        let mut object_ids = Vec::new();
+        let mut parent_count = 0u64;
+
+        for layer in layers.iter() {
+            let node_dict_len = layer.node_dict_len() as u64;
+            let value_dict_len = layer.value_dict_len() as u64;
+
+            let value_dict = layer.value_dictionary();
+            let type_offset = match value_dict.type_segment(dt) {
+                Some((_, offset)) => offset,
+                None => {
+                    parent_count += node_dict_len + value_dict_len;
+                    continue;
+                }
+            };
+
+            let start = match value_dict.id_entry(low) {
+                IdLookupResult::Found(i) => i,
+                IdLookupResult::Closest(i) => i + 1,
+                IdLookupResult::NotFound => type_offset + 1,
+            };
+
+            let end = match value_dict.id_entry(high) {
+                IdLookupResult::Found(i) => i,
+                IdLookupResult::Closest(i) => i + 1,
+                IdLookupResult::NotFound => type_offset + 1,
+            };
+
+            let id_map = layer.node_value_id_map();
+            for pos in start..end {
+                let inner_id = pos + node_dict_len;
+                let outer_id = id_map.inner_to_outer(inner_id);
+                let global_id = outer_id + parent_count;
+                object_ids.push(global_id);
+            }
+
+            parent_count += node_dict_len + value_dict_len;
+        }
+
+        let layer_clone = self.clone();
+        Box::new(object_ids.into_iter().flat_map(move |oid| {
+            InternalTripleObjectIterator::from_layer(&layer_clone)
+                .seek_object(oid)
+                .take_while(move |t| t.object == oid)
+        }))
+    }
+
+    fn triples_value_range_rev(
+        &self,
+        low: &TypedDictEntry,
+        high: &TypedDictEntry,
+    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+        if low.datatype() != high.datatype() {
+            return Box::new(std::iter::empty());
+        }
+
+        let dt = low.datatype();
+        let layers = self.immediate_layers();
+        let mut object_ids = Vec::new();
+        let mut parent_count = 0u64;
+
+        for layer in layers.iter() {
+            let node_dict_len = layer.node_dict_len() as u64;
+            let value_dict_len = layer.value_dict_len() as u64;
+
+            let value_dict = layer.value_dictionary();
+            let type_offset = match value_dict.type_segment(dt) {
+                Some((_, offset)) => offset,
+                None => {
+                    parent_count += node_dict_len + value_dict_len;
+                    continue;
+                }
+            };
+
+            let start = match value_dict.id_entry(low) {
+                IdLookupResult::Found(i) => i,
+                IdLookupResult::Closest(i) => i + 1,
+                IdLookupResult::NotFound => type_offset + 1,
+            };
+
+            let end = match value_dict.id_entry(high) {
+                IdLookupResult::Found(i) => i,
+                IdLookupResult::Closest(i) => i + 1,
+                IdLookupResult::NotFound => type_offset + 1,
+            };
+
+            let id_map = layer.node_value_id_map();
+            for pos in (start..end).rev() {
+                let inner_id = pos + node_dict_len;
+                let outer_id = id_map.inner_to_outer(inner_id);
+                let global_id = outer_id + parent_count;
+                object_ids.push(global_id);
+            }
+
+            parent_count += node_dict_len + value_dict_len;
+        }
+
+        let layer_clone = self.clone();
+        Box::new(object_ids.into_iter().flat_map(move |oid| {
+            InternalTripleObjectIterator::from_layer(&layer_clone)
+                .seek_object(oid)
+                .take_while(move |t| t.object == oid)
+        }))
+    }
+
+    fn stored_size(&self) -> usize {
+        InternalLayer::stored_size(self)
     }
 
     fn single_triple_sp(&self, subject: u64, predicate: u64) -> Option<IdTriple> {

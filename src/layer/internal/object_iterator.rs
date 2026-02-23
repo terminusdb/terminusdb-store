@@ -499,4 +499,268 @@ mod tests {
 
         assert_eq!(expected, triples);
     }
+
+    #[tokio::test]
+    async fn value_range_base_layer_exact_bounds() {
+        let store = MemoryLayerStore::new();
+        let mut builder = store.create_base_layer().await.unwrap();
+        let base_name = builder.name();
+
+        builder.add_value_triple(ValueTriple::new_string_value("doc1", "label", "alpha"));
+        builder.add_value_triple(ValueTriple::new_string_value("doc2", "label", "beta"));
+        builder.add_value_triple(ValueTriple::new_string_value("doc3", "label", "gamma"));
+        builder.add_value_triple(ValueTriple::new_string_value("doc4", "label", "delta"));
+        builder.commit_boxed().await.unwrap();
+
+        let layer = store.get_layer(base_name).await.unwrap().unwrap();
+
+        let low = String::make_entry(&"beta");
+        let high = String::make_entry(&"gamma");
+        let mut triples: Vec<_> = layer
+            .triples_value_range(&low, &high)
+            .map(|t| layer.id_triple_to_string(&t).unwrap())
+            .collect();
+        triples.sort();
+
+        let mut expected = vec![
+            ValueTriple::new_string_value("doc2", "label", "beta"),
+            ValueTriple::new_string_value("doc4", "label", "delta"),
+        ];
+        expected.sort();
+        assert_eq!(expected, triples);
+    }
+
+    #[tokio::test]
+    async fn value_range_base_layer_non_exact_bounds() {
+        let store = MemoryLayerStore::new();
+        let mut builder = store.create_base_layer().await.unwrap();
+        let base_name = builder.name();
+
+        builder.add_value_triple(ValueTriple::new_string_value("doc1", "label", "apple"));
+        builder.add_value_triple(ValueTriple::new_string_value("doc2", "label", "banana"));
+        builder.add_value_triple(ValueTriple::new_string_value("doc3", "label", "cherry"));
+        builder.add_value_triple(ValueTriple::new_string_value("doc4", "label", "date"));
+        builder.commit_boxed().await.unwrap();
+
+        let layer = store.get_layer(base_name).await.unwrap().unwrap();
+
+        // bounds that don't match any exact entry
+        let low = String::make_entry(&"b");
+        let high = String::make_entry(&"d");
+        let triples: Vec<_> = layer
+            .triples_value_range(&low, &high)
+            .map(|t| layer.id_triple_to_string(&t).unwrap())
+            .collect();
+
+        assert_eq!(
+            vec![
+                ValueTriple::new_string_value("doc2", "label", "banana"),
+                ValueTriple::new_string_value("doc3", "label", "cherry"),
+            ],
+            triples
+        );
+    }
+
+    #[tokio::test]
+    async fn value_range_empty_range() {
+        let store = MemoryLayerStore::new();
+        let mut builder = store.create_base_layer().await.unwrap();
+        let base_name = builder.name();
+
+        builder.add_value_triple(ValueTriple::new_string_value("doc1", "label", "alpha"));
+        builder.add_value_triple(ValueTriple::new_string_value("doc2", "label", "beta"));
+        builder.commit_boxed().await.unwrap();
+
+        let layer = store.get_layer(base_name).await.unwrap().unwrap();
+
+        // range that contains no entries
+        let low = String::make_entry(&"gamma");
+        let high = String::make_entry(&"zeta");
+        let triples: Vec<_> = layer
+            .triples_value_range(&low, &high)
+            .collect();
+
+        assert!(triples.is_empty());
+    }
+
+    #[tokio::test]
+    async fn value_range_all_values() {
+        let store = MemoryLayerStore::new();
+        let mut builder = store.create_base_layer().await.unwrap();
+        let base_name = builder.name();
+
+        builder.add_value_triple(ValueTriple::new_string_value("doc1", "label", "alpha"));
+        builder.add_value_triple(ValueTriple::new_string_value("doc2", "label", "beta"));
+        builder.add_value_triple(ValueTriple::new_string_value("doc3", "label", "gamma"));
+        builder.commit_boxed().await.unwrap();
+
+        let layer = store.get_layer(base_name).await.unwrap().unwrap();
+
+        // range covering everything
+        let low = String::make_entry(&"a");
+        let high = String::make_entry(&"z");
+        let triples: Vec<_> = layer
+            .triples_value_range(&low, &high)
+            .map(|t| layer.id_triple_to_string(&t).unwrap())
+            .collect();
+
+        assert_eq!(3, triples.len());
+    }
+
+    #[tokio::test]
+    async fn value_range_child_layer() {
+        let store = MemoryLayerStore::new();
+        let mut builder = store.create_base_layer().await.unwrap();
+        let base_name = builder.name();
+
+        builder.add_value_triple(ValueTriple::new_string_value("doc1", "label", "alpha"));
+        builder.add_value_triple(ValueTriple::new_string_value("doc2", "label", "beta"));
+        builder.commit_boxed().await.unwrap();
+
+        let mut builder = store.create_child_layer(base_name).await.unwrap();
+        let child_name = builder.name();
+
+        builder.add_value_triple(ValueTriple::new_string_value("doc3", "label", "cherry"));
+        builder.add_value_triple(ValueTriple::new_string_value("doc4", "label", "banana"));
+        builder.commit_boxed().await.unwrap();
+
+        let layer = store.get_layer(child_name).await.unwrap().unwrap();
+
+        // range that spans values from both parent and child layers
+        let low = String::make_entry(&"b");
+        let high = String::make_entry(&"c");
+        let triples: Vec<_> = layer
+            .triples_value_range(&low, &high)
+            .map(|t| layer.id_triple_to_string(&t).unwrap())
+            .collect();
+
+        let subjects: Vec<_> = triples.iter().map(|t| t.subject.as_str()).collect();
+        assert!(subjects.contains(&"doc2"), "should include beta from parent");
+        assert!(subjects.contains(&"doc4"), "should include banana from child");
+        assert_eq!(2, triples.len());
+    }
+
+    #[tokio::test]
+    async fn value_range_child_layer_with_removal() {
+        let store = MemoryLayerStore::new();
+        let mut builder = store.create_base_layer().await.unwrap();
+        let base_name = builder.name();
+
+        builder.add_value_triple(ValueTriple::new_string_value("doc1", "label", "alpha"));
+        builder.add_value_triple(ValueTriple::new_string_value("doc2", "label", "beta"));
+        builder.add_value_triple(ValueTriple::new_string_value("doc3", "label", "gamma"));
+        builder.commit_boxed().await.unwrap();
+
+        let mut builder = store.create_child_layer(base_name).await.unwrap();
+        let child_name = builder.name();
+
+        builder.remove_value_triple(ValueTriple::new_string_value("doc2", "label", "beta"));
+        builder.commit_boxed().await.unwrap();
+
+        let layer = store.get_layer(child_name).await.unwrap().unwrap();
+
+        // beta was removed; range should not include it
+        let low = String::make_entry(&"a");
+        let high = String::make_entry(&"z");
+        let triples: Vec<_> = layer
+            .triples_value_range(&low, &high)
+            .map(|t| layer.id_triple_to_string(&t).unwrap())
+            .collect();
+
+        let subjects: Vec<_> = triples.iter().map(|t| t.subject.as_str()).collect();
+        assert!(!subjects.contains(&"doc2"), "beta was removed");
+        assert_eq!(2, triples.len());
+    }
+
+    #[tokio::test]
+    async fn value_range_numeric_values() {
+        let store = MemoryLayerStore::new();
+        let mut builder = store.create_base_layer().await.unwrap();
+        let base_name = builder.name();
+
+        builder.add_value_triple(ValueTriple::new_value("s1", "score", u32::make_entry(&10)));
+        builder.add_value_triple(ValueTriple::new_value("s2", "score", u32::make_entry(&20)));
+        builder.add_value_triple(ValueTriple::new_value("s3", "score", u32::make_entry(&30)));
+        builder.add_value_triple(ValueTriple::new_value("s4", "score", u32::make_entry(&40)));
+        builder.add_value_triple(ValueTriple::new_value("s5", "score", u32::make_entry(&50)));
+        builder.commit_boxed().await.unwrap();
+
+        let layer = store.get_layer(base_name).await.unwrap().unwrap();
+
+        let low = u32::make_entry(&20);
+        let high = u32::make_entry(&40);
+        let triples: Vec<_> = layer
+            .triples_value_range(&low, &high)
+            .map(|t| {
+                let obj = layer.id_object_value(t.object).unwrap();
+                (layer.id_subject(t.subject).unwrap(), obj.as_val::<u32, u32>())
+            })
+            .collect();
+
+        let values: Vec<u32> = triples.iter().map(|(_, v)| *v).collect();
+        assert!(values.contains(&20));
+        assert!(values.contains(&30));
+        assert!(!values.contains(&10));
+        assert!(!values.contains(&40), "high bound is exclusive");
+        assert_eq!(2, triples.len());
+    }
+
+    #[tokio::test]
+    async fn value_range_half_open_high_exclusive() {
+        let store = MemoryLayerStore::new();
+        let mut builder = store.create_base_layer().await.unwrap();
+        let base_name = builder.name();
+
+        builder.add_value_triple(ValueTriple::new_string_value("doc1", "label", "a"));
+        builder.add_value_triple(ValueTriple::new_string_value("doc2", "label", "b"));
+        builder.add_value_triple(ValueTriple::new_string_value("doc3", "label", "c"));
+        builder.commit_boxed().await.unwrap();
+
+        let layer = store.get_layer(base_name).await.unwrap().unwrap();
+
+        // [a, b) should include "a" but not "b"
+        let low = String::make_entry(&"a");
+        let high = String::make_entry(&"b");
+        let triples: Vec<_> = layer
+            .triples_value_range(&low, &high)
+            .map(|t| layer.id_triple_to_string(&t).unwrap())
+            .collect();
+
+        assert_eq!(1, triples.len());
+        assert_eq!(
+            ValueTriple::new_string_value("doc1", "label", "a"),
+            triples[0]
+        );
+    }
+
+    #[tokio::test]
+    async fn value_range_adjacent_slices_no_overlap() {
+        let store = MemoryLayerStore::new();
+        let mut builder = store.create_base_layer().await.unwrap();
+        let base_name = builder.name();
+
+        builder.add_value_triple(ValueTriple::new_string_value("d1", "v", "a"));
+        builder.add_value_triple(ValueTriple::new_string_value("d2", "v", "b"));
+        builder.add_value_triple(ValueTriple::new_string_value("d3", "v", "c"));
+        builder.add_value_triple(ValueTriple::new_string_value("d4", "v", "d"));
+        builder.commit_boxed().await.unwrap();
+
+        let layer = store.get_layer(base_name).await.unwrap().unwrap();
+
+        let a = String::make_entry(&"a");
+        let c = String::make_entry(&"c");
+        let e = String::make_entry(&"e");
+
+        let slice1: Vec<_> = layer.triples_value_range(&a, &c).collect();
+        let slice2: Vec<_> = layer.triples_value_range(&c, &e).collect();
+
+        // No overlap between [a,c) and [c,e)
+        let all_triples: Vec<_> = layer.triples_value_range(&a, &e).collect();
+        assert_eq!(slice1.len() + slice2.len(), all_triples.len());
+
+        // [a,c) has "a" and "b"
+        assert_eq!(2, slice1.len());
+        // [c,e) has "c" and "d"
+        assert_eq!(2, slice2.len());
+    }
 }
