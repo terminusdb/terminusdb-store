@@ -38,6 +38,8 @@ pub struct BaseLayer {
     pub(super) o_ps_adjacency_list: AdjacencyList,
 
     pub(super) predicate_wavelet_tree: WaveletTree,
+
+    pub(super) stored_size: usize,
 }
 
 impl BaseLayer {
@@ -50,6 +52,7 @@ impl BaseLayer {
     }
 
     pub fn load(name: [u32; 5], maps: BaseLayerMaps) -> InternalLayer {
+        let stored_size = maps.byte_size();
         let node_dictionary = StringDict::parse(
             maps.node_dictionary_maps.offsets_map,
             maps.node_dictionary_maps.blocks_map,
@@ -137,6 +140,8 @@ impl BaseLayer {
             o_ps_adjacency_list,
 
             predicate_wavelet_tree,
+
+            stored_size,
         })
     }
 }

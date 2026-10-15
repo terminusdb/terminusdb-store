@@ -158,6 +158,10 @@ pub enum LayerFileEnum {
     Rollup,
 }
 
+// the archive presence header reserves one of 64 bits, leaving 63 file
+// slots; new variants may only be appended after Rollup
+const _: () = assert!((LayerFileEnum::Rollup as usize) <= 62);
+
 pub const FILENAMES: Filenames = Filenames {
     node_dictionary_blocks: "node_dictionary_blocks.tfc",
     node_dictionary_offsets: "node_dictionary_offsets.logarray",

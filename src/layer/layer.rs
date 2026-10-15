@@ -114,6 +114,27 @@ pub trait Layer: Send + Sync {
 
     fn triples_o(&self, object: u64) -> Box<dyn Iterator<Item = IdTriple> + Send>;
 
+    /// Iterator over all triples whose object value falls in the half-open range [low, high).
+    ///
+    /// Both bounds must have the same Datatype. The range is inclusive on low and exclusive on high.
+    /// Returns an empty iterator if the type segment doesn't exist or if the range is empty.
+    fn triples_value_range(
+        &self,
+        low: &TypedDictEntry,
+        high: &TypedDictEntry,
+    ) -> Box<dyn Iterator<Item = IdTriple> + Send>;
+
+    /// Iterator over all triples whose object value falls in the half-open range [low, high),
+    /// yielding results in reverse (descending) object order.
+    ///
+    /// Both bounds must have the same Datatype. The range is inclusive on low and exclusive on high.
+    /// Returns an empty iterator if the type segment doesn't exist or if the range is empty.
+    fn triples_value_range_rev(
+        &self,
+        low: &TypedDictEntry,
+        high: &TypedDictEntry,
+    ) -> Box<dyn Iterator<Item = IdTriple> + Send>;
+
     /// Convert all known strings in the given string triple to ids.
     fn value_triple_to_partially_resolved(&self, triple: ValueTriple) -> PartiallyResolvedTriple {
         PartiallyResolvedTriple {
@@ -163,6 +184,12 @@ pub trait Layer: Send + Sync {
     }
 
     fn single_triple_sp(&self, subject: u64, predicate: u64) -> Option<IdTriple>;
+
+    /// Returns the byte size of the backing data for this layer only (not parents).
+    /// Default returns 0 for layers that don't track this.
+    fn stored_size(&self) -> usize {
+        0
+    }
 }
 
 pub struct LayerCounts {

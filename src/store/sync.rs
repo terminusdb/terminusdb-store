@@ -440,6 +440,22 @@ impl Layer for SyncStoreLayer {
         self.inner.triples_o(object)
     }
 
+    fn triples_value_range(
+        &self,
+        low: &TypedDictEntry,
+        high: &TypedDictEntry,
+    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+        self.inner.triples_value_range(low, high)
+    }
+
+    fn triples_value_range_rev(
+        &self,
+        low: &TypedDictEntry,
+        high: &TypedDictEntry,
+    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+        self.inner.triples_value_range_rev(low, high)
+    }
+
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())
     }
@@ -575,6 +591,13 @@ impl SyncStore {
         inner.map(SyncStoreLayerBuilder::wrap)
     }
 
+    /// Create an empty base layer with the given name.
+    ///
+    /// Fails if a layer with this name already exists.
+    pub fn create_named_base_layer(&self, name: [u32; 5]) -> io::Result<()> {
+        task_sync(self.inner.layer_store.create_base_layer_with_name(name))
+    }
+
     pub fn merge_base_layers(
         &self,
         layers: &[[u32; 5]],
@@ -597,12 +620,50 @@ impl SyncStore {
     /// After this operation, the specified layers will be retrievable
     /// from this store, provided they existed in the pack. specified
     /// layers that are not in the pack are silently ignored.
+    ///
+    /// Layers that already exist are not overwritten; instead their
+    /// files are verified to be identical to the pack contents, as
+    /// layer ids are random names and not content hashes. Returns the
+    /// list of layer ids that already existed with differing contents.
     pub fn import_layers(
         &self,
         pack: &[u8],
         layer_ids: Box<dyn Iterator<Item = [u32; 5]> + Send>,
-    ) -> io::Result<()> {
+    ) -> io::Result<Vec<[u32; 5]>> {
         task_sync(self.inner.layer_store.import_layers(pack, layer_ids))
+    }
+
+    /// Returns cache statistics: (total_entries, live_entries, dead_entries)
+    /// Dead entries are stale weak references that should be cleaned up.
+    pub fn layer_cache_stats(&self) -> (usize, usize, usize) {
+        self.inner.layer_cache_stats()
+    }
+
+    /// Remove stale entries from the layer cache. Returns number of entries removed.
+    pub fn cleanup_layer_cache(&self) -> usize {
+        self.inner.cleanup_layer_cache()
+    }
+
+    /// Returns bytes of backing data: (total_bytes, live_bytes, dead_bytes).
+    pub fn layer_cache_memory_bytes(&self) -> (usize, usize, usize) {
+        self.inner.layer_cache_memory_bytes()
+    }
+
+    /// Returns the current LRU archive cache usage in bytes, or None if no LRU backend.
+    pub fn lru_cache_used_bytes(&self) -> Option<usize> {
+        self.inner.lru_cache_used_bytes()
+    }
+
+    /// Evict LRU cache entries until usage is at or below the given
+    /// fraction of the configured limit.  Does nothing if no LRU
+    /// backend is configured.
+    pub fn evict_lru_cache(&self, target_fraction: f64) {
+        self.inner.evict_lru_cache(target_fraction)
+    }
+
+    /// Invalidate a specific layer from the cache, forcing reload from disk on next access.
+    pub fn invalidate_layer(&self, name: [u32; 5]) {
+        self.inner.invalidate_layer(name);
     }
 }
 

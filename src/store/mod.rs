@@ -23,6 +23,8 @@ use rayon::prelude::*;
 pub struct Store {
     label_store: Arc<dyn LabelStore>,
     layer_store: Arc<dyn LayerStore>,
+    lru_used_bytes_fn: Option<Arc<dyn Fn() -> usize + Send + Sync>>,
+    lru_evict_fn: Option<Arc<dyn Fn(f64) + Send + Sync>>,
 }
 
 /// A wrapper over a SimpleLayerBuilder, providing a thread-safe sharable interface.
@@ -652,6 +654,22 @@ impl Layer for StoreLayer {
         self.layer.triples_o(object)
     }
 
+    fn triples_value_range(
+        &self,
+        low: &TypedDictEntry,
+        high: &TypedDictEntry,
+    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+        self.layer.triples_value_range(low, high)
+    }
+
+    fn triples_value_range_rev(
+        &self,
+        low: &TypedDictEntry,
+        high: &TypedDictEntry,
+    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+        self.layer.triples_value_range_rev(low, high)
+    }
+
     fn clone_boxed(&self) -> Box<dyn Layer> {
         Box::new(self.clone())
     }
@@ -829,7 +847,21 @@ impl Store {
         Store {
             label_store: Arc::new(label_store),
             layer_store: Arc::new(layer_store),
+            lru_used_bytes_fn: None,
+            lru_evict_fn: None,
         }
+    }
+
+    /// Set a callback that returns the current LRU archive cache usage in bytes.
+    pub fn with_lru_used_bytes<F: 'static + Fn() -> usize + Send + Sync>(mut self, f: F) -> Self {
+        self.lru_used_bytes_fn = Some(Arc::new(f));
+        self
+    }
+
+    /// Set a callback that evicts LRU cache entries to a target fraction.
+    pub fn with_lru_evict<F: 'static + Fn(f64) + Send + Sync>(mut self, f: F) -> Self {
+        self.lru_evict_fn = Some(Arc::new(f));
+        self
     }
 
     /// Create a new database with the given name.
@@ -892,12 +924,52 @@ impl Store {
     /// After this operation, the specified layers will be retrievable
     /// from this store, provided they existed in the pack. specified
     /// layers that are not in the pack are silently ignored.
+    ///
+    /// Layers that already exist are not overwritten; instead their
+    /// files are verified to be identical to the pack contents, as
+    /// layer ids are random names and not content hashes. Returns the
+    /// list of layer ids that already existed with differing contents.
     pub async fn import_layers<'a>(
         &'a self,
         pack: &'a [u8],
         layer_ids: Box<dyn Iterator<Item = [u32; 5]> + Send>,
-    ) -> io::Result<()> {
+    ) -> io::Result<Vec<[u32; 5]>> {
         self.layer_store.import_layers(pack, layer_ids).await
+    }
+
+    /// Returns cache statistics: (total_entries, live_entries, dead_entries)
+    /// Dead entries are stale weak references that should be cleaned up.
+    pub fn layer_cache_stats(&self) -> (usize, usize, usize) {
+        self.layer_store.layer_cache_stats()
+    }
+
+    /// Remove stale entries from the layer cache. Returns number of entries removed.
+    pub fn cleanup_layer_cache(&self) -> usize {
+        self.layer_store.cleanup_layer_cache()
+    }
+
+    /// Returns bytes of backing data: (total_bytes, live_bytes, dead_bytes).
+    pub fn layer_cache_memory_bytes(&self) -> (usize, usize, usize) {
+        self.layer_store.layer_cache_memory_bytes()
+    }
+
+    /// Returns the current LRU archive cache usage in bytes, or None if no LRU backend.
+    pub fn lru_cache_used_bytes(&self) -> Option<usize> {
+        self.lru_used_bytes_fn.as_ref().map(|f| f())
+    }
+
+    /// Evict LRU cache entries until usage is at or below the given
+    /// fraction of the configured limit.  Does nothing if no LRU
+    /// backend is configured.
+    pub fn evict_lru_cache(&self, target_fraction: f64) {
+        if let Some(f) = &self.lru_evict_fn {
+            f(target_fraction)
+        }
+    }
+
+    /// Invalidate a specific layer from the cache, forcing reload from disk on next access.
+    pub fn invalidate_layer(&self, name: [u32; 5]) {
+        self.layer_store.invalidate(name);
     }
 }
 
@@ -924,6 +996,8 @@ pub fn open_archive_store<P: Into<PathBuf>>(path: P, cache_size: usize) -> Store
         directory_archive_backend,
         cache_size,
     );
+    let lru_ref = archive_backend.clone();
+    let lru_evict_ref = archive_backend.clone();
     Store::new(
         DirectoryLabelStore::new(p),
         CachedLayerStore::new(
@@ -931,6 +1005,8 @@ pub fn open_archive_store<P: Into<PathBuf>>(path: P, cache_size: usize) -> Store
             LockingHashMapLayerCache::new(),
         ),
     )
+    .with_lru_used_bytes(move || lru_ref.used_bytes())
+    .with_lru_evict(move |fraction| lru_evict_ref.evict_to_target(fraction))
 }
 
 /// Open a store that stores its data in the given directory as archive files.
