@@ -88,6 +88,11 @@ pub struct Filenames {
     pub neg_predicate_wavelet_tree_bit_index_blocks: &'static str,
     pub neg_predicate_wavelet_tree_bit_index_sblocks: &'static str,
 
+    pub interval_end_rank_table: &'static str,
+    pub interval_end_wavelet_tree_bits: &'static str,
+    pub interval_end_wavelet_tree_bit_index_blocks: &'static str,
+    pub interval_end_wavelet_tree_bit_index_sblocks: &'static str,
+
     pub parent: &'static str,
     pub rollup: &'static str,
 }
@@ -156,11 +161,16 @@ pub enum LayerFileEnum {
 
     Parent,
     Rollup,
+
+    IntervalEndRankTable,
+    IntervalEndWaveletTreeBits,
+    IntervalEndWaveletTreeBitIndexBlocks,
+    IntervalEndWaveletTreeBitIndexSBlocks,
 }
 
 // the archive presence header reserves one of 64 bits, leaving 63 file
 // slots; new variants may only be appended after Rollup
-const _: () = assert!((LayerFileEnum::Rollup as usize) <= 62);
+const _: () = assert!((LayerFileEnum::IntervalEndWaveletTreeBitIndexSBlocks as usize) <= 62);
 
 pub const FILENAMES: Filenames = Filenames {
     node_dictionary_blocks: "node_dictionary_blocks.tfc",
@@ -255,6 +265,13 @@ pub const FILENAMES: Filenames = Filenames {
         "neg_predicate_wavelet_tree_bit_index_blocks.logarray",
     neg_predicate_wavelet_tree_bit_index_sblocks:
         "neg_predicate_wavelet_tree_bit_index_sblocks.logarray",
+
+    interval_end_rank_table: "interval_end_rank_table.logarray",
+    interval_end_wavelet_tree_bits: "interval_end_wavelet_tree_bits.bitarray",
+    interval_end_wavelet_tree_bit_index_blocks:
+        "interval_end_wavelet_tree_bit_index_blocks.logarray",
+    interval_end_wavelet_tree_bit_index_sblocks:
+        "interval_end_wavelet_tree_bit_index_sblocks.logarray",
 
     parent: "parent.hex",
     rollup: "rollup.hex",
@@ -506,6 +523,22 @@ lazy_static! {
         ),
         ("parent.hex", LayerFileEnum::Parent),
         ("rollup.hex", LayerFileEnum::Rollup),
+        (
+            "interval_end_rank_table.logarray",
+            LayerFileEnum::IntervalEndRankTable
+        ),
+        (
+            "interval_end_wavelet_tree_bits.bitarray",
+            LayerFileEnum::IntervalEndWaveletTreeBits
+        ),
+        (
+            "interval_end_wavelet_tree_bit_index_blocks.logarray",
+            LayerFileEnum::IntervalEndWaveletTreeBitIndexBlocks
+        ),
+        (
+            "interval_end_wavelet_tree_bit_index_sblocks.logarray",
+            LayerFileEnum::IntervalEndWaveletTreeBitIndexSBlocks
+        ),
     ]);
 }
 
@@ -520,13 +553,17 @@ pub const SHARED_REQUIRED_FILES: [&str; 8] = [
     FILENAMES.value_dictionary_offsets,
 ];
 
-pub const SHARED_OPTIONAL_FILES: [&str; 7] = [
+pub const SHARED_OPTIONAL_FILES: [&str; 11] = [
     FILENAMES.node_value_idmap_bits,
     FILENAMES.node_value_idmap_bit_index_blocks,
     FILENAMES.node_value_idmap_bit_index_sblocks,
     FILENAMES.predicate_idmap_bits,
     FILENAMES.predicate_idmap_bit_index_blocks,
     FILENAMES.predicate_idmap_bit_index_sblocks,
+    FILENAMES.interval_end_rank_table,
+    FILENAMES.interval_end_wavelet_tree_bits,
+    FILENAMES.interval_end_wavelet_tree_bit_index_blocks,
+    FILENAMES.interval_end_wavelet_tree_bit_index_sblocks,
     FILENAMES.rollup,
 ];
 
@@ -548,8 +585,7 @@ pub const BASE_LAYER_REQUIRED_FILES: [&str; 15] = [
     FILENAMES.base_predicate_wavelet_tree_bit_index_sblocks,
 ];
 
-pub const BASE_LAYER_OPTIONAL_FILES: [&str; 2] =
-    [FILENAMES.base_subjects, FILENAMES.base_objects];
+pub const BASE_LAYER_OPTIONAL_FILES: [&str; 2] = [FILENAMES.base_subjects, FILENAMES.base_objects];
 
 pub const CHILD_LAYER_REQUIRED_FILES: [&str; 31] = [
     FILENAMES.parent,

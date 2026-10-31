@@ -56,8 +56,6 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
     }
 
     pub fn add_node_bytes(&mut self, node: Bytes) -> u64 {
-        
-
         self.node_dictionary_builder.add(node)
     }
 
@@ -73,8 +71,6 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
     }
 
     pub fn add_predicate_bytes(&mut self, predicate: Bytes) -> u64 {
-        
-
         self.predicate_dictionary_builder.add(predicate)
     }
 
@@ -82,8 +78,6 @@ impl<F: 'static + FileLoad + FileStore> DictionarySetFileBuilder<F> {
     ///
     /// Panics if the given value string is not a lexical successor of the previous value string.
     pub fn add_value(&mut self, value: TypedDictEntry) -> u64 {
-        
-
         self.value_dictionary_builder.add(value)
     }
 
@@ -528,6 +522,41 @@ pub async fn build_predicate_index<FLoad: 'static + FileLoad, F: 'static + FileL
         destination_sblocks,
     )
     .await
+}
+
+pub async fn build_interval_index<F: 'static + FileLoad + FileStore>(
+    dict: &TypedDict,
+    files: IntervalIndexFiles<F>,
+) -> io::Result<()> {
+    tdb_succinct::tfc::interval::build_interval_end_index(
+        dict,
+        files.rank_table_file,
+        files.wavelet_files.bits_file,
+        files.wavelet_files.blocks_file,
+        files.wavelet_files.sblocks_file,
+    )
+    .await
+}
+
+/// Build the interval end index over a value dictionary that lives in files
+/// (rollups). The dictionary is upgraded in memory first so legacy 48-byte
+/// interval entries merged in from old layers are indexed correctly.
+pub async fn build_interval_index_from_files<
+    FLoad: 'static + FileLoad + FileStore,
+    F: 'static + FileLoad + FileStore,
+>(
+    value_dictionary_files: &TypedDictionaryFiles<FLoad>,
+    interval_index_files: IntervalIndexFiles<F>,
+) -> io::Result<()> {
+    let maps = value_dictionary_files.map_all().await?;
+    let dict = TypedDict::from_parts(
+        maps.types_present_map,
+        maps.type_offsets_map,
+        maps.offsets_map,
+        maps.blocks_map,
+    )
+    .upgrade_legacy_intervals();
+    build_interval_index(&dict, interval_index_files).await
 }
 
 pub async fn build_indexes<FLoad: 'static + FileLoad, F: 'static + FileLoad + FileStore>(

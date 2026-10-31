@@ -1,8 +1,21 @@
 use std::io;
 
 use super::{BaseLayerFiles, ChildLayerFiles, FileLoad, FileStore, IdMapFiles};
+use super::IntervalIndexFiles;
 
 use tdb_succinct::storage::copy_file;
+
+impl<F1: 'static + FileLoad + FileStore> IntervalIndexFiles<F1> {
+    pub async fn copy_from<F2: 'static + FileLoad + FileStore>(
+        &self,
+        from: &IntervalIndexFiles<F2>,
+    ) -> io::Result<()> {
+        copy_file(&from.rank_table_file, &self.rank_table_file).await?;
+        self.wavelet_files.copy_from(&from.wavelet_files).await?;
+
+        Ok(())
+    }
+}
 
 impl<F1: 'static + FileLoad + FileStore> IdMapFiles<F1> {
     pub async fn copy_from<F2: 'static + FileLoad + FileStore>(
@@ -48,6 +61,9 @@ impl<F1: 'static + FileLoad + FileStore> BaseLayerFiles<F1> {
             .await?;
         self.predicate_wavelet_tree_files
             .copy_from(&from.predicate_wavelet_tree_files)
+            .await?;
+        self.interval_index_files
+            .copy_from(&from.interval_index_files)
             .await?;
 
         Ok(())
@@ -98,6 +114,9 @@ impl<F1: 'static + FileLoad + FileStore> ChildLayerFiles<F1> {
             .await?;
         self.neg_predicate_wavelet_tree_files
             .copy_from(&from.neg_predicate_wavelet_tree_files)
+            .await?;
+        self.interval_index_files
+            .copy_from(&from.interval_index_files)
             .await?;
 
         Ok(())

@@ -8,7 +8,10 @@ mod subject_iterator;
 
 use super::id_map::*;
 use super::layer::*;
+use tdb_succinct::tfc::interval::IntervalEndIndex;
 use tdb_succinct::*;
+
+use std::ops::Range;
 
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashSet};
@@ -433,7 +436,10 @@ impl Iterator for BandPrefixCursor {
 /// dedup to the topmost band's id: equal names pop in descending rank
 /// order, so the first pop wins and later occurrences are skipped.
 struct PrefixSubjects {
-    bands: Vec<(usize, std::iter::Peekable<Box<dyn Iterator<Item = (u64, String)> + Send>>)>,
+    bands: Vec<(
+        usize,
+        std::iter::Peekable<Box<dyn Iterator<Item = (u64, String)> + Send>>,
+    )>,
     heap: BinaryHeap<(Reverse<String>, usize, usize)>,
 }
 
@@ -625,6 +631,96 @@ impl InternalLayer {
             Child(child) => &child.pos_predicate_wavelet_tree,
             Rollup(rollup) => rollup.internal.pos_predicate_wavelet_tree(),
         }
+    }
+
+    /// Dense-rank index on DateTimeInterval end timestamps. Present on every
+    /// layer: read from files when they exist, built in memory at open for
+    /// older layers (which also got their 48-byte entries upgraded to 52).
+    pub fn interval_index(&self) -> &IntervalEndIndex {
+        match self {
+            Base(base) => &base.interval_index,
+            Child(child) => &child.interval_index,
+            Rollup(rollup) => rollup.internal.interval_index(),
+        }
+    }
+
+    /// Ids of DateTimeInterval values with `start <= (secs, nanos)`.
+    pub fn interval_ids_start_le(&self, secs: i64, nanos: u32) -> Range<u64> {
+        self.value_dictionary().interval_ids_start_le(secs, nanos)
+    }
+
+    /// Ids of DateTimeInterval values with `start < (secs, nanos)`.
+    pub fn interval_ids_start_lt(&self, secs: i64, nanos: u32) -> Range<u64> {
+        self.value_dictionary().interval_ids_start_lt(secs, nanos)
+    }
+
+    /// Ids of DateTimeInterval values with `start > (secs, nanos)`.
+    pub fn interval_ids_start_gt(&self, secs: i64, nanos: u32) -> Range<u64> {
+        self.value_dictionary().interval_ids_start_gt(secs, nanos)
+    }
+
+    /// Ids of DateTimeInterval values with `start >= (secs, nanos)`.
+    pub fn interval_ids_start_ge(&self, secs: i64, nanos: u32) -> Range<u64> {
+        self.value_dictionary().interval_ids_start_ge(secs, nanos)
+    }
+
+    /// Ids of DateTimeInterval values with `start == (secs, nanos)`.
+    pub fn interval_ids_start_eq(&self, secs: i64, nanos: u32) -> Range<u64> {
+        self.value_dictionary().interval_ids_start_eq(secs, nanos)
+    }
+
+    /// Ids of DateTimeInterval values satisfying both a start-id range and
+    /// an end predicate over the index. `ids` is typically the output of one
+    /// of the `interval_ids_start_*` probes; positions in the index are
+    /// segment-relative, so the range is shifted before querying.
+    fn interval_ids_end_filtered(
+        &self,
+        ids: Range<u64>,
+        query: impl Fn(&IntervalEndIndex, Range<u64>) -> Vec<u64>,
+    ) -> Vec<u64> {
+        let Some(seg) = self.value_dictionary().interval_segment() else {
+            return Vec::new();
+        };
+        let pos = ids.start.saturating_sub(seg.start)..ids.end.saturating_sub(seg.start);
+        query(self.interval_index(), pos)
+            .into_iter()
+            .map(|p| p + seg.start)
+            .collect()
+    }
+
+    /// Ids of DateTimeInterval values with `end <= (secs, nanos)` within `ids`.
+    pub fn interval_ids_end_le(&self, ids: Range<u64>, secs: i64, nanos: u32) -> Vec<u64> {
+        self.interval_ids_end_filtered(ids, |i, p| i.positions_end_le(p, secs, nanos))
+    }
+
+    /// Ids of DateTimeInterval values with `end < (secs, nanos)` within `ids`.
+    pub fn interval_ids_end_lt(&self, ids: Range<u64>, secs: i64, nanos: u32) -> Vec<u64> {
+        self.interval_ids_end_filtered(ids, |i, p| i.positions_end_lt(p, secs, nanos))
+    }
+
+    /// Ids of DateTimeInterval values with `end >= (secs, nanos)` within `ids`.
+    pub fn interval_ids_end_ge(&self, ids: Range<u64>, secs: i64, nanos: u32) -> Vec<u64> {
+        self.interval_ids_end_filtered(ids, |i, p| i.positions_end_ge(p, secs, nanos))
+    }
+
+    /// Ids of DateTimeInterval values with `end > (secs, nanos)` within `ids`.
+    pub fn interval_ids_end_gt(&self, ids: Range<u64>, secs: i64, nanos: u32) -> Vec<u64> {
+        self.interval_ids_end_filtered(ids, |i, p| i.positions_end_gt(p, secs, nanos))
+    }
+
+    /// Ids of DateTimeInterval values with `end == (secs, nanos)` within `ids`.
+    pub fn interval_ids_end_eq(&self, ids: Range<u64>, secs: i64, nanos: u32) -> Vec<u64> {
+        self.interval_ids_end_filtered(ids, |i, p| i.positions_end_eq(p, secs, nanos))
+    }
+
+    /// Ids of DateTimeInterval values with `end` in `[lo, hi]` within `ids`.
+    pub fn interval_ids_end_range(
+        &self,
+        ids: Range<u64>,
+        lo: (i64, u32),
+        hi: (i64, u32),
+    ) -> Vec<u64> {
+        self.interval_ids_end_filtered(ids, |i, p| i.positions_end_range(p, lo, hi))
     }
 
     pub fn neg_predicate_wavelet_tree(&self) -> Option<&WaveletTree> {
@@ -1114,9 +1210,8 @@ impl InternalLayer {
     }
 
     pub fn is_rollup(&self) -> bool {
-matches!(self, Rollup(_))
+        matches!(self, Rollup(_))
     }
-
 }
 
 impl Layer for InternalLayer {
@@ -1325,7 +1420,8 @@ impl Layer for InternalLayer {
             if a.lo >= a.hi {
                 continue;
             }
-            let members = BandMembers::new(member_slices(&layers, &bands, a_idx, predicate, objects));
+            let members =
+                BandMembers::new(member_slices(&layers, &bands, a_idx, predicate, objects));
             let layer = layers[a_idx].clone();
             let base = a.base;
             let source: Box<dyn Iterator<Item = (u64, String)> + Send> = if a.identity {
@@ -2484,7 +2580,6 @@ mod tests {
         assert_eq!(None, layer.id_object_is_node(4));
     }
 }
-
 
 #[cfg(test)]
 mod placeholder_probe {

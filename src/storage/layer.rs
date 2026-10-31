@@ -4,7 +4,7 @@ use super::delta::*;
 use super::file::*;
 use super::pack::Packable;
 use crate::layer::base_merge::merge_base_layers;
-use crate::layer::builder::DictionarySetFileBuilder;
+use crate::layer::builder::{build_interval_index_from_files, DictionarySetFileBuilder};
 use crate::layer::BaseLayerFileBuilder;
 use crate::layer::ChildLayerFileBuilderPhase2;
 use crate::layer::TripleChange;
@@ -454,6 +454,10 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
             FILENAMES.base_predicate_wavelet_tree_bits,
             FILENAMES.base_predicate_wavelet_tree_bit_index_blocks,
             FILENAMES.base_predicate_wavelet_tree_bit_index_sblocks,
+            FILENAMES.interval_end_rank_table,
+            FILENAMES.interval_end_wavelet_tree_bits,
+            FILENAMES.interval_end_wavelet_tree_bit_index_blocks,
+            FILENAMES.interval_end_wavelet_tree_bit_index_sblocks,
         ];
 
         let mut files = Vec::with_capacity(filenames.len());
@@ -523,6 +527,15 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
                 blocks_file: files[29].clone(),
                 sblocks_file: files[30].clone(),
             },
+
+            interval_index_files: IntervalIndexFiles {
+                rank_table_file: files[31].clone(),
+                wavelet_files: BitIndexFiles {
+                    bits_file: files[32].clone(),
+                    blocks_file: files[33].clone(),
+                    sblocks_file: files[34].clone(),
+                },
+            },
         })
     }
 
@@ -576,6 +589,10 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
             FILENAMES.neg_predicate_wavelet_tree_bits,
             FILENAMES.neg_predicate_wavelet_tree_bit_index_blocks,
             FILENAMES.neg_predicate_wavelet_tree_bit_index_sblocks,
+            FILENAMES.interval_end_rank_table,
+            FILENAMES.interval_end_wavelet_tree_bits,
+            FILENAMES.interval_end_wavelet_tree_bit_index_blocks,
+            FILENAMES.interval_end_wavelet_tree_bit_index_sblocks,
         ];
 
         let mut files = Vec::with_capacity(filenames.len());
@@ -674,6 +691,15 @@ pub trait PersistentLayerStore: 'static + Send + Sync + Clone {
                 bits_file: files[45].clone(),
                 blocks_file: files[46].clone(),
                 sblocks_file: files[47].clone(),
+            },
+
+            interval_index_files: IntervalIndexFiles {
+                rank_table_file: files[48].clone(),
+                wavelet_files: BitIndexFiles {
+                    bits_file: files[49].clone(),
+                    blocks_file: files[50].clone(),
+                    sblocks_file: files[51].clone(),
+                },
             },
         })
     }
@@ -1420,9 +1446,7 @@ pub fn name_to_string(name: [u32; 5]) -> String {
 
 pub fn string_to_name(string: &str) -> Result<[u32; 5], std::io::Error> {
     if string.len() != 40 {
-        return Err(io::Error::other(
-            format!("string not len 40: {}", string),
-        ));
+        return Err(io::Error::other(format!("string not len 40: {}", string)));
     }
     let n1 = u32::from_str_radix(&string[..8], 16)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -1588,10 +1612,8 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
                         .expect("child rollup layer should always have original parent id");
 
                     let files = self.child_layer_files(rollup_id).await?;
-                    let child_layer: Arc<InternalLayer> = Arc::new(
-                        ChildLayer::load_from_files(rollup_id, ancestor, &files)
-                            .await?,
-                    );
+                    let child_layer: Arc<InternalLayer> =
+                        Arc::new(ChildLayer::load_from_files(rollup_id, ancestor, &files).await?);
                     cache.cache_layer(child_layer.clone());
 
                     layer = Arc::new(
@@ -2163,6 +2185,12 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         builder.add_values(values.into_iter().map(|(x, _)| x));
         builder.finalize().await?;
 
+        build_interval_index_from_files(
+            &child_layer_files.value_dictionary_files,
+            child_layer_files.interval_index_files.clone(),
+        )
+        .await?;
+
         // TODO use more inner stuff to avoid parent checks as they are unnecessary here
         let mut builder = ChildLayerFileBuilderPhase2::new(
             upto_layer,
@@ -2232,12 +2260,10 @@ impl<F: 'static + FileLoad + FileStore + Clone, T: 'static + PersistentLayerStor
         let mut layer_files = Vec::with_capacity(layers.len());
         for layer in layers {
             if self.layer_has_parent(*layer).await? {
-                return Err(io::Error::other(
-                    format!(
-                        "given layer is not a base layer: {}",
-                        name_to_string(*layer)
-                    ),
-                ));
+                return Err(io::Error::other(format!(
+                    "given layer is not a base layer: {}",
+                    name_to_string(*layer)
+                )));
             }
             layer_files.push(self.base_layer_files(*layer).await?);
         }
