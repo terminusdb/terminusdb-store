@@ -36,7 +36,7 @@ regex = "1.5"
 lru = "0.10"
 bitvec = "1.0"
 tempfile = "3.1"
-tdb-succinct = {path="../tdb-succinct"}
+tdb-succinct = {git="https://github.com/terminusdb-org/tdb-succinct"}
 
 [features]
 noreadlock = []
