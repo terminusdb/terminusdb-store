@@ -528,7 +528,7 @@ pub async fn build_interval_index<F: 'static + FileLoad + FileStore>(
     dict: &TypedDict,
     files: IntervalIndexFiles<F>,
 ) -> io::Result<()> {
-    tdb_succinct::tfc::interval::build_interval_end_index(
+    tdb_succinct::tfc::lexical_interval::build_interval_end_index_lexical(
         dict,
         files.rank_table_file,
         files.wavelet_files.bits_file,
@@ -539,7 +539,7 @@ pub async fn build_interval_index<F: 'static + FileLoad + FileStore>(
 }
 
 /// Build the interval end index over a value dictionary that lives in files
-/// (rollups). The dictionary is upgraded in memory first so legacy 48-byte
+/// (rollups). The dictionary is upgraded in memory first so fixed-width
 /// interval entries merged in from old layers are indexed correctly.
 pub async fn build_interval_index_from_files<
     FLoad: 'static + FileLoad + FileStore,
@@ -555,7 +555,7 @@ pub async fn build_interval_index_from_files<
         maps.offsets_map,
         maps.blocks_map,
     )
-    .upgrade_legacy_intervals();
+    .upgrade_lexical_intervals();
     build_interval_index(&dict, interval_index_files).await
 }
 

@@ -70,7 +70,7 @@ impl BaseLayer {
             maps.value_dictionary_maps.offsets_map,
             maps.value_dictionary_maps.blocks_map,
         )
-        .upgrade_legacy_intervals();
+        .upgrade_lexical_intervals();
         let interval_index = match maps.interval_index_maps {
             Some(m) => IntervalEndIndex::from_parts(
                 LogArray::parse(m.rank_table_map).unwrap(),
@@ -80,7 +80,8 @@ impl BaseLayer {
                     m.bitindex_maps.sblocks_map,
                 ),
             ),
-            None => IntervalEndIndex::build(&value_dictionary),
+            None => IntervalEndIndex::build_lexical(&value_dictionary)
+                .expect("interval end index: entry outside representable rank domain"),
         };
 
         let node_value_idmap = match maps.id_map_maps.node_value_idmap_maps {
@@ -308,7 +309,7 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
             value_dict_offsets_map,
             value_dict_blocks_map,
         )
-        .upgrade_legacy_intervals();
+        .upgrade_lexical_intervals();
 
         build_interval_index(&val_dict, files.interval_index_files.clone()).await?;
 
@@ -798,16 +799,19 @@ mod interval_tests {
         let e40 = iv(30, 40).end_seconds;
 
         assert_eq!(3, layer.interval_index().num_distinct_ends());
-        assert_eq!(1..3, layer.interval_ids_start_le(s15, 0));
-        assert_eq!(1..4, layer.interval_ids_start_le(s30, 0));
-        assert_eq!(3..4, layer.interval_ids_start_gt(e25, 0));
+        assert_eq!(1..3, layer.interval_ids_start_le(s15, 0).finite);
+        assert_eq!(1..4, layer.interval_ids_start_le(s30, 0).finite);
+        assert_eq!(3..4, layer.interval_ids_start_gt(e25, 0).finite);
         assert_eq!(vec![1, 2], layer.interval_ids_end_le(1..4, e25, 0));
         assert_eq!(vec![2, 3], layer.interval_ids_end_ge(1..4, e25, 0));
         assert_eq!(vec![3], layer.interval_ids_end_eq(1..4, e40, 0));
         // start and end constraints compose: starts after the first interval and ends by 25 -> only (15,25)
         let s10 = iv(10, 20).start_seconds;
         let starts_after_10 = layer.interval_ids_start_gt(s10, 0);
-        assert_eq!(vec![2], layer.interval_ids_end_le(starts_after_10, e25, 0));
+        assert_eq!(
+            vec![2],
+            layer.interval_ids_end_le(starts_after_10.finite, e25, 0)
+        );
     }
 
     #[tokio::test]
@@ -824,7 +828,10 @@ mod interval_tests {
         assert_eq!(vec![1, 2], layer.interval_ids_end_le(1..4, e25, 0));
         let s10 = iv(10, 20).start_seconds;
         let starts_after_10 = layer.interval_ids_start_gt(s10, 0);
-        assert_eq!(vec![2], layer.interval_ids_end_le(starts_after_10, e25, 0));
+        assert_eq!(
+            vec![2],
+            layer.interval_ids_end_le(starts_after_10.finite, e25, 0)
+        );
     }
 
     #[tokio::test]

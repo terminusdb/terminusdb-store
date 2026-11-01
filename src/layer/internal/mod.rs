@@ -9,6 +9,7 @@ mod subject_iterator;
 use super::id_map::*;
 use super::layer::*;
 use tdb_succinct::tfc::interval::IntervalEndIndex;
+use tdb_succinct::tfc::lexical_interval::{posix_to_leap_aware_secs, StartIdRanges};
 use tdb_succinct::*;
 
 use std::ops::Range;
@@ -635,7 +636,9 @@ impl InternalLayer {
 
     /// Dense-rank index on DateTimeInterval end timestamps. Present on every
     /// layer: read from files when they exist, built in memory at open for
-    /// older layers (which also got their 48-byte entries upgraded to 52).
+    /// older layers (which also got their fixed-width entries upgraded to
+    /// lexical). Rank keys are leap-aware seconds — callers pass POSIX and
+    /// the layer converts.
     pub fn interval_index(&self) -> &IntervalEndIndex {
         match self {
             Base(base) => &base.interval_index,
@@ -644,29 +647,31 @@ impl InternalLayer {
         }
     }
 
-    /// Ids of DateTimeInterval values with `start <= (secs, nanos)`.
-    pub fn interval_ids_start_le(&self, secs: i64, nanos: u32) -> Range<u64> {
-        self.value_dictionary().interval_ids_start_le(secs, nanos)
+    /// Ids of DateTimeInterval values with `start <= (secs, nanos)`. The
+    /// `special` range covers unbounded and unspecified starts (both act as
+    /// the open bound); unknown starts are excluded everywhere.
+    pub fn interval_ids_start_le(&self, secs: i64, nanos: u32) -> StartIdRanges {
+        self.value_dictionary().lexical_ids_start_le(secs, nanos)
     }
 
     /// Ids of DateTimeInterval values with `start < (secs, nanos)`.
-    pub fn interval_ids_start_lt(&self, secs: i64, nanos: u32) -> Range<u64> {
-        self.value_dictionary().interval_ids_start_lt(secs, nanos)
+    pub fn interval_ids_start_lt(&self, secs: i64, nanos: u32) -> StartIdRanges {
+        self.value_dictionary().lexical_ids_start_lt(secs, nanos)
     }
 
     /// Ids of DateTimeInterval values with `start > (secs, nanos)`.
-    pub fn interval_ids_start_gt(&self, secs: i64, nanos: u32) -> Range<u64> {
-        self.value_dictionary().interval_ids_start_gt(secs, nanos)
+    pub fn interval_ids_start_gt(&self, secs: i64, nanos: u32) -> StartIdRanges {
+        self.value_dictionary().lexical_ids_start_gt(secs, nanos)
     }
 
     /// Ids of DateTimeInterval values with `start >= (secs, nanos)`.
-    pub fn interval_ids_start_ge(&self, secs: i64, nanos: u32) -> Range<u64> {
-        self.value_dictionary().interval_ids_start_ge(secs, nanos)
+    pub fn interval_ids_start_ge(&self, secs: i64, nanos: u32) -> StartIdRanges {
+        self.value_dictionary().lexical_ids_start_ge(secs, nanos)
     }
 
     /// Ids of DateTimeInterval values with `start == (secs, nanos)`.
-    pub fn interval_ids_start_eq(&self, secs: i64, nanos: u32) -> Range<u64> {
-        self.value_dictionary().interval_ids_start_eq(secs, nanos)
+    pub fn interval_ids_start_eq(&self, secs: i64, nanos: u32) -> StartIdRanges {
+        self.value_dictionary().lexical_ids_start_eq(secs, nanos)
     }
 
     /// Ids of DateTimeInterval values satisfying both a start-id range and
@@ -678,7 +683,7 @@ impl InternalLayer {
         ids: Range<u64>,
         query: impl Fn(&IntervalEndIndex, Range<u64>) -> Vec<u64>,
     ) -> Vec<u64> {
-        let Some(seg) = self.value_dictionary().interval_segment() else {
+        let Some(seg) = self.value_dictionary().lexical_interval_segment() else {
             return Vec::new();
         };
         let pos = ids.start.saturating_sub(seg.start)..ids.end.saturating_sub(seg.start);
@@ -689,27 +694,33 @@ impl InternalLayer {
     }
 
     /// Ids of DateTimeInterval values with `end <= (secs, nanos)` within `ids`.
+    /// `secs` is POSIX; the rank table is leap-aware, so the bound converts.
     pub fn interval_ids_end_le(&self, ids: Range<u64>, secs: i64, nanos: u32) -> Vec<u64> {
+        let secs = posix_to_leap_aware_secs(secs);
         self.interval_ids_end_filtered(ids, |i, p| i.positions_end_le(p, secs, nanos))
     }
 
     /// Ids of DateTimeInterval values with `end < (secs, nanos)` within `ids`.
     pub fn interval_ids_end_lt(&self, ids: Range<u64>, secs: i64, nanos: u32) -> Vec<u64> {
+        let secs = posix_to_leap_aware_secs(secs);
         self.interval_ids_end_filtered(ids, |i, p| i.positions_end_lt(p, secs, nanos))
     }
 
     /// Ids of DateTimeInterval values with `end >= (secs, nanos)` within `ids`.
     pub fn interval_ids_end_ge(&self, ids: Range<u64>, secs: i64, nanos: u32) -> Vec<u64> {
+        let secs = posix_to_leap_aware_secs(secs);
         self.interval_ids_end_filtered(ids, |i, p| i.positions_end_ge(p, secs, nanos))
     }
 
     /// Ids of DateTimeInterval values with `end > (secs, nanos)` within `ids`.
     pub fn interval_ids_end_gt(&self, ids: Range<u64>, secs: i64, nanos: u32) -> Vec<u64> {
+        let secs = posix_to_leap_aware_secs(secs);
         self.interval_ids_end_filtered(ids, |i, p| i.positions_end_gt(p, secs, nanos))
     }
 
     /// Ids of DateTimeInterval values with `end == (secs, nanos)` within `ids`.
     pub fn interval_ids_end_eq(&self, ids: Range<u64>, secs: i64, nanos: u32) -> Vec<u64> {
+        let secs = posix_to_leap_aware_secs(secs);
         self.interval_ids_end_filtered(ids, |i, p| i.positions_end_eq(p, secs, nanos))
     }
 

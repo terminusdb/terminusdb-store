@@ -82,7 +82,7 @@ impl ChildLayer {
             maps.value_dictionary_maps.offsets_map,
             maps.value_dictionary_maps.blocks_map,
         )
-        .upgrade_legacy_intervals();
+        .upgrade_lexical_intervals();
         let interval_index = match maps.interval_index_maps {
             Some(m) => IntervalEndIndex::from_parts(
                 LogArray::parse(m.rank_table_map).unwrap(),
@@ -92,7 +92,8 @@ impl ChildLayer {
                     m.bitindex_maps.sblocks_map,
                 ),
             ),
-            None => IntervalEndIndex::build(&value_dictionary),
+            None => IntervalEndIndex::build_lexical(&value_dictionary)
+                .expect("interval end index: entry outside representable rank domain"),
         };
 
         let parent_node_value_count = parent.node_and_value_count();
@@ -389,7 +390,7 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
             value_dict_offsets_map,
             value_dict_blocks_map,
         )
-        .upgrade_legacy_intervals();
+        .upgrade_lexical_intervals();
 
         build_interval_index(&val_dict, files.interval_index_files.clone()).await?;
 
