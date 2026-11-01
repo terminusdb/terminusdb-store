@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::layer::builder::{build_indexes, TripleFileBuilder};
+use crate::layer::builder::{build_indexes, build_interval_index_from_files, TripleFileBuilder};
 use crate::layer::*;
 use crate::storage::*;
 use tdb_succinct::*;
@@ -272,6 +272,11 @@ pub async fn delta_rollup<F: 'static + FileLoad + FileStore>(
     files: BaseLayerFiles<F>,
 ) -> io::Result<()> {
     dictionary_rollup(layer, &files).await?;
+    build_interval_index_from_files(
+        &files.value_dictionary_files,
+        files.interval_index_files.clone(),
+    )
+    .await?;
 
     let counts = layer.all_counts();
 
@@ -306,6 +311,11 @@ pub async fn imprecise_delta_rollup_upto<S: LayerStore, F: 'static + FileLoad + 
 ) -> io::Result<()> {
     let bound = safe_upto_bound(store, layer, upto).await?;
     memory_dictionary_rollup_upto(layer, bound, &files).await?;
+    build_interval_index_from_files(
+        &files.value_dictionary_files,
+        files.interval_index_files.clone(),
+    )
+    .await?;
 
     let counts = layer.all_counts();
 
@@ -372,6 +382,11 @@ pub async fn delta_rollup_upto<S: LayerStore, F: 'static + FileLoad + FileStore>
 ) -> io::Result<()> {
     let bound = safe_upto_bound(store, layer, upto).await?;
     dictionary_rollup_upto(store, layer, bound, upto, &files).await?;
+    build_interval_index_from_files(
+        &files.value_dictionary_files,
+        files.interval_index_files.clone(),
+    )
+    .await?;
 
     let counts = layer.all_counts();
 
@@ -504,6 +519,70 @@ mod tests {
         for t in expected {
             assert!(delta_layer.value_triple_exists(&t));
         }
+    }
+
+    #[tokio::test]
+    async fn rollup_writes_interval_end_index() {
+        use tdb_succinct::tfc::datatypes::DateTimeInterval;
+        use tdb_succinct::tfc::interval::parse_iso_interval;
+
+        fn iv(s_secs: i64, e_secs: i64) -> DateTimeInterval {
+            let s = format!(
+                "2024-01-01T00:00:{:02}Z/2024-01-01T00:00:{:02}Z",
+                s_secs, e_secs
+            );
+            parse_iso_interval(&s).unwrap()
+        }
+
+        let store = MemoryLayerStore::new();
+        let mut builder = store.create_base_layer().await.unwrap();
+        let base_name = builder.name();
+        builder.add_value_triple(ValueTriple::new_value(
+            "a",
+            "during",
+            DateTimeInterval::make_entry(&iv(10, 20)),
+        ));
+        builder.add_value_triple(ValueTriple::new_value(
+            "b",
+            "during",
+            DateTimeInterval::make_entry(&iv(30, 40)),
+        ));
+        builder.commit_boxed().await.unwrap();
+
+        builder = store.create_child_layer(base_name).await.unwrap();
+        let child_name = builder.name();
+        builder.add_value_triple(ValueTriple::new_value(
+            "c",
+            "during",
+            DateTimeInterval::make_entry(&iv(15, 25)),
+        ));
+        builder.commit_boxed().await.unwrap();
+
+        let child_layer = store.get_layer(child_name).await.unwrap().unwrap();
+        // a child layer indexes only its own delta dictionary
+        assert_eq!(1, child_layer.interval_index().num_distinct_ends());
+
+        let delta_files = base_layer_memory_files();
+        delta_rollup(&child_layer, delta_files.clone())
+            .await
+            .unwrap();
+        assert!(delta_files
+            .interval_index_files
+            .rank_table_file
+            .exists()
+            .await
+            .unwrap());
+
+        let delta_layer: Arc<InternalLayer> = Arc::new(
+            BaseLayer::load_from_files([0, 0, 0, 0, 4], &delta_files)
+                .await
+                .unwrap(),
+        );
+
+        // the rolled-up base layer indexes the merged dictionary
+        assert_eq!(3, delta_layer.interval_index().num_distinct_ends());
+        let e25 = iv(15, 25).end_seconds;
+        assert_eq!(vec![1, 2], delta_layer.interval_ids_end_le(1..4, e25, 0));
     }
 
     #[tokio::test]

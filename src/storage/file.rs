@@ -69,6 +69,40 @@ impl<F: 'static + FileLoad + FileStore> IdMapFiles<F> {
     }
 }
 
+/// The interval end index: rank table plus wavelet bitindex.
+#[derive(Clone)]
+pub struct IntervalIndexMaps {
+    pub rank_table_map: Bytes,
+    pub bitindex_maps: BitIndexMaps,
+}
+
+#[derive(Clone)]
+pub struct IntervalIndexFiles<F: 'static + FileLoad + FileStore> {
+    pub rank_table_file: F,
+    pub wavelet_files: BitIndexFiles<F>,
+}
+
+impl<F: 'static + FileLoad + FileStore> IntervalIndexFiles<F> {
+    /// Present only when every part exists; older layers lack all of them.
+    /// A partial set is corrupt, not absent, and fails loudly.
+    pub async fn map_all_if_exists(&self) -> io::Result<Option<IntervalIndexMaps>> {
+        match (
+            self.rank_table_file.map_if_exists().await?,
+            self.wavelet_files.map_all_if_exists().await?,
+        ) {
+            (Some(rank_table_map), Some(bitindex_maps)) => Ok(Some(IntervalIndexMaps {
+                rank_table_map,
+                bitindex_maps,
+            })),
+            (None, None) => Ok(None),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "incomplete interval end index: rank table and wavelet files must both be present",
+            )),
+        }
+    }
+}
+
 /// The files required for storing a layer
 #[derive(Clone)]
 pub enum LayerFiles<F: 'static + FileLoad + FileStore + Clone> {
@@ -130,6 +164,8 @@ pub struct BaseLayerFiles<F: 'static + FileLoad + FileStore> {
     pub o_ps_adjacency_list_files: AdjacencyListFiles<F>,
 
     pub predicate_wavelet_tree_files: BitIndexFiles<F>,
+
+    pub interval_index_files: IntervalIndexFiles<F>,
 }
 
 #[derive(Clone)]
@@ -149,6 +185,8 @@ pub struct BaseLayerMaps {
     pub o_ps_adjacency_list_maps: AdjacencyListMaps,
 
     pub predicate_wavelet_tree_maps: BitIndexMaps,
+
+    pub interval_index_maps: Option<IntervalIndexMaps>,
 }
 
 impl BaseLayerMaps {
@@ -163,6 +201,9 @@ impl BaseLayerMaps {
             + adjacency_list_maps_byte_size(&self.sp_o_adjacency_list_maps)
             + adjacency_list_maps_byte_size(&self.o_ps_adjacency_list_maps)
             + bit_index_maps_byte_size(&self.predicate_wavelet_tree_maps)
+            + self.interval_index_maps.as_ref().map_or(0, |m| {
+                m.rank_table_map.len() + bit_index_maps_byte_size(&m.bitindex_maps)
+            })
     }
 }
 
@@ -183,6 +224,8 @@ impl<F: FileLoad + FileStore> BaseLayerFiles<F> {
 
         let predicate_wavelet_tree_maps = self.predicate_wavelet_tree_files.map_all().await?;
 
+        let interval_index_maps = self.interval_index_files.map_all_if_exists().await?;
+
         Ok(BaseLayerMaps {
             node_dictionary_maps,
             predicate_dictionary_maps,
@@ -198,6 +241,8 @@ impl<F: FileLoad + FileStore> BaseLayerFiles<F> {
             o_ps_adjacency_list_maps,
 
             predicate_wavelet_tree_maps,
+
+            interval_index_maps,
         })
     }
 }
@@ -224,6 +269,8 @@ pub struct ChildLayerFiles<F: 'static + FileLoad + FileStore + Clone + Send + Sy
 
     pub pos_predicate_wavelet_tree_files: BitIndexFiles<F>,
     pub neg_predicate_wavelet_tree_files: BitIndexFiles<F>,
+
+    pub interval_index_files: IntervalIndexFiles<F>,
 }
 
 #[derive(Clone)]
@@ -248,6 +295,8 @@ pub struct ChildLayerMaps {
 
     pub pos_predicate_wavelet_tree_maps: BitIndexMaps,
     pub neg_predicate_wavelet_tree_maps: BitIndexMaps,
+
+    pub interval_index_maps: Option<IntervalIndexMaps>,
 }
 
 impl ChildLayerMaps {
@@ -268,6 +317,9 @@ impl ChildLayerMaps {
             + adjacency_list_maps_byte_size(&self.neg_o_ps_adjacency_list_maps)
             + bit_index_maps_byte_size(&self.pos_predicate_wavelet_tree_maps)
             + bit_index_maps_byte_size(&self.neg_predicate_wavelet_tree_maps)
+            + self.interval_index_maps.as_ref().map_or(0, |m| {
+                m.rank_table_map.len() + bit_index_maps_byte_size(&m.bitindex_maps)
+            })
     }
 }
 
@@ -297,6 +349,8 @@ impl<F: FileLoad + FileStore + Clone> ChildLayerFiles<F> {
         let neg_predicate_wavelet_tree_maps =
             self.neg_predicate_wavelet_tree_files.map_all().await?;
 
+        let interval_index_maps = self.interval_index_files.map_all_if_exists().await?;
+
         Ok(ChildLayerMaps {
             node_dictionary_maps,
             predicate_dictionary_maps,
@@ -318,6 +372,8 @@ impl<F: FileLoad + FileStore + Clone> ChildLayerFiles<F> {
 
             pos_predicate_wavelet_tree_maps,
             neg_predicate_wavelet_tree_maps,
+
+            interval_index_maps,
         })
     }
 }

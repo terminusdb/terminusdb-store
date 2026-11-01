@@ -11,6 +11,7 @@ use crate::storage::archive::{ArchiveLayerStore, DirectoryArchiveBackend, LruArc
 use crate::storage::directory::{DirectoryLabelStore, DirectoryLayerStore};
 use crate::storage::memory::{MemoryLabelStore, MemoryLayerStore};
 use crate::storage::{CachedLayerStore, LabelStore, LayerStore, LockingHashMapLayerCache};
+use tdb_succinct::tfc::lexical_interval::{AllenRelation, LexicalInterval};
 use tdb_succinct::TypedDictEntry;
 
 use std::io;
@@ -696,6 +697,22 @@ impl Layer for StoreLayer {
         high: &TypedDictEntry,
     ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.layer.triples_value_range_rev(low, high)
+    }
+
+    fn interval_relation_object_ids(
+        &self,
+        rel: AllenRelation,
+        reference: &LexicalInterval,
+    ) -> Vec<u64> {
+        self.layer.interval_relation_object_ids(rel, reference)
+    }
+
+    fn triples_interval_relation(
+        &self,
+        rel: AllenRelation,
+        reference: &LexicalInterval,
+    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+        self.layer.triples_interval_relation(rel, reference)
     }
 
     fn clone_boxed(&self) -> Box<dyn Layer> {

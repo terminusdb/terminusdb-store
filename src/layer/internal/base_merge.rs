@@ -9,7 +9,10 @@ use tokio::{fs::OpenOptions, io::AsyncWriteExt};
 
 use crate::{
     chrono_log,
-    layer::{builder::build_indexes, open_base_triple_stream, BaseLayerFileBuilderPhase2},
+    layer::{
+        builder::{build_indexes, build_interval_index_from_files},
+        open_base_triple_stream, BaseLayerFileBuilderPhase2,
+    },
     storage::{
         directory::DirectoryLayerStore, AdjacencyListFiles, BaseLayerFiles, DictionaryFiles,
         FileLoad, FileStore, PersistentLayerStore, TypedDictionaryFiles,
@@ -283,6 +286,11 @@ pub async fn merge_base_layers<F: FileLoad + FileStore + 'static, P: AsRef<Path>
         o_ps_adjacency_list_files,
         None,
         predicate_wavelet_tree_files,
+    )
+    .await?;
+    build_interval_index_from_files(
+        &temp_output_files.value_dictionary_files,
+        temp_output_files.interval_index_files.clone(),
     )
     .await?;
     chrono_log!(" built indexes");

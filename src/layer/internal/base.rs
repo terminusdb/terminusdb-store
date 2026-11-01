@@ -10,6 +10,7 @@ use super::super::id_map::*;
 use super::super::layer::*;
 use crate::layer::InternalLayer;
 use crate::{chrono_log, storage::*};
+use tdb_succinct::tfc::interval::IntervalEndIndex;
 use tdb_succinct::*;
 
 use std::io;
@@ -39,6 +40,8 @@ pub struct BaseLayer {
 
     pub(super) predicate_wavelet_tree: WaveletTree,
 
+    pub(super) interval_index: IntervalEndIndex,
+
     pub(super) stored_size: usize,
 }
 
@@ -66,7 +69,20 @@ impl BaseLayer {
             maps.value_dictionary_maps.type_offsets_map,
             maps.value_dictionary_maps.offsets_map,
             maps.value_dictionary_maps.blocks_map,
-        );
+        )
+        .upgrade_lexical_intervals();
+        let interval_index = match maps.interval_index_maps {
+            Some(m) => IntervalEndIndex::from_parts(
+                LogArray::parse(m.rank_table_map).unwrap(),
+                BitIndex::from_maps(
+                    m.bitindex_maps.bits_map,
+                    m.bitindex_maps.blocks_map,
+                    m.bitindex_maps.sblocks_map,
+                ),
+            ),
+            None => IntervalEndIndex::build_lexical(&value_dictionary)
+                .expect("interval end index: entry outside representable rank domain"),
+        };
 
         let node_value_idmap = match maps.id_map_maps.node_value_idmap_maps {
             None => IdMap::default(),
@@ -141,6 +157,8 @@ impl BaseLayer {
 
             predicate_wavelet_tree,
 
+            interval_index,
+
             stored_size,
         })
     }
@@ -178,8 +196,6 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     ///
     /// Panics if the given node string is not a lexical successor of the previous node string.
     pub fn add_node(&mut self, node: &str) -> u64 {
-        
-
         self.builder.add_node(node)
     }
 
@@ -191,8 +207,6 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     ///
     /// Panics if the given predicate string is not a lexical successor of the previous node string.
     pub fn add_predicate(&mut self, predicate: &str) -> u64 {
-        
-
         self.builder.add_predicate(predicate)
     }
 
@@ -204,8 +218,6 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     ///
     /// Panics if the given value string is not a lexical successor of the previous value string.
     pub fn add_value(&mut self, value: TypedDictEntry) -> u64 {
-        
-
         self.builder.add_value(value)
     }
 
@@ -219,8 +231,6 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     where
         <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
     {
-        
-
         self.builder.add_nodes(nodes)
     }
 
@@ -231,8 +241,6 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     where
         <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
     {
-        
-
         self.builder.add_nodes_bytes(nodes)
     }
 
@@ -246,8 +254,6 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     where
         <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
     {
-        
-
         self.builder.add_predicates(predicates)
     }
 
@@ -258,8 +264,6 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     where
         <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
     {
-        
-
         self.builder.add_predicates_bytes(predicates)
     }
 
@@ -273,8 +277,6 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
     where
         <I as std::iter::IntoIterator>::IntoIter: Unpin + Send + Sync,
     {
-        
-
         self.builder.add_values(values)
     }
 
@@ -306,7 +308,10 @@ impl<F: 'static + FileLoad + FileStore + Clone> BaseLayerFileBuilder<F> {
             value_dict_type_offsets_map,
             value_dict_offsets_map,
             value_dict_blocks_map,
-        );
+        )
+        .upgrade_lexical_intervals();
+
+        build_interval_index(&val_dict, files.interval_index_files.clone()).await?;
 
         // TODO: it is a bit silly to parse the dictionaries just for this. surely we can get the counts in an easier way?
         let num_nodes = node_dict.num_entries();
@@ -734,5 +739,143 @@ pub mod base_tests {
         assert_eq!(0, layer.triple_count());
         assert_eq!(0, layer.triple_addition_count());
         assert_eq!(0, layer.triple_removal_count());
+    }
+}
+
+#[cfg(test)]
+mod interval_tests {
+    use super::*;
+    use crate::storage::memory::*;
+    use std::io::Write;
+    use tdb_succinct::storage::SyncableFile;
+    use tdb_succinct::tfc::datatypes::DateTimeInterval;
+    use tdb_succinct::tfc::interval::parse_iso_interval;
+
+    // interval over whole seconds: iv(10, 20) = [t0+10s, t0+20s]
+    fn iv(s_secs: i64, e_secs: i64) -> DateTimeInterval {
+        let s = format!(
+            "2024-01-01T00:00:{:02}Z/2024-01-01T00:00:{:02}Z",
+            s_secs, e_secs
+        );
+        parse_iso_interval(&s).unwrap()
+    }
+
+    // three intervals in dictionary order: (10,20) id 1, (15,25) id 2, (30,40) id 3
+    async fn interval_layer_files() -> io::Result<BaseLayerFiles<MemoryBackedStore>> {
+        let files = base_layer_memory_files();
+        let mut builder = BaseLayerFileBuilder::from_files(&files).await?;
+        builder.add_nodes(vec!["s1".to_string(), "s2".to_string()]);
+        builder.add_predicates(vec!["p".to_string()]);
+        let mut values = vec![
+            DateTimeInterval::make_entry(&iv(10, 20)),
+            DateTimeInterval::make_entry(&iv(30, 40)),
+            DateTimeInterval::make_entry(&iv(15, 25)),
+        ];
+        values.sort_by_key(|e| e.to_bytes());
+        builder.add_values(values);
+        let mut builder = builder.into_phase2().await?;
+        builder.add_triple(1, 1, 3).await?;
+        builder.finalize().await?;
+        Ok(files)
+    }
+
+    #[tokio::test]
+    async fn persisted_interval_index_is_queried() {
+        let files = interval_layer_files().await.unwrap();
+        assert!(files
+            .interval_index_files
+            .rank_table_file
+            .exists()
+            .await
+            .unwrap());
+
+        let layer = BaseLayer::load_from_files([1, 2, 3, 4, 5], &files)
+            .await
+            .unwrap();
+
+        let s15 = iv(15, 25).start_seconds;
+        let s30 = iv(30, 40).start_seconds;
+        let e25 = iv(15, 25).end_seconds;
+        let e40 = iv(30, 40).end_seconds;
+
+        assert_eq!(3, layer.interval_index().num_distinct_ends());
+        assert_eq!(1..3, layer.interval_ids_start_le(s15, 0).finite);
+        assert_eq!(1..4, layer.interval_ids_start_le(s30, 0).finite);
+        assert_eq!(3..4, layer.interval_ids_start_gt(e25, 0).finite);
+        assert_eq!(vec![1, 2], layer.interval_ids_end_le(1..4, e25, 0));
+        assert_eq!(vec![2, 3], layer.interval_ids_end_ge(1..4, e25, 0));
+        assert_eq!(vec![3], layer.interval_ids_end_eq(1..4, e40, 0));
+        // start and end constraints compose: starts after the first interval and ends by 25 -> only (15,25)
+        let s10 = iv(10, 20).start_seconds;
+        let starts_after_10 = layer.interval_ids_start_gt(s10, 0);
+        assert_eq!(
+            vec![2],
+            layer.interval_ids_end_le(starts_after_10.finite, e25, 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn interval_index_is_rebuilt_in_memory_when_files_are_absent() {
+        let files = interval_layer_files().await.unwrap();
+        let mut maps = files.map_all().await.unwrap();
+        // simulate a pre-index layer
+        maps.interval_index_maps = None;
+
+        let layer = BaseLayer::load([1, 2, 3, 4, 5], maps);
+
+        let e25 = iv(15, 25).end_seconds;
+        assert_eq!(3, layer.interval_index().num_distinct_ends());
+        assert_eq!(vec![1, 2], layer.interval_ids_end_le(1..4, e25, 0));
+        let s10 = iv(10, 20).start_seconds;
+        let starts_after_10 = layer.interval_ids_start_gt(s10, 0);
+        assert_eq!(
+            vec![2],
+            layer.interval_ids_end_le(starts_after_10.finite, e25, 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn copy_from_carries_interval_index_files() {
+        // regression: copy_from used to skip the index files, silently
+        // dropping the persisted index during base-layer merges
+        let from = interval_layer_files().await.unwrap();
+        let to = base_layer_memory_files();
+        to.copy_from(&from).await.unwrap();
+        assert!(to
+            .interval_index_files
+            .rank_table_file
+            .exists()
+            .await
+            .unwrap());
+        assert!(to
+            .interval_index_files
+            .wavelet_files
+            .bits_file
+            .exists()
+            .await
+            .unwrap());
+    }
+
+    #[tokio::test]
+    async fn incomplete_interval_index_files_fail_loudly() {
+        let files = base_layer_memory_files();
+        // rank table written, wavelet files never written: a partial set
+        let mut w = files
+            .interval_index_files
+            .rank_table_file
+            .open_write()
+            .await
+            .unwrap();
+        w.write_all(&[0u8; 16]).unwrap();
+        w.sync_all().await.unwrap();
+
+        let result = files.interval_index_files.map_all_if_exists().await;
+        match result {
+            Err(e) => assert_eq!(io::ErrorKind::InvalidData, e.kind()),
+            other => panic!(
+                "expected InvalidData for partial interval index, got {:?}",
+                other.map(|_| "ok")
+            ),
+        }
     }
 }

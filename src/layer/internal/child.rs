@@ -8,6 +8,7 @@ use super::super::id_map::*;
 use crate::layer::*;
 use crate::storage::*;
 use rayon::prelude::*;
+use tdb_succinct::tfc::interval::IntervalEndIndex;
 use tdb_succinct::*;
 
 use std::io;
@@ -50,6 +51,8 @@ pub struct ChildLayer {
     pub(super) pos_predicate_wavelet_tree: WaveletTree,
     pub(super) neg_predicate_wavelet_tree: WaveletTree,
 
+    pub(super) interval_index: IntervalEndIndex,
+
     pub(super) stored_size: usize,
 }
 
@@ -78,7 +81,20 @@ impl ChildLayer {
             maps.value_dictionary_maps.type_offsets_map,
             maps.value_dictionary_maps.offsets_map,
             maps.value_dictionary_maps.blocks_map,
-        );
+        )
+        .upgrade_lexical_intervals();
+        let interval_index = match maps.interval_index_maps {
+            Some(m) => IntervalEndIndex::from_parts(
+                LogArray::parse(m.rank_table_map).unwrap(),
+                BitIndex::from_maps(
+                    m.bitindex_maps.bits_map,
+                    m.bitindex_maps.blocks_map,
+                    m.bitindex_maps.sblocks_map,
+                ),
+            ),
+            None => IntervalEndIndex::build_lexical(&value_dictionary)
+                .expect("interval end index: entry outside representable rank domain"),
+        };
 
         let parent_node_value_count = parent.node_and_value_count();
         let parent_predicate_count = parent.predicate_count();
@@ -196,6 +212,8 @@ impl ChildLayer {
 
             pos_predicate_wavelet_tree,
             neg_predicate_wavelet_tree,
+
+            interval_index,
 
             stored_size,
         })
@@ -371,7 +389,10 @@ impl<F: 'static + FileLoad + FileStore + Clone + Send + Sync> ChildLayerFileBuil
             value_dict_type_offsets_map,
             value_dict_offsets_map,
             value_dict_blocks_map,
-        );
+        )
+        .upgrade_lexical_intervals();
+
+        build_interval_index(&val_dict, files.interval_index_files.clone()).await?;
 
         // TODO: it is a bit silly to parse the dictionaries just for this. surely we can get the counts in an easier way?
         let num_nodes = node_dict.num_entries();
