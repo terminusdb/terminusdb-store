@@ -9,7 +9,9 @@ mod subject_iterator;
 use super::id_map::*;
 use super::layer::*;
 use tdb_succinct::tfc::interval::IntervalEndIndex;
-use tdb_succinct::tfc::lexical_interval::{posix_to_leap_aware_secs, StartIdRanges};
+use tdb_succinct::tfc::lexical_interval::{
+    posix_to_leap_aware_secs, AllenRelation, LexicalInterval, StartIdRanges,
+};
 use tdb_succinct::*;
 
 use std::ops::Range;
@@ -32,8 +34,93 @@ pub enum InternalLayer {
     Rollup(RollupLayer),
 }
 
+use chrono::{Datelike, NaiveDateTime};
 use tfc::block::IdLookupResult;
 use InternalLayer::*;
+
+/// Probe bound for relation candidate generation: a finite probe key, the
+/// open extreme on that side (`Neg` is the start axis' `..`, `Pos` the end
+/// axis'), or `Null` for incommensurable specials.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum RBound {
+    Neg,
+    Finite(i64, u32, bool),
+    Pos,
+    Null,
+}
+
+/// One boundary comparison a relation imposes on a candidate's start or end.
+#[derive(Clone, Copy, Debug)]
+enum AxisCmp {
+    Lt(RBound),
+    Le(RBound),
+    Gt(RBound),
+    Ge(RBound),
+    Eq(RBound),
+    Range(RBound, RBound),
+}
+
+fn rbound_of_start(c: &tdb_succinct::tfc::lexical_interval::Component) -> RBound {
+    match tdb_succinct::tfc::lexical_interval::start_bound_class(c) {
+        tdb_succinct::tfc::lexical_interval::BoundClass::Finite(s, n, l) => {
+            RBound::Finite(s, n, l)
+        }
+        tdb_succinct::tfc::lexical_interval::BoundClass::Open => RBound::Neg,
+        tdb_succinct::tfc::lexical_interval::BoundClass::Null => RBound::Null,
+    }
+}
+
+fn rbound_of_end(c: &tdb_succinct::tfc::lexical_interval::Component) -> RBound {
+    match tdb_succinct::tfc::lexical_interval::end_bound_class(c) {
+        tdb_succinct::tfc::lexical_interval::BoundClass::Finite(s, n, l) => {
+            RBound::Finite(s, n, l)
+        }
+        tdb_succinct::tfc::lexical_interval::BoundClass::Open => RBound::Pos,
+        tdb_succinct::tfc::lexical_interval::BoundClass::Null => RBound::Null,
+    }
+}
+
+/// Leap-aware end-rank key for a range bound, or `None` where the bound
+/// cannot hold (a NULL bound, or `Neg` as an upper / `Pos` as a lower key is
+/// still a usable extreme and sorts the range empty naturally).
+fn end_range_key(b: &RBound, is_lo: bool) -> Option<(i64, u32)> {
+    match b {
+        RBound::Finite(s, n, leap) => {
+            let s = if *leap {
+                if is_lo {
+                    s.saturating_sub(1)
+                } else {
+                    s.saturating_add(1)
+                }
+            } else {
+                *s
+            };
+            Some((posix_to_leap_aware_secs(s), *n))
+        }
+        RBound::Neg => Some((INTERVAL_NEG_INF, 0)),
+        RBound::Pos => Some((INTERVAL_POS_INF, u32::MAX)),
+        RBound::Null => None,
+    }
+}
+
+/// Intersect two sorted, disjoint range lists.
+fn intersect_ranges(a: &[Range<u64>], b: &[Range<u64>]) -> Vec<Range<u64>> {
+    let mut out = Vec::new();
+    let (mut i, mut j) = (0, 0);
+    while i < a.len() && j < b.len() {
+        let lo = a[i].start.max(b[j].start);
+        let hi = a[i].end.min(b[j].end);
+        if lo < hi {
+            out.push(lo..hi);
+        }
+        if a[i].end < b[j].end {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+    out
+}
 
 /// One band's prefix range: a front-coded dict position walked forward
 /// while the name carries the prefix. `base` is the cumulative id-space
@@ -1193,6 +1280,303 @@ impl InternalLayer {
         object_ids
     }
 
+    /// Global object ids of values that can satisfy `rel` against
+    /// `reference`, resolved per layer into dict positions and mapped
+    /// through the layer stack.
+    ///
+    /// The result is a *superset* of the true hits — boundary classes are
+    /// approximated upward where the index cannot spell them exactly —
+    /// so callers must verify each candidate semantically.
+    pub fn interval_relation_object_ids(
+        &self,
+        rel: AllenRelation,
+        reference: &LexicalInterval,
+    ) -> Vec<u64> {
+        let mut object_ids = Vec::new();
+        let mut parent_count = 0u64;
+
+        for layer in self.immediate_layers() {
+            for pos in layer.interval_relation_dict_positions(rel, reference) {
+                let inner_id = pos + layer.node_dict_len() as u64;
+                let outer_id = layer.node_value_id_map().inner_to_outer(inner_id);
+                object_ids.push(outer_id + parent_count);
+            }
+            parent_count += layer.node_dict_len() as u64 + layer.value_dict_len() as u64;
+        }
+
+        object_ids
+    }
+
+    /// Local dict positions of candidate values for `rel`, covering the
+    /// DateTimeInterval segment (start-order probes + end-rank index) and
+    /// the Date/DateTime segments (point candidates).
+    fn interval_relation_dict_positions(
+        &self,
+        rel: AllenRelation,
+        reference: &LexicalInterval,
+    ) -> Vec<u64> {
+        let mut positions = self.interval_segment_relation_positions(rel, reference);
+        positions.extend(self.point_segment_relation_positions(rel, reference));
+        positions
+    }
+
+    /// The special start block (unbounded and unspecified starts) — both
+    /// act as the open bound in comparisons.
+    fn interval_special_start_ids(&self) -> Range<u64> {
+        self.interval_ids_start_le(0, 0).special
+    }
+
+    fn interval_segment_relation_positions(
+        &self,
+        rel: AllenRelation,
+        reference: &LexicalInterval,
+    ) -> Vec<u64> {
+        let Some(seg) = self.value_dictionary().lexical_interval_segment() else {
+            return Vec::new();
+        };
+        let ys = rbound_of_start(&reference.start);
+        let ye = rbound_of_end(&reference.end);
+
+        use AxisCmp::*;
+        let (s_cmps, e_cmp): (Vec<AxisCmp>, Option<AxisCmp>) = match rel {
+            AllenRelation::Before => (vec![], Some(Lt(ys))),
+            AllenRelation::After => (vec![Gt(ye)], None),
+            AllenRelation::Meets => (vec![], Some(Eq(ys))),
+            AllenRelation::MetBy => (vec![Eq(ye)], None),
+            AllenRelation::Overlaps => (vec![Lt(ys)], Some(Range(ys, ye))),
+            AllenRelation::OverlappedBy => (vec![Gt(ys), Lt(ye)], Some(Gt(ye))),
+            AllenRelation::Starts => (vec![Eq(ys)], Some(Lt(ye))),
+            AllenRelation::StartedBy => (vec![Eq(ys)], Some(Gt(ye))),
+            // `Ge` not `Gt`: a stored `t/t` point on the seam (xs == ys) must
+            // stay a candidate — point membership is `ys <= t < ye`.
+            AllenRelation::During => (vec![Ge(ys)], Some(Lt(ye))),
+            // `contains` on a point reference is start-inclusive — the seam
+            // instant belongs to the interval it starts (`xs <= t < xe`) —
+            // while a true interval reference stays strict.
+            AllenRelation::Contains if ys == ye => (vec![Le(ys)], Some(Gt(ye))),
+            AllenRelation::Contains => (vec![Lt(ys)], Some(Gt(ye))),
+            AllenRelation::Finishes => (vec![Gt(ys)], Some(Eq(ye))),
+            AllenRelation::FinishedBy => (vec![Lt(ys)], Some(Eq(ye))),
+            AllenRelation::Equals => (vec![Eq(ys)], Some(Eq(ye))),
+        };
+
+        // The full segment is the unconstrained start space — a superset
+        // that lets unknown-start entries through to verification.
+        let mut ranges = vec![seg];
+        for cmp in &s_cmps {
+            ranges = intersect_ranges(&ranges, &self.axis_cmp_start_ids(cmp));
+            if ranges.is_empty() {
+                return Vec::new();
+            }
+        }
+
+        let mut positions = Vec::new();
+        for r in ranges {
+            match &e_cmp {
+                None => positions.extend(r),
+                Some(cmp) => positions.extend(self.axis_cmp_end_ids(r, cmp)),
+            }
+        }
+        positions
+    }
+
+    /// Dict-id ranges satisfying one start-axis comparison.
+    fn axis_cmp_start_ids(&self, cmp: &AxisCmp) -> Vec<Range<u64>> {
+        use AxisCmp::*;
+        match cmp {
+            Lt(RBound::Neg) | Eq(RBound::Pos) | Gt(RBound::Pos) | Ge(RBound::Pos) => Vec::new(),
+            Eq(RBound::Neg) | Le(RBound::Neg) => vec![self.interval_special_start_ids()],
+            Gt(RBound::Neg) | Ge(RBound::Neg) | Lt(RBound::Pos) | Le(RBound::Pos) => {
+                match self.value_dictionary().lexical_interval_segment() {
+                    Some(seg) => vec![seg],
+                    None => Vec::new(),
+                }
+            }
+            Lt(RBound::Finite(s, n, leap)) => {
+                // A leap-second bound has no POSIX spelling — probe one
+                // second up so the boundary instant stays inside.
+                let s = if *leap { s.saturating_add(1) } else { *s };
+                let r = self.interval_ids_start_lt(s, *n);
+                vec![r.special, r.finite]
+            }
+            Le(RBound::Finite(s, n, _)) => {
+                // A leap bound sits inside (s, s+1): `xs <= bound` is
+                // exactly `xs <= s`, no widening needed.
+                let r = self.interval_ids_start_le(*s, *n);
+                vec![r.special, r.finite]
+            }
+            Ge(RBound::Finite(s, n, _)) => vec![self.interval_ids_start_ge(*s, *n).finite],
+            Gt(RBound::Finite(s, n, _)) => vec![self.interval_ids_start_gt(*s, *n).finite],
+            Eq(RBound::Finite(s, n, leap)) => {
+                if *leap {
+                    let lo = self.interval_ids_start_ge(*s, *n).finite;
+                    let hi = self.interval_ids_start_lt(s.saturating_add(1), *n).finite;
+                    intersect_ranges(&[lo], &[hi])
+                } else {
+                    vec![self.interval_ids_start_eq(*s, *n).finite]
+                }
+            }
+            _ => Vec::new(), // Null bounds and ranges are incommensurable here
+        }
+    }
+
+    /// Dict positions within `ids` satisfying one end-axis comparison.
+    fn axis_cmp_end_ids(&self, ids: Range<u64>, cmp: &AxisCmp) -> Vec<u64> {
+        use AxisCmp::*;
+        match cmp {
+            Lt(RBound::Neg) | Le(RBound::Neg) | Eq(RBound::Neg) | Gt(RBound::Pos) => Vec::new(),
+            Gt(RBound::Neg) | Ge(RBound::Neg) | Lt(RBound::Pos) | Le(RBound::Pos) => ids.collect(),
+            Ge(RBound::Pos) | Eq(RBound::Pos) => {
+                self.interval_ids_end_range(ids, (INTERVAL_POS_INF, 0), (INTERVAL_POS_INF, 0))
+            }
+            Lt(RBound::Finite(s, n, leap)) => {
+                self.interval_ids_end_lt(ids, if *leap { s.saturating_add(1) } else { *s }, *n)
+            }
+            Le(RBound::Finite(s, n, _)) => self.interval_ids_end_le(ids, *s, *n),
+            Gt(RBound::Finite(s, n, _)) => self.interval_ids_end_gt(ids, *s, *n),
+            Ge(RBound::Finite(s, n, _)) => self.interval_ids_end_ge(ids, *s, *n),
+            Eq(RBound::Finite(s, n, leap)) => {
+                if *leap {
+                    self.interval_ids_end_range(
+                        ids,
+                        (posix_to_leap_aware_secs(s.saturating_sub(1)), *n),
+                        (posix_to_leap_aware_secs(s.saturating_add(1)), *n),
+                    )
+                } else {
+                    self.interval_ids_end_eq(ids, *s, *n)
+                }
+            }
+            Range(lo, hi) => {
+                let Some(lo_key) = end_range_key(lo, true) else {
+                    return Vec::new();
+                };
+                let Some(hi_key) = end_range_key(hi, false) else {
+                    return Vec::new();
+                };
+                if lo_key >= hi_key {
+                    return Vec::new();
+                }
+                self.interval_ids_end_range(ids, lo_key, hi_key)
+            }
+            _ => Vec::new(), // Null bounds are incommensurable
+        }
+    }
+
+    /// Point candidates from the Date and DateTime segments — a
+    /// zero-duration object `t` satisfies the relation through the point
+    /// reading of its bound conditions.
+    fn point_segment_relation_positions(
+        &self,
+        rel: AllenRelation,
+        reference: &LexicalInterval,
+    ) -> Vec<u64> {
+        let ys = rbound_of_start(&reference.start);
+        let ye = rbound_of_end(&reference.end);
+
+        // (lower bound, upper bound) on the point instant; both inclusive —
+        // margins make exact boundary spelling unnecessary.
+        let bounds: Option<(Option<RBound>, Option<RBound>)> = match rel {
+            AllenRelation::Before => Some((None, Some(ys))),
+            AllenRelation::After => Some((Some(ye), None)),
+            AllenRelation::Meets | AllenRelation::Starts => Some((Some(ys), Some(ys))),
+            AllenRelation::MetBy | AllenRelation::Finishes => Some((Some(ye), Some(ye))),
+            AllenRelation::During => Some((Some(ys), Some(ye))),
+            AllenRelation::Equals => match (&ys, &ye) {
+                (RBound::Finite(a, an, _), RBound::Finite(b, bn, _)) if (a, an) == (b, bn) => {
+                    Some((Some(ys), Some(ye)))
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+        let mut positions = Vec::new();
+        let Some((lo, hi)) = bounds else {
+            // Relations a point cannot satisfy — but a *date* object may
+            // still satisfy them under a day-interval reading (GraphQL
+            // decodes bare dates that way), so the whole segments stay
+            // candidates for the verifier to sort out.
+            for dt in [Datatype::DateTime, Datatype::DateTimeStamp, Datatype::Date] {
+                if let Some((d, off)) = self.value_dictionary().type_segment(dt) {
+                    positions.extend((off + 1)..(off + 1 + d.num_entries() as u64));
+                }
+            }
+            return positions;
+        };
+        for dt in [Datatype::DateTime, Datatype::DateTimeStamp, Datatype::Date] {
+            let Some((d, off)) = self.value_dictionary().type_segment(dt) else {
+                continue;
+            };
+            let seg = (off + 1)..(off + 1 + d.num_entries() as u64);
+            let lo_pos = match &lo {
+                None => seg.start,
+                Some(b) => match self.point_bound_entry(dt, b, false) {
+                    None => seg.start,
+                    Some(e) => match self.value_dictionary().id_entry(&e) {
+                        IdLookupResult::Found(i) => i,
+                        IdLookupResult::Closest(i) => i + 1,
+                        IdLookupResult::NotFound => seg.start,
+                    },
+                },
+            };
+            let hi_pos = match &hi {
+                None => seg.end,
+                Some(b) => match self.point_bound_entry(dt, b, true) {
+                    None => seg.end,
+                    Some(e) => match self.value_dictionary().id_entry(&e) {
+                        IdLookupResult::Found(i) => i + 1,
+                        IdLookupResult::Closest(i) => i + 1,
+                        IdLookupResult::NotFound => seg.start,
+                    },
+                },
+            };
+            positions.extend(lo_pos.min(seg.end)..hi_pos.clamp(lo_pos, seg.end));
+        }
+        positions
+    }
+
+    /// A typed-dict probe entry for a point bound on segment `dt`. `upper`
+    /// widens a day so timezone spellings stay inside the bound.
+    fn point_bound_entry(
+        &self,
+        dt: Datatype,
+        bound: &RBound,
+        upper: bool,
+    ) -> Option<TypedDictEntry> {
+        let RBound::Finite(s, n, leap) = bound else {
+            return None;
+        };
+        let s = if *leap {
+            if upper {
+                s.saturating_add(2)
+            } else {
+                s.saturating_sub(1)
+            }
+        } else {
+            *s
+        };
+        match dt {
+            Datatype::DateTime | Datatype::DateTimeStamp => {
+                let ndt = chrono::DateTime::from_timestamp(s, *n)?.naive_utc();
+                Some(NaiveDateTime::make_entry(&ndt))
+            }
+            Datatype::Date => {
+                let d = chrono::DateTime::from_timestamp(s, 0)?.naive_utc().date();
+                let date = if upper {
+                    d.checked_add_days(chrono::Days::new(2))?
+                } else {
+                    d.checked_sub_days(chrono::Days::new(2))?
+                };
+                Some(Date::make_entry(&Date {
+                    year: date.year() as i64,
+                    month: date.month() as u8,
+                    day: date.day() as u8,
+                    offset: 0,
+                }))
+            }
+            _ => None,
+        }
+    }
+
     pub fn immediate_layers_upto(&self, upto_layer_id: [u32; 5]) -> Vec<&InternalLayer> {
         if self.name() == upto_layer_id {
             panic!("tried to retrieve layers up to a boundary, but boundary was the top layer");
@@ -1760,6 +2144,14 @@ impl Layer for InternalLayer {
                 .seek_object(oid)
                 .take_while(move |t| t.object == oid)
         }))
+    }
+
+    fn interval_relation_object_ids(
+        &self,
+        rel: AllenRelation,
+        reference: &LexicalInterval,
+    ) -> Vec<u64> {
+        InternalLayer::interval_relation_object_ids(self, rel, reference)
     }
 
     fn stored_size(&self) -> usize {
@@ -2589,6 +2981,256 @@ mod tests {
         assert_eq!(Some(true), layer.id_object_is_node(2));
         assert_eq!(Some(false), layer.id_object_is_node(3));
         assert_eq!(None, layer.id_object_is_node(4));
+    }
+}
+
+#[cfg(test)]
+mod interval_relation_tests {
+    use super::*;
+    use crate::store::sync::*;
+    use bytes::Bytes;
+    use tdb_succinct::tfc::block::SizedDictEntry;
+    use tdb_succinct::tfc::lexical_interval::{
+        encode_lexical_interval, entry_relation_bounds, interval_relation, literal_as_interval,
+        parse_lexical_interval,
+    };
+
+    fn iv_entry(s: &str) -> TypedDictEntry {
+        TypedDictEntry::new(
+            Datatype::DateTimeInterval,
+            SizedDictEntry::from(Bytes::from(encode_lexical_interval(
+                &parse_lexical_interval(s).unwrap(),
+            ))),
+        )
+    }
+
+    // Objects spanning every boundary class plus point literals.
+    const OBJECTS: &[&str] = &[
+        "2025-01-01T00:00:00Z/2025-04-01T00:00:00Z",
+        "2025-04-01T00:00:00Z/2025-07-01T00:00:00Z",
+        "2025-07-01T00:00:00Z/2025-10-01T00:00:00Z",
+        "2025-01-01T00:00:00Z/2025-01-01T00:00:00Z", // stored point
+        "../2025-04-01T00:00:00Z",
+        "2025-07-01T00:00:00Z/..",
+        "../..",
+        "X*/X*",
+        "/",
+        "2025-02-15T10:30:00.25Z/2025-02-15T10:30:00.75Z",
+        "2025-03-31T00:00:00+02:00/2025-04-30T00:00:00+02:00",
+        "P3M/2025-04-01T00:00:00Z",
+    ];
+
+    const REFERENCES: &[&str] = &[
+        "2025-04-01T00:00:00Z/2025-07-01T00:00:00Z",
+        "2025-01-01T00:00:00Z/2025-12-31T00:00:00Z",
+        "2025-04-01T00:00:00Z/2025-04-01T00:00:00Z", // point reference
+        "2025-04-01T00:00:00Z",                    // bare instant -> [t,t)
+        "../2025-04-01T00:00:00Z",
+        "2025-01-01T00:00:00Z/..",
+        "../..",
+        "X*/X*",
+        "/",
+    ];
+
+    const RELS: &[AllenRelation] = &[
+        AllenRelation::Before,
+        AllenRelation::After,
+        AllenRelation::Meets,
+        AllenRelation::MetBy,
+        AllenRelation::Overlaps,
+        AllenRelation::OverlappedBy,
+        AllenRelation::Starts,
+        AllenRelation::StartedBy,
+        AllenRelation::During,
+        AllenRelation::Contains,
+        AllenRelation::Finishes,
+        AllenRelation::FinishedBy,
+        AllenRelation::Equals,
+    ];
+
+    #[test]
+    fn interval_relation_candidates_cover_scan_truth() {
+        let store = open_sync_memory_store();
+        let builder = store.create_base_layer().unwrap();
+
+        for (i, o) in OBJECTS.iter().enumerate() {
+            builder
+                .add_value_triple(ValueTriple {
+                    subject: format!("sub/{i}"),
+                    predicate: "p".to_string(),
+                    object: ObjectType::Value(iv_entry(o)),
+                })
+                .unwrap();
+        }
+        // a bare dateTime and a bare date — point-coerced objects
+        let ndt = chrono::NaiveDate::from_ymd_opt(2025, 4, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple {
+                subject: "sub/dt".to_string(),
+                predicate: "p".to_string(),
+                object: ObjectType::Value(NaiveDateTime::make_entry(&ndt)),
+            })
+            .unwrap();
+        builder
+            .add_value_triple(ValueTriple {
+                subject: "sub/d".to_string(),
+                predicate: "p".to_string(),
+                object: ObjectType::Value(Date::make_entry(&Date {
+                    year: 2025,
+                    month: 4,
+                    day: 1,
+                    offset: 0,
+                })),
+            })
+            .unwrap();
+        // a string value that must never match
+        builder
+            .add_value_triple(ValueTriple::new_string_value("sub/str", "p", "not a time"))
+            .unwrap();
+        let layer = builder.commit().unwrap();
+
+        // child layer: two more intervals + one removal, exercising the
+        // parent_count id mapping across the stack
+        let child = layer.open_write().unwrap();
+        child
+            .add_value_triple(ValueTriple {
+                subject: "sub/c".to_string(),
+                predicate: "p".to_string(),
+                object: ObjectType::Value(iv_entry(
+                    "2025-04-01T00:00:00Z/2025-05-01T00:00:00Z",
+                )),
+            })
+            .unwrap();
+        child
+            .add_value_triple(ValueTriple {
+                subject: "sub/c2".to_string(),
+                predicate: "p".to_string(),
+                object: ObjectType::Value(iv_entry(
+                    "2026-01-01T00:00:00Z/2026-04-01T00:00:00Z",
+                )),
+            })
+            .unwrap();
+        child
+            .remove_value_triple(ValueTriple {
+                subject: "sub/0".to_string(),
+                predicate: "p".to_string(),
+                object: ObjectType::Value(iv_entry(OBJECTS[0])),
+            })
+            .unwrap();
+        let layer = child.commit().unwrap();
+
+        for rel in RELS {
+            for ref_str in REFERENCES {
+                let reference = literal_as_interval(ref_str).unwrap();
+                let candidates: HashSet<u64> = layer
+                    .interval_relation_object_ids(*rel, &reference)
+                    .into_iter()
+                    .collect();
+
+                // truth: decode every stored value and evaluate the relation
+                let mut truth = HashSet::new();
+                for o in OBJECTS {
+                    let e = iv_entry(o);
+                    if let Some(oid) = layer.object_value_id(&e) {
+                        let iv = entry_relation_bounds(&e).unwrap();
+                        if interval_relation(&iv, *rel, &reference)
+                            && layer
+                                .triples_o(oid)
+                                .any(|t| t.predicate == layer.predicate_id("p").unwrap())
+                        {
+                            truth.insert(oid);
+                        }
+                    }
+                }
+                for e in [
+                    NaiveDateTime::make_entry(&ndt),
+                    Date::make_entry(&Date {
+                        year: 2025,
+                        month: 4,
+                        day: 1,
+                        offset: 0,
+                    }),
+                ] {
+                    if let Some(oid) = layer.object_value_id(&e) {
+                        if let Some(iv) = entry_relation_bounds(&e) {
+                            if interval_relation(&iv, *rel, &reference) {
+                                truth.insert(oid);
+                            }
+                        }
+                    }
+                }
+
+                let missing: Vec<u64> = truth.difference(&candidates).copied().collect();
+                assert!(
+                    missing.is_empty(),
+                    "{:?} vs {}: truth ids {:?} missing from candidates {:?}",
+                    rel, ref_str, missing, candidates
+                );
+            }
+        }
+    }
+
+    // The seam case against a file-backed store: an interval starting
+    // exactly at the as-of instant must surface through `interval_relation_object_ids`.
+    #[test]
+    fn interval_relation_candidates_seam_contains_directory_store() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let store = open_sync_directory_store(dir.path());
+        let builder = store.create_base_layer().unwrap();
+        for (i, o) in ["2025-01-01/2025-04-01", "2025-04-01/2025-07-01"]
+            .iter()
+            .enumerate()
+        {
+            builder
+                .add_value_triple(ValueTriple {
+                    subject: format!("sub/{i}"),
+                    predicate: "p".to_string(),
+                    object: ObjectType::Value(iv_entry(o)),
+                })
+                .unwrap();
+        }
+        let committed = builder.commit().unwrap();
+        // reopen from disk — the server serves file-loaded layers, whose
+        // dict/id_slice and end index come back through load paths
+        let name = committed.name();
+        drop(committed);
+        let layer = store.get_layer_from_id(name).unwrap().unwrap();
+
+        let reference = literal_as_interval("2025-04-01T00:00:00Z").unwrap();
+        let candidates: HashSet<u64> = layer
+            .interval_relation_object_ids(AllenRelation::Contains, &reference)
+            .into_iter()
+            .collect();
+        let q2 = layer
+            .object_value_id(&iv_entry("2025-04-01/2025-07-01"))
+            .unwrap();
+        assert!(
+            candidates.contains(&q2),
+            "seam interval missing from candidates {:?}",
+            candidates
+        );
+
+        // the FFI path: the reference arrives as a dateTime typed entry and
+        // coerces through entry_relation_bounds, not literal_as_interval
+        let ndt = chrono::NaiveDate::from_ymd_opt(2025, 4, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
+        let ref_entry = NaiveDateTime::make_entry(&ndt);
+        let reference2 = entry_relation_bounds(&ref_entry).unwrap();
+        let candidates2: HashSet<u64> = layer
+            .interval_relation_object_ids(AllenRelation::Contains, &reference2)
+            .into_iter()
+            .collect();
+        assert!(
+            candidates2.contains(&q2),
+            "seam interval missing via entry-derived reference {:?}",
+            candidates2
+        );
     }
 }
 

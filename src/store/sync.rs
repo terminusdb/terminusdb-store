@@ -15,6 +15,7 @@ use crate::layer::{IdTriple, Layer, LayerBuilder, LayerCounts, ObjectType, Value
 use crate::store::{
     open_directory_store, open_memory_store, NamedGraph, Store, StoreLayer, StoreLayerBuilder,
 };
+use tdb_succinct::tfc::lexical_interval::{AllenRelation, LexicalInterval};
 use tdb_succinct::TypedDictEntry;
 
 use super::{open_archive_store, open_raw_archive_store};
@@ -482,6 +483,22 @@ impl Layer for SyncStoreLayer {
         high: &TypedDictEntry,
     ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
         self.inner.triples_value_range_rev(low, high)
+    }
+
+    fn interval_relation_object_ids(
+        &self,
+        rel: AllenRelation,
+        reference: &LexicalInterval,
+    ) -> Vec<u64> {
+        self.inner.interval_relation_object_ids(rel, reference)
+    }
+
+    fn triples_interval_relation(
+        &self,
+        rel: AllenRelation,
+        reference: &LexicalInterval,
+    ) -> Box<dyn Iterator<Item = IdTriple> + Send> {
+        self.inner.triples_interval_relation(rel, reference)
     }
 
     fn clone_boxed(&self) -> Box<dyn Layer> {
