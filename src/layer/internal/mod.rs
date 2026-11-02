@@ -3235,6 +3235,118 @@ mod interval_relation_tests {
 }
 
 #[cfg(test)]
+mod interval_dict_encoding_tests {
+    use crate::layer::layer::Layer;
+    use crate::store::sync::*;
+    use crate::ValueTriple;
+    use bytes::Bytes;
+    use tdb_succinct::tfc::block::SizedDictEntry;
+    use tdb_succinct::tfc::lexical_interval::{
+        encode_lexical_interval, lexical_interval_entry, legacy_interval_to_lexical,
+        parse_lexical_interval,
+    };
+    use tdb_succinct::*;
+
+    fn iv_entry(s: &str) -> TypedDictEntry {
+        TypedDictEntry::new(
+            Datatype::DateTimeInterval,
+            SizedDictEntry::from(Bytes::from(encode_lexical_interval(
+                &parse_lexical_interval(s).unwrap(),
+            ))),
+        )
+    }
+
+    // Entry built the way the pre-fix store-prolog FFI marshaled it:
+    // struct fields -> DateTimeInterval::make_entry -> to_lexical (52 bytes).
+    fn fixed_width_entry() -> TypedDictEntry {
+        let secs = chrono::NaiveDate::from_ymd_opt(2020, 1, 15)
+            .unwrap()
+            .and_hms_opt(12, 30, 45)
+            .unwrap()
+            .and_utc()
+            .timestamp();
+        DateTimeInterval::make_entry(&DateTimeInterval {
+            start_seconds: secs,
+            start_nanos: 0,
+            end_seconds: secs,
+            end_nanos: 0,
+            start_type: INTERVAL_COMPONENT_DATETIME,
+            end_type: INTERVAL_COMPONENT_DATETIME,
+            flag: INTERVAL_FLAG_EXPLICIT,
+            duration: Duration {
+                sign: 1,
+                year: 0,
+                month: 0,
+                day: 0,
+                hour: 0,
+                minute: 0,
+                second: 0.0,
+            },
+            start_tz: 0,
+            end_tz: 0,
+        })
+    }
+
+    // Dict invariant: committed layers store interval values in lexical
+    // encoding (`upgrade_lexical_intervals` runs at layer load), so
+    // `object_value_id` only finds entries marshaled to that same canonical
+    // form. A fixed-width insert is upgraded to the identical lexical bytes,
+    // which is what makes mixed-encoding stores consistent.
+    #[test]
+    fn interval_lookup_requires_canonical_lexical_encoding() {
+        let store = open_sync_memory_store();
+        let builder = store.create_base_layer().unwrap();
+        let fixed = fixed_width_entry();
+        builder
+            .add_value_triple(ValueTriple::new_value("s", "p", fixed.clone()))
+            .unwrap();
+        let layer = builder.commit().unwrap();
+
+        let secs = chrono::NaiveDate::from_ymd_opt(2020, 1, 15)
+            .unwrap()
+            .and_hms_opt(12, 30, 45)
+            .unwrap()
+            .and_utc()
+            .timestamp();
+        let canonical = lexical_interval_entry(&legacy_interval_to_lexical(
+            &DateTimeInterval {
+                start_seconds: secs,
+                start_nanos: 0,
+                end_seconds: secs,
+                end_nanos: 0,
+                start_type: INTERVAL_COMPONENT_DATETIME,
+                end_type: INTERVAL_COMPONENT_DATETIME,
+                flag: INTERVAL_FLAG_EXPLICIT,
+                duration: Duration {
+                    sign: 1,
+                    year: 0,
+                    month: 0,
+                    day: 0,
+                    hour: 0,
+                    minute: 0,
+                    second: 0.0,
+                },
+                start_tz: 0,
+                end_tz: 0,
+            },
+        ));
+
+        // the stored entry was upgraded to lexical bytes at commit/load
+        let stored = layer.id_object(2).expect("object 2 exists");
+        assert_eq!(
+            stored.value_ref().map(|e| e.to_bytes()),
+            Some(canonical.to_bytes())
+        );
+
+        // canonical lookup hits; legacy fixed-width lookup misses
+        assert!(layer.object_value_id(&canonical).is_some());
+        assert!(layer.object_value_id(&fixed).is_none());
+        assert_eq!(layer.object_value_id(&iv_entry("2020-01-15T12:30:45Z/2020-01-15T12:30:45Z")),
+                 layer.object_value_id(&canonical));
+    }
+}
+
+#[cfg(test)]
 mod placeholder_probe {
     use crate::layer::internal::base::base_tests::*;
 
