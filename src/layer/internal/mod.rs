@@ -1340,6 +1340,10 @@ impl InternalLayer {
         use AxisCmp::*;
         let (s_cmps, e_cmp): (Vec<AxisCmp>, Option<AxisCmp>) = match rel {
             AllenRelation::Before => (vec![], Some(Lt(ys))),
+            // Point reference [t,t): on-or-after — a stored interval
+            // starting at the instant is a candidate (`Ge`, not `Gt`),
+            // matching the verifier's `be <= as` arm.
+            AllenRelation::After if ys == ye => (vec![Ge(ye)], None),
             AllenRelation::After => (vec![Gt(ye)], None),
             AllenRelation::Meets => (vec![], Some(Eq(ys))),
             AllenRelation::MetBy => (vec![Eq(ye)], None),
@@ -1354,7 +1358,9 @@ impl InternalLayer {
             // instant belongs to the interval it starts (`xs <= t < xe`) —
             // while a true interval reference stays strict.
             AllenRelation::Contains if ys == ye => (vec![Le(ys)], Some(Gt(ye))),
-            AllenRelation::Contains => (vec![Lt(ys)], Some(Gt(ye))),
+            // Coverage semantics: contains counts boundary-sharing spans
+            // too (`Le`/`Ge` candidates for the verifier's `<=` checks).
+            AllenRelation::Contains => (vec![Le(ys)], Some(Ge(ye))),
             AllenRelation::Finishes => (vec![Gt(ys)], Some(Eq(ye))),
             AllenRelation::FinishedBy => (vec![Lt(ys)], Some(Eq(ye))),
             AllenRelation::Equals => (vec![Eq(ys)], Some(Eq(ye))),
@@ -3230,6 +3236,88 @@ mod interval_relation_tests {
             candidates2.contains(&q2),
             "seam interval missing via entry-derived reference {:?}",
             candidates2
+        );
+    }
+
+    // Delta-layer repro for the WOQL `during` miss: interval values live on
+    // a child layer over a committed base, exactly where document inserts
+    // land. Both the object-id candidates and the full triple iterator must
+    // surface the strictly-inside interval.
+    #[test]
+    fn interval_relation_during_on_delta_layer() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let store = open_sync_directory_store(dir.path());
+        let base = store.create_base_layer().unwrap();
+        base.add_value_triple(ValueTriple::new_node("x", "y", "z"))
+            .unwrap();
+        let base_layer = base.commit().unwrap();
+
+        let child = base_layer.open_write().unwrap();
+        for (i, o) in [
+            "2024-01-01/2024-06-30",
+            "2024-07-01/2024-12-31",
+            "2025-01-01/2025-03-31",
+            "2025-04-01/2025-06-30",
+            "2025-07-01/2025-09-30",
+        ]
+        .iter()
+        .enumerate()
+        {
+            child
+                .add_value_triple(ValueTriple {
+                    subject: format!("sub/{i}"),
+                    predicate: "p".to_string(),
+                    object: ObjectType::Value(iv_entry(o)),
+                })
+                .unwrap();
+        }
+        // a string value in the same dict puts the interval segment at a
+        // non-zero type offset, as on a real database
+        child
+            .add_value_triple(ValueTriple::new_string_value("sub/0", "name", "q1"))
+            .unwrap();
+        let committed = child.commit().unwrap();
+        // second commit on top — the instance head on a real database is
+        // this deep (schema commit, then instance commit)
+        let child2 = committed.open_write().unwrap();
+        child2
+            .add_value_triple(ValueTriple::new_node("a", "b", "c"))
+            .unwrap();
+        let name = child2.commit().unwrap().name();
+        let layer = store.get_layer_from_id(name).unwrap().unwrap();
+
+        let reference =
+            literal_as_interval("2025-01-01T00:00:00Z/2025-10-01T00:00:00Z").unwrap();
+        let candidates: HashSet<u64> = layer
+            .interval_relation_object_ids(AllenRelation::During, &reference)
+            .into_iter()
+            .collect();
+        let q2 = layer
+            .object_value_id(&iv_entry("2025-04-01/2025-06-30"))
+            .unwrap();
+        assert!(
+            candidates.contains(&q2),
+            "during candidate missing on delta layer: {:?}",
+            candidates
+        );
+
+        let starts_ref =
+            literal_as_interval("2025-04-01T00:00:00Z/2025-12-31T00:00:00Z").unwrap();
+        let starts: HashSet<u64> = layer
+            .interval_relation_object_ids(AllenRelation::Starts, &starts_ref)
+            .into_iter()
+            .collect();
+        assert!(starts.contains(&q2), "starts candidate missing: {:?}", starts);
+
+        let triples: Vec<_> = layer
+            .triples_interval_relation(AllenRelation::During, &reference)
+            .collect();
+        assert!(
+            triples.iter().any(|t| t.object == q2),
+            "triples_interval_relation missed {:?}: {:?}",
+            q2,
+            triples
         );
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "terminus-store"
-version = "0.21.12"
+version = "0.21.13"
 authors = ["Matthijs van Otterdijk <matthijs@datachemist.com>", "Philippe Höij <philippe.hoij@dfrnt.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -36,7 +36,7 @@ regex = "1.5"
 lru = "0.10"
 bitvec = "1.0"
 tempfile = "3.1"
-tdb-succinct = {git="https://github.com/terminusdb-org/tdb-succinct", tag="v0.1.6"}
+tdb-succinct = {git="https://github.com/terminusdb-org/tdb-succinct", tag="v0.2.0"}
 
 [features]
 noreadlock = []

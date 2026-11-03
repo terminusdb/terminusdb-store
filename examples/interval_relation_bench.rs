@@ -20,7 +20,7 @@ use terminus_store::layer::{ObjectType, ValueTriple};
 use terminus_store::store::sync::*;
 use terminus_store::Layer;
 
-const N: usize = 50_000;
+const N: usize = 100_000;
 
 fn iv_entry(s: &str) -> TypedDictEntry {
     TypedDictEntry::new(
